@@ -483,6 +483,8 @@ function addMapTilerLabels(style) {
     {
       id: 'labels-peaks', type: 'symbol', source: 'labels-source', 'source-layer': 'mountain_peak',
       minzoom: 11,
+      // Los 'cliff' son los sectores de escalada de OSM: duplican los sectores propios de KRUX
+      filter: ['!=', ['get', 'class'], 'cliff'],
       layout: text(12),
       paint: halo('#fde68a')
     },
