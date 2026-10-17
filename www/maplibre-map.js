@@ -1787,6 +1787,8 @@ async function mlLoadSchoolGeoJSON(school) {
         }
       });
       console.log(`Capa sectores cargada: ${geojson.features?.length || 0} elementos`);
+      // La interacción se registra aquí, cuando la capa ya existe (la carga de vías corre en paralelo)
+      setupSectoresInteraction();
     } catch (error) {
       console.error('Error cargando sectores:', error);
     }
@@ -1808,7 +1810,6 @@ async function mlLoadSchoolGeoJSON(school) {
       school.zoomLevels.vias, {}, mlProcessVariantsForGeoJSON
     );
     setupViasInteraction();
-    setupSectoresInteraction();
   })() : Promise.resolve();
 
   // Parkings
