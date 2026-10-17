@@ -5488,27 +5488,13 @@ function setupSectoresInteraction() {
   });
 
   // Click en sector
-  mlMap.on('click', 'sectores-layer', async (e) => {
+  mlMap.on('click', 'sectores-layer', (e) => {
     if (mlMap.getCanvas().style.cursor === 'crosshair') return;
     if (!e.features || e.features.length === 0) return;
 
     const feature = e.features[0];
     const props = feature.properties;
     const coords = e.lngLat;
-
-    // Si el sector tiene fotos, abrir directamente el visor de imágenes
-    if (props.nombre && typeof openSectorImageViewer === 'function' && typeof getSectorImageCount === 'function') {
-      try {
-        const schoolId = mlCurrentSchool || 'valeria';
-        if (await getSectorImageCount(schoolId, props.nombre) > 0) {
-          if (mlSectorPopup) mlSectorPopup.remove();
-          openSectorImageViewer(schoolId, props.nombre);
-          return;
-        }
-      } catch (err) {
-        console.error('Error comprobando imágenes del sector:', err);
-      }
-    }
 
     if (isMobileDevice()) {
       // En móvil, usar bottom sheet
