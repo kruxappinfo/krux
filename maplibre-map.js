@@ -400,7 +400,7 @@ function initMapLibre() {
  * Crea el estilo base del mapa con PNOA
  */
 function createBaseStyle() {
-  return {
+  const style = {
     version: 8,
     name: 'KRUX Base',
     sources: {
@@ -427,6 +427,73 @@ function createBaseStyle() {
     ],
     glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'
   };
+  return addMapTilerLabels(style);
+}
+
+/**
+ * Etiquetas (pueblos, agua, picos, carreteras) como capas de texto sobre la ortofoto.
+ * Sustituye a las teselas raster de CARTO, que ahora exigen API key.
+ * Si no hay clave de MapTiler, el mapa queda sin etiquetas.
+ */
+function addMapTilerLabels(style) {
+  const key = MAPLIBRE_CONFIG.MAPTILER_KEY;
+  if (!key || key === 'get_your_own_key') return style;
+
+  style.glyphs = `https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=${key}`;
+  style.sources['labels-source'] = {
+    type: 'vector',
+    url: `https://api.maptiler.com/tiles/v3/tiles.json?key=${key}`,
+    attribution: '© <a href="https://www.maptiler.com/">MapTiler</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  };
+
+  const name = ['coalesce', ['get', 'name:es'], ['get', 'name']];
+  const text = (size, font = 'Noto Sans Regular') => ({
+    'text-field': name,
+    'text-font': [font],
+    'text-size': size,
+    'text-max-width': 8
+  });
+  const halo = (color = '#ffffff', haloColor = 'rgba(0,0,0,0.75)') => ({
+    'text-color': color,
+    'text-halo-color': haloColor,
+    'text-halo-width': 1.5
+  });
+
+  style.layers.push(
+    {
+      id: 'labels-place-city', type: 'symbol', source: 'labels-source', 'source-layer': 'place',
+      minzoom: 4, maxzoom: 13,
+      filter: ['in', ['get', 'class'], ['literal', ['city', 'town']]],
+      layout: text(['interpolate', ['linear'], ['zoom'], 4, 11, 10, 16], 'Noto Sans Bold'),
+      paint: halo()
+    },
+    {
+      id: 'labels-place-village', type: 'symbol', source: 'labels-source', 'source-layer': 'place',
+      minzoom: 10, maxzoom: 16,
+      filter: ['in', ['get', 'class'], ['literal', ['village', 'suburb', 'hamlet', 'neighbourhood']]],
+      layout: text(['interpolate', ['linear'], ['zoom'], 10, 11, 15, 14]),
+      paint: halo()
+    },
+    {
+      id: 'labels-water', type: 'symbol', source: 'labels-source', 'source-layer': 'water_name',
+      minzoom: 10,
+      layout: text(12, 'Noto Sans Italic'),
+      paint: halo('#bfe3ff')
+    },
+    {
+      id: 'labels-peaks', type: 'symbol', source: 'labels-source', 'source-layer': 'mountain_peak',
+      minzoom: 11,
+      layout: text(12),
+      paint: halo('#fde68a')
+    },
+    {
+      id: 'labels-roads', type: 'symbol', source: 'labels-source', 'source-layer': 'transportation_name',
+      minzoom: 13,
+      layout: { ...text(11), 'symbol-placement': 'line' },
+      paint: halo()
+    }
+  );
+  return style;
 }
 
 /**
@@ -1137,7 +1204,7 @@ function loadAutonomousBoundaries() {
       });
 
       // Determinar dónde insertar la capa (debajo de labels si existe)
-      const beforeLayer = mlMap.getLayer('labels-layer') ? 'labels-layer' : undefined;
+      const beforeLayer = mlMap.getLayer('labels-place-city') ? 'labels-place-city' : undefined;
 
       // Capa de casing (borde exterior oscuro para contraste sobre satélite)
       mlMap.addLayer({
