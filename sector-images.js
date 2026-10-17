@@ -3848,8 +3848,10 @@ async function loadViewerSectorRoutes(schoolId, sectorName) {
           const geojson = await response.json();
           if (geojson.features) {
             const expanded = [];
-            geojson.features
-              .filter(f => f.properties.sector === sectorName)
+            // Las vías del sector van primero; después las del resto de la escuela, porque
+            // una foto puede abarcar vías de un sector vecino (p. ej. La Cabeza central/izquierda)
+            const inSector = f => f.properties.sector === sectorName;
+            [...geojson.features.filter(inSector), ...geojson.features.filter(f => !inSector(f))]
               .forEach(f => {
                 const p = f.properties;
                 expanded.push({ routeId: Number(p.id), nombre: p.nombre, grado: p.grado1 || '?', sector: p.sector, variantIndex: 0 });
