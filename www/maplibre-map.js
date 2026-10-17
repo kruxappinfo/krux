@@ -413,18 +413,6 @@ function createBaseStyle() {
         tileSize: 256,
         attribution: '© <a href="https://www.ign.es">IGN España</a> - PNOA',
         maxzoom: 20
-      },
-      // Etiquetas CartoDB
-      'labels-source': {
-        type: 'raster',
-        tiles: [
-          'https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'
-        ],
-        tileSize: 256,
-        attribution: TILE_SOURCES.labels.attribution,
-        maxzoom: 20
       }
     },
     layers: [
@@ -435,22 +423,6 @@ function createBaseStyle() {
         source: 'pnoa-source',
         minzoom: 0,
         maxzoom: 22
-      },
-      // Capa de etiquetas (encima de todo) - minzoom 7 para mostrar ciudades antes
-      {
-        id: 'labels-layer',
-        type: 'raster',
-        source: 'labels-source',
-        minzoom: 7,
-        maxzoom: 22,
-        paint: {
-          'raster-opacity': [
-            'interpolate', ['linear'], ['zoom'],
-            7, 0.6,
-            9, 0.8,
-            10, 0.9
-          ]
-        }
       }
     ],
     glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'
