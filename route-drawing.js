@@ -19,7 +19,8 @@ let rdDrawingMode = false;              // Modo de dibujo activo
 let rdCurrentRoute = null;              // Vía actual siendo dibujada/editada
 let rdRouteDrawings = [];               // Array de dibujos guardados
 let rdDrawingPoints = [];               // Array de puntos del dibujo actual
-let rdRoutesList = [];                  // Lista de vías del sector
+let rdRoutesList = [];
+let rdDrawingsLoadFailed = false;       // true si falló loadRouteDrawings: se bloquean los guardados                  // Lista de vías del sector
 let rdPendingRouteInfo = null;          // Info de vía pendiente {routeName, docId} - para modo obligatorio
 let rdMandatoryDrawingMode = false;     // Modo dibujo obligatorio (no se puede cerrar sin dibujar)
 let rdEditMode = false;                 // Modo edición (editando un dibujo existente)
@@ -1188,6 +1189,7 @@ async function getRouteData(schoolId, routeId) {
  */
 async function loadRouteDrawings(schoolId, sectorName, imageId = null) {
   rdRouteDrawings = [];
+  rdDrawingsLoadFailed = false;
 
   try {
     const docId = `${schoolId}_${normalizeSectorName(sectorName)}`;
@@ -1220,6 +1222,9 @@ async function loadRouteDrawings(schoolId, sectorName, imageId = null) {
     }
   } catch (error) {
     console.error('[RouteDrawing] Error cargando dibujos:', error);
+    // Sin los dibujos existentes en memoria, guardar o borrar podría sobrescribirlos
+    rdDrawingsLoadFailed = true;
+    showRDToast('No se pudieron cargar los dibujos. Cierra y vuelve a abrir el editor antes de guardar.', 'error');
   }
 }
 
@@ -3078,6 +3083,10 @@ async function selectAnchorType(anchorType) {
  * Guarda una nueva rama en el drawing existente
  */
 async function saveBranch(anchorType) {
+  if (rdDrawingsLoadFailed) {
+    showRDToast('No se puede guardar: los dibujos no se cargaron. Vuelve a abrir el editor.', 'error');
+    return;
+  }
   if (!rdBifurcatingDrawing || !rdActiveForkPoint || rdDrawingPoints.length < 2) {
     showRDToast('Error: datos de bifurcación incompletos', 'error');
     return;
@@ -3888,6 +3897,10 @@ function rdCancelBifurcation() {
  * @param {boolean} isEditing - Si estamos editando un dibujo existente
  */
 async function saveRouteDrawing(drawing, isEditing = false) {
+  if (rdDrawingsLoadFailed) {
+    showRDToast('No se puede guardar: los dibujos no se cargaron. Vuelve a abrir el editor.', 'error');
+    return;
+  }
   try {
     const docId = `${rdCurrentSector.schoolId}_${normalizeSectorName(rdCurrentSector.sectorName)}`;
 
@@ -3988,11 +4001,24 @@ async function deleteRouteDrawing(routeId, variantIndex = 0) {
       return d.routeName !== baseName;
     });
 
-    // Actualizar Firestore
-    await db.collection('sector_route_drawings').doc(docId).set({
+    // Actualizar Firestore: releer el documento y quitar solo este dibujo.
+    // rdRouteDrawings contiene solo los dibujos de la imagen abierta; escribirlo tal cual
+    // borraba los dibujos del resto de imágenes del sector.
+    const docRef = db.collection('sector_route_drawings').doc(docId);
+    const doc = await docRef.get();
+    const imageId = rdCurrentSector.imageId;
+    const allDrawings = (doc.exists ? doc.data().drawings || [] : []).filter(d => {
+      if (imageId && (d.imageId || 'legacy_0') !== imageId) return true;
+      if (d.routeId !== undefined && routeId !== undefined) {
+        return !(Number(d.routeId) === routeId && (d.variantIndex || 0) === vi);
+      }
+      return d.routeName !== baseName;
+    });
+
+    await docRef.set({
       schoolId: rdCurrentSector.schoolId,
       sectorName: rdCurrentSector.sectorName,
-      drawings: rdRouteDrawings,
+      drawings: allDrawings,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedBy: auth.currentUser?.uid
     }, { merge: true });
@@ -5433,6 +5459,10 @@ function pointToSegmentDist(px, py, a, b) {
  * Guarda todos los route drawings en Firestore (usado por eraser)
  */
 async function saveAllRouteDrawings() {
+  if (rdDrawingsLoadFailed) {
+    showRDToast('No se puede guardar: los dibujos no se cargaron. Vuelve a abrir el editor.', 'error');
+    return;
+  }
   try {
     const docId = `${rdCurrentSector.schoolId}_${normalizeSectorName(rdCurrentSector.sectorName)}`;
     const docRef = db.collection('sector_route_drawings').doc(docId);
