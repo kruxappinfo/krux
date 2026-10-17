@@ -481,14 +481,6 @@ function addMapTilerLabels(style) {
       paint: halo('#bfe3ff')
     },
     {
-      id: 'labels-peaks', type: 'symbol', source: 'labels-source', 'source-layer': 'mountain_peak',
-      minzoom: 11,
-      // Los 'cliff' son los sectores de escalada de OSM: duplican los sectores propios de KRUX
-      filter: ['!=', ['get', 'class'], 'cliff'],
-      layout: text(12),
-      paint: halo('#fde68a')
-    },
-    {
       id: 'labels-roads', type: 'symbol', source: 'labels-source', 'source-layer': 'transportation_name',
       minzoom: 13,
       layout: { ...text(11), 'symbol-placement': 'line' },
@@ -1219,10 +1211,10 @@ function loadAutonomousBoundaries() {
           'line-color': '#000000',
           'line-opacity': [
             'interpolate', ['linear'], ['zoom'],
-            6, 0.25,
-            8, 0.35,
-            10, 0.3,
-            12, 0.15
+            6, 0.4,
+            8, 0.5,
+            10, 0.45,
+            12, 0.25
           ],
           'line-width': [
             'interpolate', ['linear'], ['zoom'],
@@ -1249,10 +1241,10 @@ function loadAutonomousBoundaries() {
           'line-color': '#e0e0e0',
           'line-opacity': [
             'interpolate', ['linear'], ['zoom'],
-            6, 0.5,
-            8, 0.7,
-            10, 0.6,
-            12, 0.3
+            6, 0.8,
+            8, 0.95,
+            10, 0.9,
+            12, 0.5
           ],
           'line-width': [
             'interpolate', ['linear'], ['zoom'],
