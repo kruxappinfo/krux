@@ -24256,6 +24256,34 @@ body.plan-editor-open { overflow: hidden; }
   padding-top: 14px;
 }
 
+/* Móvil y tablet: solo la lista se desplaza. Cabecera y "¿Qué quieres compartir?" quedan fuera del
+   área con scroll, así el rebote (overscroll) de iOS no las arrastra como pasaba con position: sticky. */
+@media (max-width: 1024px) {
+  #feed-view.view.active {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #feed-view .feed-top {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  #feed-view .feed-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    max-width: none;
+    padding-left: max(12px, calc((100% - 640px) / 2));
+    padding-right: max(12px, calc((100% - 640px) / 2));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 @media (max-width: 359px) {
   .feed-composer {
     gap: 8px;
