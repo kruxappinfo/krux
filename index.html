@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=54" />
+  <link rel="stylesheet" href="./app_2.css?v=55" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -97,7 +97,7 @@
 
   <script defer src="./maplibre-map.js?v=14"></script>
 
-  <script defer src="./app_3.js?v=54"></script>
+  <script defer src="./app_3.js?v=55"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -1498,6 +1498,9 @@
     <div class="image-lightbox-backdrop"></div>
     <div class="image-lightbox-stage" id="image-lightbox-stage">
       <img id="image-lightbox-img" src="" alt="Imagen ampliada" class="image-lightbox-image" draggable="false">
+      <!-- Foto contigua: entra de lado mientras se desliza entre las fotos de una publicación -->
+      <img id="image-lightbox-peek" src="" alt="" class="image-lightbox-image image-lightbox-peek" draggable="false"
+        aria-hidden="true" hidden>
     </div>
     <div class="image-lightbox-spinner" id="image-lightbox-spinner" aria-hidden="true"></div>
     <p class="image-lightbox-error" id="image-lightbox-error" role="alert" hidden>No se pudo cargar la imagen</p>
@@ -1507,6 +1510,15 @@
         <line x1="18" y1="6" x2="6" y2="18"></line>
         <line x1="6" y1="6" x2="18" y2="18"></line>
       </svg>
+    </button>
+    <div class="image-lightbox-counter" id="image-lightbox-counter" role="status" aria-live="polite" hidden></div>
+    <button type="button" class="image-lightbox-nav image-lightbox-prev" id="image-lightbox-prev" aria-label="Foto anterior" hidden>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+    <button type="button" class="image-lightbox-nav image-lightbox-next" id="image-lightbox-next" aria-label="Foto siguiente" hidden>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
     </button>
     <div class="image-lightbox-zoom" id="image-lightbox-zoom" role="group" aria-label="Zoom">
       <button type="button" data-zoom="out" aria-label="Alejar">
