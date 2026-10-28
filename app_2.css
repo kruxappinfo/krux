@@ -26207,3 +26207,12 @@ body.kx-sheet-open #feed-view .feed-container {
     font-size: 0.6875rem;
   }
 }
+
+/* Cerrar del editor: mismo botón circular que los paneles inferiores */
+#create-post-modal .close-btn {
+  background: rgba(32, 41, 35, 0.06);
+}
+
+#create-post-modal .close-btn:hover {
+  background: rgba(32, 41, 35, 0.1);
+}
