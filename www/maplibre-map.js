@@ -1011,7 +1011,10 @@ function enable3DMode() {
   mlMap.dragRotate.enable();
   mlMap.dragPan.enable();
 
-  // 4. Animar a vista 3D inicial
+  // 4. Activar terreno 3D (solo existe mientras el modo 3D está activo)
+  add3DTerrain();
+
+  // 5. Animar a vista 3D inicial
   mlMap.easeTo({
     pitch: 50,
     bearing: mlMap.getBearing(),
@@ -1047,8 +1050,9 @@ function disable3DMode() {
   // 2. Esperar a que termine la animación para restaurar handlers
   setTimeout(() => {
     if (!is3DMode) {
-      // 3. Bloquear pitch
+      // 3. Bloquear pitch y quitar terreno 3D
       mlMap.setMaxPitch(0);
+      remove3DTerrain();
 
       // 4. DESHABILITAR handlers nativos de 3D
       mlMap.touchZoomRotate.disable();
@@ -1087,12 +1091,7 @@ function onMapLoad() {
   // Botón de creador de vías desactivado
   // addRouteCreatorButton();
 
-  // Añadir terreno 3D si hay API key de MapTiler
-  if (MAPLIBRE_CONFIG.MAPTILER_KEY && MAPLIBRE_CONFIG.MAPTILER_KEY !== 'get_your_own_key') {
-    add3DTerrain();
-  } else {
-    console.warn('Sin API key de MapTiler - Terreno 3D desactivado');
-  }
+  // El terreno 3D ya no se carga aquí: solo se activa con el botón 3D (enable3DMode)
 
   // Cargar límites autonómicos
   loadAutonomousBoundaries();
@@ -1299,12 +1298,14 @@ function add3DTerrain() {
   }
 
   try {
-    // Añadir fuente de terreno
-    mlMap.addSource('terrain-source', {
-      type: 'raster-dem',
-      url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MAPLIBRE_CONFIG.MAPTILER_KEY}`,
-      tileSize: 256
-    });
+    // Añadir fuente de terreno (solo la primera vez)
+    if (!mlMap.getSource('terrain-source')) {
+      mlMap.addSource('terrain-source', {
+        type: 'raster-dem',
+        url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MAPLIBRE_CONFIG.MAPTILER_KEY}`,
+        tileSize: 256
+      });
+    }
 
     // Activar terreno
     mlMap.setTerrain({
@@ -1313,22 +1314,39 @@ function add3DTerrain() {
     });
 
     // Añadir capa de sombreado (hillshade)
-    mlMap.addLayer({
-      id: 'hillshade-layer',
-      type: 'hillshade',
-      source: 'terrain-source',
-      paint: {
-        'hillshade-exaggeration': 0.3,
-        'hillshade-shadow-color': '#000000',
-        'hillshade-highlight-color': '#ffffff'
-      }
-    }, 'pnoa-layer'); // Insertar debajo del PNOA
+    if (!mlMap.getLayer('hillshade-layer')) {
+      mlMap.addLayer({
+        id: 'hillshade-layer',
+        type: 'hillshade',
+        source: 'terrain-source',
+        paint: {
+          'hillshade-exaggeration': 0.3,
+          'hillshade-shadow-color': '#000000',
+          'hillshade-highlight-color': '#ffffff'
+        }
+      }, 'pnoa-layer'); // Insertar debajo del PNOA
+    }
 
     mlIs3DEnabled = true;
     console.log('Terreno 3D activado');
 
   } catch (error) {
     console.error('Error al añadir terreno 3D:', error);
+  }
+}
+
+/**
+ * Quita el terreno 3D y el sombreado para volver a una vista totalmente plana
+ */
+function remove3DTerrain() {
+  try {
+    mlMap.setTerrain(null);
+    if (mlMap.getLayer('hillshade-layer')) {
+      mlMap.removeLayer('hillshade-layer');
+    }
+    mlIs3DEnabled = false;
+  } catch (error) {
+    console.error('Error al quitar terreno 3D:', error);
   }
 }
 
