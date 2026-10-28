@@ -4,36 +4,36 @@
  * PWA completa con soporte offline
  */
 
-const CACHE_VERSION = 'v24';
+const CACHE_VERSION = 'v25';
 const CACHE_NAME = `krux-cache-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `krux-data-${CACHE_VERSION}`;
-const OFFLINE_URL = '/offline.html';
+const OFFLINE_URL = './offline.html';
 
 // Assets estáticos para cachear en la instalación
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/offline.html',
-  '/app_2.css',
-  '/app_3.js',
-  '/auth.js',
-  '/firebase-config.js',
-  '/maplibre-config.js',
-  '/maplibre-map.js',
-  '/user-features.js',
-  '/route-photos.js',
-  '/manifest.json',
-  '/favicon.png',
-  '/logo_krujx_v2.png',
-  '/assets/logo.png',
-  '/assets/krux-logo-login.png',
-  '/assets/reset-view-icon.png',
-  '/icons/climbing-marker.png',
-  '/icons/parking_icon.png',
-  '/icons/pwa/icon-192x192.png',
-  '/icons/pwa/icon-512x512.png',
-  '/icons/pwa/apple-touch-icon.png',
-  '/capacitor-init.js'
+  './',
+  './index.html',
+  './offline.html',
+  './app_2.css',
+  './app_3.js',
+  './auth.js',
+  './firebase-config.js',
+  './maplibre-config.js',
+  './maplibre-map.js',
+  './user-features.js',
+  './route-photos.js',
+  './manifest.json',
+  './favicon.png',
+  './logo_krujx_v2.png',
+  './assets/logo.png',
+  './assets/krux-logo-login.png',
+  './assets/reset-view-icon.png',
+  './icons/climbing-marker.png',
+  './icons/parking_icon.png',
+  './icons/pwa/icon-192x192.png',
+  './icons/pwa/icon-512x512.png',
+  './icons/pwa/apple-touch-icon.png',
+  './capacitor-init.js'
 ];
 
 // Recursos externos que intentaremos cachear
@@ -212,7 +212,7 @@ async function networkFirstWithOfflineFallback(request) {
     }
 
     // Fallback final al index
-    return cache.match('/index.html');
+    return cache.match('./index.html');
   }
 }
 
@@ -337,11 +337,11 @@ self.addEventListener('push', (event) => {
     const data = event.data.json();
     const options = {
       body: data.body || 'Nueva notificación de KRUX',
-      icon: '/icons/pwa/icon-192x192.png',
-      badge: '/icons/pwa/icon-96x96.png',
+      icon: './icons/pwa/icon-192x192.png',
+      badge: './icons/pwa/icon-96x96.png',
       vibrate: [100, 50, 100],
       data: {
-        url: data.url || '/'
+        url: data.url || './'
       },
       actions: [
         { action: 'open', title: 'Abrir' },
@@ -360,7 +360,7 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   if (event.action === 'open' || !event.action) {
-    const urlToOpen = event.notification.data?.url || '/';
+    const urlToOpen = event.notification.data?.url || './';
 
     event.waitUntil(
       self.clients.matchAll({ type: 'window' }).then(clientList => {
