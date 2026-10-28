@@ -11462,102 +11462,6 @@ img[loading="lazy"]:not([src=""]) {
   contain-intrinsic-size: 0 200px;
 }
 
-/* ================================
-   IMAGE LIGHTBOX MODAL
-   ================================ */
-.image-lightbox-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    visibility 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
-}
-
-.image-lightbox-modal:not(.hidden) {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: all;
-}
-
-.image-lightbox-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-
-.image-lightbox-content {
-  position: relative;
-  z-index: 1;
-  max-width: 90vw;
-  max-height: 90vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transform: scale(0.9);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.image-lightbox-modal:not(.hidden) .image-lightbox-content {
-  transform: scale(1);
-}
-
-.image-lightbox-image {
-  max-width: 90vw;
-  max-height: 90vh;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.image-lightbox-close {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  z-index: 2;
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.95);
-  border: none;
-  border-radius: 50%;
-  cursor: pointer;
-  color: #1f2937;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.image-lightbox-close:hover {
-  background: rgba(255, 255, 255, 1);
-  transform: scale(1.1);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-}
-
-.image-lightbox-close:active {
-  transform: scale(0.95);
-}
-
-.image-lightbox-close svg {
-  width: 20px;
-  height: 20px;
-  stroke-width: 2.5;
-}
-
 /* Hacer las imágenes del feed clickables */
 .feed-image-container .feed-image,
 .feed-images-grid .feed-image {
@@ -24335,53 +24239,6 @@ body.plan-editor-open { overflow: hidden; }
   }
 }
 
-/* ====================================================================
-   VISOR DE IMÁGENES
-   ==================================================================== */
-.image-lightbox-backdrop {
-  background: rgba(16, 24, 20, 0.94);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-.image-lightbox-image {
-  max-width: calc(100vw - 24px);
-  max-height: 84vh;
-  border-radius: 12px;
-  box-shadow: none;
-}
-
-.image-lightbox-close {
-  top: calc(14px + env(safe-area-inset-top, 0px));
-  right: 14px;
-  width: 44px;
-  height: 44px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  background: rgba(21, 32, 27, 0.55);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  color: #fff;
-  box-shadow: none;
-}
-
-.image-lightbox-close:hover {
-  background: rgba(21, 32, 27, 0.75);
-  transform: none;
-  box-shadow: none;
-}
-
-.image-lightbox-close:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
-}
-
-/* Pantallas muy estrechas: el campo de comentario gana el ancho del avatar */
-@media (max-width: 359px) {
-  :is(#feed-view, #view-post-modal) .feed-comment-form-avatar {
-    display: none;
-  }
-}
-
 /* Movimiento reducido */
 @media (prefers-reduced-motion: reduce) {
   #feed-view .feed-card,
@@ -26215,4 +26072,227 @@ body.kx-sheet-open #feed-view .feed-container {
 
 #create-post-modal .close-btn:hover {
   background: rgba(32, 41, 35, 0.1);
+}
+
+/* ====================================================================
+   VISOR DE IMÁGENES — foto a pantalla completa con zoom
+   La imagen se muestra ya cargada (fundido de opacidad, sin animación de escala ni
+   desenfoque de fondo: eran la causa del destello al abrir). El zoom y el desplazamiento
+   los aplica app_3.js con transform; touch-action: none deja los gestos al visor.
+   ==================================================================== */
+.image-lightbox-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10065;
+  display: block;
+  overflow: hidden;
+  animation: kxFade 0.2s ease-out;
+  transition: opacity 0.18s ease-in;
+}
+
+.image-lightbox-modal.hidden {
+  display: none;
+}
+
+.image-lightbox-modal.is-closing {
+  opacity: 0;
+}
+
+.image-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(14, 20, 17, 0.96);
+  opacity: var(--lb-dim, 1);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.image-lightbox-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+  touch-action: none;
+  overscroll-behavior: contain;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: zoom-in;
+}
+
+.image-lightbox-modal.is-zoomed .image-lightbox-stage {
+  cursor: grab;
+}
+
+.image-lightbox-modal.is-dragging .image-lightbox-stage {
+  cursor: grabbing;
+}
+
+.image-lightbox-image {
+  display: block;
+  max-width: 100vw;
+  max-height: 100vh;
+  max-height: 100dvh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 0;
+  box-shadow: none;
+  opacity: 0;
+  transform-origin: center center;
+  will-change: transform;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  pointer-events: none; /* los gestos los recibe el escenario */
+}
+
+.image-lightbox-modal.is-loaded .image-lightbox-image {
+  opacity: 1;
+  transition: opacity 0.2s ease-out;
+}
+
+/* Indicador de carga y de error */
+.image-lightbox-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border: 3px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: kxSpin 0.8s linear infinite;
+  pointer-events: none;
+}
+
+.image-lightbox-spinner[hidden] {
+  display: none;
+}
+
+.image-lightbox-error {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0 24px;
+  color: #fff;
+  font-size: var(--kx-fs-body);
+  text-align: center;
+  transform: translateY(-50%);
+}
+
+.image-lightbox-error[hidden] {
+  display: none;
+}
+
+@keyframes kxSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Controles flotantes (cristal solo aquí: superficies superpuestas sobre la foto) */
+.image-lightbox-close,
+.image-lightbox-zoom {
+  position: absolute;
+  z-index: 3;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(21, 32, 27, 0.55);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #fff;
+}
+
+.image-lightbox-close {
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease), transform 0.15s var(--kx-ease);
+}
+
+.image-lightbox-close:hover {
+  background: rgba(21, 32, 27, 0.75);
+  transform: none;
+  box-shadow: none;
+}
+
+.image-lightbox-close:active {
+  transform: scale(0.94);
+}
+
+.image-lightbox-close svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 2;
+}
+
+.image-lightbox-close:focus-visible,
+.image-lightbox-zoom button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Zoom con botones: solo donde hay ratón (en móvil se pellizca o se toca dos veces) */
+.image-lightbox-zoom {
+  display: none;
+  left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  align-items: center;
+  padding: 4px;
+  border-radius: var(--kx-radius-pill);
+  transform: translateX(-50%);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .image-lightbox-zoom {
+    display: flex;
+  }
+}
+
+.image-lightbox-zoom button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: transparent;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.image-lightbox-zoom button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.image-lightbox-zoom .image-lightbox-zoom-level {
+  min-width: 64px;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .image-lightbox-close,
+  .image-lightbox-zoom { background: rgba(21, 32, 27, 0.82); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-lightbox-modal,
+  .image-lightbox-spinner,
+  .image-lightbox-modal.is-loaded .image-lightbox-image {
+    animation-duration: 0.01ms !important;
+    transition: none !important;
+  }
 }

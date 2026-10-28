@@ -4208,62 +4208,334 @@ function switchView(viewId) {
 const MOCK_FEED = [];
 
 // ================== IMAGE LIGHTBOX ==================
+// Visor de imágenes con zoom: pellizco, doble toque/clic, rueda (o pellizco del trackpad),
+// arrastre para mover, botones +/− y teclado (+, −, 0 y flechas). Con la imagen sin ampliar,
+// deslizar hacia abajo la cierra. La imagen se precarga antes de mostrarse: así no aparece
+// a medias ni con saltos de tamaño.
+const LB = {
+  MIN: 1, MAX: 6, DOUBLE_TAP_SCALE: 2.5,
+  scale: 1, x: 0, y: 0,
+  pointers: new Map(),
+  gesture: null,     // { type: 'pinch'|'pan'|'dismiss', ... }
+  lastTap: null,     // { t, x, y } para el doble toque
+  opener: null,
+  token: 0           // invalida cargas antiguas si se abre otra imagen
+};
+
+function lbEls() {
+  return {
+    modal: document.getElementById('image-lightbox-modal'),
+    stage: document.getElementById('image-lightbox-stage'),
+    img: document.getElementById('image-lightbox-img'),
+    spinner: document.getElementById('image-lightbox-spinner'),
+    error: document.getElementById('image-lightbox-error'),
+    level: document.querySelector('.image-lightbox-zoom-level')
+  };
+}
+
+const lbReduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Tamaño base de la imagen (sin zoom) y límites de desplazamiento según la escala
+function lbBounds(scale = LB.scale) {
+  const { stage, img } = lbEls();
+  const baseW = img.offsetWidth, baseH = img.offsetHeight;
+  return {
+    maxX: Math.max(0, (baseW * scale - stage.clientWidth) / 2),
+    maxY: Math.max(0, (baseH * scale - stage.clientHeight) / 2)
+  };
+}
+
+const lbClamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+function lbApply(animate = false) {
+  const { img, modal, level } = lbEls();
+  img.style.transition = animate && !lbReduced() ? 'transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)' : 'none';
+  img.style.transform = `translate3d(${LB.x}px, ${LB.y}px, 0) scale(${LB.scale})`;
+  modal.classList.toggle('is-zoomed', LB.scale > 1.01);
+  if (level) level.textContent = `${Math.round(LB.scale * 100)}%`;
+}
+
+// Ajusta posición y escala a límites válidos (con animación al soltar)
+function lbSettle(animate = true) {
+  LB.scale = lbClamp(LB.scale, LB.MIN, LB.MAX);
+  const { maxX, maxY } = lbBounds();
+  LB.x = lbClamp(LB.x, -maxX, maxX);
+  LB.y = lbClamp(LB.y, -maxY, maxY);
+  if (LB.scale <= 1.001) { LB.scale = 1; LB.x = 0; LB.y = 0; }
+  lbApply(animate);
+}
+
+// Cambia la escala manteniendo fijo el punto (cx, cy), en px respecto al centro del escenario
+function lbZoomAt(newScale, cx = 0, cy = 0, animate = true) {
+  newScale = lbClamp(newScale, LB.MIN, LB.MAX);
+  const ratio = newScale / LB.scale;
+  LB.x = cx - (cx - LB.x) * ratio;
+  LB.y = cy - (cy - LB.y) * ratio;
+  LB.scale = newScale;
+  lbSettle(animate);
+}
+
+// Coordenadas de un puntero respecto al centro del escenario
+function lbPoint(e) {
+  const { stage } = lbEls();
+  const r = stage.getBoundingClientRect();
+  return { x: e.clientX - r.left - r.width / 2, y: e.clientY - r.top - r.height / 2 };
+}
+
+function lbReset() {
+  LB.scale = 1; LB.x = 0; LB.y = 0;
+  LB.pointers.clear(); LB.gesture = null; LB.lastTap = null;
+  const { img, modal, level } = lbEls();
+  if (img) { img.style.transition = 'none'; img.style.transform = ''; }
+  modal?.classList.remove('is-zoomed', 'is-dragging', 'is-loaded', 'is-error');
+  if (modal) modal.style.removeProperty('--lb-dim');
+  if (level) level.textContent = '100%';
+}
 
 // Abrir lightbox de imagen
 function openImageLightbox(imageSrc) {
-  const modal = document.getElementById('image-lightbox-modal');
-  const img = document.getElementById('image-lightbox-img');
+  const { modal, img, spinner, error } = lbEls();
+  if (!modal || !img || !imageSrc) return;
 
-  if (!modal || !img) return;
+  const token = ++LB.token;
+  LB.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  lbReset();
+  img.removeAttribute('src');
+  error.hidden = true;
+  spinner.hidden = false;
 
-  img.src = imageSrc;
-  modal.classList.remove('hidden');
-
-  // Prevenir scroll del body cuando el modal estÃ¡ abierto
   document.body.style.overflow = 'hidden';
+  const app = document.getElementById('app');
+  app?.setAttribute('inert', '');
+  app?.setAttribute('aria-hidden', 'true');
+  modal.classList.remove('hidden');
+  modal.classList.remove('is-closing');
+  document.getElementById('image-lightbox-close')?.focus({ preventScroll: true });
+
+  // Precarga: la imagen solo se muestra cuando ya está lista (normalmente ya está en caché)
+  const loader = new Image();
+  loader.referrerPolicy = 'no-referrer';
+  loader.onload = async () => {
+    if (token !== LB.token) return;
+    // decode() evita el parpadeo al pintar; con tope de tiempo por si el navegador no lo resuelve
+    try {
+      await Promise.race([loader.decode(), new Promise(resolve => setTimeout(resolve, 800))]);
+    } catch (_) { /* decode no disponible o ya decodificada */ }
+    if (token !== LB.token) return;
+    img.src = imageSrc;
+    spinner.hidden = true;
+    modal.classList.add('is-loaded');
+    lbApply(false);
+  };
+  loader.onerror = () => {
+    if (token !== LB.token) return;
+    spinner.hidden = true;
+    error.hidden = false;
+    modal.classList.add('is-error');
+  };
+  loader.src = imageSrc;
 }
 
 // Cerrar lightbox de imagen
 function closeImageLightbox() {
-  const modal = document.getElementById('image-lightbox-modal');
+  const { modal } = lbEls();
+  if (!modal || modal.classList.contains('hidden') || modal.classList.contains('is-closing')) return;
 
-  if (!modal) return;
+  const finish = () => {
+    LB.token++; // cancela cualquier carga pendiente
+    modal.classList.add('hidden');
+    modal.classList.remove('is-closing');
+    lbReset();
+    document.body.style.overflow = '';
+    const app = document.getElementById('app');
+    app?.removeAttribute('inert');
+    app?.removeAttribute('aria-hidden');
+    const opener = LB.opener; LB.opener = null;
+    if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+  };
 
-  modal.classList.add('hidden');
-
-  // Restaurar scroll del body
-  document.body.style.overflow = '';
+  if (lbReduced()) { finish(); return; }
+  modal.classList.add('is-closing');
+  setTimeout(finish, 180);
 }
 
 // Inicializar event listeners del lightbox
 function initImageLightbox() {
-  const modal = document.getElementById('image-lightbox-modal');
+  const { modal, stage, img } = lbEls();
   const closeBtn = document.getElementById('image-lightbox-close');
-  const backdrop = modal?.querySelector('.image-lightbox-backdrop');
+  if (!modal || !stage || !img) return;
 
-  if (!modal) return;
+  closeBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeImageLightbox();
+  });
 
-  // Cerrar con botÃ³n X
-  if (closeBtn) {
-    closeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      closeImageLightbox();
-    });
-  }
+  // Botones de zoom
+  document.getElementById('image-lightbox-zoom')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-zoom]');
+    if (!btn) return;
+    e.stopPropagation();
+    if (btn.dataset.zoom === 'in') lbZoomAt(LB.scale * 1.5);
+    else if (btn.dataset.zoom === 'out') lbZoomAt(LB.scale / 1.5);
+    else lbZoomAt(1);
+  });
 
-  // Cerrar al hacer clic en el backdrop
-  if (backdrop) {
-    backdrop.addEventListener('click', (e) => {
-      if (e.target === backdrop) {
-        closeImageLightbox();
+  // ---- Gestos con Pointer Events ----
+  const onDown = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    try { stage.setPointerCapture(e.pointerId); } catch (_) { /* puntero ya liberado */ }
+    LB.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, t: performance.now() });
+
+    if (LB.pointers.size === 2) {
+      const [a, b] = [...LB.pointers.values()];
+      const c = lbPoint({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 });
+      LB.gesture = {
+        type: 'pinch', startDist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+        startScale: LB.scale, startX: LB.x, startY: LB.y, startMid: c
+      };
+    } else if (LB.pointers.size === 1) {
+      LB.gesture = { type: LB.scale > 1.01 ? 'pan' : 'dismiss', startX: LB.x, startY: LB.y, moved: false };
+    }
+  };
+
+  const onMove = (e) => {
+    const p = LB.pointers.get(e.pointerId);
+    if (!p || !LB.gesture) return;
+    p.x = e.clientX; p.y = e.clientY;
+    const g = LB.gesture;
+
+    if (g.type === 'pinch' && LB.pointers.size >= 2) {
+      const [a, b] = [...LB.pointers.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const mid = lbPoint({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 });
+      // Permite pasar un poco de los límites durante el gesto; al soltar se reajusta
+      const s = lbClamp(g.startScale * dist / g.startDist, 0.7, LB.MAX * 1.15);
+      const ratio = s / g.startScale;
+      LB.scale = s;
+      LB.x = mid.x - (g.startMid.x - g.startX) * ratio;
+      LB.y = mid.y - (g.startMid.y - g.startY) * ratio;
+      g.moved = true;
+      modal.classList.add('is-dragging');
+      lbApply(false);
+    } else if (g.type === 'pan') {
+      const dx = e.clientX - p.startX, dy = e.clientY - p.startY;
+      if (Math.hypot(dx, dy) > 4) g.moved = true;
+      const { maxX, maxY } = lbBounds();
+      // Con resistencia al pasar el borde de la imagen
+      const soft = (v, max) => (v > max ? max + (v - max) * 0.3 : v < -max ? -max + (v + max) * 0.3 : v);
+      LB.x = soft(g.startX + dx, maxX);
+      LB.y = soft(g.startY + dy, maxY);
+      modal.classList.add('is-dragging');
+      lbApply(false);
+    } else if (g.type === 'dismiss') {
+      const dy = e.clientY - p.startY, dx = e.clientX - p.startX;
+      if (Math.abs(dy) > 6 || Math.abs(dx) > 6) g.moved = true;
+      if (g.moved && dy > 0 && Math.abs(dy) > Math.abs(dx)) {
+        LB.y = dy;
+        modal.style.setProperty('--lb-dim', String(Math.max(0.25, 1 - dy / 420)));
+        modal.classList.add('is-dragging');
+        lbApply(false);
       }
-    });
-  }
+    }
+  };
 
-  // Cerrar con tecla Escape
+  const onUp = (e) => {
+    const p = LB.pointers.get(e.pointerId);
+    if (!p) return;
+    const g = LB.gesture;
+    const now = performance.now();
+    const dist = Math.hypot(e.clientX - p.startX, e.clientY - p.startY);
+    const isTap = dist < 8 && now - p.t < 350;
+    LB.pointers.delete(e.pointerId);
+    try { stage.releasePointerCapture?.(e.pointerId); } catch (_) { /* ya liberado */ }
+
+    if (g?.type === 'pinch') {
+      if (LB.pointers.size === 0) { modal.classList.remove('is-dragging'); lbSettle(true); LB.gesture = null; }
+      else {
+        // Queda un dedo: sigue como arrastre desde su posición actual
+        const [rest] = [...LB.pointers.values()];
+        rest.startX = rest.x; rest.startY = rest.y;
+        LB.gesture = { type: 'pan', startX: LB.x, startY: LB.y, moved: true };
+      }
+      return;
+    }
+
+    modal.classList.remove('is-dragging');
+    if (LB.pointers.size > 0) return;
+    LB.gesture = null;
+
+    if (g?.type === 'dismiss' && g.moved && LB.y > 0) {
+      const velocity = LB.y / Math.max(1, now - p.t);
+      if (LB.y > 120 || (LB.y > 40 && velocity > 0.6)) { closeImageLightbox(); return; }
+      LB.y = 0; modal.style.removeProperty('--lb-dim'); lbApply(true);
+      return;
+    }
+    if (g?.type === 'pan') { lbSettle(true); }
+
+    if (isTap) {
+      const pt = lbPoint(e);
+      const last = LB.lastTap;
+      if (last && now - last.t < 320 && Math.hypot(pt.x - last.x, pt.y - last.y) < 30) {
+        // Doble toque / doble clic: alterna entre ajustar y acercar al punto tocado
+        LB.lastTap = null;
+        if (LB.scale > 1.01) lbZoomAt(1, pt.x, pt.y); else lbZoomAt(LB.DOUBLE_TAP_SCALE, pt.x, pt.y);
+        return;
+      }
+      LB.lastTap = { t: now, x: pt.x, y: pt.y };
+      // Un toque fuera de la imagen (con zoom 1) cierra el visor
+      const rect = img.getBoundingClientRect();
+      const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+      if (!inside && LB.scale <= 1.01) closeImageLightbox();
+    }
+  };
+
+  stage.addEventListener('pointerdown', onDown);
+  stage.addEventListener('pointermove', onMove);
+  stage.addEventListener('pointerup', onUp);
+  stage.addEventListener('pointercancel', (e) => {
+    LB.pointers.delete(e.pointerId);
+    if (LB.pointers.size === 0) { LB.gesture = null; modal.classList.remove('is-dragging'); modal.style.removeProperty('--lb-dim'); lbSettle(true); }
+  });
+
+  // Rueda del ratón y pellizco del trackpad (ctrlKey): zoom hacia el cursor
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const pt = lbPoint(e);
+    const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0022));
+    lbZoomAt(LB.scale * factor, pt.x, pt.y, false);
+  }, { passive: false });
+
+  // La imagen no se arrastra como archivo ni abre menús contextuales de imagen
+  img.addEventListener('dragstart', (e) => e.preventDefault());
+
+  // Si cambia el tamaño de la ventana (o gira el móvil) se reajusta a los nuevos límites
+  window.addEventListener('resize', () => {
+    if (!modal.classList.contains('hidden')) lbSettle(false);
+  });
+
+  // Teclado
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
-      closeImageLightbox();
+    if (modal.classList.contains('hidden')) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeImageLightbox(); return; }
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); lbZoomAt(LB.scale * 1.5); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); lbZoomAt(LB.scale / 1.5); }
+    else if (e.key === '0') { e.preventDefault(); lbZoomAt(1); }
+    else if (LB.scale > 1.01 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      e.preventDefault();
+      const step = 60;
+      if (e.key === 'ArrowLeft') LB.x += step;
+      if (e.key === 'ArrowRight') LB.x -= step;
+      if (e.key === 'ArrowUp') LB.y += step;
+      if (e.key === 'ArrowDown') LB.y -= step;
+      lbSettle(true);
+    }
+    // El foco se queda dentro del visor
+    if (e.key === 'Tab') {
+      const focusables = [...modal.querySelectorAll('button:not([disabled])')].filter(el => el.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
   });
 }
@@ -10703,6 +10975,15 @@ function renderPostInModal(post, container) {
   `;
 
   container.innerHTML = headerHTML + contentHTML + actionsHTML;
+
+  // Las fotos de la publicación ampliada se abren en el visor con zoom
+  container.querySelectorAll('.feed-media-modal .feed-image').forEach(img => {
+    img.classList.add('feed-image-clickable');
+    img.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openImageLightbox(img.currentSrc || img.src);
+    });
+  });
 
   // Attach three-dot menu listeners in modal
   const menuBtn = container.querySelector('.modal-post-menu-btn');
