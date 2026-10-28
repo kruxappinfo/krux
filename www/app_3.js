@@ -2723,6 +2723,8 @@ function initMessages() {
   });
 
   // ---- CHAT MODAL LOGIC ----
+  // Conversación a pantalla completa (móvil) o tarjeta (escritorio). Reutiliza MessagingService:
+  // un único listener por conversación, que se cancela al salir (también si otra vista oculta el chat).
   const chatModal = document.getElementById('chat-modal');
   const chatAvatar = document.getElementById('chat-avatar');
   const chatUsername = document.getElementById('chat-username');
@@ -2730,78 +2732,311 @@ function initMessages() {
   const chatInput = document.getElementById('chat-input');
   const chatSendBtn = document.getElementById('chat-send-btn');
   const chatCloseBtn = document.getElementById('chat-close-btn');
+  const chatBackBtn = document.getElementById('chat-back-btn');
+  const chatHeaderUser = document.getElementById('chat-header-user');
+  const chatMenuBtn = document.getElementById('chat-menu-btn');
+  const chatMenu = document.getElementById('chat-menu');
+  const chatBanner = document.getElementById('chat-banner');
+  const chatNewPill = document.getElementById('chat-new-pill');
   const chatOverlay = chatModal?.querySelector('.chat-modal-overlay');
 
+  const CHAT_GROUP_MS = 5 * 60 * 1000; // mensajes del mismo autor a menos de 5 min se agrupan
+  const CHAT_CLOSE_MS = 180;
   let currentChat = null;
   let unsubscribeMessages = null;
+  let chatRenderedIds = null;   // ids ya pintados (para animar solo los nuevos)
+  let chatOpener = null;
+  let chatMarkReadTimer = null;
+  let chatBannerKind = null;
 
-  function openChat(chatData) {
-    if (!chatModal) return;
+  const chatReducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const chatIsNearBottom = () =>
+    chatMessagesContainer.scrollHeight - chatMessagesContainer.scrollTop - chatMessagesContainer.clientHeight < 80;
+  const chatScrollToBottom = (smooth = false) => {
+    chatMessagesContainer.scrollTo({ top: chatMessagesContainer.scrollHeight, behavior: smooth && !chatReducedMotion() ? 'smooth' : 'auto' });
+    chatNewPill?.classList.add('hidden');
+  };
 
-    currentChat = chatData;
-    chatAvatar.src = chatData.avatar;
-    chatUsername.textContent = chatData.sender;
-    chatMessagesContainer.innerHTML = '<div class="chat-loading">Cargando mensajes...</div>';
+  // ---- Estado de la barra de escritura ----
+  function updateChatComposer() {
+    const hasText = chatInput.value.trim().length > 0;
+    chatSendBtn.disabled = !hasText;
+    // Altura automática (hasta 5 líneas)
+    chatInput.style.height = 'auto';
+    chatInput.style.height = `${Math.min(chatInput.scrollHeight, 132)}px`;
+  }
 
-    chatModal.classList.remove('hidden');
-    dropdown.classList.add('hidden');
-    chatInput.focus();
+  function showChatBanner(kind, text) {
+    if (!chatBanner) return;
+    chatBannerKind = kind;
+    chatBanner.textContent = text;
+    chatBanner.dataset.kind = kind;
+    chatBanner.classList.remove('hidden');
+  }
 
-    // Subscribe to real messages if it's a real conversation
-    if (chatData.isRealConversation && window.MessagingService) {
-      if (unsubscribeMessages) unsubscribeMessages();
+  function hideChatBanner(kind) {
+    if (!chatBanner || (kind && chatBannerKind !== kind)) return;
+    chatBannerKind = null;
+    chatBanner.classList.add('hidden');
+  }
 
-      unsubscribeMessages = window.MessagingService.subscribeToMessages(chatData.id, (messages) => {
-        renderChatMessages(messages);
-      });
-
-      // Mark as read
-      window.MessagingService.markAsRead(chatData.id);
+  function updateChatConnection() {
+    if (navigator.onLine === false) {
+      showChatBanner('offline', 'Sin conexión. Los mensajes quedarán pendientes hasta que vuelvas a tener conexión.');
+    } else {
+      hideChatBanner('offline');
     }
+  }
+
+  // ---- Teclado virtual: el chat se ajusta al área visible (visualViewport) ----
+  function syncChatViewport() {
+    const vv = window.visualViewport;
+    if (!vv || !chatModal) return;
+    const wasAtBottom = chatIsNearBottom();
+    chatModal.style.setProperty('--chat-vh', `${vv.height}px`);
+    chatModal.style.setProperty('--chat-top', `${vv.offsetTop}px`);
+    chatModal.classList.toggle('kb-open', vv.height < window.innerHeight * 0.85);
+    if (wasAtBottom) chatScrollToBottom();
+  }
+
+  // ---- Pintado del historial ----
+  function chatDate(ts) {
+    if (!ts) return null;
+    return ts.toDate ? ts.toDate() : new Date(ts);
+  }
+
+  function chatDayLabel(date) {
+    const today = new Date();
+    const startOf = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const diffDays = Math.round((startOf(today) - startOf(date)) / 86400000);
+    if (diffDays === 0) return 'Hoy';
+    if (diffDays === 1) return 'Ayer';
+    const opts = diffDays < 7
+      ? { weekday: 'long', day: 'numeric', month: 'long' }
+      : { day: 'numeric', month: 'long', ...(date.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) };
+    const label = date.toLocaleDateString('es-ES', opts);
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+
+  // Texto escapado, con enlaces activos y saltos de línea conservados (CSS pre-wrap)
+  function chatFormatText(text) {
+    return escapeHtmlMention(text || '').replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+  }
+
+  const CHAT_ICON_SENT = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+  const CHAT_ICON_READ = '<svg viewBox="0 0 28 24" width="19" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 6 7 17 3 12.5"></polyline><polyline points="25 6 14.5 17 12.5 15"></polyline></svg>';
+  const CHAT_ICON_PENDING = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>';
+
+  function chatIntroHTML() {
+    if (!currentChat) return '';
+    const name = escapeHtmlMention(currentChat.sender || 'Usuario');
+    return `
+      <div class="chat-intro">
+        <img class="chat-intro-avatar" src="${escapeHtmlMention(currentChat.avatar || '')}" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(currentChat.sender || 'Usuario', 120)}'; this.onerror=null;">
+        <div class="chat-intro-name">${name}</div>
+        <div class="chat-intro-hint">Mensajes directos en KRUX</div>
+        ${currentChat.recipientId ? '<button type="button" class="chat-intro-profile" data-chat-action="profile">Ver perfil</button>' : ''}
+      </div>`;
+  }
+
+  function renderChatLoading() {
+    chatMessagesContainer.innerHTML = `
+      <div class="chat-state" aria-busy="true">
+        <span class="chat-skeleton chat-skeleton--in"></span>
+        <span class="chat-skeleton chat-skeleton--out"></span>
+        <span class="chat-skeleton chat-skeleton--in short"></span>
+        <span class="kx-visually-hidden">Cargando mensajes…</span>
+      </div>`;
+  }
+
+  function renderChatError() {
+    chatMessagesContainer.innerHTML = `
+      ${chatIntroHTML()}
+      <div class="chat-state chat-state--error">
+        <p>No se pudieron cargar los mensajes.</p>
+        <button type="button" class="kx-btn kx-btn--secondary" id="chat-retry-btn">Reintentar</button>
+      </div>`;
+    document.getElementById('chat-retry-btn')?.addEventListener('click', () => subscribeCurrentChat());
   }
 
   function renderChatMessages(messages) {
     const currentUser = firebase.auth().currentUser;
     if (!currentUser) return;
 
+    const firstRender = chatRenderedIds === null;
+    const wasNearBottom = firstRender || chatIsNearBottom();
+    const previousIds = chatRenderedIds || new Set();
+
     if (messages.length === 0) {
       chatMessagesContainer.innerHTML = `
+        ${chatIntroHTML()}
         <div class="chat-empty">
-          <div class="chat-empty-text">No hay mensajes aún</div>
-          <div class="chat-empty-hint">Â¡Envía el primer mensaje!</div>
-        </div>
-      `;
+          <div class="chat-empty-text">Aún no hay mensajes</div>
+          <div class="chat-empty-hint">Escribe el primero para empezar la conversación.</div>
+        </div>`;
+      chatRenderedIds = new Set();
       return;
     }
 
-    chatMessagesContainer.innerHTML = messages.map(msg => {
+    let html = chatIntroHTML() + '<div class="chat-spacer" aria-hidden="true"></div>';
+    let lastDayKey = '';
+    messages.forEach((msg, i) => {
       const isSent = msg.senderId === currentUser.uid;
-      const time = msg.timestamp ?
-        (msg.timestamp.toDate ? msg.timestamp.toDate() : new Date(msg.timestamp))
-          .toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-        : '';
-      const statusIcon = isSent ? (msg.status === 'read' ? '✓✓' : '✓') : '';
-      return `
-        <div class="chat-message ${isSent ? 'sent' : 'received'}">
-          <div class="chat-message-text">${msg.text}</div>
-          <div class="chat-message-meta">
-            <span class="chat-message-time">${time}</span>
-            ${isSent ? `<span class="chat-message-status ${msg.status}">${statusIcon}</span>` : ''}
-          </div>
-        </div>
-      `;
-    }).join('');
+      const date = chatDate(msg.timestamp);
+      const isPending = !date; // escritura local aún sin hora del servidor
+      const effective = date || new Date();
+      const dayKey = effective.toDateString();
+      if (dayKey !== lastDayKey) {
+        html += `<div class="chat-day"><span>${chatDayLabel(effective)}</span></div>`;
+        lastDayKey = dayKey;
+      }
 
-    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+      const prev = messages[i - 1];
+      const next = messages[i + 1];
+      const sameGroup = (a, b) => a && b && a.senderId === b.senderId
+        && Math.abs((chatDate(b.timestamp) || new Date()) - (chatDate(a.timestamp) || new Date())) < CHAT_GROUP_MS
+        && (chatDate(a.timestamp) || new Date()).toDateString() === (chatDate(b.timestamp) || new Date()).toDateString();
+      const continuesPrev = sameGroup(prev, msg);
+      const continuesNext = sameGroup(msg, next);
+
+      const time = isPending ? '' : effective.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      let status = '';
+      if (isSent) {
+        if (isPending) status = `<span class="chat-message-status pending" title="Enviando">${CHAT_ICON_PENDING}<span class="kx-visually-hidden">Enviando</span></span>`;
+        else if (msg.status === 'read') status = `<span class="chat-message-status read" title="Leído">${CHAT_ICON_READ}<span class="kx-visually-hidden">Leído</span></span>`;
+        else status = `<span class="chat-message-status sent" title="Enviado">${CHAT_ICON_SENT}<span class="kx-visually-hidden">Enviado</span></span>`;
+      }
+      // Hora y estado solo al final de cada grupo (y siempre si el mensaje está pendiente)
+      const showMeta = !continuesNext || isPending;
+      const classes = ['chat-message', isSent ? 'sent' : 'received'];
+      if (continuesPrev) classes.push('is-cont');
+      if (!continuesNext) classes.push('is-tail');
+      if (isPending) classes.push('is-pending');
+      if (!firstRender && !previousIds.has(msg.id)) classes.push('is-new');
+
+      html += `
+        <div class="${classes.join(' ')}" data-id="${msg.id}">
+          <div class="chat-message-text">${chatFormatText(msg.text)}</div>
+          ${showMeta ? `<div class="chat-message-meta">${time ? `<span class="chat-message-time">${time}</span>` : ''}${status}</div>` : ''}
+        </div>`;
+    });
+
+    chatMessagesContainer.innerHTML = html;
+    chatRenderedIds = new Set(messages.map(m => m.id));
+
+    const last = messages[messages.length - 1];
+    const lastIsNewMine = last && last.senderId === currentUser.uid && !previousIds.has(last.id);
+    if (wasNearBottom || lastIsNewMine) {
+      chatScrollToBottom(!firstRender);
+    } else if (messages.some(m => !previousIds.has(m.id))) {
+      // El usuario está leyendo mensajes anteriores: no se le mueve, se le avisa
+      chatNewPill?.classList.remove('hidden');
+    }
+
+    // Mensajes recibidos con el chat abierto: se marcan como leídos (MessagingService.markAsRead)
+    const hasUnreadIncoming = messages.some(m => m.senderId !== currentUser.uid && m.status === 'sent');
+    if (hasUnreadIncoming && currentChat?.isRealConversation && document.visibilityState === 'visible') {
+      clearTimeout(chatMarkReadTimer);
+      const id = currentChat.id;
+      chatMarkReadTimer = setTimeout(() => {
+        if (currentChat?.id === id) window.MessagingService?.markAsRead(id);
+      }, 800);
+    }
   }
 
-  function closeChat() {
-    if (chatModal) chatModal.classList.add('hidden');
+  function subscribeCurrentChat() {
+    if (!currentChat?.isRealConversation || !window.MessagingService) return;
+    if (unsubscribeMessages) unsubscribeMessages();
+    chatRenderedIds = null;
+    renderChatLoading();
+    unsubscribeMessages = window.MessagingService.subscribeToMessages(
+      currentChat.id,
+      (messages) => renderChatMessages(messages),
+      () => renderChatError()
+    );
+  }
+
+  function openChat(chatData) {
+    if (!chatModal) return;
+
+    chatOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    currentChat = chatData;
+    chatAvatar.src = chatData.avatar;
+    chatAvatar.onerror = () => { chatAvatar.src = generateAvatarFallback(chatData.sender || 'Usuario', 80); chatAvatar.onerror = null; };
+    chatUsername.textContent = chatData.sender;
+    chatInput.value = '';
+    updateChatComposer();
+    hideChatBanner();
+    closeChatMenu();
+    chatNewPill?.classList.add('hidden');
+    renderChatLoading();
+
+    chatModal.classList.remove('is-closing');
+    chatModal.classList.remove('hidden');
+    dropdown.classList.add('hidden');
+
+    // Solo con ratón/teclado físico: en móvil no se abre el teclado sin que la persona lo pida
+    if (window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      chatInput.focus();
+    } else {
+      chatModal.querySelector('.chat-modal-container')?.focus?.({ preventScroll: true });
+    }
+
+    window.visualViewport?.addEventListener('resize', syncChatViewport);
+    window.visualViewport?.addEventListener('scroll', syncChatViewport);
+    window.addEventListener('online', updateChatConnection);
+    window.addEventListener('offline', updateChatConnection);
+    syncChatViewport();
+    updateChatConnection();
+
+    // Subscribe to real messages if it's a real conversation
+    if (chatData.isRealConversation && window.MessagingService) {
+      subscribeCurrentChat();
+      // Mark as read
+      window.MessagingService.markAsRead(chatData.id);
+    }
+  }
+
+  // Limpieza: listener de mensajes, teclado y conexión. Se llama al cerrar y también si otra
+  // parte de la app oculta el chat (switchView → closeAllModals).
+  function cleanupChat() {
     if (unsubscribeMessages) {
       unsubscribeMessages();
       unsubscribeMessages = null;
     }
+    clearTimeout(chatMarkReadTimer);
+    window.visualViewport?.removeEventListener('resize', syncChatViewport);
+    window.visualViewport?.removeEventListener('scroll', syncChatViewport);
+    window.removeEventListener('online', updateChatConnection);
+    window.removeEventListener('offline', updateChatConnection);
+    if (chatModal?.classList.contains('kb-open')) chatModal.classList.remove('kb-open');
+    closeChatMenu();
     currentChat = null;
+    chatRenderedIds = null;
+  }
+
+  function closeChat({ animate = true } = {}) {
+    if (!chatModal || chatModal.classList.contains('hidden')) return;
+    const opener = chatOpener;
+    cleanupChat();
+    const finish = () => {
+      chatModal.classList.add('hidden');
+      chatModal.classList.remove('is-closing');
+      if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+    };
+    if (animate && !chatReducedMotion()) {
+      chatModal.classList.add('is-closing');
+      setTimeout(finish, CHAT_CLOSE_MS);
+    } else {
+      finish();
+    }
+  }
+
+  if (chatModal) {
+    new MutationObserver(() => {
+      if (chatModal.classList.contains('hidden') && currentChat) cleanupChat();
+    }).observe(chatModal, { attributes: true, attributeFilter: ['class'] });
   }
 
   async function sendMessage() {
@@ -2809,8 +3044,15 @@ function initMessages() {
     if (!text || !currentChat) return;
 
     chatInput.value = '';
+    updateChatComposer();
+    hideChatBanner('send-error');
+    const chatAtSend = currentChat;
 
     if (currentChat.isRealConversation && window.MessagingService) {
+      // Sin conexión, Firestore deja la escritura en cola (el mensaje se ve como pendiente):
+      // el botón no se queda en "enviando" esperando la confirmación del servidor
+      const showSending = navigator.onLine !== false;
+      if (showSending) chatSendBtn.classList.add('is-sending');
       try {
         await window.MessagingService.sendMessage(
           currentChat.id,
@@ -2819,23 +3061,103 @@ function initMessages() {
         );
       } catch (error) {
         console.error('Error sending message:', error);
-        chatInput.value = text; // Restore text on error
-        alert('Error al enviar el mensaje');
+        if (currentChat === chatAtSend) {
+          chatInput.value = text; // Restore text on error
+          updateChatComposer();
+          showChatBanner('send-error', 'No se pudo enviar el mensaje. Revisa tu conexión e inténtalo de nuevo.');
+        }
+      } finally {
+        chatSendBtn.classList.remove('is-sending');
       }
     }
   }
 
-  if (chatCloseBtn) chatCloseBtn.addEventListener('click', closeChat);
-  if (chatOverlay) chatOverlay.addEventListener('click', closeChat);
+  // ---- Menú contextual ----
+  function closeChatMenu() {
+    chatMenu?.classList.add('hidden');
+    chatMenuBtn?.setAttribute('aria-expanded', 'false');
+  }
+
+  function openChatProfile() {
+    const recipientId = currentChat?.recipientId;
+    if (!recipientId) return;
+    closeChat({ animate: false });
+    if (typeof openPublicProfile === 'function') openPublicProfile(recipientId);
+  }
+
+  async function deleteCurrentChat() {
+    if (!currentChat?.id || !window.MessagingService) return;
+    const confirmed = await showConfirm('¿Eliminar esta conversación? Esta acción no se puede deshacer.', 'Eliminar conversación');
+    if (!confirmed || !currentChat) return;
+    const id = currentChat.id;
+    const deleted = await window.MessagingService.deleteConversation(id);
+    if (deleted) closeChat();
+  }
+
+  chatMenuBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = chatMenu.classList.contains('hidden');
+    chatMenu.classList.toggle('hidden', !willOpen);
+    chatMenuBtn.setAttribute('aria-expanded', String(willOpen));
+    if (willOpen) chatMenu.querySelector('.chat-menu-item')?.focus();
+  });
+
+  chatModal?.addEventListener('click', (e) => {
+    const action = e.target.closest('[data-chat-action]')?.dataset.chatAction;
+    if (action === 'profile') {
+      openChatProfile();
+      return;
+    }
+    if (action === 'delete') {
+      closeChatMenu();
+      deleteCurrentChat();
+      return;
+    }
+    if (!e.target.closest('#chat-menu') && !e.target.closest('#chat-menu-btn')) closeChatMenu();
+  });
+
+  // ---- Controles ----
+  if (chatCloseBtn) chatCloseBtn.addEventListener('click', () => closeChat());
+  if (chatOverlay) chatOverlay.addEventListener('click', () => closeChat());
+  chatHeaderUser?.addEventListener('click', openChatProfile);
+
+  // Volver a la bandeja: se cierra el chat y se reabre el panel de mensajes
+  chatBackBtn?.addEventListener('click', (e) => {
+    e.stopPropagation(); // el clic no debe llegar al "cerrar al pulsar fuera" del panel
+    closeChat();
+    if (firebase.auth().currentUser) {
+      setTimeout(() => btn.click(), chatReducedMotion() ? 0 : CHAT_CLOSE_MS);
+    }
+  });
+
   if (chatSendBtn) chatSendBtn.addEventListener('click', sendMessage);
+  chatNewPill?.addEventListener('click', () => chatScrollToBottom(true));
+  chatMessagesContainer?.addEventListener('scroll', () => {
+    if (chatIsNearBottom()) chatNewPill?.classList.add('hidden');
+  }, { passive: true });
+
   if (chatInput) {
+    chatInput.addEventListener('input', () => {
+      updateChatComposer();
+      if (chatInput.value) hideChatBanner('send-error');
+    });
     chatInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         sendMessage();
       }
     });
   }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !chatModal || chatModal.classList.contains('hidden')) return;
+    if (!chatMenu.classList.contains('hidden')) {
+      closeChatMenu();
+      chatMenuBtn.focus();
+    } else {
+      closeChat();
+    }
+  });
 
   // Expose openChat globally
   window.openChatWithUser = openChat;
@@ -6151,7 +6473,8 @@ function escapeHtmlMention(text) {
   if (!text) return '';
   const div = document.createElement('div');
   div.textContent = text;
-  return div.innerHTML;
+  // innerHTML no escapa comillas: se escapan para poder usar el resultado también en atributos
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // Render text with clickable mention links

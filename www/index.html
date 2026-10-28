@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=44" />
+  <link rel="stylesheet" href="./app_2.css?v=46" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -89,7 +89,7 @@
 
   <script defer src="./auth.js?v=5"></script>
 
-  <script defer src="./user-features.js?v=3"></script>
+  <script defer src="./user-features.js?v=4"></script>
 
   <script defer src="./route-photos.js?v=2"></script>
 
@@ -97,7 +97,7 @@
 
   <script defer src="./maplibre-map.js?v=14"></script>
 
-  <script defer src="./app_3.js?v=48"></script>
+  <script defer src="./app_3.js?v=49"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -2328,28 +2328,75 @@
 
 
   <!-- Chat Modal -->
-  <div id="chat-modal" class="chat-modal hidden">
+  <div id="chat-modal" class="chat-modal hidden" role="dialog" aria-modal="true" aria-labelledby="chat-username">
     <div class="chat-modal-overlay"></div>
-    <div class="chat-modal-container">
-      <div class="chat-modal-header">
-        <div class="chat-header-user">
+    <div class="chat-modal-container" tabindex="-1">
+      <header class="chat-modal-header">
+        <button type="button" class="chat-icon-btn chat-back-btn" id="chat-back-btn" aria-label="Volver a mensajes">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+        <button type="button" class="chat-header-user" id="chat-header-user" aria-label="Ver perfil">
           <img src="" alt="" class="chat-avatar" id="chat-avatar">
           <span class="chat-username" id="chat-username">Usuario</span>
+        </button>
+        <div class="chat-header-actions">
+          <button type="button" class="chat-icon-btn chat-menu-btn" id="chat-menu-btn" aria-label="Más opciones"
+            aria-haspopup="menu" aria-expanded="false" aria-controls="chat-menu">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="5" r="1"></circle>
+              <circle cx="12" cy="12" r="1"></circle>
+              <circle cx="12" cy="19" r="1"></circle>
+            </svg>
+          </button>
+          <div class="chat-menu hidden" id="chat-menu" role="menu">
+            <button type="button" role="menuitem" class="chat-menu-item" data-chat-action="profile">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+              <span>Ver perfil</span>
+            </button>
+            <button type="button" role="menuitem" class="chat-menu-item is-danger" data-chat-action="delete">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              <span>Eliminar conversación</span>
+            </button>
+          </div>
+          <button type="button" class="chat-icon-btn chat-close-btn" id="chat-close-btn" aria-label="Cerrar chat">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
-        <button class="chat-close-btn" id="chat-close-btn">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
+      </header>
+      <div class="chat-banner hidden" id="chat-banner" role="status"></div>
+      <div class="chat-body">
+        <div class="chat-messages" id="chat-messages" role="log" aria-live="polite" aria-label="Mensajes">
+          <!-- Chat messages injected by JS -->
+        </div>
+        <button type="button" class="chat-new-pill hidden" id="chat-new-pill">
+          Mensajes nuevos
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"></polyline>
           </svg>
         </button>
       </div>
-      <div class="chat-messages" id="chat-messages">
-        <!-- Chat messages injected by JS -->
-      </div>
       <div class="chat-input-area">
-        <input type="text" class="chat-input" id="chat-input" placeholder="Escribe un mensaje...">
-        <button class="chat-send-btn" id="chat-send-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <textarea class="chat-input" id="chat-input" rows="1" placeholder="Escribe un mensaje…"
+          aria-label="Escribe un mensaje" enterkeyhint="send" autocomplete="off"></textarea>
+        <button type="button" class="chat-send-btn" id="chat-send-btn" aria-label="Enviar mensaje" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="22" y1="2" x2="11" y2="13"></line>
             <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
           </svg>
