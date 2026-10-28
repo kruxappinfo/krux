@@ -25397,7 +25397,6 @@ body.kx-sheet-open #feed-view .feed-container {
 }
 
 .search-row:focus-visible,
-.search-recent-query:focus-visible,
 .search-recent-remove:focus-visible,
 .search-explore-tile:focus-visible,
 .search-more:focus-visible,
@@ -25520,31 +25519,14 @@ body.kx-sheet-open #feed-view .feed-container {
   background: rgba(32, 41, 35, 0.04);
 }
 
-.search-recent-query {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.search-recent-open {
   flex: 1;
   min-width: 0;
-  min-height: 46px;
-  padding: 0 10px;
-  border: 0;
+  min-height: 60px;
+}
+
+.search-recent-open:hover {
   background: transparent;
-  color: var(--kx-ink);
-  font-size: var(--kx-fs-body);
-  text-align: left;
-  cursor: pointer;
-}
-
-.search-recent-query svg {
-  color: var(--kx-ink-3);
-  flex-shrink: 0;
-}
-
-.search-recent-query span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .search-recent-remove {
@@ -25701,4 +25683,9 @@ body.kx-sheet-open #feed-view .feed-container {
   .search-skel .b {
     animation: none;
   }
+}
+
+.kx-sheet .kx-follow.is-pending {
+  opacity: 0.55;
+  cursor: progress;
 }

@@ -1125,7 +1125,9 @@ function initGlobalSearch() {
 
   if (!sheet || !searchBtn || !searchInput || !resultsContainer) return;
 
-  const RECENT_KEY = 'krux-recent-searches';
+  // Recientes: los destinos que se abren desde los resultados (perfil, escuela, sector, vía), no el texto escrito.
+  // Clave nueva: el historial antiguo guardaba texto y no se reutiliza.
+  const RECENT_KEY = 'krux-recent-results';
   const RECENT_MAX = 8;
   const MIN_CHARS = 2;
   const SECTION_LIMIT = 5; // por sección en «Todo»
@@ -1140,17 +1142,25 @@ function initGlobalSearch() {
   const esc = (t) => escapeHtmlMention(String(t ?? ''));
   const norm = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-  // ---------- Búsquedas recientes (este dispositivo) ----------
+  // ---------- Recientes (este dispositivo) ----------
+  const recentKey = (it) => {
+    if (it.type === 'user') return `u:${it.id}`;
+    if (it.type === 'school') return `s:${it.id}`;
+    if (it.type === 'sector') return `c:${it.schoolId}|${it.name}`;
+    return `r:${it.schoolId}|${it.name}|${it.sector || ''}`;
+  };
   function getRecent() {
-    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]').filter(q => typeof q === 'string'); } catch (_) { return []; }
+    try {
+      return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
+        .filter(it => it && typeof it === 'object' && ['user', 'school', 'sector', 'route'].includes(it.type));
+    } catch (_) { return []; }
   }
   function setRecent(list) {
     try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX))); } catch (_) { /* almacenamiento no disponible */ }
   }
-  function rememberQuery(query) {
-    const q = query.trim();
-    if (q.length < MIN_CHARS) return;
-    setRecent([q, ...getRecent().filter(x => norm(x) !== norm(q))]);
+  function rememberResult(item) {
+    if (!item || !item.type) return;
+    setRecent([item, ...getRecent().filter(x => recentKey(x) !== recentKey(item))]);
   }
 
   // ---------- Índice de lugares desde la cartografía ----------
@@ -1277,11 +1287,12 @@ function initGlobalSearch() {
       : '';
     const meta = [handle, followers].filter(Boolean).join(' · ');
     const isMe = currentUser && user.id === currentUser.uid;
+    const pending = isFollowing === null; // estado aún por consultar
     const follow = currentUser && !isMe
-      ? `<button type="button" class="kx-follow follow-btn ${isFollowing ? 'following' : ''}" data-follow-id="${esc(user.id)}">${isFollowing ? 'Siguiendo' : 'Seguir'}</button>`
+      ? `<button type="button" class="kx-follow follow-btn ${isFollowing ? 'following' : ''}${pending ? ' is-pending' : ''}" data-follow-id="${esc(user.id)}"${pending ? ' disabled aria-busy="true"' : ''}>${isFollowing ? 'Siguiendo' : 'Seguir'}</button>`
       : '';
     return `
-      <div class="search-row" role="button" tabindex="0" data-open="user" data-id="${esc(user.id)}">
+      <div class="search-row" role="button" tabindex="0" data-open="user" data-id="${esc(user.id)}" data-name="${name}" data-photo="${esc(user.photoURL || '')}" data-handle="${esc(user.username || '')}">
         <img class="search-avatar" src="${esc(avatar)}" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(user.displayName || 'Usuario', 96)}'; this.onerror=null;">
         <div class="search-info">
           <div class="search-title">${name}</div>
@@ -1347,12 +1358,34 @@ function initGlobalSearch() {
     const recent = getRecent();
     let html = '';
     if (recent.length) {
-      html += '<div class="search-section-head"><h3>Búsquedas recientes</h3></div><div class="search-recent">';
-      recent.forEach(q => {
+      html += '<div class="search-section-head"><h3>Recientes</h3></div><div class="search-recent">';
+      recent.forEach(it => {
+        const key = esc(recentKey(it));
+        let lead; let title = esc(it.name || ''); let meta = '';
+        if (it.type === 'user') {
+          const avatar = it.photo || generateAvatarFallback(it.name || 'Usuario', 96);
+          lead = `<img class="search-avatar" src="${esc(avatar)}" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(it.name || 'Usuario', 96)}'; this.onerror=null;">`;
+          meta = it.handle ? `@${esc(it.handle)}` : 'Perfil';
+        } else if (it.type === 'school') {
+          lead = `<span class="search-thumb">${ICONS.mountain}</span>`;
+          meta = 'Escuela';
+        } else if (it.type === 'sector') {
+          lead = `<span class="search-thumb search-thumb--soft">${ICONS.sector}</span>`;
+          meta = `Sector · ${esc(it.schoolName || '')}`;
+        } else {
+          lead = gradeChip(it.grade);
+          meta = [it.sector ? `Sector ${esc(it.sector)}` : '', esc(it.schoolName || '')].filter(Boolean).join(' · ');
+        }
         html += `
           <div class="search-recent-row">
-            <button type="button" class="search-recent-query" data-query="${esc(q)}">${ICONS.clock}<span>${esc(q)}</span></button>
-            <button type="button" class="search-recent-remove" data-remove="${esc(q)}" aria-label="Quitar «${esc(q)}» de recientes">${ICONS.x}</button>
+            <div class="search-row search-recent-open" role="button" tabindex="0" data-recent-open="${key}">
+              ${lead}
+              <div class="search-info">
+                <div class="search-title">${title}</div>
+                ${meta ? `<div class="search-meta">${meta}</div>` : ''}
+              </div>
+            </div>
+            <button type="button" class="search-recent-remove" data-remove="${key}" aria-label="Quitar de recientes: ${title}">${ICONS.x}</button>
           </div>`;
       });
       html += '</div>';
@@ -1368,6 +1401,8 @@ function initGlobalSearch() {
   }
 
   async function renderEmptyCategory(type) {
+    // Invalida cualquier carga pendiente (p. ej. la lista de escuelas) antes de pintar
+    const seq = ++searchSeq;
     if (type === 'all') { renderExplore(); return; }
     if (type === 'users') {
       resultsContainer.innerHTML = stateBox('Busca personas', 'Escribe al menos dos letras de su nombre.');
@@ -1378,7 +1413,6 @@ function initGlobalSearch() {
       return;
     }
     // Escuelas sin consulta: listado completo de escuelas
-    const seq = ++searchSeq;
     resultsContainer.innerHTML = skeleton(3);
     try {
       const index = await loadPlacesIndex();
@@ -1409,11 +1443,8 @@ function initGlobalSearch() {
       const key = norm(q);
       if (!userCache.has(key)) userCache.set(key, searchUsersGlobal(q).catch(e => { userCache.delete(key); throw e; }));
       const users = (await userCache.get(key)).filter(u => !(currentUser && u.id === currentUser.uid));
-      // Estado de seguimiento real, en paralelo
-      const following = currentUser ? await Promise.all(users.map(u =>
-        db.collection('users').doc(currentUser.uid).collection('following').doc(u.id).get()
-          .then(d => d.exists).catch(() => false))) : users.map(() => false);
-      return users.map((u, i) => ({ user: u, following: following[i] }));
+      // El estado de seguimiento llega después (hydrateFollowStates): no bloquea la lista
+      return users.map(u => ({ user: u, following: currentUser ? null : false }));
     })() : Promise.resolve([]);
     const indexTask = (wantsPlaces || wantsRoutes) ? loadPlacesIndex() : Promise.resolve(null);
 
@@ -1447,6 +1478,27 @@ function initGlobalSearch() {
     if (routes.length) html += sectionHead('Vías', type === 'all' ? 'routes' : null, routes.length) + shownRoutes.map(routeRow).join('');
     if (failed) html += stateBox('Algunos resultados no se pudieron cargar', 'Revisa tu conexión.');
     resultsContainer.innerHTML = html;
+    hydrateFollowStates(limit(users), seq);
+  }
+
+  // Consulta el estado real de seguimiento de cada persona mostrada y activa su botón
+  function hydrateFollowStates(list, seq) {
+    if (!currentUser) return;
+    list.forEach(({ user }) => {
+      db.collection('users').doc(currentUser.uid).collection('following').doc(user.id).get()
+        .then(doc => doc.exists)
+        .catch(() => false)
+        .then(following => {
+          if (seq !== searchSeq) return; // ya hay otra búsqueda en pantalla
+          const btn = [...resultsContainer.querySelectorAll('[data-follow-id]')].find(b => b.dataset.followId === user.id);
+          if (!btn || !btn.classList.contains('is-pending')) return;
+          btn.classList.remove('is-pending');
+          btn.classList.toggle('following', following);
+          btn.textContent = following ? 'Siguiendo' : 'Seguir';
+          btn.disabled = false;
+          btn.removeAttribute('aria-busy');
+        });
+    });
   }
 
   // ---------- Navegación a los destinos ----------
@@ -1482,6 +1534,36 @@ function initGlobalSearch() {
         });
       }
     });
+  }
+
+  // Abre un reciente: personas directamente; lugares y vías se resuelven contra la cartografía actual
+  async function openRecent(item) {
+    if (item.type === 'user') {
+      rememberResult(item);
+      sheet.classList.add('hidden');
+      openPublicProfile(item.id);
+      return;
+    }
+    let target = null;
+    try {
+      const index = await loadPlacesIndex();
+      if (item.type === 'school') target = index.schools.find(x => x.id === item.id);
+      else if (item.type === 'sector') target = index.sectors.find(x => x.schoolId === item.schoolId && x.name === item.name);
+      else target = index.routes.find(x => x.schoolId === item.schoolId && x.name === item.name && (x.sector || '') === (item.sector || ''));
+    } catch (err) {
+      console.error('Error abriendo reciente:', err);
+      showToast('No se pudo cargar la cartografía. Revisa tu conexión.', 'error');
+      return;
+    }
+    if (!target) {
+      // Ya no existe en la cartografía: se quita de recientes
+      setRecent(getRecent().filter(it => recentKey(it) !== recentKey(item)));
+      renderExplore();
+      showToast('Ese resultado ya no está disponible', 'info');
+      return;
+    }
+    rememberResult(item);
+    openOnMap(target);
   }
 
   // ---------- Eventos ----------
@@ -1536,7 +1618,6 @@ function initGlobalSearch() {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (searchTimeout) clearTimeout(searchTimeout);
-      rememberQuery(searchInput.value);
       performSearch(searchInput.value, currentType);
       searchInput.blur(); // cierra el teclado para ver los resultados
     }
@@ -1561,44 +1642,52 @@ function initGlobalSearch() {
     if (more) { setCategory(more.dataset.category); return; }
     if (e.target.closest('.search-retry')) { performSearch(searchInput.value, currentType); return; }
 
-    const recentQuery = e.target.closest('[data-query]');
-    if (recentQuery) {
-      searchInput.value = recentQuery.dataset.query;
-      updateClear();
-      rememberQuery(searchInput.value);
-      performSearch(searchInput.value, currentType);
-      return;
-    }
     const remove = e.target.closest('[data-remove]');
     if (remove) {
-      setRecent(getRecent().filter(q => q !== remove.dataset.remove));
+      e.stopPropagation();
+      setRecent(getRecent().filter(it => recentKey(it) !== remove.dataset.remove));
       renderExplore();
+      return;
+    }
+    const recentRow = e.target.closest('[data-recent-open]');
+    if (recentRow) {
+      const item = getRecent().find(it => recentKey(it) === recentRow.dataset.recentOpen);
+      if (item) openRecent(item);
       return;
     }
 
     const row = e.target.closest('[data-open]');
     if (!row) return;
-    rememberQuery(searchInput.value);
     const kind = row.dataset.open;
     if (kind === 'user') {
+      rememberResult({ type: 'user', id: row.dataset.id, name: row.dataset.name, photo: row.dataset.photo, handle: row.dataset.handle });
       sheet.classList.add('hidden');
       openPublicProfile(row.dataset.id);
     } else if (kind === 'school') {
       const index = await loadPlacesIndex();
       const school = index.schools.find(sc => sc.id === row.dataset.id);
-      if (school) openOnMap(school);
+      if (school) {
+        rememberResult({ type: 'school', id: school.id, name: school.name });
+        openOnMap(school);
+      }
     } else if (kind === 'sector') {
       const item = shownPlaces[Number(row.dataset.index)];
-      if (item) openOnMap(item);
+      if (item) {
+        rememberResult({ type: 'sector', schoolId: item.schoolId, schoolName: item.schoolName, name: item.name });
+        openOnMap(item);
+      }
     } else if (kind === 'route') {
       const item = shownRoutes[Number(row.dataset.index)];
-      if (item) openOnMap(item);
+      if (item) {
+        rememberResult({ type: 'route', schoolId: item.schoolId, schoolName: item.schoolName, name: item.name, grade: item.grade, sector: item.sector });
+        openOnMap(item);
+      }
     }
   });
 
   // Teclado: Intro o espacio abren el resultado
   resultsContainer.addEventListener('keydown', (e) => {
-    const row = e.target.closest('[data-open]');
+    const row = e.target.closest('[data-open], [data-recent-open]');
     if (row && e.target === row && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
       row.click();
