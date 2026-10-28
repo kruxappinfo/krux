@@ -22232,3 +22232,2049 @@ body.plan-editor-open { overflow: hidden; }
   color: var(--text-muted);
   padding: 20px 16px;
 }
+
+/* ====================================================================
+   FEED — REDISEÑO VISUAL (blanco cálido · gris piedra · violeta azulado)
+   --------------------------------------------------------------------
+   Alcance: #feed-view, modal de publicación, crear publicación, chat,
+   visor de imágenes, confirmación y navegación inferior.
+   Convenciones: tokens --kx-*, selectores acotados con :is(#feed-view,
+   #view-post-modal) para compartir estilos entre el feed y su modal.
+   Cristal (blur) solo en: navegación inferior y etiqueta sobre la foto.
+   ==================================================================== */
+
+:root {
+  --kx-bg: #F3F0EA;
+  --kx-surface: #FFFFFF;
+  --kx-surface-2: #F7F5F0;
+  --kx-stone: #E7E2D9;
+  --kx-line: rgba(27, 28, 33, 0.08);
+  --kx-ink: #1B1C21;
+  --kx-ink-2: #55534E;
+  --kx-ink-3: #77746E;
+  --kx-accent: #5B5BD6;
+  --kx-accent-soft: rgba(91, 91, 214, 0.10);
+  --kx-heart: #E5484D;
+  --kx-danger: #C2362B;
+  --kx-radius-card: 22px;
+  --kx-radius-media: 16px;
+  --kx-shadow-card: 0 1px 2px rgba(27, 28, 33, 0.04), 0 10px 28px rgba(27, 28, 33, 0.05);
+  --kx-shadow-pop: 0 14px 36px rgba(27, 28, 33, 0.18);
+  --kx-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --kx-nav-h: 64px;
+}
+
+/* ---------- Navegador: selección y barras de la vista del feed ---------- */
+:is(#feed-view, #view-post-modal, #create-post-modal, #chat-modal) ::selection {
+  background: rgba(91, 91, 214, 0.22);
+  color: var(--kx-ink);
+}
+
+#feed-view .feed-container,
+#feed-view .notification-list,
+#feed-view .messages-list,
+#chat-modal .chat-messages,
+#view-post-modal .view-post-body {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(27, 28, 33, 0.22) transparent;
+}
+
+/* ---------- Estructura de la vista ---------- */
+#feed-view {
+  background: var(--kx-bg);
+  color: var(--kx-ink);
+}
+
+/* Sin contención ni z-index propio: la contención de .view (layout/paint) atrapa las hojas
+   (position: fixed) dentro de la vista y el z-index crea un contexto que las deja bajo la navegación */
+#feed-view.view,
+#feed-view.view.active {
+  contain: none;
+}
+
+#feed-view.view.active {
+  z-index: auto;
+}
+
+/* ---------- Cabecera ---------- */
+#feed-view .feed-header {
+  height: auto;
+  min-height: 60px;
+  padding: env(safe-area-inset-top, 0px) 8px 0 20px;
+  background: var(--kx-bg);
+  border-bottom: 0;
+  box-shadow: none;
+  gap: 8px;
+  /* La fijación la lleva .feed-top (cabecera + fila de crear) */
+  position: relative;
+  top: auto;
+}
+
+/* Bloque fijo: cabecera y "¿Qué quieres compartir?" no se mueven con el scroll de las publicaciones */
+#feed-view .feed-top {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--kx-bg);
+  border-bottom: 1px solid var(--kx-line);
+}
+
+#feed-view .feed-logo-container {
+  position: static;
+  transform: none;
+}
+
+.feed-wordmark {
+  display: block;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  color: var(--kx-ink);
+}
+
+#feed-view .feed-actions {
+  gap: 0;
+  flex-shrink: 0;
+}
+
+#feed-view .icon-btn {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--kx-ink);
+  background: transparent;
+  transition: background 0.2s var(--kx-ease), transform 0.2s var(--kx-ease);
+}
+
+#feed-view .icon-btn:hover {
+  background: rgba(27, 28, 33, 0.06);
+}
+
+#feed-view .icon-btn:active {
+  transform: scale(0.94);
+}
+
+#feed-view .icon-btn:focus-visible,
+:is(#feed-view, #view-post-modal) .feed-action-btn:focus-visible,
+:is(#feed-view, #view-post-modal) .feed-post-menu-btn:focus-visible,
+:is(#feed-view, #view-post-modal) .feed-post-menu-item:focus-visible,
+#chat-modal button:focus-visible,
+#create-post-modal button:focus-visible,
+.bottom-nav .nav-item:focus-visible {
+  outline: 2px solid var(--kx-accent);
+  outline-offset: 2px;
+}
+
+#feed-view .icon-btn svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 1.75px;
+}
+
+/* Punto de no leído en la campana (estado por clase has-unread) */
+.notification-dot {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--kx-accent);
+  box-shadow: 0 0 0 2px var(--kx-bg);
+  transform: scale(0);
+  transition: transform 0.25s var(--kx-ease);
+}
+
+.notification-btn.has-unread .notification-dot {
+  transform: scale(1);
+}
+
+#feed-view .messages-badge {
+  top: 4px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--kx-accent);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 18px;
+  box-shadow: 0 0 0 2px var(--kx-bg);
+}
+
+#feed-view .messages-badge.hidden {
+  display: none;
+}
+
+/* ---------- Lista de publicaciones ---------- */
+#feed-view .feed-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 640px;
+  padding: 14px 12px calc(var(--kx-nav-h) + 40px + env(safe-area-inset-bottom, 0px));
+  background: transparent;
+  contain: none;
+}
+
+#feed-view .feed-card {
+  padding: 14px 14px 4px;
+  background: var(--kx-surface);
+  border: 1px solid var(--kx-line);
+  border-radius: var(--kx-radius-card);
+  box-shadow: var(--kx-shadow-card);
+  contain: none;
+  /* content-visibility: auto aplica contención y atrapa la hoja inferior (position: fixed) */
+  content-visibility: visible;
+}
+
+#feed-view .feed-card:last-child {
+  border-bottom: 1px solid var(--kx-line);
+}
+
+/* ---------- Cabecera de publicación: autor · lugar · hora ---------- */
+:is(#feed-view, #view-post-modal) .feed-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--kx-stone);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-header-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 1px;
+}
+
+:is(#feed-view, #view-post-modal) .feed-header-row {
+  display: flex;
+  align-items: center;
+}
+
+:is(#feed-view, #view-post-modal) .feed-username {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--kx-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(#feed-view, #view-post-modal) .feed-location-text {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.875rem;
+  line-height: 1.3;
+  color: var(--kx-ink-2);
+  min-width: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-location-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-pin-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-time-row {
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  color: var(--kx-ink-3);
+}
+
+:is(#feed-view, #view-post-modal) .feed-time {
+  color: inherit;
+  font-size: inherit;
+}
+
+/* ---------- Menú de publicación (⋯) ---------- */
+:is(#feed-view, #view-post-modal) .feed-post-menu-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  margin: -5px -8px 0 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink-2);
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease);
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-btn:hover {
+  background: rgba(27, 28, 33, 0.06);
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-dropdown {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 0;
+  min-width: 210px;
+  padding: 6px;
+  background: var(--kx-surface);
+  border: 1px solid var(--kx-line);
+  border-radius: 16px;
+  box-shadow: var(--kx-shadow-pop);
+  margin-top: 0;
+  -webkit-mask-image: none;
+  mask-image: none;
+  z-index: 60;
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-dropdown.hidden {
+  display: none;
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--kx-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-item:hover {
+  background: var(--kx-surface-2);
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-item svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.75px;
+  flex-shrink: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-item-danger {
+  color: var(--kx-danger);
+}
+
+/* ---------- Foto ---------- */
+:is(#feed-view, #view-post-modal) .feed-media-wrapper {
+  position: relative;
+  margin: 0 0 12px;
+  border-radius: var(--kx-radius-media);
+  overflow: hidden;
+  background: var(--kx-stone);
+}
+
+:is(#feed-view, #view-post-modal) .feed-image-container {
+  position: relative;
+  aspect-ratio: 1.3;
+  max-height: none;
+  overflow: hidden;
+  border-radius: 0;
+  background: var(--kx-stone);
+}
+
+:is(#feed-view, #view-post-modal) .feed-image-container .feed-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+  object-position: 50% 38%;
+  border-radius: 0;
+  display: block;
+}
+
+:is(#feed-view, #view-post-modal) .feed-images-grid {
+  display: grid;
+  gap: 3px;
+  aspect-ratio: 1.3;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+:is(#feed-view, #view-post-modal) .feed-images-grid.grid-2,
+:is(#feed-view, #view-post-modal) .feed-images-grid.grid-modal {
+  grid-template-columns: 1fr 1fr;
+}
+
+:is(#feed-view, #view-post-modal) .feed-images-grid.grid-3 {
+  grid-template-columns: 1.4fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+:is(#feed-view, #view-post-modal) .feed-images-grid.grid-3 .feed-image:first-child {
+  grid-row: 1 / span 2;
+}
+
+:is(#feed-view, #view-post-modal) .feed-images-grid.grid-4 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+:is(#feed-view, #view-post-modal) .feed-images-grid .feed-image {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  object-fit: cover;
+  object-position: 50% 38%;
+  border-radius: 0;
+  display: block;
+  cursor: pointer;
+}
+
+/* Etiqueta de cristal con el lugar (decorativa; el lugar ya está en la cabecera) */
+.feed-photo-tag {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  max-width: calc(100% - 24px);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px 8px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(28, 25, 22, 0.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.feed-photo-tag span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-photo-tag .feed-pin-icon {
+  width: 16px;
+  height: 16px;
+}
+
+:is(#feed-view, #view-post-modal) .feed-video-container {
+  margin: 0 0 12px;
+  border-radius: var(--kx-radius-media);
+  overflow: hidden;
+  background: #000;
+}
+
+:is(#feed-view, #view-post-modal) .feed-video {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+}
+
+/* ---------- Texto ---------- */
+:is(#feed-view, #view-post-modal) .feed-text-content {
+  margin: 0 0 4px;
+  padding: 0 2px;
+}
+
+:is(#feed-view, #view-post-modal) .feed-text-title {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  color: var(--kx-ink);
+}
+
+:is(#feed-view, #view-post-modal) .feed-text-body {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  color: var(--kx-ink);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+:is(#feed-view, #view-post-modal, #chat-modal) .mention-link {
+  color: var(--kx-accent);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+:is(#feed-view, #view-post-modal) .feed-text-edit-input,
+:is(#feed-view, #view-post-modal) .feed-comment-edit-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--kx-line);
+  border-radius: 14px;
+  background: var(--kx-surface-2);
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--kx-ink);
+  resize: vertical;
+}
+
+:is(#feed-view, #view-post-modal) .feed-text-edit-input:focus,
+:is(#feed-view, #view-post-modal) .feed-comment-edit-input:focus {
+  outline: 2px solid var(--kx-accent);
+  outline-offset: 1px;
+  background: #fff;
+}
+
+:is(#feed-view, #view-post-modal) .feed-text-edit-actions,
+:is(#feed-view, #view-post-modal) .feed-comment-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+:is(#feed-view, #view-post-modal) .feed-text-edit-cancel,
+:is(#feed-view, #view-post-modal) .feed-comment-edit-cancel,
+:is(#feed-view, #view-post-modal) .feed-text-edit-save,
+:is(#feed-view, #view-post-modal) .feed-comment-edit-save {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:is(#feed-view, #view-post-modal) .feed-text-edit-cancel,
+:is(#feed-view, #view-post-modal) .feed-comment-edit-cancel {
+  background: var(--kx-surface-2);
+  color: var(--kx-ink);
+}
+
+:is(#feed-view, #view-post-modal) .feed-text-edit-save,
+:is(#feed-view, #view-post-modal) .feed-comment-edit-save {
+  background: var(--kx-accent);
+  color: #fff;
+}
+
+/* ---------- Acciones: me gusta · comentar · guardar ---------- */
+:is(#feed-view, #view-post-modal) .feed-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 -8px;
+  padding: 0 0 4px;
+  border: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--kx-ink-2);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease), transform 0.2s var(--kx-ease);
+}
+
+:is(#feed-view, #view-post-modal) .feed-action-btn:hover {
+  background: rgba(27, 28, 33, 0.05);
+}
+
+:is(#feed-view, #view-post-modal) .feed-action-btn:active {
+  transform: scale(0.94);
+}
+
+:is(#feed-view, #view-post-modal) .feed-action-btn svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 1.75px;
+  flex-shrink: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-action-count {
+  min-width: 0.5em;
+}
+
+:is(#feed-view, #view-post-modal) .feed-action-btn.liked {
+  color: var(--kx-ink);
+}
+
+:is(#feed-view, #view-post-modal) .feed-action-btn.liked svg {
+  fill: var(--kx-heart);
+  stroke: var(--kx-heart);
+}
+
+:is(#feed-view, #view-post-modal) .feed-action-btn.bookmarked {
+  color: var(--kx-accent);
+}
+
+:is(#feed-view, #view-post-modal) .feed-action-btn.bookmarked svg {
+  fill: var(--kx-accent);
+  stroke: var(--kx-accent);
+}
+
+.feed-actions-spacer {
+  flex: 1;
+}
+
+/* ---------- Comentarios y respuestas ---------- */
+:is(#feed-view, #view-post-modal) .feed-comments-section {
+  margin: 0 -2px;
+  padding: 12px 0 8px;
+  border-top: 1px solid var(--kx-line);
+}
+
+:is(#feed-view, #view-post-modal) .feed-comments-section.hidden {
+  display: none;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-form-avatar,
+:is(#feed-view, #view-post-modal) .feed-comment-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--kx-stone);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-input,
+:is(#feed-view, #view-post-modal) .feed-comment-reply-input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--kx-line);
+  border-radius: 22px;
+  background: var(--kx-surface-2);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--kx-ink);
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-input::placeholder,
+:is(#feed-view, #view-post-modal) .feed-comment-reply-input::placeholder,
+#chat-modal .chat-input::placeholder,
+#create-post-modal textarea::placeholder {
+  color: var(--kx-ink-3);
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-input:focus,
+:is(#feed-view, #view-post-modal) .feed-comment-reply-input:focus {
+  outline: 2px solid var(--kx-accent);
+  outline-offset: 1px;
+  background: #fff;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-submit,
+:is(#feed-view, #view-post-modal) .feed-comment-reply-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kx-accent);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-submit:hover,
+:is(#feed-view, #view-post-modal) .feed-comment-reply-submit:hover {
+  background: #4D4DC6;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-submit svg,
+:is(#feed-view, #view-post-modal) .feed-comment-reply-submit svg {
+  width: 20px;
+  height: 20px;
+  stroke: #fff;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-reply-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-reply-form.hidden,
+:is(#feed-view, #view-post-modal) .feed-comment-replies.hidden {
+  display: none;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-content {
+  flex: 1;
+  min-width: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-username {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--kx-ink);
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-time {
+  font-size: 0.8125rem;
+  color: var(--kx-ink-3);
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-text {
+  margin: 2px 0 2px;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--kx-ink);
+  overflow-wrap: anywhere;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  margin: 0 0 0 -8px;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 40px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 20px;
+  background: transparent;
+  color: var(--kx-ink-2);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-action-btn:hover {
+  background: rgba(27, 28, 33, 0.05);
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-action-btn svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.75px;
+  flex-shrink: 0;
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-action-btn.liked {
+  color: var(--kx-ink);
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-action-btn.liked svg {
+  fill: var(--kx-heart);
+  stroke: var(--kx-heart);
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-replies {
+  margin: 4px 0 0;
+  padding: 0 0 0 4px;
+  border-left: 1px solid var(--kx-line);
+}
+
+:is(#feed-view, #view-post-modal) .feed-comment-menu-btn {
+  width: 36px;
+  height: 36px;
+  margin: -6px -8px 0 auto;
+  border-radius: 50%;
+  color: var(--kx-ink-3);
+}
+
+.feed-comment-menu-dropdown-portal {
+  min-width: 190px;
+  padding: 6px;
+  background: var(--kx-surface);
+  border: 1px solid var(--kx-line);
+  border-radius: 16px;
+  box-shadow: var(--kx-shadow-pop);
+}
+
+.feed-comment-menu-dropdown-portal .feed-comment-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--kx-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.feed-comment-menu-dropdown-portal .feed-comment-menu-item:hover {
+  background: var(--kx-surface-2);
+}
+
+.feed-comment-menu-dropdown-portal .feed-comment-menu-item svg {
+  width: 20px;
+  height: 20px;
+}
+
+.feed-comment-menu-dropdown-portal .feed-comment-menu-item-danger {
+  color: var(--kx-danger);
+}
+
+/* ---------- Estados: cargando · vacío · error ---------- */
+#feed-view .feed-container > .loading-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  margin: 0;
+  padding: 24px;
+  border: 1px solid var(--kx-line);
+  border-radius: var(--kx-radius-card);
+  background: linear-gradient(100deg, var(--kx-surface) 30%, var(--kx-surface-2) 50%, var(--kx-surface) 70%) 0 0 / 220% 100%;
+  color: var(--kx-ink-2);
+  font-size: 0.9375rem;
+  animation: kxShimmer 1.6s linear infinite;
+}
+
+@keyframes kxShimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -100% 0; }
+}
+
+.feed-state {
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--kx-ink-2);
+}
+
+.feed-state svg {
+  display: block;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  color: var(--kx-ink-3);
+}
+
+.feed-state h3 {
+  margin: 0 0 6px;
+  font-size: 1.1875rem;
+  font-weight: 700;
+  color: var(--kx-ink);
+}
+
+.feed-state p {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.feed-state-error {
+  color: var(--kx-danger);
+}
+
+.feed-state-btn {
+  min-height: 44px;
+  margin-top: 16px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--kx-accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ---------- Publicaciones con ascensos / actividad (legado) ---------- */
+:is(#feed-view, #view-post-modal) .feed-ascensions-card,
+:is(#feed-view, #view-post-modal) .feed-activity-stats {
+  margin: 0 0 12px;
+  padding: 14px;
+  border-radius: var(--kx-radius-media);
+  background: var(--kx-surface-2);
+}
+
+:is(#feed-view, #view-post-modal) .achievement-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ====================================================================
+   AVISOS Y MENSAJES (desplegables en escritorio · pantalla completa en móvil)
+   ==================================================================== */
+#feed-view .notification-dropdown,
+#feed-view .messages-dropdown {
+  top: calc(100% - 4px);
+  right: 12px;
+  width: 360px;
+  max-height: min(70vh, 520px);
+  background: var(--kx-surface);
+  border: 1px solid var(--kx-line);
+  border-radius: 20px;
+  box-shadow: var(--kx-shadow-pop);
+  display: flex;
+  flex-direction: column;
+}
+
+#feed-view .notification-dropdown.hidden,
+#feed-view .messages-dropdown.hidden {
+  display: none;
+}
+
+#feed-view .notification-header,
+#feed-view .messages-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 8px 12px 18px;
+  background: transparent;
+  border-bottom: 1px solid var(--kx-line);
+}
+
+#feed-view .notification-title,
+#feed-view .messages-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--kx-ink);
+}
+
+#feed-view .sheet-close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink);
+  cursor: pointer;
+}
+
+#feed-view .sheet-close:hover {
+  background: rgba(27, 28, 33, 0.06);
+}
+
+#feed-view .notification-list,
+#feed-view .messages-list {
+  flex: 1;
+  max-height: none;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+/* Filas */
+#feed-view .notification-item,
+#feed-view .message-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  max-height: none;
+  position: relative;
+  transition: background 0.2s var(--kx-ease);
+}
+
+#feed-view .notification-item:hover,
+#feed-view .message-item:hover {
+  background: var(--kx-surface-2);
+}
+
+#feed-view .notification-item.unread,
+#feed-view .message-item.unread {
+  background: var(--kx-accent-soft);
+}
+
+#feed-view .notification-avatar,
+#feed-view .message-avatar {
+  width: 48px;
+  height: 48px;
+  margin: 0;
+  border-radius: 50%;
+  background: var(--kx-stone);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+#feed-view .notification-clickable-area {
+  gap: 12px;
+}
+
+#feed-view .notification-content,
+#feed-view .message-content {
+  flex: 1;
+  min-width: 0;
+}
+
+#feed-view .notification-text {
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  color: var(--kx-ink);
+}
+
+#feed-view .notification-text strong {
+  font-weight: 600;
+  color: var(--kx-ink);
+}
+
+#feed-view .notification-time,
+#feed-view .message-time {
+  margin-top: 2px;
+  font-size: 0.8125rem;
+  color: var(--kx-ink-3);
+}
+
+#feed-view .message-sender {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--kx-ink);
+}
+
+#feed-view .message-preview {
+  font-size: 0.9375rem;
+  color: var(--kx-ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#feed-view .message-item.unread .message-preview {
+  color: var(--kx-ink);
+  font-weight: 600;
+}
+
+#feed-view .message-unread-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--kx-accent);
+  flex-shrink: 0;
+}
+
+#feed-view .notification-delete-btn,
+#feed-view .message-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink-3);
+  opacity: 1;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+#feed-view .notification-delete-btn:hover,
+#feed-view .message-delete-btn:hover {
+  background: rgba(27, 28, 33, 0.06);
+  color: var(--kx-danger);
+}
+
+#feed-view .notification-empty,
+#feed-view .messages-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 56px 24px;
+  text-align: center;
+}
+
+#feed-view .notification-empty-icon,
+#feed-view .messages-empty-icon {
+  width: 44px;
+  height: 44px;
+  margin-bottom: 8px;
+  color: var(--kx-ink-3);
+  font-size: 0;
+}
+
+#feed-view .notification-empty-icon svg,
+#feed-view .messages-empty-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+#feed-view .notification-empty-text,
+#feed-view .messages-empty-text {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--kx-ink);
+}
+
+#feed-view .messages-empty-hint {
+  font-size: 0.9375rem;
+  color: var(--kx-ink-2);
+}
+
+/* ====================================================================
+   NAVEGACIÓN INFERIOR — cristal flotante (móvil y tablet)
+   ==================================================================== */
+@media (max-width: 1024px) {
+  .bottom-nav,
+  body.map-active .bottom-nav {
+    left: 12px !important;
+    right: 12px !important;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    width: auto !important;
+    max-width: 560px !important;
+    min-height: var(--kx-nav-h) !important;
+    margin: 0 auto !important;
+    padding: 6px !important;
+    border: 1px solid rgba(255, 255, 255, 0.7) !important;
+    border-radius: 28px !important;
+    background: rgba(251, 249, 246, 0.78) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(1.5) !important;
+    backdrop-filter: blur(22px) saturate(1.5) !important;
+    box-shadow: 0 0 0 1px rgba(27, 28, 33, 0.06), 0 12px 32px rgba(27, 28, 33, 0.14) !important;
+  }
+
+  .bottom-nav .nav-item,
+  body.map-active .bottom-nav .nav-item {
+    flex: 1 !important;
+    min-width: 0 !important;
+    min-height: 52px !important;
+    padding: 6px 4px !important;
+    gap: 3px !important;
+    border-radius: 20px !important;
+    color: #6B6862 !important;
+    background: transparent !important;
+  }
+
+  .bottom-nav .nav-item span {
+    font-size: 0.6875rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.01em;
+  }
+
+  .bottom-nav .nav-item svg {
+    width: 26px !important;
+    height: 26px !important;
+    stroke: currentColor !important;
+    stroke-width: 1.75px !important;
+  }
+
+  .bottom-nav .nav-item:hover,
+  .bottom-nav .nav-item:active {
+    background: rgba(27, 28, 33, 0.05) !important;
+    color: var(--kx-ink) !important;
+  }
+
+  .bottom-nav .nav-item.active,
+  body.map-active .bottom-nav .nav-item.active {
+    background: transparent !important;
+    color: var(--kx-accent) !important;
+  }
+
+  .bottom-nav .nav-item.active span {
+    font-weight: 600 !important;
+  }
+
+  .bottom-nav .nav-item.active svg {
+    stroke: currentColor !important;
+    stroke-width: 2px !important;
+  }
+
+  /* El feed se desplaza por debajo del cristal: sin reserva de espacio en la vista ni en el contenedor */
+  #feed-view {
+    padding-bottom: 0 !important;
+  }
+
+  body.feed-active .content,
+  body.feed-active #app {
+    padding-bottom: 0 !important;
+    background: var(--kx-bg);
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bottom-nav { background: rgba(251, 249, 246, 0.97); }
+  .feed-photo-tag { background: rgba(28, 25, 22, 0.78); }
+}
+
+@media (min-width: 1025px) {
+  .bottom-nav .nav-item.active { color: var(--kx-accent); }
+  .bottom-nav .nav-item.active svg { stroke: var(--kx-accent); }
+}
+
+/* ====================================================================
+   MÓVIL (≤768px): hojas a pantalla completa e inferiores
+   ==================================================================== */
+@media (max-width: 768px) {
+  #feed-view .sheet-close { display: inline-flex; }
+
+  #feed-view .notification-dropdown:not(.hidden),
+  #feed-view .messages-dropdown:not(.hidden) {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--kx-bg);
+    padding-bottom: calc(var(--kx-nav-h) + 28px + env(safe-area-inset-bottom, 0px));
+    animation: kxSheetIn 0.32s var(--kx-ease);
+  }
+
+  #feed-view .notification-dropdown:not(.hidden) .notification-header,
+  #feed-view .messages-dropdown:not(.hidden) .messages-header {
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 8px 10px 20px;
+    background: var(--kx-bg);
+  }
+
+  #feed-view .notification-dropdown:not(.hidden) .notification-title,
+  #feed-view .messages-dropdown:not(.hidden) .messages-title {
+    font-size: 1.5rem;
+    letter-spacing: -0.02em;
+  }
+
+  #feed-view .notification-dropdown:not(.hidden) .notification-list,
+  #feed-view .messages-dropdown:not(.hidden) .messages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  #feed-view .notification-dropdown:not(.hidden) .notification-item,
+  #feed-view .messages-dropdown:not(.hidden) .message-item {
+    background: var(--kx-surface);
+    border: 1px solid var(--kx-line);
+    border-radius: 18px;
+  }
+
+  #feed-view .notification-dropdown:not(.hidden) .notification-item.unread,
+  #feed-view .messages-dropdown:not(.hidden) .message-item.unread {
+    background: #F1F0FC;
+  }
+
+  /* Menú de publicación como hoja inferior.
+     ::before = velo (z -2) · ::after = panel con tirador (z -1): ambos por detrás de las opciones */
+  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden) {
+    position: fixed;
+    inset: auto 0 0 0;
+    min-width: 0;
+    padding: 22px 12px calc(14px + env(safe-area-inset-bottom, 0px));
+    border: 0;
+    border-radius: 26px 26px 0 0;
+    margin: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+    /* La máscara del desplegable original recorta el velo y el panel a su caja */
+    -webkit-mask-image: none;
+    mask-image: none;
+    z-index: 10040;
+    /* Solo opacidad: un transform en la hoja haría que el velo (fixed) se midiera contra ella */
+    animation: kxFade 0.2s ease-out;
+  }
+
+  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden)::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background: rgba(27, 28, 33, 0.42);
+  }
+
+  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 26px 26px 0 0;
+    background:
+      linear-gradient(rgba(27, 28, 33, 0.18), rgba(27, 28, 33, 0.18)) center 9px / 38px 4px no-repeat,
+      var(--kx-surface);
+    box-shadow: 0 -12px 40px rgba(27, 28, 33, 0.22);
+    animation: kxSheetUp 0.32s var(--kx-ease);
+  }
+
+  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden) .feed-post-menu-item {
+    min-height: 56px;
+    font-size: 1.0625rem;
+  }
+
+  #feed-view .feed-container {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+
+@keyframes kxSheetIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes kxFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes kxSheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* ====================================================================
+   MODALES: publicación · crear publicación · confirmación
+   ==================================================================== */
+#create-post-modal.modal,
+#view-post-modal.modal,
+#confirm-modal.modal {
+  z-index: 10020;
+  background: rgba(27, 28, 33, 0.46);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+#create-post-modal .modal-content,
+#view-post-modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100% - 32px));
+  max-width: 640px;
+  max-height: 90vh;
+  max-height: 90dvh;
+  padding: 0;
+  border: 0;
+  border-radius: 26px;
+  background: var(--kx-surface);
+  box-shadow: var(--kx-shadow-pop);
+  overflow: hidden;
+}
+
+#create-post-modal .modal-header,
+#view-post-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 10px 20px;
+  border-bottom: 1px solid var(--kx-line);
+  background: var(--kx-surface);
+}
+
+#create-post-modal .modal-header {
+  padding: 10px 14px 10px 8px;
+}
+
+#create-post-modal .modal-header h3,
+#view-post-modal .modal-header h3 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--kx-ink);
+}
+
+#create-post-modal .modal-header h3 {
+  flex: 1;
+  text-align: center;
+}
+
+#create-post-modal .close-btn,
+#view-post-modal .close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink);
+  font-size: 1.75rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#create-post-modal .close-btn:hover,
+#view-post-modal .close-btn:hover {
+  background: rgba(27, 28, 33, 0.06);
+}
+
+#create-post-modal .close-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+#create-post-modal .btn-post-create {
+  min-height: 44px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--kx-accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#create-post-modal .btn-post-create:disabled {
+  background: var(--kx-surface-2);
+  color: var(--kx-ink-3);
+  cursor: not-allowed;
+}
+
+#create-post-modal .create-post-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 16px 20px 12px;
+  overflow-y: auto;
+}
+
+#create-post-modal .create-post-user {
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+#create-post-modal .create-post-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--kx-stone);
+  object-fit: cover;
+}
+
+#create-post-modal .create-post-username {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--kx-ink);
+}
+
+#create-post-modal #create-post-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+#create-post-modal #create-post-text {
+  flex: 1;
+  width: 100%;
+  min-height: 160px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 1.1875rem;
+  line-height: 1.5;
+  color: var(--kx-ink);
+  resize: none;
+  outline: none;
+}
+
+#create-post-modal .create-post-char-count {
+  align-self: flex-end;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--kx-ink-3);
+}
+
+#create-post-modal .create-post-actions {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--kx-line);
+}
+
+#create-post-modal .create-post-actions-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#create-post-modal .create-post-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kx-surface-2);
+  color: var(--kx-ink-2);
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease);
+}
+
+#create-post-modal .create-post-action-btn:hover {
+  background: var(--kx-accent-soft);
+  color: var(--kx-accent);
+}
+
+#create-post-modal .create-post-action-btn svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.75px;
+}
+
+#create-post-modal .create-post-preview-photo-item,
+#create-post-modal .create-post-preview-video,
+#create-post-modal .create-post-preview-location {
+  border-radius: 14px;
+}
+
+#create-post-modal .location-search-container,
+#create-post-modal .location-results {
+  border: 1px solid var(--kx-line);
+  border-radius: 16px;
+  background: var(--kx-surface);
+  box-shadow: var(--kx-shadow-pop);
+}
+
+#create-post-modal .location-search-input {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--kx-line);
+  border-radius: 12px;
+  background: var(--kx-surface-2);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--kx-ink);
+}
+
+#create-post-modal .location-badge {
+  border-radius: 999px;
+  background: var(--kx-accent-soft);
+  color: var(--kx-accent);
+  font-weight: 600;
+}
+
+/* Publicación ampliada */
+#view-post-modal .view-post-body {
+  flex: 1;
+  min-height: 0;
+  padding: 16px 16px 24px;
+  overflow-y: auto;
+  background: var(--kx-surface);
+}
+
+#view-post-modal .feed-media-modal .feed-image-container {
+  aspect-ratio: auto;
+  max-height: 70vh;
+}
+
+#view-post-modal .feed-media-modal .feed-image-container .feed-image {
+  position: static;
+  height: auto;
+  max-height: 70vh;
+}
+
+#view-post-modal .feed-media-modal .feed-images-grid {
+  aspect-ratio: 1.3;
+}
+
+#view-post-modal .view-post-body .feed-comments-section {
+  margin: 8px 0 0;
+}
+
+/* Confirmación */
+#confirm-modal .modal-content {
+  width: min(340px, calc(100% - 48px));
+  padding: 22px 22px 18px;
+  border-radius: 26px;
+  background: var(--kx-surface);
+  box-shadow: var(--kx-shadow-pop);
+}
+
+#confirm-modal .modal-header h3 {
+  font-size: 1.1875rem;
+  font-weight: 700;
+  color: var(--kx-ink);
+}
+
+#confirm-modal #confirm-message {
+  margin: 10px 0 18px !important;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--kx-ink-2) !important;
+}
+
+#confirm-modal .modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+#confirm-modal .btn-secondary,
+#confirm-modal .btn-danger {
+  flex: 1;
+  min-height: 48px;
+  border: 0;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#confirm-modal .btn-secondary {
+  background: var(--kx-surface-2);
+  color: var(--kx-ink);
+}
+
+#confirm-modal .btn-danger {
+  background: var(--kx-danger);
+  color: #fff;
+}
+
+/* Móvil: crear y ver publicación a pantalla completa */
+@media (max-width: 768px) {
+  #create-post-modal.modal,
+  #view-post-modal.modal {
+    align-items: stretch;
+  }
+
+  #create-post-modal .modal-content,
+  #view-post-modal .modal-content {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  #create-post-modal .modal-header,
+  #view-post-modal .modal-header {
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  }
+
+  #create-post-modal .create-post-body {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ====================================================================
+   CHAT (mensajes directos)
+   ==================================================================== */
+#chat-modal .chat-modal-overlay {
+  background: rgba(27, 28, 33, 0.46);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+#chat-modal .chat-modal-container {
+  width: min(460px, calc(100% - 32px));
+  max-width: 460px;
+  height: min(640px, 82vh);
+  max-height: none;
+  border-radius: 26px;
+  background: var(--kx-bg);
+  box-shadow: var(--kx-shadow-pop);
+  animation: kxSheetIn 0.32s var(--kx-ease);
+}
+
+#chat-modal .chat-modal-header {
+  padding: 8px 8px 8px 16px;
+  background: var(--kx-surface);
+  border-bottom: 1px solid var(--kx-line);
+  color: var(--kx-ink);
+}
+
+#chat-modal .chat-header-user {
+  gap: 12px;
+}
+
+#chat-modal .chat-avatar {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kx-stone);
+  object-fit: cover;
+}
+
+#chat-modal .chat-username {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--kx-ink);
+}
+
+#chat-modal .chat-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink);
+}
+
+#chat-modal .chat-close-btn:hover {
+  background: rgba(27, 28, 33, 0.06);
+}
+
+#chat-modal .chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: var(--kx-bg);
+}
+
+#chat-modal .chat-message {
+  max-width: 82%;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 20px;
+  font-size: 1rem;
+  line-height: 1.4;
+  box-shadow: none;
+}
+
+#chat-modal .chat-message.received {
+  align-self: flex-start;
+  background: var(--kx-surface);
+  color: var(--kx-ink);
+  border: 1px solid var(--kx-line);
+  border-bottom-left-radius: 6px;
+}
+
+#chat-modal .chat-message.sent {
+  align-self: flex-end;
+  background: var(--kx-accent);
+  color: #fff;
+  border-bottom-right-radius: 6px;
+}
+
+#chat-modal .chat-message-meta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+#chat-modal .chat-message-time {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+#chat-modal .chat-input-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--kx-surface);
+  border-top: 1px solid var(--kx-line);
+}
+
+#chat-modal .chat-input {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  padding: 0 18px;
+  border: 1px solid var(--kx-line);
+  border-radius: 23px;
+  background: var(--kx-surface-2);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--kx-ink);
+}
+
+#chat-modal .chat-input:focus {
+  outline: 2px solid var(--kx-accent);
+  outline-offset: 1px;
+  background: #fff;
+}
+
+#chat-modal .chat-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kx-accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+#chat-modal .chat-send-btn:hover {
+  background: #4D4DC6;
+}
+
+@media (max-width: 768px) {
+  #chat-modal .chat-modal-container {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  #chat-modal .chat-modal-header {
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  }
+}
+
+/* ====================================================================
+   VISOR DE IMÁGENES
+   ==================================================================== */
+.image-lightbox-backdrop {
+  background: rgba(20, 18, 16, 0.94);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.image-lightbox-image {
+  max-width: calc(100vw - 24px);
+  max-height: 84vh;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.image-lightbox-close {
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(28, 25, 22, 0.55);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #fff;
+  box-shadow: none;
+}
+
+.image-lightbox-close:hover {
+  background: rgba(28, 25, 22, 0.75);
+  transform: none;
+  box-shadow: none;
+}
+
+.image-lightbox-close:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Pantallas muy estrechas: el campo de comentario gana el ancho del avatar */
+@media (max-width: 359px) {
+  :is(#feed-view, #view-post-modal) .feed-comment-form-avatar {
+    display: none;
+  }
+}
+
+/* Movimiento reducido */
+@media (prefers-reduced-motion: reduce) {
+  #feed-view .feed-card,
+  #feed-view .feed-container > .loading-spinner,
+  #feed-view .notification-dropdown,
+  #feed-view .messages-dropdown,
+  .feed-post-menu-dropdown,
+  .feed-post-menu-dropdown::after,
+  #chat-modal .chat-modal-container {
+    animation: none !important;
+  }
+}
+
+/* ---------- Feed: acceso rápido para crear publicación ---------- */
+.feed-composer-wrap {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 2px 12px 12px;
+}
+
+.feed-composer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 6px 10px 12px;
+  border: 1px solid var(--kx-line);
+  border-radius: 20px;
+  background: var(--kx-surface);
+  box-shadow: 0 1px 2px rgba(27, 28, 33, 0.04);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.2s var(--kx-ease), transform 0.2s var(--kx-ease);
+}
+
+.feed-composer:hover {
+  box-shadow: 0 1px 2px rgba(27, 28, 33, 0.05), 0 8px 20px rgba(27, 28, 33, 0.07);
+}
+
+.feed-composer:active {
+  transform: scale(0.99);
+}
+
+.feed-composer:focus-visible {
+  outline: 2px solid var(--kx-accent);
+  outline-offset: 2px;
+}
+
+.feed-composer-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--kx-stone);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.feed-composer-field {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--kx-line);
+  border-radius: 999px;
+  background: var(--kx-surface-2);
+  color: #6B6862;
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feed-composer-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  color: var(--kx-accent);
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .feed-composer-wrap {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+
+/* Bajo el bloque fijo, la lista empieza con aire */
+#feed-view .feed-top + .feed-container {
+  padding-top: 14px;
+}
+
+@media (max-width: 359px) {
+  .feed-composer {
+    gap: 8px;
+    padding-left: 8px;
+  }
+
+  .feed-composer-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .feed-composer-field {
+    padding: 0 12px;
+    font-size: 0.9375rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-composer {
+    transition: none;
+  }
+}

@@ -19,7 +19,7 @@ if (isNative) {
   // Cargar CSS específico de móvil
   const mobileCSS = document.createElement('link');
   mobileCSS.rel = 'stylesheet';
-  mobileCSS.href = './app-mobile.css?v=1';
+  mobileCSS.href = './app-mobile.css?v=3';
   document.head.appendChild(mobileCSS);
   console.log('[Capacitor] CSS móvil cargado');
 } else {

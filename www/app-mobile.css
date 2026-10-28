@@ -769,3 +769,79 @@ body.pwa-standalone .feed-header {
   padding-bottom: 20px !important;
   min-height: 0 !important;
 }
+
+/* ================================
+   FEED REDISEÑO — NATIVO (iOS / Android)
+   Navegación inferior de cristal flotante y feed a pantalla completa.
+   Los tokens --kx-* viven en app_2.css (:root).
+   ================================ */
+.platform-mobile .bottom-nav {
+  left: 12px !important;
+  right: 12px !important;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+  width: auto !important;
+  max-width: 560px !important;
+  min-height: var(--kx-nav-h, 64px) !important;
+  margin: 0 auto !important;
+  padding: 6px !important;
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  border-radius: 28px !important;
+  background: rgba(251, 249, 246, 0.78) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(1.5) !important;
+  backdrop-filter: blur(22px) saturate(1.5) !important;
+  box-shadow: 0 0 0 1px rgba(27, 28, 33, 0.06), 0 12px 32px rgba(27, 28, 33, 0.14) !important;
+}
+
+.platform-mobile .bottom-nav .nav-item {
+  flex: 1 !important;
+  min-width: 0 !important;
+  min-height: 52px !important;
+  padding: 6px 4px !important;
+  gap: 3px !important;
+  border-radius: 20px !important;
+  color: #6B6862 !important;
+}
+
+.platform-mobile .bottom-nav .nav-item span {
+  display: block !important;
+  font-size: 0.6875rem !important;
+}
+
+.platform-mobile .bottom-nav .nav-item svg {
+  width: 26px !important;
+  height: 26px !important;
+}
+
+.platform-mobile .bottom-nav .nav-item.active {
+  background: transparent !important;
+  color: var(--kx-accent, #5B5BD6) !important;
+}
+
+/* El feed ocupa toda la pantalla; la navegación flota sobre el contenido */
+.platform-mobile #feed-view.view.active {
+  height: 100vh !important;
+  height: 100dvh !important;
+}
+
+.platform-mobile #feed-view.view.active .feed-header {
+  min-height: calc(60px + env(safe-area-inset-top, 0px)) !important;
+  padding-top: max(8px, env(safe-area-inset-top, 0px)) !important;
+  background: var(--kx-bg, #F3F0EA) !important;
+}
+
+.platform-mobile #feed-view.view.active .feed-container {
+  padding-bottom: calc(var(--kx-nav-h, 64px) + 40px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* Perfil, actividad y descubrir: más espacio inferior por la barra flotante */
+.platform-mobile #discover-view,
+.platform-mobile #profile-view,
+.platform-mobile #activity-view {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+
+/* El bloque cabecera + "¿Qué quieres compartir?" queda fuera de la lista que se desplaza */
+.platform-mobile #feed-view.view.active .feed-top {
+  flex: 0 0 auto !important;
+  position: relative !important;
+}

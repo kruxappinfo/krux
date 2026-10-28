@@ -403,8 +403,17 @@ async function deleteAccount() {
     }
 }
 
+// SOLO LOCAL: en un navegador sobre localhost no se muestra el login, para revisar la interfaz sin cuenta.
+// La app nativa (Capacitor) también corre en localhost, por eso se excluye; en cualquier otro host no hace nada.
+function isLocalDevPreview() {
+    return !isCapacitor
+        && window.location.protocol === 'http:'
+        && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+}
+
 // Update UI based on auth state
 function updateAuthUI(user) {
+    if (typeof updateFeedComposer === 'function') updateFeedComposer(user);
     const landingPage = document.getElementById('landing-page');
     const userProfileWrapper = document.getElementById('user-profile-wrapper');
     const userPhoto = document.getElementById('user-photo');
@@ -474,13 +483,14 @@ function updateAuthUI(user) {
     } else {
         // Logged Out
         // Solo mostrar landing-page en web, no en app nativa (que usa mobile-auth)
-        if (!isCapacitor) {
+        const localPreview = isLocalDevPreview();
+        if (!isCapacitor && !localPreview) {
             landingPage.classList.remove('hidden');
         }
         if (userProfileWrapper) userProfileWrapper.classList.add('hidden');
 
-        // Hide navigation
-        if (bottomNav) bottomNav.style.display = 'none';
+        // Hide navigation (en vista previa local se mantiene visible)
+        if (bottomNav) bottomNav.style.display = localPreview ? 'flex' : 'none';
     }
 }
 

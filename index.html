@@ -60,10 +60,10 @@
   <link href="https://unpkg.com/maplibre-gl@4.1.0/dist/maplibre-gl.css" rel="stylesheet" />
 
   <!-- Google Fonts - Inter with display swap for faster text rendering -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=28" />
+  <link rel="stylesheet" href="./app_2.css?v=39" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -87,7 +87,7 @@
 
   <script defer src="./firebase-config.js"></script>
 
-  <script defer src="./auth.js?v=3"></script>
+  <script defer src="./auth.js?v=5"></script>
 
   <script defer src="./user-features.js?v=3"></script>
 
@@ -97,7 +97,7 @@
 
   <script defer src="./maplibre-map.js?v=14"></script>
 
-  <script defer src="./app_3.js?v=42"></script>
+  <script defer src="./app_3.js?v=46"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -119,21 +119,22 @@
     <main class="content">
       <!-- VISTA 1: FEED (HOME) -->
       <div id="feed-view" class="view active">
+        <div class="feed-top">
         <header class="feed-header">
-          <div class="feed-header-left">
-            <button class="icon-btn create-header-btn" id="nav-create-btn">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
-          </div>
           <div class="feed-logo-container">
-            <img src="logo_krujx_v2.png" alt="KRUX" class="feed-logo">
+            <span class="feed-wordmark" role="img" aria-label="KRUX">KRUX</span>
           </div>
           <div class="feed-actions">
-            <button class="icon-btn messages-btn" id="messages-btn">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <button class="icon-btn feed-search-btn" id="nav-search-btn" type="button" aria-label="Buscar">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+            </button>
+            <button class="icon-btn messages-btn" id="messages-btn" type="button" aria-label="Mensajes">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
                 <polyline points="22,6 12,13 2,6"></polyline>
               </svg>
@@ -142,21 +143,55 @@
             <div id="messages-dropdown" class="messages-dropdown hidden">
               <div class="messages-header">
                 <span class="messages-title">Mensajes</span>
+                <button type="button" class="sheet-close" data-sheet-close aria-label="Cerrar mensajes">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
               </div>
               <div id="messages-list" class="messages-list"></div>
             </div>
-            <button class="icon-btn notification-btn" id="notification-btn">
-              <img src="Visuales/Interfaz/Publicaciones/Notificacion NO.png" alt="Notificaciones"
-                class="notification-icon">
+            <button class="icon-btn notification-btn" id="notification-btn" type="button" aria-label="Notificaciones">
+              <svg class="notification-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+              <span class="notification-dot" aria-hidden="true"></span>
             </button>
             <div id="notification-dropdown" class="notification-dropdown hidden">
               <div class="notification-header">
                 <span class="notification-title">Notificaciones</span>
+                <button type="button" class="sheet-close" data-sheet-close aria-label="Cerrar notificaciones">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
               </div>
               <div id="notification-list" class="notification-list"></div>
             </div>
           </div>
         </header>
+
+        <div class="feed-composer-wrap">
+          <button type="button" class="feed-composer" id="nav-create-btn" aria-label="Crear publicación">
+            <img id="feed-composer-avatar" class="feed-composer-avatar" alt="">
+            <span class="feed-composer-field">¿Qué quieres compartir?</span>
+            <span class="feed-composer-icon" aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 13.5V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.6l1.4-2h4.2"></path>
+                <circle cx="12" cy="13" r="3.2"></circle>
+                <path d="M19 2.5v6M16 5.5h6"></path>
+              </svg>
+            </span>
+          </button>
+        </div>
+        </div>
 
         <div id="feed-container" class="feed-container">
           <div class="loading-spinner">Cargando actividad...</div>
@@ -2139,7 +2174,13 @@
   <div id="create-post-modal" class="modal hidden">
     <div class="modal-content modal-create-post">
       <div class="modal-header">
-        <button id="close-create-modal" class="close-btn">x</button>
+        <button id="close-create-modal" class="close-btn" type="button" aria-label="Cerrar">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
         <h3>Crear publicación</h3>
         <button id="submit-create-post" class="btn-post-create" disabled>Publicar</button>
       </div>

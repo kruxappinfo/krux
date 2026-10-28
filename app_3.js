@@ -2545,7 +2545,7 @@ function initMessages() {
     if (!currentUser || conversations.length === 0) {
       list.innerHTML = `
         <div class="messages-empty">
-          <div class="messages-empty-icon">x</div>
+          <div class="messages-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg></div>
           <div class="messages-empty-text">No tienes conversaciones</div>
           <div class="messages-empty-hint">Visita el perfil de un usuario para enviarle un mensaje</div>
         </div>
@@ -2804,7 +2804,8 @@ function initMessages() {
 
 function initNotifications() {
   const btn = document.getElementById('notification-btn');
-  const icon = btn?.querySelector('.notification-icon');
+  // El estado de la campana se pinta por CSS (clase has-unread), no cambiando una imagen
+  const setBellUnread = (unread) => btn?.classList.toggle('has-unread', !!unread);
   const dropdown = document.getElementById('notification-dropdown');
   const list = document.getElementById('notification-list');
   const clearBtn = document.getElementById('clear-notifications');
@@ -2825,7 +2826,7 @@ function initNotifications() {
       if (unsubscribe) unsubscribe();
       notifications = [];
       hasUnread = false;
-      if (icon) icon.src = 'Visuales/Interfaz/Publicaciones/Notificacion NO.png';
+      setBellUnread(false);
     }
   });
 
@@ -2845,7 +2846,7 @@ function initNotifications() {
         notifications = notifications.filter(n => !deletingNotificationIds.has(n.id));
 
         hasUnread = notifications.some(n => !n.read);
-        if (icon) icon.src = hasUnread ? 'Visuales/Interfaz/Publicaciones/Notificacion SI.png' : 'Visuales/Interfaz/Publicaciones/Notificacion NO.png';
+        setBellUnread(hasUnread);
 
         // Only re-render if there are no items currently animating
         // This prevents interrupting the slide-up animation
@@ -2877,11 +2878,11 @@ function initNotifications() {
     if (notifications.length === 0) {
       list.innerHTML = `
         <div class="notification-empty">
-          <div class="notification-empty-icon">🔔</div>
+          <div class="notification-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></div>
           <div class="notification-empty-text">No tienes notificaciones</div>
         </div>
       `;
-      if (icon) icon.src = 'Visuales/Interfaz/Publicaciones/Notificacion NO.png';
+      setBellUnread(false);
       return;
     }
 
@@ -2911,7 +2912,7 @@ function initNotifications() {
       `;
     }).join('');
 
-    if (icon) icon.src = hasUnread ? 'Visuales/Interfaz/Publicaciones/Notificacion SI.png' : 'Visuales/Interfaz/Publicaciones/Notificacion NO.png';
+    setBellUnread(hasUnread);
   }
 
   function getNotificationIcon(type) {
@@ -3040,7 +3041,7 @@ function initNotifications() {
 
         notifications = [];
         hasUnread = false;
-        if (icon) icon.src = 'Visuales/Interfaz/Publicaciones/Notificacion NO.png';
+        setBellUnread(false);
         renderNotifications();
         showToast('Notificaciones borradas', 'success');
       } catch (error) {
@@ -3059,14 +3060,14 @@ function initNotifications() {
       });
       await batch.commit();
       hasUnread = false;
-      if (icon) icon.src = 'Visuales/Interfaz/Publicaciones/Notificacion NO.png';
+      setBellUnread(false);
     } catch (error) {
       console.error('Error marking notifications as read:', error);
     }
   }
 
   // Initial icon state
-  if (icon) icon.src = 'Visuales/Interfaz/Publicaciones/Notificacion NO.png';
+  setBellUnread(false);
 }
 
 // Handle notification click - navigate to relevant content with deep-link to comment
@@ -3270,6 +3271,9 @@ function switchView(viewId) {
     document.body.classList.remove('map-active');
   }
 
+  // El feed se desplaza por debajo de la navegación de cristal (ver FEED REDISEÑO en app_2.css)
+  document.body.classList.toggle('feed-active', viewId === 'feed-view');
+
   if (viewId === 'feed-view' || viewId === 'profile-view' || viewId === 'activity-view' || viewId === 'map-view' || viewId === 'search-view' || viewId === 'train-view') {
     if (topBar) topBar.style.display = 'none';
     if (authContainer) authContainer.style.display = 'none';
@@ -3398,10 +3402,60 @@ function initFeed() {
 
   // Initialize feed tabs
   initFeedTabs();
+
+  initFeedSheets();
+  updateFeedComposer();
 }
 
 function initFeedTabs() {
   // Filter functionality removed
+}
+
+// Fila "¿Qué quieres compartir?": es el propio #nav-create-btn, así que initCreatePost la engancha
+// y abre el flujo real de crear publicación (validaciones, fotos y envío incluidos).
+function updateFeedComposer(user) {
+  const avatar = document.getElementById('feed-composer-avatar');
+  if (!avatar) return;
+  const u = user || (typeof currentUser !== 'undefined' ? currentUser : null);
+  setAvatarWithFallback(avatar, u ? u.photoURL : '', u ? (u.displayName || u.email || 'Usuario') : 'Usuario', 80);
+}
+
+// Hojas del feed en móvil: mensajes y avisos ocupan la pantalla y se cierran con su botón.
+// La lupa abre la vista de Buscar (sus listeners los registra initGlobalSearch).
+function initFeedSheets() {
+  document.addEventListener('click', (e) => {
+    const closeBtn = e.target.closest('[data-sheet-close]');
+    if (closeBtn) {
+      closeBtn.closest('.notification-dropdown, .messages-dropdown')?.classList.add('hidden');
+      return;
+    }
+    // En móvil el menú de una publicación es una hoja inferior: tocar el fondo la cierra
+    if (e.target.classList && e.target.classList.contains('feed-post-menu-dropdown')) {
+      e.target.classList.add('hidden');
+    }
+  });
+
+  const feedSearchBtn = document.getElementById('nav-search-btn');
+  if (feedSearchBtn) {
+    feedSearchBtn.addEventListener('click', () => switchView('search-view'));
+  }
+}
+
+// Publicaciones de demostración SOLO para localhost sin sesión (datos ficticios, nada se guarda)
+function renderLocalPreviewFeed(container) {
+  const foto = './Visuales/Sectores/Fotos/Pico%20de%20la%20Muela.JPG';
+  const demo = [
+    { id: 'demo1', userId: 'demo', userName: 'Diego', time: 'hace 2 h', type: 'photo', photos: [foto],
+      location: { name: 'Toledo, Castilla-La Mancha, Spain', lat: 39.86, lng: -4.02 }, likes: new Array(28).fill('x'), liked: true, commentsCount: 3,
+      content: 'Fin de semana digitalizando la escuela de Toledo. ¡Qué buen ambiente y vías increíbles!' },
+    { id: 'demo2', userId: 'demo', userName: 'Krux', time: 'hace 1 día', type: 'photo', photos: [foto, foto],
+      location: 'Valeria, Cuenca', likes: [], commentsCount: 0, bookmarked: true,
+      content: 'Fin de semana en Valeria.\nBuen tiempo y compañía.' },
+    { id: 'demo3', userId: 'demo', userName: 'Claudia Ballesteros', time: 'hace 3 días', type: 'text', likes: new Array(4).fill('x'), commentsCount: 1,
+      content: 'Publicación solo de texto para ver el interlineado y el ancho de lectura en pantallas estrechas.' }
+  ];
+  demo.forEach(post => renderPostCard(post, container));
+  attachFeedEventListeners(container);
 }
 
 // Render mock feed using new editorial style
@@ -6885,15 +6939,15 @@ function closeCreatePostModal() {
 // Show empty feed state
 function showEmptyFeedState(container) {
   container.innerHTML = `
-    <div style="text-align: center; padding: 60px 20px; color: #6b7280;">
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin: 0 auto 20px; opacity: 0.5;">
+    <div class="feed-state feed-state-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
         <circle cx="8.5" cy="7" r="4"></circle>
         <line x1="20" y1="8" x2="20" y2="14"></line>
         <line x1="23" y1="11" x2="17" y2="11"></line>
       </svg>
-      <h3 style="margin: 0 0 8px; color: #111827;">Tu timeline está vacío</h3>
-      <p style="margin: 0;">Sigue a otros usuarios para ver sus publicaciones aquí­</p>
+      <h3>Tu timeline está vacío</h3>
+      <p>Sigue a otros usuarios para ver sus publicaciones aquí</p>
     </div>
   `;
 }
@@ -6924,6 +6978,12 @@ async function loadFeed() {
     }
 
     container.innerHTML = '';
+
+    // Vista previa local sin sesión: publicaciones de demostración (ver isLocalDevPreview en auth.js)
+    if (!currentUser && typeof isLocalDevPreview === 'function' && isLocalDevPreview()) {
+      renderLocalPreviewFeed(container);
+      return;
+    }
 
     // If no user or no following, show empty state (sin posts demo)
     if (!currentUser || followingIds.length === 0) {
@@ -7015,17 +7075,28 @@ async function loadFeed() {
     console.error('Error loading feed:', error);
 
     container.innerHTML = `
-        <div style="text-align: center; padding: 40px 20px; color: #ef4444;">
+        <div class="feed-state feed-state-error">
           <p>Error al cargar el feed: ${error.message}</p>
-          <button onclick="loadFeed()" style="margin-top: 16px; padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer;">
-            Reintentar
-          </button>
+          <button type="button" class="feed-state-btn" onclick="loadFeed()">Reintentar</button>
         </div>
       `;
   }
 }
 
 // Render a single post card - Editorial Hybrid Style (Substack/Twitter/Strava)
+// Iconos del feed: mismo trazo (1.75) y mismos terminales en toda la interfaz del feed
+const FEED_ICON_PIN = '<svg class="feed-pin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
+
+// Botón de guardar: la lógica vive en handleFeedBookmark (delegación de clics por data-action)
+function buildFeedBookmarkButton(postId, bookmarked) {
+  return `
+      <button class="feed-action-btn feed-action-bookmark ${bookmarked ? 'bookmarked' : ''}" data-action="bookmark" data-post-id="${postId || ''}" aria-label="Guardar publicación" title="Guardar">
+        <svg viewBox="0 0 24 24" fill="${bookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+        </svg>
+      </button>`;
+}
+
 function renderPostCard(post, container) {
   const card = document.createElement('div');
   card.className = `feed-card feed-card-${post.type || 'text'}`;
@@ -7074,16 +7145,16 @@ function renderPostCard(post, container) {
       <div class="feed-header-content">
         <div class="feed-header-row">
           <span class="feed-username feed-username-clickable" data-user-id="${post.userId || ''}">${userName}</span>
-          <span class="feed-dot">·</span>
-          <span class="feed-time">${post.time || 'Ahora'}</span>
         </div>
-        ${locationName ? `<div class="feed-location-text">📍 ${locationName}</div>` : ''}
+        ${locationName ? `<div class="feed-location-text">${FEED_ICON_PIN}<span>${locationName}</span></div>` : ''}
+        <div class="feed-time-row"><span class="feed-time">${post.time || 'Ahora'}</span></div>
       </div>
       ${currentUser ? `
         <div class="feed-post-menu-wrapper">
           <button class="feed-post-menu-btn" 
                   data-post-id="${post.id || ''}"
                   data-is-owner="${isPostAuthor}"
+                  aria-label="Opciones de la publicación"
                   title="Opciones">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="1"></circle>
@@ -7132,11 +7203,12 @@ function renderPostCard(post, container) {
     </div>
   `;
 
-  // Content - Text first approach
+  // Contenido: la foto va antes que el texto (cabecera -> foto -> descripción -> acciones)
   let contentHTML = '';
+  let mediaHTML = '';
   const textContent = post.content || post.caption || '';
 
-  // Text content (always first if exists)
+  // Texto (descripción)
   if (textContent || post.title) {
     contentHTML += `
       <div class="feed-text-content" data-post-id="${post.id || ''}">
@@ -7160,27 +7232,33 @@ function renderPostCard(post, container) {
     `;
   }
 
-  // Media content (secondary)
+  // Contenido multimedia (va antes que el texto)
   if (post.type === 'photo' || post.photos || post.image) {
     const images = post.photos || (post.image ? [post.image] : []);
+    // Etiqueta de cristal sobre la foto (decorativa: la ubicación ya está en la cabecera)
+    const photoTag = locationName ? `<span class="feed-photo-tag" aria-hidden="true">${FEED_ICON_PIN}<span>${locationName}</span></span>` : '';
     if (images.length === 1) {
-      contentHTML += `
+      mediaHTML += `
         <div class="feed-media-wrapper">
           <div class="feed-image-container">
-            <img src="${images[0]}" alt="Post" class="feed-image feed-image-clickable" data-lightbox-src="${images[0]}" loading="lazy">
+            <img src="${images[0]}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${images[0]}" loading="lazy">
+            ${photoTag}
           </div>
         </div>
       `;
     } else if (images.length > 1) {
       const gridClass = images.length === 2 ? 'grid-2' : images.length === 3 ? 'grid-3' : 'grid-4';
-      contentHTML += `
-        <div class="feed-images-grid ${gridClass}">
-          ${images.slice(0, 4).map(img => `<img src="${img}" alt="Post" class="feed-image feed-image-clickable" data-lightbox-src="${img}" loading="lazy">`).join('')}
+      mediaHTML += `
+        <div class="feed-media-wrapper">
+          <div class="feed-images-grid ${gridClass}">
+            ${images.slice(0, 4).map(img => `<img src="${img}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${img}" loading="lazy">`).join('')}
+          </div>
+          ${photoTag}
         </div>
       `;
     }
   } else if (post.type === 'video' || post.video) {
-    contentHTML += `
+    mediaHTML += `
       <div class="feed-video-container">
         <video src="${post.video}" controls class="feed-video"></video>
       </div>
@@ -7194,15 +7272,15 @@ function renderPostCard(post, container) {
       </div>
     `).join('');
 
-    contentHTML += `
+    mediaHTML += `
       <div class="feed-ascensions-card">
-        <h3 class="feed-ascensions-title">x” ${post.ascensions.length} vías completadas</h3>
+        <h3 class="feed-ascensions-title">${post.ascensions.length} vías completadas</h3>
         <div class="feed-ascensions-list">${ascensionsList}</div>
       </div>
     `;
   } else if (post.type === 'activity') {
     // Strava-style activity stats
-    contentHTML += `
+    mediaHTML += `
       <div class="feed-activity-stats">
         ${post.distance ? `<div class="activity-stat-item"><span class="activity-stat-label">Distancia</span><span class="activity-stat-value">${post.distance}</span></div>` : ''}
         ${post.elevation ? `<div class="activity-stat-item"><span class="activity-stat-label">Desnivel</span><span class="activity-stat-value">${post.elevation}</span></div>` : ''}
@@ -7210,15 +7288,15 @@ function renderPostCard(post, container) {
       </div>
     `;
     if (post.achievement) {
-      contentHTML += `
+      mediaHTML += `
         <div class="feed-achievement">
-          <div class="achievement-icon">x</div>
+          <div class="achievement-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
           <span class="achievement-text">${post.achievement}</span>
         </div>
       `;
     }
     if (post.mapImage) {
-      contentHTML += `
+      mediaHTML += `
         <div class="feed-media-wrapper">
           <div class="feed-image-container">
             <img src="${post.mapImage}" alt="Mapa de actividad" class="feed-image feed-image-clickable" data-lightbox-src="${post.mapImage}" loading="lazy">
@@ -7236,18 +7314,19 @@ function renderPostCard(post, container) {
 
   const actionsHTML = `
     <div class="feed-actions-bar">
-      <button class="feed-action-btn ${post.liked ? 'liked' : ''}" data-action="like" data-post-id="${post.id || ''}">
+      <button class="feed-action-btn ${post.liked ? 'liked' : ''}" data-action="like" data-post-id="${post.id || ''}" aria-label="Me gusta">
         <svg viewBox="0 0 24 24" fill="${likeColor}" stroke="${likeStroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
         </svg>
         <span class="feed-action-count">${likes > 0 ? formatCount(likes) : ''}</span>
       </button>
-      <button class="feed-action-btn" data-action="comment" data-post-id="${post.id || ''}">
+      <button class="feed-action-btn" data-action="comment" data-post-id="${post.id || ''}" aria-label="Comentar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
         </svg>
         <span class="feed-action-count">${comments > 0 ? formatCount(comments) : ''}</span>
       </button>
+      <span class="feed-actions-spacer"></span>${buildFeedBookmarkButton(post.id, post.bookmarked)}
     </div>
     <!-- Inline Comments Section (hidden by default) -->
     <div class="feed-comments-section hidden" data-post-id="${post.id || ''}">
@@ -7265,21 +7344,11 @@ function renderPostCard(post, container) {
     </div>
   `;
 
-  card.innerHTML = headerHTML + contentHTML + actionsHTML;
+  card.innerHTML = headerHTML + mediaHTML + contentHTML + actionsHTML;
 
-  // Smooth entry animation using requestAnimationFrame
-  card.style.opacity = '0';
-  card.style.transform = 'translateY(20px)';
+  // La entrada animada va por CSS (@keyframes feedCardFadeIn). Sin transform inline: un transform
+  // persistente atraparía las hojas inferiores (position: fixed) dentro de la tarjeta.
   container.appendChild(card);
-
-  // Trigger animation after DOM insertion
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-      card.style.opacity = '1';
-      card.style.transform = 'translateY(0)';
-    });
-  });
 }
 
 // Attach event listeners to feed
@@ -9275,7 +9344,7 @@ async function openPostModal(postId, targetCommentId, targetReplyId) {
   if (!modal || !body) return;
 
   // Show loading
-  body.innerHTML = '<div style="text-align: center; padding: 40px;">Cargando publicación...</div>';
+  body.innerHTML = '<div class="feed-state"><p>Cargando publicación...</p></div>';
   modal.classList.remove('hidden');
 
   try {
@@ -9283,7 +9352,7 @@ async function openPostModal(postId, targetCommentId, targetReplyId) {
     const postDoc = await db.collection('posts').doc(postId).get();
 
     if (!postDoc.exists) {
-      body.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">Publicación no encontrada</div>';
+      body.innerHTML = '<div class="feed-state feed-state-error"><p>Publicación no encontrada</p></div>';
       return;
     }
 
@@ -9303,7 +9372,7 @@ async function openPostModal(postId, targetCommentId, targetReplyId) {
 
   } catch (error) {
     console.error('Error loading post:', error);
-    body.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">Error al cargar la publicación</div>';
+    body.innerHTML = '<div class="feed-state feed-state-error"><p>Error al cargar la publicación</p></div>';
   }
 }
 
@@ -9331,15 +9400,14 @@ function renderPostInModal(post, container) {
 
   // Header - Matches feed card layout: avatar, user+time, location, three-dot menu
   const headerHTML = `
-    <div class="feed-card-header" style="padding: 16px; border-bottom: 1px solid #f3f4f6; position: relative;">
+    <div class="feed-card-header">
       <img src="${userPhoto || generateAvatarFallback(userName, 200)}" alt="${userName}" class="feed-avatar" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(userName, 200)}'; this.onerror=null;">
       <div class="feed-header-content">
         <div class="feed-header-row">
           <span class="feed-username">${userName}</span>
-          <span class="feed-dot">&middot;</span>
-          <span class="feed-time">${post.time || 'Ahora'}</span>
         </div>
-        ${locationName ? `<div class="feed-location-text">📍 ${locationName}</div>` : ''}
+        ${locationName ? `<div class="feed-location-text">${FEED_ICON_PIN}<span>${locationName}</span></div>` : ''}
+        <div class="feed-time-row"><span class="feed-time">${post.time || 'Ahora'}</span></div>
       </div>
       ${currentUser ? `
         <div class="feed-post-menu-wrapper">
@@ -9399,46 +9467,53 @@ function renderPostInModal(post, container) {
 
   if (post.type === 'photo' || (post.photos && post.photos.length > 0)) {
     const images = post.photos || (post.image ? [post.image] : []);
+    const modalPhotoTag = locationName ? `<span class="feed-photo-tag" aria-hidden="true">${FEED_ICON_PIN}<span>${locationName}</span></span>` : '';
     if (images.length === 1) {
       contentHTML = `
-        <div class="feed-image-container" style="max-height: 70vh; overflow: hidden;">
-          <img src="${images[0]}" alt="Post" class="feed-image" style="width: 100%; height: auto; display: block;">
+        <div class="feed-media-wrapper feed-media-modal">
+          <div class="feed-image-container">
+            <img src="${images[0]}" alt="Foto de la publicación" class="feed-image">
+            ${modalPhotoTag}
+          </div>
         </div>
       `;
     } else if (images.length > 1) {
       contentHTML = `
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; background: #000;">
-          ${images.map(img => `<img src="${img}" alt="Post" style="width: 100%; height: 300px; object-fit: cover; display: block;">`).join('')}
+        <div class="feed-media-wrapper feed-media-modal">
+          <div class="feed-images-grid grid-modal">
+            ${images.map(img => `<img src="${img}" alt="Foto de la publicación" class="feed-image">`).join('')}
+          </div>
+          ${modalPhotoTag}
         </div>
       `;
     }
     // Add text content if exists
     if (post.content) {
       contentHTML += `
-        <div class="feed-text-content" style="padding: 16px;">
+        <div class="feed-text-content">
           <p class="feed-text-body">${renderTextWithMentions(post.content, post.mentions)}</p>
         </div>
       `;
     }
   } else if (post.type === 'video' || post.video) {
     contentHTML = `
-      <div class="feed-video-container" style="max-height: 70vh;">
-        <video src="${post.video}" controls class="feed-video" style="width: 100%; max-height: 70vh; display: block;"></video>
+      <div class="feed-video-container">
+        <video src="${post.video}" controls class="feed-video"></video>
       </div>
     `;
     // Add text content if exists
     if (post.content) {
       contentHTML += `
-        <div class="feed-text-content" style="padding: 16px;">
+        <div class="feed-text-content">
           <p class="feed-text-body">${renderTextWithMentions(post.content, post.mentions)}</p>
         </div>
       `;
     }
   } else if (post.type === 'text' || post.content) {
     contentHTML = `
-      <div class="feed-text-content" style="padding: 24px;">
-        ${post.title ? `<h3 class="feed-text-title" style="margin: 0 0 12px; font-size: 20px; font-weight: 700;">${post.title}</h3>` : ''}
-        <p class="feed-text-body" style="margin: 0; font-size: 16px; line-height: 1.6; white-space: pre-wrap;">${renderTextWithMentions(post.content || '', post.mentions)}</p>
+      <div class="feed-text-content">
+        ${post.title ? `<h3 class="feed-text-title">${post.title}</h3>` : ''}
+        <p class="feed-text-body">${renderTextWithMentions(post.content || '', post.mentions)}</p>
       </div>
     `;
   }
@@ -9460,13 +9535,13 @@ function renderPostInModal(post, container) {
   // Actions bar - matching feed card layout (like + count, comment + count)
   const actionsHTML = `
     <div class="feed-actions-bar modal-actions-bar">
-      <button class="feed-action-btn ${post.liked ? 'liked' : ''}" data-action="like" data-post-id="${post.id || ''}">
+      <button class="feed-action-btn ${post.liked ? 'liked' : ''}" data-action="like" data-post-id="${post.id || ''}" aria-label="Me gusta">
         <svg viewBox="0 0 24 24" fill="${likeColor}" stroke="${likeStroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
         </svg>
         <span class="feed-action-count">${likesCount > 0 ? formatCount(likesCount) : ''}</span>
       </button>
-      <button class="feed-action-btn" data-action="comment" data-post-id="${post.id || ''}">
+      <button class="feed-action-btn" data-action="comment" data-post-id="${post.id || ''}" aria-label="Comentar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
         </svg>
