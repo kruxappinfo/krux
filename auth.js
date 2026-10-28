@@ -403,20 +403,6 @@ async function deleteAccount() {
     }
 }
 
-// MODO CAPTURAS (temporal): con ?screenshots=1 en la URL no se muestra el login ni se
-// oculta la navegación sin sesión, para que otro agente pueda fotografiar la app.
-// Se recuerda durante la pestaña (sessionStorage). Desactivar con ?screenshots=0.
-function isScreenshotMode() {
-    try {
-        const param = new URLSearchParams(window.location.search).get('screenshots');
-        if (param === '1') sessionStorage.setItem('krux-screenshots', '1');
-        if (param === '0') sessionStorage.removeItem('krux-screenshots');
-        return sessionStorage.getItem('krux-screenshots') === '1';
-    } catch (e) {
-        return false;
-    }
-}
-
 // Update UI based on auth state
 function updateAuthUI(user) {
     const landingPage = document.getElementById('landing-page');
@@ -488,14 +474,13 @@ function updateAuthUI(user) {
     } else {
         // Logged Out
         // Solo mostrar landing-page en web, no en app nativa (que usa mobile-auth)
-        const screenshotMode = isScreenshotMode();
-        if (!isCapacitor && !screenshotMode) {
+        if (!isCapacitor) {
             landingPage.classList.remove('hidden');
         }
         if (userProfileWrapper) userProfileWrapper.classList.add('hidden');
 
         // Hide navigation
-        if (bottomNav) bottomNav.style.display = screenshotMode ? 'flex' : 'none';
+        if (bottomNav) bottomNav.style.display = 'none';
     }
 }
 
