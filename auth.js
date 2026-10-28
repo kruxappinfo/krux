@@ -442,7 +442,7 @@ function updateAuthUI(user) {
         const userPhotoIcon = document.getElementById('user-photo-icon');
 
         const userName = user.displayName || user.email || 'Usuario';
-        const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=6366f1&color=fff&size=200`;
+        const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=153E35&color=fff&size=200`;
 
         if (photoUrl) {
             if (userPhoto) {

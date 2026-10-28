@@ -1154,11 +1154,11 @@ function initGlobalSearch() {
           const btnText = isFollowing ? 'Siguiendo' : 'Seguir';
 
           // Use common avatar fallback
-          const avatarUrl = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=e5e7eb&color=6b7280`;
+          const avatarUrl = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=DCE9DF&color=153E35`;
 
           html += `
             <div class="search-result-item" onclick="openPublicProfile('${user.id}')" style="cursor: pointer;">
-              <img src="${avatarUrl}" class="search-result-avatar" alt="${user.displayName}" referrerPolicy="no-referrer" onerror="this.src='https://ui-avatars.com/api/?name=U&background=e5e7eb&color=6b7280'; this.onerror=null;">
+              <img src="${avatarUrl}" class="search-result-avatar" alt="${user.displayName}" referrerPolicy="no-referrer" onerror="this.src='https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35'; this.onerror=null;">
               <div class="search-result-info">
                 <div class="search-result-name">${user.displayName || 'Usuario'}</div>
                 <div class="search-result-meta">${user.id === 'akqgKt9WmQRNrpPub9xVKiPKmcn2' ? 'Administrador' : (user.bio || 'Escalador')}</div>
@@ -1318,7 +1318,7 @@ function resetProfileState() {
     cancelAvatarLoad(avatar);
     avatar.onerror = null;
     avatar.style.opacity = '1';
-    avatar.src = 'https://ui-avatars.com/api/?name=...&background=e5e7eb&color=6b7280&size=100';
+    avatar.src = 'https://ui-avatars.com/api/?name=...&background=DCE9DF&color=153E35&size=100';
   }
 
   // FIX #2: Clear tab contents to prevent data bleeding
@@ -2208,7 +2208,7 @@ async function openSocialListForUser(userId, type) {
 
       html += `
         <div class="social-list-item">
-          <img src="${user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=e5e7eb&color=6b7280&size=50`}"
+          <img src="${user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=DCE9DF&color=153E35&size=50`}"
                class="social-list-avatar"
                onclick="document.getElementById('social-list-modal').classList.add('hidden'); openPublicProfile('${user.id}')"
                style="cursor: pointer;">
@@ -2560,7 +2560,7 @@ function initMessages() {
       const isUnread = (conv.unreadCount?.[currentUser.uid] || 0) > 0;
       const preview = conv.lastMessage || 'Sin mensajes';
       const time = formatTime(conv.lastMessageTime || conv.updatedAt);
-      const avatar = other.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(other.displayName)}&background=667eea&color=fff`;
+      const avatar = other.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(other.displayName)}&background=153E35&color=fff`;
 
       return `
         <div class="message-item ${isUnread ? 'unread' : ''}" data-conversation-id="${conv.id}" data-recipient-id="${other.id}" data-recipient-name="${other.displayName}" data-recipient-photo="${avatar}">
@@ -3116,7 +3116,7 @@ window.createNotification = async function (targetUserId, type, text, additional
     }
 
     // Get current user's photo from Firestore (might be different from Auth)
-    let userPhotoURL = currentUser.photoURL || 'https://ui-avatars.com/api/?name=U&background=e5e7eb&color=6b7280&size=44';
+    let userPhotoURL = currentUser.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=44';
     try {
       const userDoc = await db.collection('users').doc(currentUser.uid).get();
       if (userDoc.exists && userDoc.data().photoURL) {
@@ -3484,7 +3484,7 @@ const MOCK_PROFILE = {
   name: "Jaime Lillo",
   category: "🧗” Escalador · Boulder & Deportiva",
   bio: "Escalador desde 2018\n📍 Madrid, España\nÃ°Å¸Ââ€Ã¯Â¸Â Amante de las paredes de caliza",
-  avatar: "https://ui-avatars.com/api/?name=Jaime+Lillo&background=6366f1&color=fff&size=200&bold=true",
+  avatar: "https://ui-avatars.com/api/?name=Jaime+Lillo&background=153E35&color=fff&size=200&bold=true",
   stats: {
     posts: 24,
     followers: 1247,
@@ -4173,7 +4173,7 @@ function initProfileStatClicks() {
 
         html += `
           <div class="social-list-item">
-            <img src="${user.photoURL || 'https://ui-avatars.com/api/?name=U&background=e5e7eb&color=6b7280&size=50'}" 
+            <img src="${user.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=50'}" 
                  class="social-list-avatar"
                  alt="${user.displayName}"
                  onclick="openPublicProfile('${user.id}')">
@@ -4263,7 +4263,7 @@ function initEditProfile() {
       // Pre-fill form with current data
       document.getElementById('edit-display-name').value = currentUser.displayName || '';
       if (photoPreview) {
-        photoPreview.src = currentUser.photoURL || 'https://ui-avatars.com/api/?name=U&background=e5e7eb&color=6b7280&size=100';
+        photoPreview.src = currentUser.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=100';
       }
 
       db.collection('users').doc(currentUser.uid).get().then(doc => {
@@ -6119,11 +6119,11 @@ class MentionAutocomplete {
 
   _renderResults() {
     const html = this.results.map((user, index) => {
-      const photoUrl = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=10b981&color=fff&size=32`;
+      const photoUrl = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=153E35&color=fff&size=32`;
       const name = escapeHtmlMention(user.displayName || 'Usuario');
       return `
         <div class="mention-dropdown-item ${index === this.selectedIndex ? 'selected' : ''}" data-index="${index}">
-          <img src="${photoUrl}" alt="${name}" class="mention-dropdown-avatar" referrerPolicy="no-referrer" onerror="this.src='https://ui-avatars.com/api/?name=U&background=10b981&color=fff&size=32'; this.onerror=null;">
+          <img src="${photoUrl}" alt="${name}" class="mention-dropdown-avatar" referrerPolicy="no-referrer" onerror="this.src='https://ui-avatars.com/api/?name=U&background=153E35&color=fff&size=32'; this.onerror=null;">
           <div class="mention-dropdown-info">
             <span class="mention-dropdown-name">${name}</span>
           </div>
@@ -7640,7 +7640,7 @@ async function loadInlineComments(postId, container) {
     snapshot.forEach(doc => {
       const comment = doc.data();
       const date = comment.createdAt ? formatTimeAgo(comment.createdAt.toDate()) : '';
-      const photoUrl = comment.userPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.userName || 'U')}&background=10b981&color=fff&size=40`;
+      const photoUrl = comment.userPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.userName || 'U')}&background=153E35&color=fff&size=40`;
 
       // Permisos de UI: Determinar quÃ© opciones mostrar
       const commentAuthorId = comment.userId || null;
@@ -8059,7 +8059,7 @@ async function handleSubmitReply(postId, commentId, text, container) {
 
   try {
     // Get user photo from Firestore (might be different from Auth)
-    let userPhotoURL = currentUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.displayName || 'U')}&background=10b981&color=fff&size=40`;
+    let userPhotoURL = currentUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.displayName || 'U')}&background=153E35&color=fff&size=40`;
     try {
       const userDoc = await db.collection('users').doc(currentUser.uid).get();
       if (userDoc.exists && userDoc.data().photoURL) {
@@ -8224,7 +8224,7 @@ async function loadReplies(postId, commentId, container) {
     snapshot.forEach(doc => {
       const reply = doc.data();
       const date = reply.createdAt ? formatTimeAgo(reply.createdAt.toDate()) : '';
-      const photoUrl = reply.userPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(reply.userName || 'U')}&background=10b981&color=fff&size=28`;
+      const photoUrl = reply.userPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(reply.userName || 'U')}&background=153E35&color=fff&size=28`;
 
       // Likes data
       const likes = reply.likes || [];
@@ -8505,7 +8505,7 @@ async function handleSubmitReplyToReply(postId, parentCommentId, replyToId, text
 
   try {
     // Get user photo from Firestore
-    let userPhotoURL = currentUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.displayName || 'U')}&background=10b981&color=fff&size=40`;
+    let userPhotoURL = currentUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.displayName || 'U')}&background=153E35&color=fff&size=40`;
     try {
       const userDoc = await db.collection('users').doc(currentUser.uid).get();
       if (userDoc.exists && userDoc.data().photoURL) {
@@ -9235,7 +9235,7 @@ function formatCount(num) {
 // Generate fallback avatar URL based on name
 function generateAvatarFallback(name, size = 200) {
   const encodedName = encodeURIComponent(name || 'Usuario');
-  return `https://ui-avatars.com/api/?name=${encodedName}&background=6366f1&color=fff&size=${size}`;
+  return `https://ui-avatars.com/api/?name=${encodedName}&background=153E35&color=fff&size=${size}`;
 }
 
 // Set avatar with error handling and fallback

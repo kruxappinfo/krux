@@ -786,10 +786,10 @@ body.pwa-standalone .feed-header {
   padding: 6px !important;
   border: 1px solid rgba(255, 255, 255, 0.7) !important;
   border-radius: 28px !important;
-  background: rgba(251, 249, 246, 0.78) !important;
+  background: rgba(247, 246, 240, 0.78) !important;
   -webkit-backdrop-filter: blur(22px) saturate(1.5) !important;
   backdrop-filter: blur(22px) saturate(1.5) !important;
-  box-shadow: 0 0 0 1px rgba(27, 28, 33, 0.06), 0 12px 32px rgba(27, 28, 33, 0.14) !important;
+  box-shadow: 0 0 0 1px rgba(32, 41, 35, 0.06), 0 12px 32px rgba(32, 41, 35, 0.14) !important;
 }
 
 .platform-mobile .bottom-nav .nav-item {
@@ -799,7 +799,7 @@ body.pwa-standalone .feed-header {
   padding: 6px 4px !important;
   gap: 3px !important;
   border-radius: 20px !important;
-  color: #6B6862 !important;
+  color: var(--kx-ink-3, #5A665F) !important;
 }
 
 .platform-mobile .bottom-nav .nav-item span {
@@ -813,8 +813,8 @@ body.pwa-standalone .feed-header {
 }
 
 .platform-mobile .bottom-nav .nav-item.active {
-  background: transparent !important;
-  color: var(--kx-accent, #5B5BD6) !important;
+  background: var(--kx-sage, #DCE9DF) !important;
+  color: var(--kx-forest, #153E35) !important;
 }
 
 /* El feed ocupa toda la pantalla; la navegación flota sobre el contenido */
@@ -826,7 +826,7 @@ body.pwa-standalone .feed-header {
 .platform-mobile #feed-view.view.active .feed-header {
   min-height: calc(60px + env(safe-area-inset-top, 0px)) !important;
   padding-top: max(8px, env(safe-area-inset-top, 0px)) !important;
-  background: var(--kx-bg, #F3F0EA) !important;
+  background: var(--kx-bg, #F7F6F0) !important;
 }
 
 .platform-mobile #feed-view.view.active .feed-container {
