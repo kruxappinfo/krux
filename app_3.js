@@ -4219,7 +4219,11 @@ const LB = {
   gesture: null,     // { type: 'pinch'|'pan'|'dismiss', ... }
   lastTap: null,     // { t, x, y } para el doble toque
   opener: null,
-  token: 0           // invalida cargas antiguas si se abre otra imagen
+  token: 0,          // invalida cargas antiguas si se abre otra imagen
+  images: [],        // fotos de la publicación (para pasar de una a otra)
+  index: 0,
+  busy: false,       // animación de cambio de foto en curso
+  GAP: 24            // separación entre fotos al deslizar
 };
 
 function lbEls() {
@@ -4229,7 +4233,11 @@ function lbEls() {
     img: document.getElementById('image-lightbox-img'),
     spinner: document.getElementById('image-lightbox-spinner'),
     error: document.getElementById('image-lightbox-error'),
-    level: document.querySelector('.image-lightbox-zoom-level')
+    level: document.querySelector('.image-lightbox-zoom-level'),
+    peek: document.getElementById('image-lightbox-peek'),
+    counter: document.getElementById('image-lightbox-counter'),
+    prev: document.getElementById('image-lightbox-prev'),
+    next: document.getElementById('image-lightbox-next')
   };
 }
 
@@ -4284,18 +4292,48 @@ function lbPoint(e) {
 
 function lbReset() {
   LB.scale = 1; LB.x = 0; LB.y = 0;
-  LB.pointers.clear(); LB.gesture = null; LB.lastTap = null;
-  const { img, modal, level } = lbEls();
+  LB.pointers.clear(); LB.gesture = null; LB.lastTap = null; LB.busy = false;
+  const { img, modal, level, peek } = lbEls();
   if (img) { img.style.transition = 'none'; img.style.transform = ''; }
+  if (peek) { peek.hidden = true; peek.style.transition = 'none'; peek.style.transform = ''; peek.removeAttribute('src'); }
   modal?.classList.remove('is-zoomed', 'is-dragging', 'is-loaded', 'is-error');
   if (modal) modal.style.removeProperty('--lb-dim');
   if (level) level.textContent = '100%';
 }
 
-// Abrir lightbox de imagen
-function openImageLightbox(imageSrc) {
+// Contador y flechas según la posición dentro de las fotos de la publicación
+function lbUpdateGallery() {
+  const { counter, prev, next } = lbEls();
+  const n = LB.images.length;
+  const multi = n > 1;
+  if (counter) {
+    counter.hidden = !multi;
+    counter.textContent = multi ? `${LB.index + 1} / ${n}` : '';
+  }
+  if (prev) { prev.hidden = !multi; prev.disabled = LB.index <= 0; }
+  if (next) { next.hidden = !multi; next.disabled = LB.index >= n - 1; }
+}
+
+// Precarga y decodifica las fotos contiguas para que el cambio sea inmediato
+function lbPreloadNeighbors() {
+  [LB.index - 1, LB.index + 1].forEach(i => {
+    const url = LB.images[i];
+    if (!url) return;
+    const pre = new Image();
+    pre.referrerPolicy = 'no-referrer';
+    pre.src = url;
+    pre.decode?.().catch(() => {});
+  });
+}
+
+// Abrir lightbox de imagen. `images` = todas las fotos de la publicación e `index` la que se toca
+function openImageLightbox(imageSrc, images, index) {
   const { modal, img, spinner, error } = lbEls();
   if (!modal || !img || !imageSrc) return;
+
+  LB.images = Array.isArray(images) && images.length ? images.slice() : [imageSrc];
+  LB.index = Number.isInteger(index) && LB.images[index] ? index : Math.max(0, LB.images.indexOf(imageSrc));
+  imageSrc = LB.images[LB.index] || imageSrc;
 
   const token = ++LB.token;
   LB.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -4326,14 +4364,111 @@ function openImageLightbox(imageSrc) {
     spinner.hidden = true;
     modal.classList.add('is-loaded');
     lbApply(false);
+    lbUpdateGallery();
+    lbPreloadNeighbors();
   };
   loader.onerror = () => {
     if (token !== LB.token) return;
     spinner.hidden = true;
     error.hidden = false;
     modal.classList.add('is-error');
+    lbUpdateGallery(); // aunque falle una foto se puede pasar a las demás
   };
+  lbUpdateGallery();
   loader.src = imageSrc;
+}
+
+// ---- Pasar de una foto a otra ----
+// Coloca la foto contigua (dir = +1 siguiente, −1 anterior) fuera de pantalla, lista para entrar
+function lbPreparePeek(dir) {
+  const { peek } = lbEls();
+  const url = LB.images[LB.index + dir];
+  if (!url) { peek.hidden = true; return false; }
+  if (peek.getAttribute('src') !== url) peek.src = url;
+  peek.hidden = false;
+  peek.style.transition = 'none';
+  return true;
+}
+
+function lbSwipeTo(dx) {
+  const { stage, img, peek } = lbEls();
+  const W = stage.clientWidth + LB.GAP;
+  const dir = dx < 0 ? 1 : -1;
+  const hasNeighbor = !!LB.images[LB.index + dir];
+  const x = hasNeighbor ? dx : dx * 0.3; // resistencia en la primera y la última foto
+  LB.x = x;
+  img.style.transition = 'none';
+  img.style.transform = `translate3d(${x}px, 0, 0) scale(1)`;
+  if (hasNeighbor) {
+    if (peek.hidden || peek.dataset.dir !== String(dir)) { lbPreparePeek(dir); peek.dataset.dir = String(dir); }
+    peek.style.transform = `translate3d(${x - dir * W}px, 0, 0)`;
+  } else {
+    peek.hidden = true;
+  }
+}
+
+// Termina el cambio de foto con animación; dir = +1 siguiente, −1 anterior
+async function lbCommit(dir) {
+  const { stage, img, peek, modal, error, spinner } = lbEls();
+  const url = LB.images[LB.index + dir];
+  if (!url || LB.busy) { lbBounceBack(); return; }
+  LB.busy = true;
+  const W = stage.clientWidth + LB.GAP;
+  const animate = !lbReduced();
+  const ms = animate ? 220 : 0;
+  const ease = 'transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)';
+
+  if (peek.hidden || peek.dataset.dir !== String(dir)) {
+    lbPreparePeek(dir); peek.dataset.dir = String(dir);
+    peek.style.transform = `translate3d(${dir * W + LB.x}px, 0, 0)`;
+    void peek.offsetWidth; // fija la posición de salida antes de animar
+  }
+  if (animate) { img.style.transition = ease; peek.style.transition = ease; }
+  img.style.transform = `translate3d(${-dir * W}px, 0, 0) scale(1)`;
+  peek.style.transform = 'translate3d(0, 0, 0)';
+  await new Promise(resolve => setTimeout(resolve, ms));
+
+  // Cambio de foto: la contigua pasa a ser la principal sin parpadeo (peek sigue encima hasta decodificar)
+  LB.index += dir;
+  lbUpdateGallery(); // contador y flechas al instante
+  const myToken = ++LB.token;
+  img.style.transition = 'none';
+  img.src = url;
+  // La foto contigua sigue encima hasta que la principal está lista; con tope corto para no retrasar el siguiente gesto
+  try { await Promise.race([img.decode(), new Promise(r => setTimeout(r, 250))]); } catch (_) { /* sin decode */ }
+  if (myToken !== LB.token) return;
+  LB.scale = 1; LB.x = 0; LB.y = 0;
+  img.style.transform = '';
+  peek.hidden = true; peek.removeAttribute('src'); peek.dataset.dir = '';
+  modal.classList.remove('is-zoomed', 'is-error');
+  error.hidden = true; spinner.hidden = true;
+  if (!img.naturalWidth) { error.hidden = false; modal.classList.add('is-error'); }
+  lbApply(false);
+  lbUpdateGallery();
+  lbPreloadNeighbors();
+  LB.busy = false;
+}
+
+function lbBounceBack() {
+  const { img, peek } = lbEls();
+  const W = (lbEls().stage.clientWidth + LB.GAP);
+  const dir = peek.dataset.dir ? Number(peek.dataset.dir) : 0;
+  LB.x = 0;
+  const ease = lbReduced() ? 'none' : 'transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)';
+  img.style.transition = ease;
+  img.style.transform = 'translate3d(0, 0, 0) scale(1)';
+  if (!peek.hidden && dir) {
+    peek.style.transition = ease;
+    peek.style.transform = `translate3d(${dir * W}px, 0, 0)`;
+    setTimeout(() => { if (!LB.busy && LB.x === 0) { peek.hidden = true; peek.dataset.dir = ''; } }, 230);
+  }
+}
+
+// Cambio desde botones o teclado
+function lbGo(dir) {
+  if (LB.busy || !LB.images[LB.index + dir]) return;
+  if (LB.scale > 1.01) { LB.scale = 1; LB.x = 0; LB.y = 0; lbApply(false); }
+  lbCommit(dir);
 }
 
 // Cerrar lightbox de imagen
@@ -4343,6 +4478,7 @@ function closeImageLightbox() {
 
   const finish = () => {
     LB.token++; // cancela cualquier carga pendiente
+    LB.images = []; LB.index = 0;
     modal.classList.add('hidden');
     modal.classList.remove('is-closing');
     lbReset();
@@ -4382,6 +4518,7 @@ function initImageLightbox() {
 
   // ---- Gestos con Pointer Events ----
   const onDown = (e) => {
+    if (LB.busy) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     try { stage.setPointerCapture(e.pointerId); } catch (_) { /* puntero ya liberado */ }
     LB.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, t: performance.now() });
@@ -4430,7 +4567,14 @@ function initImageLightbox() {
     } else if (g.type === 'dismiss') {
       const dy = e.clientY - p.startY, dx = e.clientX - p.startX;
       if (Math.abs(dy) > 6 || Math.abs(dx) > 6) g.moved = true;
-      if (g.moved && dy > 0 && Math.abs(dy) > Math.abs(dx)) {
+      // El eje se fija con el primer movimiento claro: horizontal pasa de foto, vertical cierra
+      if (!g.axis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        g.axis = Math.abs(dx) > Math.abs(dy) && LB.images.length > 1 ? 'x' : 'y';
+      }
+      if (g.axis === 'x') {
+        modal.classList.add('is-dragging');
+        lbSwipeTo(dx);
+      } else if (g.moved && dy > 0 && Math.abs(dy) > Math.abs(dx)) {
         LB.y = dy;
         modal.style.setProperty('--lb-dim', String(Math.max(0.25, 1 - dy / 420)));
         modal.classList.add('is-dragging');
@@ -4464,6 +4608,15 @@ function initImageLightbox() {
     if (LB.pointers.size > 0) return;
     LB.gesture = null;
 
+    if (g?.type === 'dismiss' && g.axis === 'x') {
+      const dx = e.clientX - p.startX;
+      const velocity = Math.abs(dx) / Math.max(1, now - p.t);
+      const W = lbEls().stage.clientWidth;
+      const dir = dx < 0 ? 1 : -1;
+      if ((Math.abs(dx) > W * 0.22 || (Math.abs(dx) > 30 && velocity > 0.45)) && LB.images[LB.index + dir]) lbCommit(dir);
+      else lbBounceBack();
+      return;
+    }
     if (g?.type === 'dismiss' && g.moved && LB.y > 0) {
       const velocity = LB.y / Math.max(1, now - p.t);
       if (LB.y > 120 || (LB.y > 40 && velocity > 0.6)) { closeImageLightbox(); return; }
@@ -4494,8 +4647,16 @@ function initImageLightbox() {
   stage.addEventListener('pointerup', onUp);
   stage.addEventListener('pointercancel', (e) => {
     LB.pointers.delete(e.pointerId);
-    if (LB.pointers.size === 0) { LB.gesture = null; modal.classList.remove('is-dragging'); modal.style.removeProperty('--lb-dim'); lbSettle(true); }
+    if (LB.pointers.size === 0) {
+      const wasSwipe = LB.gesture?.axis === 'x';
+      LB.gesture = null; modal.classList.remove('is-dragging'); modal.style.removeProperty('--lb-dim');
+      if (wasSwipe) lbBounceBack(); else lbSettle(true);
+    }
   });
+
+  // Flechas visibles (con ratón) para pasar de foto
+  document.getElementById('image-lightbox-prev')?.addEventListener('click', (e) => { e.stopPropagation(); lbGo(-1); });
+  document.getElementById('image-lightbox-next')?.addEventListener('click', (e) => { e.stopPropagation(); lbGo(1); });
 
   // Rueda del ratón y pellizco del trackpad (ctrlKey): zoom hacia el cursor
   stage.addEventListener('wheel', (e) => {
@@ -4520,6 +4681,10 @@ function initImageLightbox() {
     if (e.key === '+' || e.key === '=') { e.preventDefault(); lbZoomAt(LB.scale * 1.5); }
     else if (e.key === '-' || e.key === '_') { e.preventDefault(); lbZoomAt(LB.scale / 1.5); }
     else if (e.key === '0') { e.preventDefault(); lbZoomAt(1); }
+    else if (LB.scale <= 1.01 && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      lbGo(e.key === 'ArrowRight' ? 1 : -1);
+    }
     else if (LB.scale > 1.01 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
       e.preventDefault();
       const step = 60;
@@ -8665,7 +8830,7 @@ function renderPostCard(post, container) {
       mediaHTML += `
         <div class="feed-media-wrapper">
           <div class="feed-image-container">
-            <img src="${images[0]}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${images[0]}" loading="lazy">
+            <img src="${images[0]}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${images[0]}" data-lightbox-index="0" loading="lazy">
             ${photoTag}
           </div>
         </div>
@@ -8675,12 +8840,14 @@ function renderPostCard(post, container) {
       mediaHTML += `
         <div class="feed-media-wrapper">
           <div class="feed-images-grid ${gridClass}">
-            ${images.slice(0, 4).map(img => `<img src="${img}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${img}" loading="lazy">`).join('')}
+            ${images.slice(0, 4).map((img, i) => `<img src="${img}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${img}" data-lightbox-index="${i}" loading="lazy">`).join('')}
           </div>
           ${photoTag}
+          ${images.length > 4 ? `<span class="feed-photos-more" aria-label="${images.length - 4} fotos más">+${images.length - 4}</span>` : ''}
         </div>
       `;
     }
+    card._lightboxImages = images; // el visor recibe todas las fotos, no solo las 4 de la cuadrícula
   } else if (post.type === 'video' || post.video) {
     mediaHTML += `
       <div class="feed-video-container">
@@ -8801,7 +8968,9 @@ function attachFeedEventListeners(container) {
       e.stopPropagation();
       const imageSrc = img.dataset.lightboxSrc || img.src;
       if (imageSrc) {
-        openImageLightbox(imageSrc);
+        const group = img.closest('.feed-card')?._lightboxImages;
+        const index = Number(img.dataset.lightboxIndex);
+        openImageLightbox(imageSrc, group, Number.isInteger(index) ? index : undefined);
       }
     });
   });
@@ -10977,11 +11146,13 @@ function renderPostInModal(post, container) {
   container.innerHTML = headerHTML + contentHTML + actionsHTML;
 
   // Las fotos de la publicación ampliada se abren en el visor con zoom
-  container.querySelectorAll('.feed-media-modal .feed-image').forEach(img => {
+  const modalPhotos = [...container.querySelectorAll('.feed-media-modal .feed-image')];
+  const modalPhotoUrls = modalPhotos.map(img => img.currentSrc || img.src);
+  modalPhotos.forEach((img, i) => {
     img.classList.add('feed-image-clickable');
     img.addEventListener('click', (e) => {
       e.stopPropagation();
-      openImageLightbox(img.currentSrc || img.src);
+      openImageLightbox(modalPhotoUrls[i], modalPhotoUrls, i);
     });
   });
 
