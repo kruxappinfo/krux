@@ -505,11 +505,20 @@ async function createUserDocument(user) {
             });
         } else {
             // Update user info
-            await userRef.update({
+            const updateData = {
                 displayName: user.displayName,
-                photoURL: user.photoURL,
                 lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            };
+
+            // No pisar una foto subida por el usuario (Storage: profile-photos/) con la de Auth:
+            // si el guardado del perfil falló a medias, Auth aún podría tener la foto antigua
+            const currentPhoto = doc.data().photoURL || '';
+            const hasCustomPhoto = currentPhoto.includes('profile-photos');
+            if (!hasCustomPhoto) {
+                updateData.photoURL = user.photoURL;
+            }
+
+            await userRef.update(updateData);
         }
     } catch (error) {
         console.error('Error creating/updating user document:', error);
