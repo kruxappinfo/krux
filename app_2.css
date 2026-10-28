@@ -24702,6 +24702,7 @@ h1, h2, h3 {
 .kx-sheet {
   position: fixed;
   inset: 0;
+  bottom: var(--sheet-kb, 0px);
   z-index: 10050;
   display: flex;
   align-items: flex-end;
@@ -24739,9 +24740,9 @@ h1, h2, h3 {
   width: 100%;
   max-width: 640px;
   min-height: 65vh;
-  min-height: 65dvh;
+  min-height: min(65dvh, calc(var(--sheet-avail, 100dvh) - 24px));
   max-height: 80vh;
-  max-height: 80dvh;
+  max-height: min(80dvh, calc(var(--sheet-avail, 100dvh) - 16px));
   border-radius: 28px 28px 0 0;
   background: var(--kx-chalk);
   box-shadow: 0 -10px 40px rgba(32, 41, 35, 0.18);
@@ -25277,5 +25278,421 @@ body.kx-sheet-open #feed-view .feed-container {
   .kx-sheet-panel {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* ====================================================================
+   BUSCAR — panel inferior alto (85–90 %) con buscador, categorías y resultados
+   ==================================================================== */
+.kx-sheet--tall .kx-sheet-panel {
+  height: 88vh;
+  height: min(88dvh, calc(var(--sheet-avail, 100dvh) - 16px));
+  min-height: 0;
+  max-height: none;
+}
+
+.kx-search--lg {
+  height: 52px;
+  border: 1px solid var(--kx-line);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--kx-ink-2);
+}
+
+.kx-search input::-webkit-search-cancel-button,
+.kx-search input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.kx-search-clear {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  margin-right: -8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink-2);
+  cursor: pointer;
+}
+
+.kx-search-clear::before {
+  content: '';
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(32, 41, 35, 0.09);
+}
+
+.kx-search-clear svg {
+  position: relative;
+}
+
+.kx-search-clear[hidden] {
+  display: none;
+}
+
+.kx-search-clear:focus-visible {
+  outline: 2px solid var(--kx-forest);
+  outline-offset: 0;
+}
+
+.search-sheet-body {
+  padding-top: 2px;
+}
+
+.search-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 10px 6px;
+}
+
+.search-section-head h3 {
+  margin: 0;
+  font-size: var(--kx-fs-body);
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--kx-ink);
+}
+
+.search-more {
+  min-height: 36px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--kx-forest);
+  font-size: var(--kx-fs-meta);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 8px 8px 8px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease);
+}
+
+.search-row:hover {
+  background: rgba(32, 41, 35, 0.04);
+}
+
+.search-row:focus-visible,
+.search-recent-query:focus-visible,
+.search-recent-remove:focus-visible,
+.search-explore-tile:focus-visible,
+.search-more:focus-visible,
+.kx-follow:focus-visible {
+  outline: 2px solid var(--kx-forest);
+  outline-offset: 2px;
+}
+
+.search-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--kx-sage);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.search-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: var(--kx-forest);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.search-thumb--soft {
+  background: var(--kx-sage);
+  color: var(--kx-forest);
+}
+
+.search-grade {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: 12px;
+  font-size: 0.9375rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.search-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-title {
+  font-size: var(--kx-fs-body);
+  font-weight: 700;
+  color: var(--kx-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-meta {
+  margin-top: 2px;
+  font-size: var(--kx-fs-caption);
+  color: var(--kx-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-chevron {
+  display: flex;
+  color: var(--kx-ink-3);
+  flex-shrink: 0;
+}
+
+/* Seguir / Siguiendo (estado real; lo actualiza toggleFollow) */
+.kx-sheet .kx-follow {
+  flex-shrink: 0;
+  min-width: 104px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-forest);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease), transform 0.15s var(--kx-ease);
+}
+
+.kx-sheet .kx-follow:hover {
+  background: var(--kx-primary-hover);
+}
+
+.kx-sheet .kx-follow:active {
+  transform: scale(0.97);
+}
+
+.kx-sheet .kx-follow.following {
+  background: var(--kx-sage);
+  color: var(--kx-forest);
+}
+
+.kx-sheet .kx-follow:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Búsquedas recientes */
+.search-recent-row {
+  display: flex;
+  align-items: center;
+  border-radius: 14px;
+}
+
+.search-recent-row:hover {
+  background: rgba(32, 41, 35, 0.04);
+}
+
+.search-recent-query {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--kx-ink);
+  font-size: var(--kx-fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-recent-query svg {
+  color: var(--kx-ink-3);
+  flex-shrink: 0;
+}
+
+.search-recent-query span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-recent-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink-3);
+  cursor: pointer;
+}
+
+.search-recent-remove:hover {
+  color: var(--kx-ink);
+}
+
+/* Explorar */
+.search-explore {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 4px 4px 8px;
+}
+
+.search-explore-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 108px;
+  padding: 14px;
+  border: 1px solid var(--kx-line);
+  border-radius: 18px;
+  background: #fff;
+  color: var(--kx-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease), transform 0.15s var(--kx-ease);
+}
+
+.search-explore-tile:hover {
+  background: var(--kx-sage-soft);
+}
+
+.search-explore-tile:active {
+  transform: scale(0.98);
+}
+
+.search-explore-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  background: var(--kx-sage);
+  color: var(--kx-forest);
+}
+
+.search-explore-title {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.search-explore-desc {
+  font-size: var(--kx-fs-caption);
+  color: var(--kx-ink-3);
+}
+
+/* Estados */
+.search-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.search-state-title {
+  font-size: var(--kx-fs-body);
+  font-weight: 700;
+  color: var(--kx-ink);
+  overflow-wrap: anywhere;
+}
+
+.search-state-hint {
+  max-width: 34ch;
+  font-size: var(--kx-fs-meta);
+  line-height: 1.4;
+  color: var(--kx-ink-2);
+}
+
+.search-state .kx-btn {
+  margin-top: 8px;
+}
+
+.search-loading {
+  padding-top: 8px;
+}
+
+.search-skel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 8px 10px;
+}
+
+.search-skel .a {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+
+.search-skel .b {
+  flex: 1;
+  height: 16px;
+  max-width: 60%;
+  border-radius: 8px;
+}
+
+.search-skel .a,
+.search-skel .b {
+  background: linear-gradient(100deg, #fff 30%, var(--kx-sage-soft) 50%, #fff 70%) 0 0 / 220% 100%;
+  animation: kxShimmer 1.6s linear infinite;
+}
+
+@media (min-width: 769px) {
+  #search-sheet .kx-sheet-panel {
+    width: 480px;
+    height: min(720px, calc(100vh - 96px));
+  }
+}
+
+@media (max-width: 359px) {
+  .kx-sheet .kx-follow {
+    min-width: 0;
+    padding: 0 12px;
+  }
+
+  .search-explore {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-skel .a,
+  .search-skel .b {
+    animation: none;
   }
 }

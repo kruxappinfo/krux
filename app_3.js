@@ -1066,227 +1066,544 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ================== GLOBAL SEARCH ==================
+// Panel inferior «Buscar» (lupa de la cabecera del feed). Solo datos reales:
+// - Personas: Firestore (searchUsersGlobal) y la lógica de seguir existente (toggleFollow).
+// - Escuelas, sectores y vías: MAPLIBRE_SCHOOLS y su cartografía GeoJSON (índice en memoria).
+// - Búsquedas recientes: solo en este dispositivo (localStorage).
+// No hay hashtags: los posts no guardan hashtags y Firestore no busca dentro del texto.
+
+// Real search for users in Firestore (también la usa el autocompletado de menciones)
+async function searchUsersGlobal(query) {
+  try {
+    const queryLower = query.toLowerCase();
+    // Approach 1: Try to search with displayNameLower field
+    let snapshot = await db.collection('users')
+      .orderBy('displayNameLower')
+      .startAt(queryLower)
+      .endAt(queryLower + '')
+      .limit(10)
+      .get();
+
+    if (snapshot.empty) {
+      // Approach 2: Fallback to client side filter
+      const allUsersSnapshot = await db.collection('users').limit(50).get();
+      return allUsersSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(user => {
+          const name = (user.displayName || '').toLowerCase();
+          const email = (user.email || '').toLowerCase();
+          return name.includes(queryLower) || email.includes(queryLower);
+        })
+        .slice(0, 10);
+    }
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Error searching users:', error);
+    // Try fallback approach if index error
+    if (error.code === 'failed-precondition' || error.message.includes('index')) {
+      try {
+        const allUsersSnapshot = await db.collection('users').limit(50).get();
+        return allUsersSnapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter(user => (user.displayName || '').toLowerCase().includes(query.toLowerCase()))
+          .slice(0, 10);
+      } catch (e) { throw e; }
+    }
+    throw error;
+  }
+}
+// Expose searchUsersGlobal globally so MentionAutocomplete can use it
+window.searchUsersGlobal = searchUsersGlobal;
+
 function initGlobalSearch() {
+  const sheet = document.getElementById('search-sheet');
   const searchBtn = document.getElementById('nav-search-btn');
   const searchInput = document.getElementById('global-search-input');
+  const clearBtn = document.getElementById('search-clear');
   const resultsContainer = document.getElementById('search-results');
-  const tabs = document.querySelectorAll('.search-tab');
+  const categories = document.getElementById('search-categories');
 
-  if (!searchBtn || !searchInput || !resultsContainer) return;
+  if (!sheet || !searchBtn || !searchInput || !resultsContainer) return;
+
+  const RECENT_KEY = 'krux-recent-searches';
+  const RECENT_MAX = 8;
+  const MIN_CHARS = 2;
+  const SECTION_LIMIT = 5; // por sección en «Todo»
+  const ADMIN_UID = 'akqgKt9WmQRNrpPub9xVKiPKmcn2';
 
   let currentType = 'all';
   let searchTimeout = null;
+  let searchSeq = 0;               // descarta respuestas de búsquedas ya superadas
+  const userCache = new Map();     // consulta → personas (evita repetir la misma consulta)
+  let placesIndexPromise = null;   // índice de escuelas, sectores y vías (se carga una vez)
 
-  // Search Button - Focus input (View switch handled by initNavigation)
-  searchBtn.addEventListener('click', () => {
-    // Wait for view transition
-    setTimeout(() => {
-      searchInput.focus();
-    }, 100);
-  });
+  const esc = (t) => escapeHtmlMention(String(t ?? ''));
+  const norm = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-  // Tab switching
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      currentType = tab.dataset.type;
+  // ---------- Búsquedas recientes (este dispositivo) ----------
+  function getRecent() {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]').filter(q => typeof q === 'string'); } catch (_) { return []; }
+  }
+  function setRecent(list) {
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX))); } catch (_) { /* almacenamiento no disponible */ }
+  }
+  function rememberQuery(query) {
+    const q = query.trim();
+    if (q.length < MIN_CHARS) return;
+    setRecent([q, ...getRecent().filter(x => norm(x) !== norm(q))]);
+  }
 
-      const query = searchInput.value.trim();
-      if (query.length >= 2) {
-        performSearch(query, currentType);
-      }
+  // ---------- Índice de lugares desde la cartografía ----------
+  function centroid(geometry) {
+    if (!geometry) return null;
+    const pts = [];
+    const walk = (c) => {
+      if (typeof c[0] === 'number') pts.push(c);
+      else c.forEach(walk);
+    };
+    try { walk(geometry.coordinates); } catch (_) { return null; }
+    if (!pts.length) return null;
+    const sum = pts.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
+    return [sum[0] / pts.length, sum[1] / pts.length];
+  }
+
+  async function fetchGeoJSON(path) {
+    if (!path) return [];
+    const res = await fetch(encodeURI(path));
+    if (!res.ok) throw new Error(`HTTP ${res.status} en ${path}`);
+    const data = await res.json();
+    return Array.isArray(data.features) ? data.features : [];
+  }
+
+  function loadPlacesIndex() {
+    if (placesIndexPromise) return placesIndexPromise;
+    const schoolsConfig = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS : {};
+    placesIndexPromise = Promise.all(Object.values(schoolsConfig).map(async (school) => {
+      const [sectorFeatures, routeFeatures] = await Promise.all([
+        fetchGeoJSON(school.geojson?.sectores),
+        fetchGeoJSON(school.geojson?.vias)
+      ]);
+      return { school, sectorFeatures, routeFeatures };
+    })).then(perSchool => {
+      const index = { schools: [], sectors: [], routes: [] };
+      perSchool.forEach(({ school, sectorFeatures, routeFeatures }) => {
+        index.schools.push({
+          kind: 'school', id: school.id, name: school.name, key: norm(school.name),
+          sectors: sectorFeatures.length, routes: routeFeatures.length
+        });
+        sectorFeatures.forEach(f => {
+          const name = f.properties?.nombre;
+          if (!name) return;
+          index.sectors.push({
+            kind: 'sector', schoolId: school.id, schoolName: school.name, name, key: norm(name),
+            props: f.properties, coords: centroid(f.geometry)
+          });
+        });
+        routeFeatures.forEach(f => {
+          const name = f.properties?.nombre;
+          // Sin letras ni números (p. ej. «.») no es un nombre buscable
+          if (!name || !/[\p{L}\p{N}]/u.test(name)) return;
+          index.routes.push({
+            kind: 'route', schoolId: school.id, schoolName: school.name, name, key: norm(name),
+            grade: f.properties?.grado1 || '', sector: f.properties?.sector || '',
+            props: f.properties, coords: centroid(f.geometry)
+          });
+        });
+      });
+      index.schools.sort((x, y) => x.name.localeCompare(y.name, 'es'));
+      return index;
+    }).catch(err => {
+      placesIndexPromise = null; // se puede reintentar
+      throw err;
     });
-  });
+    return placesIndexPromise;
+  }
 
-  // Search input with debounce
-  searchInput.addEventListener('input', () => {
-    const query = searchInput.value.trim();
+  const rank = (key, q) => (key.startsWith(q) ? 0 : 1);
+  function matchPlaces(index, q) {
+    const nq = norm(q);
+    const places = [...index.schools, ...index.sectors]
+      .filter(p => p.key.includes(nq))
+      .sort((x, y) => rank(x.key, nq) - rank(y.key, nq) || (x.kind === 'school' ? -1 : 1) || x.name.localeCompare(y.name, 'es'));
+    return places;
+  }
+  function matchRoutes(index, q) {
+    const nq = norm(q);
+    // Por nombre o por grado exacto (p. ej. «6a+»)
+    return index.routes
+      .filter(r => r.key.includes(nq) || norm(r.grade) === nq)
+      .sort((x, y) => rank(x.key, nq) - rank(y.key, nq) || x.name.localeCompare(y.name, 'es'));
+  }
 
-    if (searchTimeout) clearTimeout(searchTimeout);
+  // ---------- Pintado ----------
+  const ICONS = {
+    clock: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>',
+    x: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>',
+    chevron: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>',
+    user: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
+    mountain: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20l6.5-11 4 6.5 2.5-4L21 20z"></path></svg>',
+    sector: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19l4-12 4 6 3-4 5 10z"></path><circle cx="16.5" cy="5.5" r="1.5"></circle></svg>',
+    route: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21c0-5 10-6 10-11a4 4 0 0 0-8 0"></path><circle cx="9" cy="10" r="1"></circle><circle cx="17" cy="21" r="0.5"></circle></svg>'
+  };
 
-    if (query.length < 2) {
-      resultsContainer.innerHTML = '<p class="search-placeholder">Escribe para buscar...</p>';
-      return;
+  function gradeChip(grade) {
+    const g = grade || '?';
+    let bg = '#5A665F';
+    try { if (typeof getGradeColor === 'function') bg = getGradeColor(g) || bg; } catch (_) { /* sin color de grado */ }
+    // Texto legible sobre el color oficial del grado
+    let fg = '#fff';
+    const m = /^#?([0-9a-f]{6})$/i.exec(bg);
+    if (m) {
+      const n = parseInt(m[1], 16);
+      const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+      if (lum > 0.62) fg = '#202923';
     }
+    return `<span class="search-grade" style="background:${bg};color:${fg}">${esc(g)}</span>`;
+  }
 
-    searchTimeout = setTimeout(() => {
-      performSearch(query, currentType);
-    }, 500);
-  });
+  function sectionHead(title, moreType, total) {
+    const more = moreType && total > SECTION_LIMIT
+      ? `<button type="button" class="search-more" data-category="${moreType}">Ver todas (${total})</button>`
+      : '';
+    return `<div class="search-section-head"><h3>${title}</h3>${more}</div>`;
+  }
 
-  async function performSearch(query, type) {
-    if (!query || query.length < 2) {
-      resultsContainer.innerHTML = '<p class="search-placeholder">Escribe para buscar...</p>';
-      return;
+  function userRow(user, isFollowing) {
+    const name = esc(user.displayName || 'Usuario');
+    const avatar = user.photoURL || generateAvatarFallback(user.displayName || 'Usuario', 96);
+    const handle = user.username ? `@${esc(user.username)}` : (user.id === ADMIN_UID ? 'Administrador' : '');
+    const followers = typeof user.stats?.followersCount === 'number'
+      ? `${formatCount(user.stats.followersCount) || '0'} ${user.stats.followersCount === 1 ? 'seguidor' : 'seguidores'}`
+      : '';
+    const meta = [handle, followers].filter(Boolean).join(' · ');
+    const isMe = currentUser && user.id === currentUser.uid;
+    const follow = currentUser && !isMe
+      ? `<button type="button" class="kx-follow follow-btn ${isFollowing ? 'following' : ''}" data-follow-id="${esc(user.id)}">${isFollowing ? 'Siguiendo' : 'Seguir'}</button>`
+      : '';
+    return `
+      <div class="search-row" role="button" tabindex="0" data-open="user" data-id="${esc(user.id)}">
+        <img class="search-avatar" src="${esc(avatar)}" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(user.displayName || 'Usuario', 96)}'; this.onerror=null;">
+        <div class="search-info">
+          <div class="search-title">${name}</div>
+          ${meta ? `<div class="search-meta">${meta}</div>` : ''}
+        </div>
+        ${follow}
+      </div>`;
+  }
+
+  function placeRow(p, i) {
+    if (p.kind === 'school') {
+      const stats = [
+        p.sectors ? `${p.sectors} ${p.sectors === 1 ? 'sector' : 'sectores'}` : '',
+        p.routes ? `${formatCount(p.routes) || p.routes} ${p.routes === 1 ? 'vía' : 'vías'}` : ''
+      ].filter(Boolean).join(' · ');
+      return `
+        <div class="search-row" role="button" tabindex="0" data-open="school" data-id="${esc(p.id)}">
+          <span class="search-thumb">${ICONS.mountain}</span>
+          <div class="search-info">
+            <div class="search-title">${esc(p.name)}</div>
+            <div class="search-meta">Escuela${stats ? ` · ${stats}` : ''}</div>
+          </div>
+          <span class="search-chevron">${ICONS.chevron}</span>
+        </div>`;
     }
+    return `
+      <div class="search-row" role="button" tabindex="0" data-open="sector" data-index="${i}">
+        <span class="search-thumb search-thumb--soft">${ICONS.sector}</span>
+        <div class="search-info">
+          <div class="search-title">${esc(p.name)}</div>
+          <div class="search-meta">Sector · ${esc(p.schoolName)}</div>
+        </div>
+        <span class="search-chevron">${ICONS.chevron}</span>
+      </div>`;
+  }
 
-    resultsContainer.innerHTML = '<div class="loading-spinner">Buscando...</div>';
+  function routeRow(r, i) {
+    const meta = [r.sector ? `Sector ${esc(r.sector)}` : '', esc(r.schoolName)].filter(Boolean).join(' · ');
+    return `
+      <div class="search-row" role="button" tabindex="0" data-open="route" data-index="${i}">
+        ${gradeChip(r.grade)}
+        <div class="search-info">
+          <div class="search-title">${esc(r.name)}</div>
+          <div class="search-meta">${meta}</div>
+        </div>
+        <span class="search-chevron">${ICONS.chevron}</span>
+      </div>`;
+  }
 
+  function skeleton(n = 4) {
+    return `<div class="search-loading" aria-busy="true">${'<div class="search-skel"><span class="a"></span><span class="b"></span></div>'.repeat(n)}<span class="kx-visually-hidden">Buscando…</span></div>`;
+  }
+
+  function stateBox(title, hint, action = '') {
+    return `<div class="search-state"><div class="search-state-title">${title}</div>${hint ? `<div class="search-state-hint">${hint}</div>` : ''}${action}</div>`;
+  }
+
+  // Resultados pintados: se guardan para abrirlos al tocar (data-index)
+  let shownPlaces = [];
+  let shownRoutes = [];
+
+  function renderExplore() {
+    const recent = getRecent();
     let html = '';
-
-    // Search Users
-    if (type === 'all' || type === 'users') {
-      const users = await searchUsersGlobal(query);
-      if (users.length > 0) {
-        html += `<div class="search-section-title">Perfiles</div>`;
-
-        for (const user of users) {
-          // Skip current user
-          if (currentUser && user.id === currentUser.uid) continue;
-
-          // Check if already following
-          let isFollowing = false;
-          if (currentUser) {
-            try {
-              const followDoc = await db.collection('users')
-                .doc(currentUser.uid)
-                .collection('following')
-                .doc(user.id)
-                .get();
-              isFollowing = followDoc.exists;
-            } catch (e) {
-              console.error('Check follow status error', e);
-            }
-          }
-
-          const btnClass = isFollowing ? 'follow-btn following' : 'follow-btn';
-          const btnText = isFollowing ? 'Siguiendo' : 'Seguir';
-
-          // Use common avatar fallback
-          const avatarUrl = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=DCE9DF&color=153E35`;
-
-          html += `
-            <div class="search-result-item" onclick="openPublicProfile('${user.id}')" style="cursor: pointer;">
-              <img src="${avatarUrl}" class="search-result-avatar" alt="${user.displayName}" referrerPolicy="no-referrer" onerror="this.src='https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35'; this.onerror=null;">
-              <div class="search-result-info">
-                <div class="search-result-name">${user.displayName || 'Usuario'}</div>
-                <div class="search-result-meta">${user.id === 'akqgKt9WmQRNrpPub9xVKiPKmcn2' ? 'Administrador' : (user.bio || 'Escalador')}</div>
-              </div>
-              <button class="${btnClass}" onclick="event.stopPropagation(); toggleFollow('${user.id}', this)">${btnText}</button>
-            </div>
-          `;
-        }
-      }
+    if (recent.length) {
+      html += '<div class="search-section-head"><h3>Búsquedas recientes</h3></div><div class="search-recent">';
+      recent.forEach(q => {
+        html += `
+          <div class="search-recent-row">
+            <button type="button" class="search-recent-query" data-query="${esc(q)}">${ICONS.clock}<span>${esc(q)}</span></button>
+            <button type="button" class="search-recent-remove" data-remove="${esc(q)}" aria-label="Quitar «${esc(q)}» de recientes">${ICONS.x}</button>
+          </div>`;
+      });
+      html += '</div>';
     }
-
-    // Search Places (Mock)
-    if (type === 'all' || type === 'places') {
-      const places = searchPlacesMock(query);
-      if (places.length > 0) {
-        html += `<div class="search-section-title">Lugares</div>`;
-        places.forEach(place => {
-          html += `
-             <div class="search-result-item" data-place-id="${place.id}">
-               <div class="search-result-icon">📍</div>
-               <div class="search-result-info">
-                 <div class="search-result-name">${place.name}</div>
-                 <div class="search-result-meta">${place.type} • ${place.routes} vías</div>
-               </div>
-             </div>
-           `;
-        });
-      }
-    }
-
-    // Search Tags (Mock)
-    if (type === 'all' || type === 'tags') {
-      const tags = searchTagsMock(query);
-      if (tags.length > 0) {
-        html += `<div class="search-section-title">Hashtags</div>`;
-        tags.forEach(tag => {
-          html += `
-             <div class="search-result-item" data-tag="${tag.name}">
-               <div class="search-result-icon">#</div>
-               <div class="search-result-info">
-                 <div class="search-result-name">#${tag.name}</div>
-                 <div class="search-result-meta">${tag.count} publicaciones</div>
-               </div>
-             </div>
-           `;
-        });
-      }
-    }
-
-    if (!html) {
-      html = '<p class="search-placeholder">No se encontraron resultados</p>';
-    }
-
+    html += `
+      <div class="search-section-head"><h3>Explorar</h3></div>
+      <div class="search-explore">
+        <button type="button" class="search-explore-tile" data-category="users">${'<span class="search-explore-icon">' + ICONS.user + '</span>'}<span class="search-explore-title">Personas</span><span class="search-explore-desc">Encuentra escaladores</span></button>
+        <button type="button" class="search-explore-tile" data-category="places">${'<span class="search-explore-icon">' + ICONS.mountain + '</span>'}<span class="search-explore-title">Escuelas</span><span class="search-explore-desc">Escuelas y sectores</span></button>
+        <button type="button" class="search-explore-tile" data-category="routes">${'<span class="search-explore-icon">' + ICONS.route + '</span>'}<span class="search-explore-title">Vías</span><span class="search-explore-desc">Por nombre o grado</span></button>
+      </div>`;
     resultsContainer.innerHTML = html;
   }
 
-  // Real search for users in Firestore
-  async function searchUsersGlobal(query) {
+  async function renderEmptyCategory(type) {
+    if (type === 'all') { renderExplore(); return; }
+    if (type === 'users') {
+      resultsContainer.innerHTML = stateBox('Busca personas', 'Escribe al menos dos letras de su nombre.');
+      return;
+    }
+    if (type === 'routes') {
+      resultsContainer.innerHTML = stateBox('Busca vías', 'Escribe el nombre de la vía o un grado, por ejemplo «6a+».');
+      return;
+    }
+    // Escuelas sin consulta: listado completo de escuelas
+    const seq = ++searchSeq;
+    resultsContainer.innerHTML = skeleton(3);
     try {
-      const queryLower = query.toLowerCase();
-      // Approach 1: Try to search with displayNameLower field
-      let snapshot = await db.collection('users')
-        .orderBy('displayNameLower')
-        .startAt(queryLower)
-        .endAt(queryLower + '\uf8ff')
-        .limit(10)
-        .get();
-
-      if (snapshot.empty) {
-        // Approach 2: Fallback to client side filter
-        // console.log('No displayNameLower results, trying fallback...');
-        const allUsersSnapshot = await db.collection('users').limit(50).get();
-        const filtered = allUsersSnapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter(user => {
-            const name = (user.displayName || '').toLowerCase();
-            const email = (user.email || '').toLowerCase();
-            return name.includes(queryLower) || email.includes(queryLower);
-          })
-          .slice(0, 10);
-        return filtered;
-      }
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      console.error('Error searching users:', error);
-      // Try fallback approach if index error
-      if (error.code === 'failed-precondition' || error.message.includes('index')) {
-        try {
-          const allUsersSnapshot = await db.collection('users').limit(50).get();
-          const filtered = allUsersSnapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() }))
-            .filter(user => {
-              const name = (user.displayName || '').toLowerCase();
-              return name.includes(query.toLowerCase());
-            })
-            .slice(0, 10);
-          return filtered;
-        } catch (e) { return []; }
-      }
-      return [];
+      const index = await loadPlacesIndex();
+      if (seq !== searchSeq) return;
+      shownPlaces = index.schools;
+      resultsContainer.innerHTML = '<div class="search-section-head"><h3>Escuelas</h3></div>' + shownPlaces.map(placeRow).join('');
+    } catch (err) {
+      if (seq !== searchSeq) return;
+      console.error('Error cargando escuelas:', err);
+      resultsContainer.innerHTML = stateBox('No se pudieron cargar las escuelas', 'Revisa tu conexión e inténtalo de nuevo.', '<button type="button" class="kx-btn kx-btn--secondary search-retry">Reintentar</button>');
     }
   }
-  // Expose searchUsersGlobal globally so MentionAutocomplete can use it
-  window.searchUsersGlobal = searchUsersGlobal;
 
-  function searchPlacesMock(query) {
-    const places = [
-      { id: 'valeria', name: 'Valeria', type: 'Escuela', routes: 150 },
-      { id: 'sanmartin', name: 'San Martí­n de Valdeiglesias', type: 'Escuela', routes: 200 },
-      { id: 'siurana', name: 'Siurana', type: 'Escuela', routes: 450 },
-      { id: 'margalef', name: 'Margalef', type: 'Escuela', routes: 500 },
-      { id: 'rodellar', name: 'Rodellar', type: 'Escuela', routes: 300 }
-    ];
-    return places.filter(p => p.name.toLowerCase().includes(query.toLowerCase()));
+  async function performSearch(query, type) {
+    if (!query || query.trim().length < MIN_CHARS) {
+      renderEmptyCategory(type);
+      return;
+    }
+    const q = query.trim();
+    const seq = ++searchSeq;
+    resultsContainer.innerHTML = skeleton();
+
+    const wantsUsers = type === 'all' || type === 'users';
+    const wantsPlaces = type === 'all' || type === 'places';
+    const wantsRoutes = type === 'all' || type === 'routes';
+
+    const usersTask = wantsUsers ? (async () => {
+      const key = norm(q);
+      if (!userCache.has(key)) userCache.set(key, searchUsersGlobal(q).catch(e => { userCache.delete(key); throw e; }));
+      const users = (await userCache.get(key)).filter(u => !(currentUser && u.id === currentUser.uid));
+      // Estado de seguimiento real, en paralelo
+      const following = currentUser ? await Promise.all(users.map(u =>
+        db.collection('users').doc(currentUser.uid).collection('following').doc(u.id).get()
+          .then(d => d.exists).catch(() => false))) : users.map(() => false);
+      return users.map((u, i) => ({ user: u, following: following[i] }));
+    })() : Promise.resolve([]);
+    const indexTask = (wantsPlaces || wantsRoutes) ? loadPlacesIndex() : Promise.resolve(null);
+
+    const [usersRes, indexRes] = await Promise.allSettled([usersTask, indexTask]);
+    if (seq !== searchSeq) return; // llegó otra búsqueda
+
+    const failed = (wantsUsers && usersRes.status === 'rejected') || ((wantsPlaces || wantsRoutes) && indexRes.status === 'rejected');
+    const users = usersRes.status === 'fulfilled' ? usersRes.value : [];
+    const index = indexRes.status === 'fulfilled' ? indexRes.value : null;
+    const places = index && wantsPlaces ? matchPlaces(index, q) : [];
+    const routes = index && wantsRoutes ? matchRoutes(index, q) : [];
+
+    if (!users.length && !places.length && !routes.length) {
+      if (failed) {
+        resultsContainer.innerHTML = stateBox('No se pudo completar la búsqueda', 'Revisa tu conexión e inténtalo de nuevo.', '<button type="button" class="kx-btn kx-btn--secondary search-retry">Reintentar</button>');
+      } else {
+        const hint = type === 'all'
+          ? 'Prueba con otra palabra o revisa la ortografía.'
+          : 'Prueba en «Todo» o con otra palabra.';
+        resultsContainer.innerHTML = stateBox(`Sin resultados para «${esc(q)}»`, hint);
+      }
+      return;
+    }
+
+    const limit = (list) => (type === 'all' ? list.slice(0, SECTION_LIMIT) : list);
+    shownPlaces = limit(places);
+    shownRoutes = limit(routes);
+    let html = '';
+    if (users.length) html += sectionHead('Personas', type === 'all' ? 'users' : null, users.length) + limit(users).map(x => userRow(x.user, x.following)).join('');
+    if (places.length) html += sectionHead('Escuelas y sectores', type === 'all' ? 'places' : null, places.length) + shownPlaces.map(placeRow).join('');
+    if (routes.length) html += sectionHead('Vías', type === 'all' ? 'routes' : null, routes.length) + shownRoutes.map(routeRow).join('');
+    if (failed) html += stateBox('Algunos resultados no se pudieron cargar', 'Revisa tu conexión.');
+    resultsContainer.innerHTML = html;
   }
 
-  function searchTagsMock(query) {
-    const tags = [
-      { name: 'climbing', count: 1250 },
-      { name: 'escalada', count: 980 },
-      { name: 'boulder', count: 750 },
-      { name: 'sportclimbing', count: 620 },
-      { name: 'redpoint', count: 340 },
-      { name: 'flash', count: 280 },
-      { name: 'onsight', count: 210 }
-    ];
-    return tags.filter(t => t.name.toLowerCase().includes(query.toLowerCase()));
+  // ---------- Navegación a los destinos ----------
+  function waitForMap(timeout = 12000) {
+    return new Promise(resolve => {
+      const start = Date.now();
+      (function check() {
+        if (typeof mlMap !== 'undefined' && mlMap && mlMap.isStyleLoaded && mlMap.isStyleLoaded()) return resolve(true);
+        if (Date.now() - start > timeout) return resolve(false);
+        setTimeout(check, 150);
+      })();
+    });
   }
+
+  async function openOnMap(item) {
+    sheet.classList.add('hidden');
+    switchView('map-view');
+    const ready = await waitForMap();
+    if (!ready || typeof mlLoadSchool !== 'function') {
+      showToast('El mapa todavía no está listo. Inténtalo de nuevo.', 'info');
+      return;
+    }
+    const schoolId = item.kind === 'school' ? item.id : item.schoolId;
+    await mlLoadSchool(schoolId, item.kind !== 'school' && !!item.coords);
+    if (item.kind === 'school' || !item.coords) return;
+    mlMap.flyTo({ center: item.coords, zoom: item.kind === 'route' ? 18 : 16.5, essential: true });
+    mlMap.once('moveend', () => {
+      if (item.kind === 'sector') {
+        if (!showSectorBottomSheet(item.props, item.coords)) showSectorPopup(item.props, item.coords);
+      } else {
+        Promise.resolve(showRouteBottomSheet(item.props, item.coords)).then(shown => {
+          if (!shown) showRoutePopup(item.props, item.coords);
+        });
+      }
+    });
+  }
+
+  // ---------- Eventos ----------
+  function setCategory(type) {
+    currentType = type;
+    categories?.querySelectorAll('.kx-chip').forEach(c => {
+      const active = c.dataset.type === type;
+      c.classList.toggle('is-active', active);
+      c.setAttribute('aria-pressed', String(active));
+    });
+    performSearch(searchInput.value, currentType);
+  }
+
+  function updateClear() {
+    if (clearBtn) clearBtn.hidden = searchInput.value.length === 0;
+  }
+
+  function openSearchSheet() {
+    document.getElementById('messages-dropdown')?.classList.add('hidden');
+    document.getElementById('notification-dropdown')?.classList.add('hidden');
+    sheet.classList.remove('hidden');
+    // Se conserva la última búsqueda; si no hay texto se muestra «Explorar»
+    if (searchInput.value.trim().length < MIN_CHARS) renderEmptyCategory(currentType);
+    updateClear();
+    searchInput.focus({ preventScroll: true });
+  }
+
+  searchBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (sheet.classList.contains('hidden')) openSearchSheet();
+    else closeFeedSheet(sheet);
+  });
+
+  categories?.addEventListener('click', (e) => {
+    const chip = e.target.closest('.kx-chip');
+    if (chip && chip.dataset.type !== currentType) setCategory(chip.dataset.type);
+  });
+
+  searchInput.addEventListener('input', () => {
+    updateClear();
+    if (searchTimeout) clearTimeout(searchTimeout);
+    const query = searchInput.value.trim();
+    if (query.length < MIN_CHARS) {
+      searchSeq++;
+      renderEmptyCategory(currentType);
+      return;
+    }
+    searchTimeout = setTimeout(() => performSearch(query, currentType), 350);
+  });
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (searchTimeout) clearTimeout(searchTimeout);
+      rememberQuery(searchInput.value);
+      performSearch(searchInput.value, currentType);
+      searchInput.blur(); // cierra el teclado para ver los resultados
+    }
+  });
+
+  clearBtn?.addEventListener('click', () => {
+    searchInput.value = '';
+    updateClear();
+    searchSeq++;
+    renderEmptyCategory(currentType);
+    searchInput.focus();
+  });
+
+  resultsContainer.addEventListener('click', async (e) => {
+    const followBtn = e.target.closest('[data-follow-id]');
+    if (followBtn) {
+      e.stopPropagation();
+      if (typeof window.toggleFollow === 'function') await window.toggleFollow(followBtn.dataset.followId, followBtn);
+      return;
+    }
+    const more = e.target.closest('[data-category]');
+    if (more) { setCategory(more.dataset.category); return; }
+    if (e.target.closest('.search-retry')) { performSearch(searchInput.value, currentType); return; }
+
+    const recentQuery = e.target.closest('[data-query]');
+    if (recentQuery) {
+      searchInput.value = recentQuery.dataset.query;
+      updateClear();
+      rememberQuery(searchInput.value);
+      performSearch(searchInput.value, currentType);
+      return;
+    }
+    const remove = e.target.closest('[data-remove]');
+    if (remove) {
+      setRecent(getRecent().filter(q => q !== remove.dataset.remove));
+      renderExplore();
+      return;
+    }
+
+    const row = e.target.closest('[data-open]');
+    if (!row) return;
+    rememberQuery(searchInput.value);
+    const kind = row.dataset.open;
+    if (kind === 'user') {
+      sheet.classList.add('hidden');
+      openPublicProfile(row.dataset.id);
+    } else if (kind === 'school') {
+      const index = await loadPlacesIndex();
+      const school = index.schools.find(sc => sc.id === row.dataset.id);
+      if (school) openOnMap(school);
+    } else if (kind === 'sector') {
+      const item = shownPlaces[Number(row.dataset.index)];
+      if (item) openOnMap(item);
+    } else if (kind === 'route') {
+      const item = shownRoutes[Number(row.dataset.index)];
+      if (item) openOnMap(item);
+    }
+  });
+
+  // Teclado: Intro o espacio abren el resultado
+  resultsContainer.addEventListener('keydown', (e) => {
+    const row = e.target.closest('[data-open]');
+    if (row && e.target === row && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      row.click();
+    }
+  });
 }
 
 // ================== UNIFIED PROFILE VIEWER ==================
@@ -2702,6 +3019,7 @@ function initMessages() {
 
     // Close notifications if open
     if (notificationDropdown) notificationDropdown.classList.add('hidden');
+    document.getElementById('search-sheet')?.classList.add('hidden');
 
     if (isHidden) {
       if (searchInput) searchInput.value = '';
@@ -3363,6 +3681,7 @@ function initNotifications() {
     const isHidden = dropdown.classList.contains('hidden');
     // Close messages dropdown if open
     if (messagesDropdown) messagesDropdown.classList.add('hidden');
+    document.getElementById('search-sheet')?.classList.add('hidden');
     if (isHidden) {
       dropdown.classList.remove('hidden');
       renderNotifications();
@@ -3889,7 +4208,7 @@ function updateFeedComposer(user) {
 // ---------- Paneles inferiores del feed: mensajes y notificaciones ----------
 // initMessages / initNotifications siguen abriendo y cerrando con la clase .hidden; aquí solo se
 // reacciona a esos cambios (MutationObserver) para bloquear el fondo, gestionar el foco y los gestos.
-const FEED_SHEET_IDS = ['messages-dropdown', 'notification-dropdown'];
+const FEED_SHEET_IDS = ['messages-dropdown', 'notification-dropdown', 'search-sheet'];
 const FEED_SHEET_CLOSE_MS = 200;
 let feedSheetOpener = null;
 let feedSheetScroll = null;
@@ -3923,13 +4242,18 @@ function onFeedSheetsChanged() {
 
   if (open && !document.body.classList.contains('kx-sheet-open')) {
     // Apertura: se guarda el foco y la posición del feed; la app de fondo queda inerte
-    feedSheetOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Foco de vuelta: el icono que abre el panel (data-trigger) o, si no, el elemento activo
+    const trigger = open.dataset.trigger && document.getElementById(open.dataset.trigger);
+    feedSheetOpener = trigger || (document.activeElement instanceof HTMLElement && !open.contains(document.activeElement) ? document.activeElement : null);
     feedSheetScroll = { view: feedView?.scrollTop || 0, list: feedList?.scrollTop || 0 };
     document.body.classList.add('kx-sheet-open');
     app?.setAttribute('inert', '');
     app?.setAttribute('aria-hidden', 'true');
+    window.visualViewport?.addEventListener('resize', syncFeedSheetViewport);
+    window.visualViewport?.addEventListener('scroll', syncFeedSheetViewport);
   }
-  if (open) {
+  if (open) syncFeedSheetViewport();
+  if (open && !open.contains(document.activeElement)) {
     open.querySelector('.kx-sheet-panel')?.focus({ preventScroll: true });
   }
 
@@ -3951,6 +4275,8 @@ function onFeedSheetsChanged() {
     document.body.classList.remove('kx-sheet-open');
     app?.removeAttribute('inert');
     app?.removeAttribute('aria-hidden');
+    window.visualViewport?.removeEventListener('resize', syncFeedSheetViewport);
+    window.visualViewport?.removeEventListener('scroll', syncFeedSheetViewport);
     if (feedSheetScroll) {
       if (feedView) feedView.scrollTop = feedSheetScroll.view;
       if (feedList) feedList.scrollTop = feedSheetScroll.list;
@@ -3960,6 +4286,16 @@ function onFeedSheetsChanged() {
     }
     feedSheetOpener = null;
   }
+}
+
+// Teclado virtual: el panel se apoya sobre el teclado y su altura se limita al área visible
+function syncFeedSheetViewport() {
+  const open = getOpenFeedSheet();
+  const vv = window.visualViewport;
+  if (!open || !vv) return;
+  const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  open.style.setProperty('--sheet-kb', `${keyboard}px`);
+  open.style.setProperty('--sheet-avail', `${vv.height}px`);
 }
 
 // Gesto: arrastrar el tirador o la cabecera hacia abajo cierra el panel
@@ -4049,10 +4385,6 @@ function initFeedSheets() {
     }
   });
 
-  const feedSearchBtn = document.getElementById('nav-search-btn');
-  if (feedSearchBtn) {
-    feedSearchBtn.addEventListener('click', () => switchView('search-view'));
-  }
 }
 
 // Publicaciones de demostración SOLO para localhost sin sesión (datos ficticios, nada se guarda)
