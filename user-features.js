@@ -2454,9 +2454,10 @@ window.MessagingService = {
      * Subscribe to real-time messages in a conversation
      * @param {string} conversationId - The conversation ID
      * @param {function} callback - Called with array of messages
+     * @param {function} [onError] - Called if the subscription fails
      * @returns {function} - Unsubscribe function
      */
-    subscribeToMessages(conversationId, callback) {
+    subscribeToMessages(conversationId, callback, onError) {
         return db.collection('conversations').doc(conversationId)
             .collection('messages')
             .orderBy('timestamp', 'asc')
@@ -2468,6 +2469,7 @@ window.MessagingService = {
                 callback(messages);
             }, error => {
                 console.error('Error subscribing to messages:', error);
+                if (typeof onError === 'function') onError(error);
             });
     },
 
