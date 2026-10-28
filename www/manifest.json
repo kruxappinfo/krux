@@ -2,12 +2,12 @@
   "name": "KRUX - Climbing Routes",
   "short_name": "KRUX",
   "description": "Descubre rutas de escalada, registra tus ascensos y conecta con la comunidad",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#6366f1",
   "orientation": "portrait-primary",
-  "scope": "/",
+  "scope": "./",
   "lang": "es",
   "categories": ["sports", "navigation", "social"],
   "icons": [
@@ -93,14 +93,14 @@
       "name": "Ver Mapa",
       "short_name": "Mapa",
       "description": "Abrir el mapa de rutas",
-      "url": "/?view=map",
+      "url": "./?view=map",
       "icons": [{ "src": "icons/pwa/shortcut-map.png", "sizes": "96x96" }]
     },
     {
       "name": "Mi Perfil",
       "short_name": "Perfil",
       "description": "Ver mi perfil y estadísticas",
-      "url": "/?view=profile",
+      "url": "./?view=profile",
       "icons": [{ "src": "icons/pwa/shortcut-profile.png", "sizes": "96x96" }]
     }
   ],
