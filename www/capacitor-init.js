@@ -101,7 +101,7 @@ async function initStatusBar() {
 
     if (isAndroid) {
       // En Android, configurar color de fondo
-      await StatusBar.setBackgroundColor({ color: '#ffffff' });
+      await StatusBar.setBackgroundColor({ color: '#F7F6F0' });
     }
 
     console.log('[Capacitor] StatusBar configurado');

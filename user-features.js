@@ -885,7 +885,7 @@ function renderUserList(users, container, forceFollowing = false) {
     }
 
     const html = users.map(user => {
-        const photoUrl = user.photoURL || 'https://ui-avatars.com/api/?name=U&background=e5e7eb&color=6b7280&size=40';
+        const photoUrl = user.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=40';
         // If forceFollowing is true, we know we follow them. Otherwise check property
         const isFollowing = forceFollowing || user.isFollowing;
         const btnClass = isFollowing ? 'follow-btn following' : 'follow-btn';
@@ -1968,7 +1968,7 @@ function renderComments(comments) {
     const html = comments.map(comment => {
         const isOwn = currentUser && comment.userId === currentUser.uid;
         const date = comment.createdAt ? new Date(comment.createdAt.toDate()).toLocaleDateString() : '';
-        const photoUrl = comment.userPhoto || 'https://ui-avatars.com/api/?name=U&background=e5e7eb&color=6b7280&size=32';
+        const photoUrl = comment.userPhoto || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=32';
 
         const deleteBtn = isOwn
             ? `<button class="delete-comment-btn" data-id="${comment.id}">🗑️</button>`
@@ -2583,7 +2583,7 @@ window.openChatWithConversation = async function (otherUserId, otherUserInfo) {
         const chatData = {
             id: conversation.id,
             sender: otherUserInfo.displayName || 'Usuario',
-            avatar: otherUserInfo.photoURL || 'https://ui-avatars.com/api/?name=U&background=e5e7eb&color=6b7280&size=40',
+            avatar: otherUserInfo.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=40',
             recipientId: otherUserId,
             isRealConversation: true
         };
