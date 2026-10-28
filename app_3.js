@@ -2498,6 +2498,7 @@ function initMessages() {
   const list = document.getElementById('messages-list');
   const badge = document.getElementById('messages-badge');
   const notificationDropdown = document.getElementById('notification-dropdown');
+  const searchInput = document.getElementById('messages-search');
 
   if (!btn || !dropdown || !list) return;
 
@@ -2522,6 +2523,7 @@ function initMessages() {
     } else {
       badge.classList.add('hidden');
     }
+    btn.setAttribute('aria-label', unreadCount > 0 ? `Mensajes, ${unreadCount} sin leer` : 'Mensajes');
   }
 
   // Format time for display
@@ -2553,25 +2555,51 @@ function initMessages() {
       return;
     }
 
-    list.innerHTML = conversations.map(conv => {
+    // Buscador del panel: filtra en el cliente las conversaciones ya cargadas por el listener
+    const query = (searchInput?.value || '').trim().toLowerCase();
+    const visible = conversations.filter(conv => {
+      if (!query) return true;
+      const other = window.MessagingService?.getOtherParticipant(conv);
+      return (other?.displayName || '').toLowerCase().includes(query)
+        || (conv.lastMessage || '').toLowerCase().includes(query);
+    });
+
+    if (visible.length === 0) {
+      list.innerHTML = `
+        <div class="messages-empty">
+          <div class="messages-empty-text">Sin resultados</div>
+          <div class="messages-empty-hint">No hay conversaciones que coincidan con «${escapeHtmlMention(query)}»</div>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = visible.map(conv => {
       const other = window.MessagingService?.getOtherParticipant(conv);
       if (!other) return '';
 
-      const isUnread = (conv.unreadCount?.[currentUser.uid] || 0) > 0;
-      const preview = conv.lastMessage || 'Sin mensajes';
+      const unreadCount = conv.unreadCount?.[currentUser.uid] || 0;
+      const isUnread = unreadCount > 0;
+      // Nombre y último mensaje vienen de otros usuarios: se escapan antes de insertarlos
+      const name = escapeHtmlMention(other.displayName || 'Usuario');
+      const preview = escapeHtmlMention(conv.lastMessage || 'Sin mensajes');
       const time = formatTime(conv.lastMessageTime || conv.updatedAt);
       const avatar = other.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(other.displayName)}&background=153E35&color=fff`;
 
       return `
-        <div class="message-item ${isUnread ? 'unread' : ''}" data-conversation-id="${conv.id}" data-recipient-id="${other.id}" data-recipient-name="${other.displayName}" data-recipient-photo="${avatar}">
-          <img src="${avatar}" class="message-avatar" alt="${other.displayName}" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(other.displayName, 44)}'; this.onerror=null;">
+        <div class="message-item ${isUnread ? 'unread' : ''}" role="button" tabindex="0" aria-label="Conversación con ${name}${isUnread ? `, ${unreadCount} sin leer` : ''}" data-conversation-id="${conv.id}" data-recipient-id="${other.id}" data-recipient-name="${name}" data-recipient-photo="${avatar}">
+          <img src="${avatar}" class="message-avatar" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(other.displayName, 44)}'; this.onerror=null;">
           <div class="message-content">
-            <div class="message-sender">${other.displayName}</div>
-            <div class="message-preview">${preview}</div>
-            <div class="message-time">${time}</div>
+            <div class="message-row">
+              <span class="message-sender">${name}</span>
+              <span class="message-time">${time}</span>
+            </div>
+            <div class="message-row">
+              <span class="message-preview">${preview}</span>
+              ${isUnread ? `<span class="message-unread-count">${unreadCount > 99 ? '99+' : unreadCount}</span>` : ''}
+            </div>
           </div>
-          ${isUnread ? '<div class="message-unread-dot"></div>' : ''}
-          <button class="message-delete-btn" data-conv-id="${conv.id}" title="Eliminar conversación">
+          <button class="message-delete-btn" data-conv-id="${conv.id}" type="button" title="Eliminar conversación" aria-label="Eliminar conversación con ${name}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
             </svg>
@@ -2605,6 +2633,8 @@ function initMessages() {
         const recipientName = item.dataset.recipientName;
         const recipientPhoto = item.dataset.recipientPhoto;
 
+        dropdown.classList.add('hidden');
+
         // Mark as read
         if (window.MessagingService) {
           window.MessagingService.markAsRead(conversationId);
@@ -2620,8 +2650,13 @@ function initMessages() {
             isRealConversation: true
           });
         }
-
-        dropdown.classList.add('hidden');
+      });
+      // Teclado: Intro o espacio abren la conversación
+      item.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === item) {
+          e.preventDefault();
+          item.click();
+        }
       });
     });
   }
@@ -2669,6 +2704,7 @@ function initMessages() {
     if (notificationDropdown) notificationDropdown.classList.add('hidden');
 
     if (isHidden) {
+      if (searchInput) searchInput.value = '';
       dropdown.classList.remove('hidden');
       renderConversations();
     } else {
@@ -2676,8 +2712,11 @@ function initMessages() {
     }
   });
 
-  // Close on outside click
+  searchInput?.addEventListener('input', () => renderConversations());
+
+  // Close on outside click (la confirmación de borrar una conversación no cuenta como "fuera")
   document.addEventListener('click', (e) => {
+    if (e.target.closest('#confirm-modal')) return;
     if (!dropdown.contains(e.target) && !btn.contains(e.target)) {
       dropdown.classList.add('hidden');
     }
@@ -2804,12 +2843,36 @@ function initMessages() {
 
 function initNotifications() {
   const btn = document.getElementById('notification-btn');
-  // El estado de la campana se pinta por CSS (clase has-unread), no cambiando una imagen
-  const setBellUnread = (unread) => btn?.classList.toggle('has-unread', !!unread);
   const dropdown = document.getElementById('notification-dropdown');
   const list = document.getElementById('notification-list');
   const clearBtn = document.getElementById('clear-notifications');
   const messagesDropdown = document.getElementById('messages-dropdown');
+  const bellCount = document.getElementById('notification-count');
+  const filtersBar = document.getElementById('notification-filters');
+  const footer = document.getElementById('notifications-footer');
+  const markAllBtn = document.getElementById('notifications-mark-read');
+
+  // Estado de la campana por CSS (has-unread) y contador con las no leídas de las últimas 20 cargadas
+  const setBellUnread = (unread) => {
+    const count = unread ? notifications.filter(n => !n.read).length : 0;
+    btn?.classList.toggle('has-unread', count > 0);
+    if (bellCount) {
+      bellCount.textContent = count >= 20 ? '20+' : String(count);
+      bellCount.classList.toggle('hidden', count === 0);
+    }
+    btn?.setAttribute('aria-label', count > 0 ? `Notificaciones, ${count} sin leer` : 'Notificaciones');
+    if (footer) footer.hidden = count === 0;
+  };
+
+  // Filtros del panel (sobre las notificaciones ya cargadas por el listener)
+  const NOTIFICATION_FILTERS = {
+    all: null,
+    follow: ['follow', 'followers'],
+    comment: ['comment', 'reply', 'mention'],
+    like: ['like', 'likes']
+  };
+  let currentFilter = 'all';
+  const matchesFilter = (n, filter) => !NOTIFICATION_FILTERS[filter] || NOTIFICATION_FILTERS[filter].includes(n.type);
 
   if (!btn || !dropdown || !list) return;
 
@@ -2875,33 +2938,70 @@ function initNotifications() {
 
   // Render notifications
   function renderNotifications() {
+    // Contadores de no leídas por filtro
+    filtersBar?.querySelectorAll('.kx-chip').forEach(chip => {
+      const unread = notifications.filter(n => !n.read && matchesFilter(n, chip.dataset.filter)).length;
+      const badge = chip.querySelector('.kx-chip-count');
+      if (badge) {
+        badge.textContent = unread > 0 ? String(unread) : '';
+        badge.hidden = unread === 0;
+      }
+    });
+
     if (notifications.length === 0) {
       list.innerHTML = `
         <div class="notification-empty">
           <div class="notification-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></div>
           <div class="notification-empty-text">No tienes notificaciones</div>
+          <div class="notification-empty-hint">Aquí verás seguidores, comentarios y me gusta</div>
         </div>
       `;
       setBellUnread(false);
       return;
     }
 
-    list.innerHTML = notifications.map(n => {
-      const timeAgo = getTimeAgo(n.createdAt?.toDate ? n.createdAt.toDate() : new Date());
+    const visible = notifications.filter(n => matchesFilter(n, currentFilter));
+    if (visible.length === 0) {
+      list.innerHTML = `
+        <div class="notification-empty">
+          <div class="notification-empty-text">Nada por aquí</div>
+          <div class="notification-empty-hint">No hay notificaciones de este tipo</div>
+        </div>
+      `;
+      setBellUnread(hasUnread);
+      return;
+    }
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    let lastGroup = '';
+
+    list.innerHTML = visible.map(n => {
+      const createdAt = n.createdAt?.toDate ? n.createdAt.toDate() : new Date();
+      const group = createdAt >= startOfToday ? 'Hoy' : 'Anteriores';
+      const groupHeader = group !== lastGroup ? `<div class="kx-sheet-section">${group}</div>` : '';
+      lastGroup = group;
+
+      const timeAgo = getTimeAgo(createdAt);
       const unreadClass = n.read ? '' : 'unread';
       const clickHandler = n.fromUserId ? `onclick="handleNotificationClick('${n.id}', '${n.type}', '${n.fromUserId}', '${n.postId || ''}', '${n.commentId || ''}', '${n.replyId || ''}')"` : '';
       // Use notification ID directly - Firestore IDs are safe for HTML attributes
       const notificationId = String(n.id);
+      const fromName = escapeHtmlMention(n.fromUserName || 'Usuario');
 
-      return `
+      return `${groupHeader}
         <div class="notification-item ${unreadClass}" data-id="${notificationId}" data-notification-id="${notificationId}">
-          <div class="notification-clickable-area" ${clickHandler} style="cursor: pointer; display: flex; align-items: center; flex: 1; min-width: 0;">
-            <img src="${n.fromUserPhoto || generateAvatarFallback(n.fromUserName || 'Usuario', 44)}" class="notification-avatar" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(n.fromUserName || 'Usuario', 44)}'; this.onerror=null;">
-          <div class="notification-content">
-            <div class="notification-text"><strong>${n.fromUserName || 'Usuario'}</strong> ${n.text}</div>
-            <div class="notification-time">${timeAgo}</div>
+          <div class="notification-clickable-area${n.fromUserId ? ' is-actionable' : ''}" ${clickHandler} ${n.fromUserId ? 'role="button" tabindex="0"' : ''}>
+            <span class="notification-avatar-wrap">
+              <img src="${n.fromUserPhoto || generateAvatarFallback(n.fromUserName || 'Usuario', 44)}" class="notification-avatar" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(n.fromUserName || 'Usuario', 44)}'; this.onerror=null;">
+              <span class="notification-type" aria-hidden="true">${getNotificationIcon(n.type)}</span>
+            </span>
+            <div class="notification-content">
+              <div class="notification-text"><strong>${fromName}</strong> ${n.text}</div>
+              <div class="notification-time">${timeAgo}${n.read ? '' : '<span class="kx-visually-hidden">, sin leer</span>'}</div>
+            </div>
           </div>
-          </div>
+          ${n.read ? '' : '<span class="notification-unread-dot" aria-hidden="true"></span>'}
           <button class="notification-delete-btn" data-notification-id="${notificationId}" title="Borrar notificación" type="button" aria-label="Borrar notificación" onclick="event.stopPropagation(); event.preventDefault(); event.stopImmediatePropagation(); return false;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -2944,8 +3044,8 @@ function initNotifications() {
     if (isHidden) {
       dropdown.classList.remove('hidden');
       renderNotifications();
-      // Mark all notifications as read when opening
-      markNotificationsAsRead();
+      // Ya no se marcan todas al abrir: se marcan con «Marcar todas como leídas»
+      // o una a una al tocarlas (ver window.markNotificationRead)
     } else {
       dropdown.classList.add('hidden');
     }
@@ -2963,6 +3063,47 @@ function initNotifications() {
       dropdown.classList.add('hidden');
     }
   });
+
+  // Filtros
+  filtersBar?.addEventListener('click', (e) => {
+    const chip = e.target.closest('.kx-chip');
+    if (!chip) return;
+    currentFilter = chip.dataset.filter || 'all';
+    filtersBar.querySelectorAll('.kx-chip').forEach(c => {
+      const active = c === chip;
+      c.classList.toggle('is-active', active);
+      c.setAttribute('aria-pressed', String(active));
+    });
+    renderNotifications();
+  });
+
+  // Teclado: Intro o espacio ejecutan la acción de la notificación
+  list.addEventListener('keydown', (e) => {
+    const area = e.target.closest('.notification-clickable-area.is-actionable');
+    if (area && (e.key === 'Enter' || e.key === ' ') && e.target === area) {
+      e.preventDefault();
+      area.click();
+    }
+  });
+
+  markAllBtn?.addEventListener('click', async () => {
+    markAllBtn.disabled = true;
+    await markNotificationsAsRead();
+    markAllBtn.disabled = false;
+    renderNotifications();
+  });
+
+  // Marca una notificación como leída (al tocarla)
+  window.markNotificationRead = async function (notificationId) {
+    if (!currentUser || !notificationId) return;
+    const n = notifications.find(x => x.id === notificationId);
+    if (!n || n.read) return;
+    try {
+      await db.collection('users').doc(currentUser.uid).collection('notifications').doc(notificationId).update({ read: true });
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
 
   // Delete notification button handler (event delegation - set once)
   // Using capture phase to ensure this runs BEFORE the parent onclick
@@ -3073,6 +3214,7 @@ function initNotifications() {
 // Handle notification click - navigate to relevant content with deep-link to comment
 window.handleNotificationClick = async function (notificationId, type, fromUserId, postId, commentId, replyId) {
   document.getElementById('notification-dropdown')?.classList.add('hidden');
+  if (typeof window.markNotificationRead === 'function') window.markNotificationRead(notificationId);
   if (type === 'follow' && fromUserId) {
     openPublicProfile(fromUserId);
   } else if (postId && typeof openPostModal === 'function') {
@@ -3422,11 +3564,161 @@ function updateFeedComposer(user) {
 
 // Hojas del feed en móvil: mensajes y avisos ocupan la pantalla y se cierran con su botón.
 // La lupa abre la vista de Buscar (sus listeners los registra initGlobalSearch).
+// ---------- Paneles inferiores del feed: mensajes y notificaciones ----------
+// initMessages / initNotifications siguen abriendo y cerrando con la clase .hidden; aquí solo se
+// reacciona a esos cambios (MutationObserver) para bloquear el fondo, gestionar el foco y los gestos.
+const FEED_SHEET_IDS = ['messages-dropdown', 'notification-dropdown'];
+const FEED_SHEET_CLOSE_MS = 200;
+let feedSheetOpener = null;
+let feedSheetScroll = null;
+
+function feedPrefersReducedMotion() {
+  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function getOpenFeedSheet() {
+  return FEED_SHEET_IDS.map(id => document.getElementById(id)).find(el => el && !el.classList.contains('hidden')) || null;
+}
+
+// Cierre con animación (botón, fondo, Escape, gesto). El resto del código cierra al instante con .hidden.
+function closeFeedSheet(sheet = getOpenFeedSheet()) {
+  if (!sheet || sheet.classList.contains('hidden') || sheet.classList.contains('is-closing')) return;
+  if (feedPrefersReducedMotion()) {
+    sheet.classList.add('hidden');
+    return;
+  }
+  sheet.classList.add('is-closing');
+  const panel = sheet.querySelector('.kx-sheet-panel');
+  if (panel) panel.style.transform = '';
+  setTimeout(() => sheet.classList.add('hidden'), FEED_SHEET_CLOSE_MS);
+}
+
+function onFeedSheetsChanged() {
+  const open = getOpenFeedSheet();
+  const app = document.getElementById('app');
+  const feedView = document.getElementById('feed-view');
+  const feedList = document.getElementById('feed-container');
+
+  if (open && !document.body.classList.contains('kx-sheet-open')) {
+    // Apertura: se guarda el foco y la posición del feed; la app de fondo queda inerte
+    feedSheetOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    feedSheetScroll = { view: feedView?.scrollTop || 0, list: feedList?.scrollTop || 0 };
+    document.body.classList.add('kx-sheet-open');
+    app?.setAttribute('inert', '');
+    app?.setAttribute('aria-hidden', 'true');
+  }
+  if (open) {
+    open.querySelector('.kx-sheet-panel')?.focus({ preventScroll: true });
+  }
+
+  FEED_SHEET_IDS.forEach(id => {
+    const sheet = document.getElementById(id);
+    if (sheet && sheet.classList.contains('hidden')) {
+      // Solo si está: classList.remove reescribe el atributo aunque no cambie y el observer entraría en bucle
+      if (sheet.classList.contains('is-closing')) sheet.classList.remove('is-closing');
+      const panel = sheet.querySelector('.kx-sheet-panel');
+      if (panel) {
+        panel.style.transform = '';
+        panel.style.transition = '';
+      }
+    }
+  });
+
+  if (!open && document.body.classList.contains('kx-sheet-open')) {
+    // Cierre: se libera la app, se recupera la posición del feed y el foco
+    document.body.classList.remove('kx-sheet-open');
+    app?.removeAttribute('inert');
+    app?.removeAttribute('aria-hidden');
+    if (feedSheetScroll) {
+      if (feedView) feedView.scrollTop = feedSheetScroll.view;
+      if (feedList) feedList.scrollTop = feedSheetScroll.list;
+    }
+    if (feedSheetOpener && document.contains(feedSheetOpener)) {
+      feedSheetOpener.focus({ preventScroll: true });
+    }
+    feedSheetOpener = null;
+  }
+}
+
+// Gesto: arrastrar el tirador o la cabecera hacia abajo cierra el panel
+function attachFeedSheetDrag(sheet) {
+  const zone = sheet.querySelector('.kx-sheet-drag');
+  const panel = sheet.querySelector('.kx-sheet-panel');
+  if (!zone || !panel) return;
+  let startY = null;
+  let startTime = 0;
+  let dy = 0;
+
+  zone.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button, input, a')) return;
+    startY = e.clientY;
+    startTime = performance.now();
+    dy = 0;
+    panel.style.transition = 'none';
+    try { zone.setPointerCapture(e.pointerId); } catch (_) { /* puntero sintético o ya liberado */ }
+  });
+  zone.addEventListener('pointermove', (e) => {
+    if (startY === null) return;
+    dy = Math.max(0, e.clientY - startY);
+    panel.style.transform = `translateY(${dy}px)`;
+  });
+  const end = () => {
+    if (startY === null) return;
+    const velocity = dy / Math.max(1, performance.now() - startTime);
+    startY = null;
+    panel.style.transition = '';
+    if (dy > 110 || (dy > 30 && velocity > 0.6)) {
+      closeFeedSheet(sheet);
+    } else {
+      panel.style.transform = '';
+    }
+  };
+  zone.addEventListener('pointerup', end);
+  zone.addEventListener('pointercancel', end);
+}
+
+function initFeedSheetBehavior() {
+  const sheets = FEED_SHEET_IDS.map(id => document.getElementById(id)).filter(Boolean);
+  if (!sheets.length) return;
+  const observer = new MutationObserver(onFeedSheetsChanged);
+  sheets.forEach(sheet => {
+    observer.observe(sheet, { attributes: true, attributeFilter: ['class'] });
+    attachFeedSheetDrag(sheet);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const open = getOpenFeedSheet();
+    if (!open) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeFeedSheet(open);
+      return;
+    }
+    // Foco atrapado dentro del panel
+    if (e.key === 'Tab') {
+      const focusables = [...open.querySelectorAll('button:not([disabled]), input, [tabindex="0"]')]
+        .filter(el => el.offsetParent !== null && !el.closest('[hidden]'));
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !open.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  });
+}
+
 function initFeedSheets() {
+  initFeedSheetBehavior();
+
   document.addEventListener('click', (e) => {
     const closeBtn = e.target.closest('[data-sheet-close]');
     if (closeBtn) {
-      closeBtn.closest('.notification-dropdown, .messages-dropdown')?.classList.add('hidden');
+      closeFeedSheet(closeBtn.closest('.kx-sheet'));
       return;
     }
     // En móvil el menú de una publicación es una hoja inferior: tocar el fondo la cierra
