@@ -1315,6 +1315,9 @@ function resetProfileState() {
   // Clear avatar immediately to prevent flash of old image
   const avatar = document.getElementById('profile-avatar');
   if (avatar) {
+    cancelAvatarLoad(avatar);
+    avatar.onerror = null;
+    avatar.style.opacity = '1';
     avatar.src = 'https://ui-avatars.com/api/?name=...&background=e5e7eb&color=6b7280&size=100';
   }
 
@@ -9170,30 +9173,30 @@ function generateAvatarFallback(name, size = 200) {
 function setAvatarWithFallback(imgElement, photoURL, userName, size = 200) {
   if (!imgElement) return;
 
-  // Debug: Log avatar loading attempt
-  console.log('[Avatar Debug]', {
-    photoURL: photoURL,
-    userName: userName,
-    elementId: imgElement.id || imgElement.className,
-    hasPhotoURL: !!photoURL
-  });
-
   // Default fallback
   const fallback = generateAvatarFallback(userName, size);
 
   // Set referrerPolicy to avoid CORS issues with Google/Facebook images
   imgElement.referrerPolicy = 'no-referrer';
 
-  // Set error handler for fallback
-  imgElement.onerror = () => {
-    imgElement.src = fallback;
+  // Cada llamada invalida las anteriores sobre este <img> (p. ej. #profile-avatar se
+  // reutiliza para todos los perfiles): sin esto, cargas y temporizadores viejos
+  // pisaban la foto del perfil que se acaba de abrir con iniciales de otro usuario.
+  const reqId = cancelAvatarLoad(imgElement);
+  const isCurrent = () => imgElement._avatarReqId === reqId;
+
+  const useFallback = () => {
+    if (!isCurrent()) return;
+    clearTimeout(imgElement._avatarTimer);
     imgElement.onerror = null; // Prevent infinite loop
+    imgElement.src = fallback;
+    imgElement.style.opacity = '1';
   };
 
   // If no photoURL, use fallback immediately
   if (!photoURL || photoURL.trim() === '') {
-    imgElement.src = fallback;
-    imgElement.onerror = null; // Remove error handler since we're using fallback
+    imgElement.style.opacity = '1';
+    useFallback();
     return;
   }
 
@@ -9206,38 +9209,27 @@ function setAvatarWithFallback(imgElement, photoURL, userName, size = 200) {
   testImg.referrerPolicy = 'no-referrer';
 
   testImg.onload = () => {
-    // URL is valid, set it
+    if (!isCurrent()) return;
+    clearTimeout(imgElement._avatarTimer);
+    imgElement.onerror = useFallback; // Keep error handler for future errors
     imgElement.src = photoURL;
     imgElement.style.opacity = '1';
-    console.log('[Avatar Debug] Image loaded successfully:', photoURL);
-    // Keep error handler for future errors
   };
 
-  testImg.onerror = () => {
-    // URL failed, use fallback
-    imgElement.src = fallback;
-    imgElement.style.opacity = '1';
-    imgElement.onerror = null; // Prevent infinite loop
-    console.log('[Avatar Debug] Image failed to load, using fallback:', fallback);
-  };
+  testImg.onerror = useFallback;
 
-  // Set error handler for the actual image element as backup
-  imgElement.onerror = () => {
-    imgElement.src = fallback;
-    imgElement.style.opacity = '1';
-    imgElement.onerror = null; // Prevent infinite loop
-  };
+  // Timeout fallback (if image takes too long to load)
+  imgElement._avatarTimer = setTimeout(useFallback, 5000);
 
   // Start loading test image
   testImg.src = photoURL;
+}
 
-  // Timeout fallback (if image takes too long)
-  setTimeout(() => {
-    if (imgElement.src !== photoURL || imgElement.complete === false) {
-      imgElement.src = fallback;
-      imgElement.style.opacity = '1';
-    }
-  }, 5000);
+// Invalida cualquier carga/temporizador de avatar pendiente sobre este <img>
+function cancelAvatarLoad(imgElement) {
+  clearTimeout(imgElement._avatarTimer);
+  imgElement._avatarReqId = (imgElement._avatarReqId || 0) + 1;
+  return imgElement._avatarReqId;
 }
 
 // Update all avatar instances for current user
