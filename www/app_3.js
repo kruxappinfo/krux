@@ -7306,7 +7306,20 @@ function initCreatePost() {
     resetPostData();
     updateUserInfo();
     modal.classList.remove('hidden');
+    startCreatePostViewportSync();
     setTimeout(() => textarea?.focus(), 100);
+  });
+
+  // Escape cierra primero el buscador de ubicación y después el editor
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || modal.classList.contains('hidden')) return;
+    const locationBox = document.getElementById('location-search-container');
+    if (locationBox && !locationBox.classList.contains('hidden')) {
+      locationBox.classList.add('hidden');
+      document.getElementById('add-location-btn')?.focus();
+    } else {
+      closeCreatePostModal();
+    }
   });
 
   // Close modal
@@ -7330,19 +7343,20 @@ function initCreatePost() {
     // Enable/disable submit button
     updateSubmitButton();
 
-    // Update char count color
-    if (count > 1800) {
-      charCount.style.color = '#ef4444';
-    } else if (count > 1500) {
-      charCount.style.color = '#f59e0b';
-    } else {
-      charCount.style.color = '#6b7280';
-    }
+    // Aviso cerca del límite (colores semánticos en CSS)
+    const counter = charCount.parentElement;
+    counter?.classList.toggle('is-warn', count > 1500 && count <= 1800);
+    counter?.classList.toggle('is-limit', count > 1800);
+
+    autoSizeCreatePostText();
   });
 
   // Attach mention autocomplete to post textarea (dropdown appears below)
   if (textarea && !textarea._mentionAutocomplete) {
     postMentionAutocomplete = new MentionAutocomplete(textarea, { positionBelow: true });
+    // La clase la coloca al final del <form>: aquí quedaría bajo fotos y acciones (y tras el teclado)
+    const compose = textarea.closest('.create-post-compose');
+    if (compose && postMentionAutocomplete.dropdown) compose.appendChild(postMentionAutocomplete.dropdown);
   }
 
   // Photo button
@@ -7353,10 +7367,17 @@ function initCreatePost() {
   photoInput?.addEventListener('change', (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
-      postData.photos = files;
+      // Se añaden a las ya elegidas («Añadir más fotos»). Foto y vídeo son excluyentes: un vídeo
+      // junto a fotos se subiría pero nunca se vería (la tarjeta del feed solo muestra las fotos)
+      postData.photos = [...postData.photos, ...files];
+      if (postData.video) {
+        postData.video = null;
+        if (videoInput) videoInput.value = '';
+      }
       updatePreview();
       updateSubmitButton();
     }
+    e.target.value = '';
   });
 
   // Video button
@@ -7372,6 +7393,7 @@ function initCreatePost() {
       updatePreview();
       updateSubmitButton();
     }
+    e.target.value = '';
   });
 
   // Ascent button
@@ -7439,12 +7461,10 @@ function initCreatePost() {
     const currentLocationOption = document.createElement('li');
     currentLocationOption.className = 'location-result-item location-current-option';
     currentLocationOption.innerHTML = `
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"></circle>
-        <line x1="12" y1="8" x2="12" y2="16"></line>
-        <line x1="8" y1="12" x2="16" y2="12"></line>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polygon points="3 11 22 2 13 21 11 13 3 11"></polygon>
       </svg>
-      <span>📍 Usar mi ubicación actual</span>
+      <span>Usar mi ubicación actual</span>
     `;
     currentLocationOption.addEventListener('click', async () => {
       await useCurrentLocation();
@@ -7467,7 +7487,7 @@ function initCreatePost() {
       currentOption.style.opacity = '0.6';
       currentOption.style.pointerEvents = 'none';
       const span = currentOption.querySelector('span');
-      if (span) span.textContent = '📍 Obteniendo ubicación...';
+      if (span) span.textContent = 'Obteniendo ubicación…';
     }
 
     navigator.geolocation.getCurrentPosition(
@@ -7526,7 +7546,7 @@ function initCreatePost() {
           currentOption.style.opacity = '1';
           currentOption.style.pointerEvents = 'auto';
           const span = currentOption.querySelector('span');
-          if (span) span.textContent = '📍 Usar mi ubicación actual';
+          if (span) span.textContent = 'Usar mi ubicación actual';
         }
       }
     );
@@ -7684,7 +7704,7 @@ function resetPostData() {
   if (postMentionAutocomplete) postMentionAutocomplete.clearMentions();
   document.getElementById('create-post-text').value = '';
   document.getElementById('create-post-char-count-num').textContent = '0';
-  document.getElementById('create-post-char-count-num').style.color = '#6b7280';
+  document.getElementById('create-post-char-count-num').parentElement?.classList.remove('is-warn', 'is-limit');
   document.getElementById('create-post-photo-input').value = '';
   document.getElementById('create-post-video-input').value = '';
   document.getElementById('create-post-preview').innerHTML = '';
@@ -7700,7 +7720,52 @@ function resetPostData() {
   if (locationSearchInput) locationSearchInput.value = '';
   if (locationResults) locationResults.innerHTML = '';
 
+  autoSizeCreatePostText();
+  updateActionStates();
   updateSubmitButton();
+}
+
+// Altura del texto según su contenido (mínimo tres líneas)
+function autoSizeCreatePostText() {
+  const textarea = document.getElementById('create-post-text');
+  if (!textarea) return;
+  textarea.style.height = 'auto';
+  textarea.style.height = `${Math.max(textarea.scrollHeight, 84)}px`;
+}
+
+// Estado visual de Foto / Vídeo / Ubicación según lo adjuntado
+function updateActionStates() {
+  const set = (id, on) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.toggle('is-active', !!on);
+    btn.setAttribute('aria-pressed', String(!!on));
+  };
+  set('add-photo-btn', postData.photos.length > 0);
+  set('add-video-btn', !!postData.video);
+  set('add-location-btn', !!postData.location);
+}
+
+// Teclado virtual en móvil: el editor ocupa el área visible para que la barra de acciones no quede oculta
+let createPostViewportSync = null;
+function startCreatePostViewportSync() {
+  const modal = document.getElementById('create-post-modal');
+  const vv = window.visualViewport;
+  if (!modal || !vv) return;
+  if (!createPostViewportSync) {
+    createPostViewportSync = () => {
+      if (modal.classList.contains('hidden')) {
+        vv.removeEventListener('resize', createPostViewportSync);
+        vv.removeEventListener('scroll', createPostViewportSync);
+        return;
+      }
+      modal.style.setProperty('--cp-vh', `${vv.height}px`);
+      modal.style.setProperty('--cp-top', `${vv.offsetTop}px`);
+    };
+  }
+  vv.addEventListener('resize', createPostViewportSync);
+  vv.addEventListener('scroll', createPostViewportSync);
+  createPostViewportSync();
 }
 
 function updateUserInfo() {
@@ -7722,68 +7787,114 @@ function updateSubmitButton() {
   const submitBtn = document.getElementById('submit-create-post');
   const hasContent = postData.text.trim().length > 0 || postData.photos.length > 0 || postData.video;
 
-  if (submitBtn) {
+  if (submitBtn && !submitBtn.classList.contains('is-loading')) {
     submitBtn.disabled = !hasContent;
-    if (hasContent) {
-      submitBtn.style.opacity = '1';
-      submitBtn.style.cursor = 'pointer';
-    } else {
-      submitBtn.style.opacity = '0.5';
-      submitBtn.style.cursor = 'not-allowed';
-    }
   }
 }
+
+// URL de vista previa por archivo (se reutiliza y se libera al quitarlo)
+const createPostPreviewUrls = new Map();
+function createPostPreviewUrl(file) {
+  if (!createPostPreviewUrls.has(file)) createPostPreviewUrls.set(file, URL.createObjectURL(file));
+  return createPostPreviewUrls.get(file);
+}
+function releaseCreatePostPreviewUrls() {
+  const keep = new Set([...postData.photos, postData.video].filter(Boolean));
+  createPostPreviewUrls.forEach((url, file) => {
+    if (!keep.has(file)) {
+      URL.revokeObjectURL(url);
+      createPostPreviewUrls.delete(file);
+    }
+  });
+}
+
+const CP_REMOVE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
 
 function updatePreview() {
   const preview = document.getElementById('create-post-preview');
   if (!preview) return;
 
+  releaseCreatePostPreviewUrls();
   let previewHTML = '';
 
-  // Photos preview
+  // Fotos: cuadrícula según cantidad + «Añadir más fotos»
   if (postData.photos.length > 0) {
-    previewHTML += '<div class="create-post-preview-photos">';
+    const n = postData.photos.length;
+    const layout = n === 1 ? 'is-one' : n === 2 ? 'is-two' : 'is-many';
+    previewHTML += `<div class="create-post-preview-photos ${layout}">`;
     postData.photos.forEach((file, index) => {
-      const url = URL.createObjectURL(file);
       previewHTML += `
         <div class="create-post-preview-photo-item">
-          <img src="${url}" alt="Preview">
-          <button type="button" class="remove-preview-btn" data-index="${index}">x”</button>
+          <img src="${createPostPreviewUrl(file)}" alt="Foto ${index + 1} de ${n}">
+          <button type="button" class="remove-preview-btn" data-index="${index}" aria-label="Quitar foto ${index + 1}">${CP_REMOVE_ICON}</button>
         </div>
       `;
     });
-    previewHTML += '</div>';
+    previewHTML += `
+        <button type="button" class="create-post-add-more" data-add="photos" aria-label="Añadir más fotos">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>Añadir más fotos</span>
+        </button>
+      </div>`;
   }
 
-  // Video preview
+  // Vídeo: vista previa real; la duración solo si el navegador la lee de los metadatos
   if (postData.video) {
-    const url = URL.createObjectURL(postData.video);
     previewHTML += `
       <div class="create-post-preview-video">
-        <video src="${url}" controls></video>
-        <button type="button" class="remove-preview-btn" data-type="video"x”</button>
+        <video src="${createPostPreviewUrl(postData.video)}" preload="metadata" playsinline muted></video>
+        <button type="button" class="create-post-video-play" aria-label="Reproducir vista previa">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="7 4 20 12 7 20 7 4"></polygon></svg>
+        </button>
+        <span class="create-post-video-duration" hidden></span>
+        <button type="button" class="remove-preview-btn" data-type="video" aria-label="Quitar vídeo">${CP_REMOVE_ICON}</button>
       </div>
     `;
   }
 
-  // Location preview
+  // Ubicación: etiqueta compacta
   if (postData.location) {
-    const locationName = postData.location.name || 'Ubicación añadida';
+    const locationName = escapeHtmlMention(postData.location.name || 'Ubicación añadida');
     previewHTML += `
       <div class="create-post-preview-location">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-          <circle cx="12" cy="10" r="3"></circle>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 2a8 8 0 0 0-8 8c0 6 8 12 8 12s8-6 8-12a8 8 0 0 0-8-8zm0 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"></path>
         </svg>
-        <span>${locationName}</span>
-        <button type="button" class="remove-preview-btn" data-type="location">x”</button>
+        <span title="${locationName}">${locationName}</span>
+        <button type="button" class="remove-preview-btn" data-type="location" aria-label="Quitar ubicación">${CP_REMOVE_ICON}</button>
       </div>
     `;
   }
+
+  updateActionStates();
 
   if (previewHTML) {
     preview.innerHTML = previewHTML;
     preview.classList.remove('hidden');
+
+    preview.querySelector('[data-add="photos"]')?.addEventListener('click', () => {
+      document.getElementById('create-post-photo-input')?.click();
+    });
+
+    const video = preview.querySelector('.create-post-preview-video video');
+    const playBtn = preview.querySelector('.create-post-video-play');
+    if (video && playBtn) {
+      video.addEventListener('loadedmetadata', () => {
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          const total = Math.round(video.duration);
+          const label = preview.querySelector('.create-post-video-duration');
+          label.textContent = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+          label.hidden = false;
+        }
+      });
+      const toggle = () => {
+        if (video.paused) { video.play().catch(() => {}); } else { video.pause(); }
+      };
+      playBtn.addEventListener('click', toggle);
+      video.addEventListener('click', toggle);
+      video.addEventListener('play', () => { playBtn.classList.add('is-playing'); playBtn.setAttribute('aria-label', 'Pausar vista previa'); });
+      video.addEventListener('pause', () => { playBtn.classList.remove('is-playing'); playBtn.setAttribute('aria-label', 'Reproducir vista previa'); });
+    }
 
     // Add remove buttons listeners
     preview.querySelectorAll('.remove-preview-btn').forEach(btn => {
@@ -7808,6 +7919,7 @@ function updatePreview() {
       });
     });
   } else {
+    preview.innerHTML = '';
     preview.classList.add('hidden');
   }
 }
@@ -7832,7 +7944,8 @@ async function submitPost() {
 
   const submitBtn = document.getElementById('submit-create-post');
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Publicando...';
+  submitBtn.classList.add('is-loading');
+  submitBtn.textContent = 'Publicando…';
 
   try {
     // Upload photos/video if any
@@ -7961,8 +8074,10 @@ async function submitPost() {
 
     showToast(errorMessage, 'error');
   } finally {
-    submitBtn.disabled = false;
+    submitBtn.classList.remove('is-loading');
     submitBtn.textContent = 'Publicar';
+    // Se recalcula con la lógica existente (tras publicar, el editor ya está vacío)
+    updateSubmitButton();
   }
 }
 
@@ -7970,6 +8085,7 @@ function closeCreatePostModal() {
   const modal = document.getElementById('create-post-modal');
   modal?.classList.add('hidden');
   resetPostData();
+  releaseCreatePostPreviewUrls();
 }
 
 // Show empty feed state
