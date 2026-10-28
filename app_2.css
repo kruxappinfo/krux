@@ -4446,6 +4446,12 @@ button.secondary:hover {
   position: relative;
 }
 
+/* Al salir del mapa, la vista sale del flujo: con position: relative compartía el ancho de
+   .content (flex en fila) con la vista entrante durante la transición y la aplastaba a la mitad */
+#map-view:not(.active) {
+  position: absolute;
+}
+
 #map-view #map {
   position: absolute;
   top: 0;
