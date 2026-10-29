@@ -7553,6 +7553,9 @@ class MentionAutocomplete {
     this.mentionStart = -1;
     this.results = [];
     this.positionBelow = options.positionBelow || false;
+    this.highlight = options.highlight || false;
+    this.searchToken = 0;
+    this.pendingEnter = false;
 
     this._init();
   }
@@ -7579,11 +7582,46 @@ class MentionAutocomplete {
 
     // Store reference on the element
     this.input._mentionAutocomplete = this;
+
+    // Capa bajo el texto que pinta las menciones confirmadas en azul (el texto del campo queda transparente)
+    if (this.highlight) {
+      this.highlightLayer = document.createElement('div');
+      this.highlightLayer.className = 'mention-highlight';
+      this.highlightLayer.setAttribute('aria-hidden', 'true');
+      this.input.before(this.highlightLayer);
+      this.input.classList.add('has-mention-highlight');
+      this._renderHighlight();
+    }
+  }
+
+  _renderHighlight() {
+    if (!this.highlightLayer) return;
+    const text = this.input.value;
+    const found = extractMentionsFromText(text, this.mentions).sort((a, b) => a.startIndex - b.startIndex);
+    let html = '';
+    let last = 0;
+    for (const m of found) {
+      if (m.startIndex < last) continue;
+      html += escapeHtmlMention(text.slice(last, m.startIndex));
+      html += `<span class="mention-highlight-name">${escapeHtmlMention(text.slice(m.startIndex, m.endIndex))}</span>`;
+      last = m.endIndex;
+    }
+    // El espacio final mantiene la altura cuando el texto acaba en salto de línea
+    this.highlightLayer.innerHTML = html + escapeHtmlMention(text.slice(last)) + ' ';
   }
 
   _onInput() {
+    this._renderHighlight();
+
     const cursorPos = this.input.selectionStart;
     const text = this.input.value;
+
+    // Tras un espacio o salto de línea no se está escribiendo ninguna mención
+    // (al elegir a alguien se añade un espacio: antes se volvía a buscar «@Nombre » y salía «Sin resultados»)
+    if (cursorPos === 0 || /\s/.test(text[cursorPos - 1])) {
+      this._hide();
+      return;
+    }
 
     // Find the last @ before cursor that isn't preceded by a word char
     let atIndex = -1;
@@ -7612,16 +7650,39 @@ class MentionAutocomplete {
       return;
     }
 
+    // Una mención ya elegida no vuelve a abrir las sugerencias
+    const confirmed = this.mentions.some(m =>
+      m.startIndex === atIndex && text.slice(atIndex, m.endIndex) === '@' + m.displayName && cursorPos <= m.endIndex);
+    if (confirmed) {
+      this._hide();
+      return;
+    }
+
     this.mentionStart = atIndex;
+    this.query = query;
 
     // Debounce search
     clearTimeout(this.searchTimeout);
     this.searchTimeout = setTimeout(() => {
+      this.searchTimeout = null;
       this._searchUsers(query);
     }, 300);
   }
 
   _onKeyDown(e) {
+    // Enter antes de que lleguen las sugerencias: se busca ya y se elige la primera
+    if (e.key === 'Enter' && !e.shiftKey && (this.searchTimeout || (this.isOpen && this.selectedIndex < 0 && this.searching))) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.pendingEnter = true;
+      if (this.searchTimeout) {
+        clearTimeout(this.searchTimeout);
+        this.searchTimeout = null;
+        this._searchUsers(this.query);
+      }
+      return;
+    }
+
     if (!this.isOpen) return;
 
     if (e.key === 'ArrowDown') {
@@ -7650,23 +7711,36 @@ class MentionAutocomplete {
   }
 
   async _searchUsers(query) {
+    const token = ++this.searchToken;
+    this.searching = true;
     this.dropdown.innerHTML = '<div class="mention-dropdown-loading">Buscando...</div>';
     this._show();
 
     try {
       const users = await searchUsersGlobal(query);
+      // Respuesta de una búsqueda anterior o de unas sugerencias ya cerradas
+      if (token !== this.searchToken) return;
+      this.searching = false;
       this.results = users || [];
 
       if (this.results.length === 0) {
+        if (this.pendingEnter) {
+          this._hide();
+          return;
+        }
         this.dropdown.innerHTML = '<div class="mention-dropdown-empty">Sin resultados</div>';
         return;
       }
 
       this.selectedIndex = 0;
+      if (this.pendingEnter) {
+        this._selectUser(this.results[0]);
+        return;
+      }
       this._renderResults();
     } catch (error) {
       console.error('Error searching users for mention:', error);
-      this._hide();
+      if (token === this.searchToken) this._hide();
     }
   }
 
@@ -7762,8 +7836,12 @@ class MentionAutocomplete {
     this.isOpen = false;
     this.selectedIndex = -1;
     this.results = [];
+    this.searching = false;
+    this.pendingEnter = false;
+    this.searchToken++;
     this.dropdown.classList.remove('active');
     clearTimeout(this.searchTimeout);
+    this.searchTimeout = null;
   }
 
   getMentions() {
@@ -7772,6 +7850,7 @@ class MentionAutocomplete {
 
   clearMentions() {
     this.mentions = [];
+    this._renderHighlight();
   }
 
   destroy() {
@@ -7781,6 +7860,8 @@ class MentionAutocomplete {
     if (this.dropdown && this.dropdown.parentNode) {
       this.dropdown.parentNode.removeChild(this.dropdown);
     }
+    this.highlightLayer?.remove();
+    this.input.classList.remove('has-mention-highlight');
     this.input._mentionAutocomplete = null;
   }
 }
@@ -7879,7 +7960,7 @@ function initCreatePost() {
 
   // Attach mention autocomplete to post textarea (dropdown appears below)
   if (textarea && !textarea._mentionAutocomplete) {
-    postMentionAutocomplete = new MentionAutocomplete(textarea, { positionBelow: true });
+    postMentionAutocomplete = new MentionAutocomplete(textarea, { positionBelow: true, highlight: true });
     // La clase la coloca al final del <form>: aquí quedaría bajo fotos y acciones (y tras el teclado)
     const compose = textarea.closest('.create-post-compose');
     if (compose && postMentionAutocomplete.dropdown) compose.appendChild(postMentionAutocomplete.dropdown);
@@ -8234,8 +8315,8 @@ function initCreatePost() {
 function resetPostData() {
   postData = newPostData();
   cpGrabbedId = null;
-  if (postMentionAutocomplete) postMentionAutocomplete.clearMentions();
   document.getElementById('create-post-text').value = '';
+  if (postMentionAutocomplete) postMentionAutocomplete.clearMentions();
   document.getElementById('create-post-char-count-num').textContent = '0';
   document.getElementById('create-post-char-count-num').parentElement?.classList.remove('is-warn', 'is-limit');
   document.getElementById('create-post-photo-input').value = '';

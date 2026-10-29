@@ -27123,3 +27123,39 @@ body.kx-sheet-open #feed-view .feed-container {
 .rr-error[hidden] {
   display: none;
 }
+
+/* ================ MENCIONES EN AZUL AL ESCRIBIR UNA PUBLICACIÓN ================ */
+/* La capa repite el texto debajo del campo; el campo deja ver el cursor y la capa pinta el color */
+.create-post-compose .mention-highlight {
+  position: absolute;
+  top: 0;
+  left: 20px;
+  right: 20px;
+  padding: 8px 0;
+  font-family: inherit;
+  font-size: 1.125rem;
+  line-height: 1.5;
+  color: var(--kx-ink);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+
+#create-post-modal #create-post-text.has-mention-highlight {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--kx-ink);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+#create-post-modal #create-post-text.has-mention-highlight::placeholder {
+  color: var(--kx-ink-3);
+  -webkit-text-fill-color: var(--kx-ink-3);
+}
+
+.mention-highlight-name {
+  color: #2563eb;
+}
