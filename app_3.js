@@ -5098,10 +5098,34 @@ function initFeedTabs() {
 
 // Fila "¿Qué quieres compartir?": es el propio #nav-create-btn, así que initCreatePost la engancha
 // y abre el flujo real de crear publicación (validaciones, fotos y envío incluidos).
+// Última sesión conocida: pinta la foto del compositor al instante mientras Firebase restaura la sesión
+const KX_LAST_USER_KEY = 'kx-last-user';
+function kxReadLastUser() {
+  try { return JSON.parse(localStorage.getItem(KX_LAST_USER_KEY) || 'null'); } catch (_) { return null; }
+}
+function kxWriteLastUser(u) {
+  try {
+    if (u) localStorage.setItem(KX_LAST_USER_KEY, JSON.stringify({ photo: u.photoURL || '', name: u.displayName || u.email || 'Usuario' }));
+    else localStorage.removeItem(KX_LAST_USER_KEY);
+  } catch (_) { /* sin almacenamiento */ }
+}
+
 function updateFeedComposer(user) {
   const avatar = document.getElementById('feed-composer-avatar');
   if (!avatar) return;
   const u = user || (typeof currentUser !== 'undefined' ? currentUser : null);
+  // user === null llega desde auth con la sesión ya resuelta (cerrada); undefined es el arranque
+  if (user !== undefined) kxWriteLastUser(user);
+  if (!u && user === undefined) {
+    const last = kxReadLastUser();
+    if (last) {
+      // Ya la puso el script de index.html: no la recargamos para que no parpadee
+      if (!avatar.getAttribute('src')) setAvatarWithFallback(avatar, last.photo, last.name, 80);
+      return;
+    }
+  }
+  // Misma foto ya pintada (script de arranque o sesión anterior): no la recargamos, así no parpadea
+  if (u && u.photoURL && avatar.getAttribute('src') === u.photoURL && avatar.complete && avatar.naturalWidth) return;
   setAvatarWithFallback(avatar, u ? u.photoURL : '', u ? (u.displayName || u.email || 'Usuario') : 'Usuario', 80);
 }
 
@@ -10511,6 +10535,12 @@ async function loadFeed(opts) {
     // Vista previa local sin sesión: publicaciones de demostración (ver isLocalDevPreview en auth.js)
     if (!currentUser && typeof isLocalDevPreview === 'function' && isLocalDevPreview()) {
       renderLocalPreviewFeed(container);
+      return;
+    }
+
+    // Sesión aún sin restaurar pero con usuario recordado: auth volverá a llamar a loadFeed, no mostramos «vacío»
+    if (!currentUser && kxReadLastUser() && !silent) {
+      container.innerHTML = '<div class="loading-spinner">Cargando publicaciones...</div>';
       return;
     }
 
