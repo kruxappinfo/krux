@@ -26403,3 +26403,203 @@ body.kx-sheet-open #feed-view .feed-container {
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
+
+/* ================== ASCENSIÓN DESDE EL LIBRO (editor, feed y publicación) ================== */
+#create-post-modal .modal-content {
+  position: relative;
+}
+
+/* Selector: hoja que cubre el editor, con cabecera, búsqueda y lista */
+.cp-picker {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--kx-surface);
+}
+
+.cp-picker.hidden {
+  display: none;
+}
+
+.cp-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--kx-line);
+}
+
+.cp-picker-header h3 {
+  margin: 0;
+  font-size: var(--kx-fs-lead);
+  font-weight: 800;
+  color: var(--kx-ink);
+}
+
+.cp-picker-spacer {
+  width: 44px;
+  flex-shrink: 0;
+}
+
+.cp-picker-tools {
+  padding: 12px 16px 8px;
+}
+
+.cp-picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 8px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.cp-ascent-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--kx-radius-md);
+  background: transparent;
+  color: var(--kx-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cp-ascent-row:hover {
+  background: var(--kx-sage-soft);
+}
+
+.cp-ascent-row:focus-visible,
+.kx-ascent-card.is-removable:focus-visible {
+  outline: 2px solid var(--kx-forest);
+  outline-offset: 2px;
+}
+
+.cp-ascent-row.is-selected {
+  background: var(--kx-sage);
+}
+
+.cp-picker-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  color: var(--kx-ink-3);
+  font-size: var(--kx-fs-meta);
+  text-align: center;
+}
+
+.cp-picker-link {
+  min-height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-forest);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cp-picker-link:hover {
+  background: var(--kx-primary-hover);
+}
+
+/* Tarjeta de ascensión */
+.kx-ascent-grade {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 52px;
+  height: 40px;
+  padding: 0 8px;
+  border-radius: 12px;
+  font-size: 0.9375rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.kx-ascent-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.kx-ascent-name {
+  overflow: hidden;
+  color: var(--kx-ink);
+  font-size: var(--kx-fs-body);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kx-ascent-meta,
+.kx-ascent-sub {
+  overflow: hidden;
+  color: var(--kx-ink-3);
+  font-size: var(--kx-fs-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kx-ascent-sub {
+  color: var(--kx-ink-2);
+  font-weight: 600;
+}
+
+.kx-ascent-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 16px 12px;
+  padding: 10px 12px;
+  border-radius: var(--kx-radius-md);
+  background: var(--kx-sage-soft);
+}
+
+.kx-ascent-card.is-attempt .kx-ascent-sub {
+  color: var(--kx-warning);
+}
+
+.kx-ascent-card.is-removable {
+  margin: 0;
+  padding-right: 6px;
+  cursor: pointer;
+}
+
+.kx-ascent-card .remove-preview-btn {
+  position: static;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-forest);
+  cursor: pointer;
+}
+
+.kx-ascent-card .remove-preview-btn:hover {
+  background: rgba(21, 62, 53, 0.1);
+}
+
+/* En el feed y la publicación abierta la tarjeta alinea con el texto (la tarjeta ya aporta su relleno) */
+:is(#feed-view, #view-post-modal) .kx-ascent-card {
+  margin: 4px 2px 8px;
+}

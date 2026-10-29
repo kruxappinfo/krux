@@ -1257,18 +1257,7 @@ function initGlobalSearch() {
   };
 
   function gradeChip(grade) {
-    const g = grade || '?';
-    let bg = '#5A665F';
-    try { if (typeof getGradeColor === 'function') bg = getGradeColor(g) || bg; } catch (_) { /* sin color de grado */ }
-    // Texto legible sobre el color oficial del grado
-    let fg = '#fff';
-    const m = /^#?([0-9a-f]{6})$/i.exec(bg);
-    if (m) {
-      const n = parseInt(m[1], 16);
-      const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
-      if (lum > 0.62) fg = '#202923';
-    }
-    return `<span class="search-grade" style="background:${bg};color:${fg}">${esc(g)}</span>`;
+    return kxGradeChipHTML(grade, 'search-grade');
   }
 
   function sectionHead(title, moreType, total) {
@@ -5778,8 +5767,9 @@ function initEditProfile() {
       if (selectedPhotoFile) {
         submitBtn.textContent = 'Subiendo foto...';
         const storageRef = firebase.storage().ref();
-        const photoRef = storageRef.child(`profile-photos/${currentUser.uid}/${Date.now()}_${selectedPhotoFile.name}`);
-        await photoRef.put(selectedPhotoFile);
+        const profilePhoto = await kxPrepareImageForUpload(selectedPhotoFile, { maxSide: 640, quality: 0.85, lightBytes: 150 * 1024 });
+        const photoRef = storageRef.child(`profile-photos/${currentUser.uid}/${Date.now()}_${profilePhoto.name}`);
+        await kxStoragePut(photoRef, profilePhoto);
         photoURL = await photoRef.getDownloadURL();
       }
 
@@ -7751,7 +7741,10 @@ function initCreatePost() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || modal.classList.contains('hidden')) return;
     const locationBox = document.getElementById('location-search-container');
-    if (locationBox && !locationBox.classList.contains('hidden')) {
+    const ascentPicker = document.getElementById('ascent-picker');
+    if (ascentPicker && !ascentPicker.classList.contains('hidden')) {
+      closeAscentPicker();
+    } else if (locationBox && !locationBox.classList.contains('hidden')) {
       locationBox.classList.add('hidden');
       document.getElementById('add-location-btn')?.focus();
     } else {
@@ -7834,10 +7827,20 @@ function initCreatePost() {
   });
 
   // Ascent button
-  ascentBtn?.addEventListener('click', () => {
-    showToast('Abre una vía en el mapa para añadir una ascensión', 'info');
-    modal.classList.add('hidden');
-    switchView('map-view');
+  ascentBtn?.addEventListener('click', () => openAscentPicker());
+  document.getElementById('ascent-picker-back')?.addEventListener('click', closeAscentPicker);
+  document.getElementById('ascent-picker-search')?.addEventListener('input', renderAscentPicker);
+  document.getElementById('ascent-picker-list')?.addEventListener('click', (e) => {
+    if (e.target.closest('[data-goto-map]')) {
+      closeAscentPicker();
+      showToast('Abre una vía en el mapa para registrar una ascensión', 'info');
+      modal.classList.add('hidden');
+      switchView('map-view');
+      return;
+    }
+    if (e.target.closest('[data-retry]')) { openAscentPicker(true); return; }
+    const row = e.target.closest('[data-ascent-id]');
+    if (row) selectAscentForPost(row.dataset.ascentId);
   });
 
   // Location selector setup
@@ -8157,8 +8160,157 @@ function resetPostData() {
   if (locationSearchInput) locationSearchInput.value = '';
   if (locationResults) locationResults.innerHTML = '';
 
+  closeAscentPicker();
+  cpPickerToken++;
+  cpAscentsCache = null;
+
   autoSizeCreatePostText();
   updateActionStates();
+  updateSubmitButton();
+}
+
+// ================== ASCENSIÓN EN EL EDITOR (desde el libro de ascensiones) ==================
+let cpAscentsCache = null;
+let cpPickerToken = 0;
+
+// Chip de grado con el color oficial y texto legible (lo usan el buscador y las tarjetas de ascensión)
+function kxGradeChipHTML(grade, className = 'kx-ascent-grade') {
+  const g = grade || '?';
+  let bg = '#5A665F';
+  try { if (typeof getGradeColor === 'function') bg = getGradeColor(g) || bg; } catch (_) { /* sin color de grado */ }
+  let fg = '#fff';
+  const m = /^#?([0-9a-f]{6})$/i.exec(bg);
+  if (m) {
+    const n = parseInt(m[1], 16);
+    const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+    if (lum > 0.62) fg = '#202923';
+  }
+  return `<span class="${className}" style="background:${bg};color:${fg}">${escapeHtmlMention(String(g))}</span>`;
+}
+
+function kxAscentDate(ascent) {
+  const d = ascent && ascent.date;
+  if (!d) return null;
+  const date = d.toDate ? d.toDate() : (d.seconds ? new Date(d.seconds * 1000) : new Date(d));
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function kxAscentDateLabel(ascent) {
+  const date = kxAscentDate(ascent);
+  if (!date) return '';
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString('es-ES', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', '');
+}
+
+// Tarjeta de ascensión (editor, feed y publicación abierta)
+function kxAscentCardHTML(ascent, { removable = false } = {}) {
+  if (!ascent || !ascent.routeName) return '';
+  const style = (typeof STYLE_LABELS !== 'undefined' && STYLE_LABELS[ascent.style]) || '';
+  const place = [ascent.schoolName, ascent.sector].filter(Boolean).map(escapeHtmlMention).join(' · ');
+  const sub = [style, kxAscentDateLabel(ascent)].filter(Boolean).map(escapeHtmlMention).join(' · ');
+  const attempt = ascent.style === 'project' ? ' is-attempt' : '';
+  return `
+    <div class="kx-ascent-card${attempt}${removable ? ' is-removable' : ''}"${removable ? ' role="button" tabindex="0" data-change-ascent aria-label="Cambiar ascensión"' : ''}>
+      ${kxGradeChipHTML(ascent.grade)}
+      <div class="kx-ascent-info">
+        <span class="kx-ascent-name">${escapeHtmlMention(ascent.routeName)}</span>
+        ${place ? `<span class="kx-ascent-meta">${place}</span>` : ''}
+        ${sub ? `<span class="kx-ascent-sub">${sub}</span>` : ''}
+      </div>
+      ${removable ? `<button type="button" class="remove-preview-btn" data-type="ascent" aria-label="Quitar ascensión">${CP_REMOVE_ICON}</button>` : ''}
+    </div>`;
+}
+
+function kxNormalizeText(t) {
+  return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+async function openAscentPicker(forceReload = false) {
+  const picker = document.getElementById('ascent-picker');
+  const list = document.getElementById('ascent-picker-list');
+  const search = document.getElementById('ascent-picker-search');
+  if (!picker || !list) return;
+  picker.classList.remove('hidden');
+  if (search) search.value = '';
+  if (cpAscentsCache && !forceReload) {
+    renderAscentPicker();
+    setTimeout(() => search?.focus(), 60);
+    return;
+  }
+  const token = ++cpPickerToken;
+  list.innerHTML = '<div class="cp-picker-state" role="status">Cargando tus ascensiones…</div>';
+  try {
+    const all = await getUserAscentsByUserId(currentUser?.uid, 500);
+    if (token !== cpPickerToken) return;
+    cpAscentsCache = (all || [])
+      .filter(a => a && a.routeName)
+      .sort((a, b) => (kxAscentDate(b)?.getTime() || 0) - (kxAscentDate(a)?.getTime() || 0));
+    renderAscentPicker();
+  } catch (e) {
+    console.error('Error cargando ascensiones:', e);
+    if (token !== cpPickerToken) return;
+    list.innerHTML = '<div class="cp-picker-state">No se han podido cargar tus ascensiones.<button type="button" class="cp-picker-link" data-retry>Reintentar</button></div>';
+  }
+}
+
+function renderAscentPicker() {
+  const list = document.getElementById('ascent-picker-list');
+  if (!list || !cpAscentsCache) return;
+  const q = kxNormalizeText(document.getElementById('ascent-picker-search')?.value).trim();
+  if (cpAscentsCache.length === 0) {
+    list.innerHTML = '<div class="cp-picker-state">Aún no tienes ascensiones en tu libro.<button type="button" class="cp-picker-link" data-goto-map>Ir al mapa</button></div>';
+    return;
+  }
+  const items = q
+    ? cpAscentsCache.filter(a => kxNormalizeText([a.routeName, a.schoolName, a.sector, a.grade].join(' ')).includes(q))
+    : cpAscentsCache;
+  if (items.length === 0) {
+    list.innerHTML = '<div class="cp-picker-state">Ninguna ascensión coincide con la búsqueda.</div>';
+    return;
+  }
+  const selectedId = postData.ascent?.ascentId;
+  list.innerHTML = items.map(a => {
+    const style = STYLE_LABELS[a.style] || '';
+    const place = [a.schoolName, a.sector].filter(Boolean).map(escapeHtmlMention).join(' · ');
+    const sub = [style, kxAscentDateLabel(a)].filter(Boolean).map(escapeHtmlMention).join(' · ');
+    return `
+      <button type="button" class="cp-ascent-row${a.id === selectedId ? ' is-selected' : ''}" data-ascent-id="${escapeHtmlMention(a.id)}">
+        ${kxGradeChipHTML(a.grade)}
+        <span class="kx-ascent-info">
+          <span class="kx-ascent-name">${escapeHtmlMention(a.routeName)}</span>
+          ${place ? `<span class="kx-ascent-meta">${place}</span>` : ''}
+          ${sub ? `<span class="kx-ascent-sub">${sub}</span>` : ''}
+        </span>
+      </button>`;
+  }).join('');
+}
+
+function closeAscentPicker() {
+  document.getElementById('ascent-picker')?.classList.add('hidden');
+  const btn = document.getElementById('add-ascent-btn');
+  if (btn && document.activeElement && document.getElementById('ascent-picker')?.contains(document.activeElement)) btn.focus();
+}
+
+function selectAscentForPost(id) {
+  const a = (cpAscentsCache || []).find(x => x.id === id);
+  if (!a) return;
+  const date = kxAscentDate(a);
+  const ascent = {
+    ascentId: a.id,
+    routeId: a.routeId,
+    routeName: a.routeName,
+    grade: a.grade,
+    style: a.style,
+    schoolId: a.schoolId,
+    schoolName: a.schoolName,
+    sector: a.sector,
+    date: date ? date.toISOString() : null
+  };
+  // Firestore no admite undefined
+  Object.keys(ascent).forEach(k => { if (ascent[k] === undefined || ascent[k] === null) delete ascent[k]; });
+  postData.ascent = ascent;
+  closeAscentPicker();
+  updatePreview();
   updateSubmitButton();
 }
 
@@ -8181,6 +8333,7 @@ function updateActionStates() {
   set('add-photo-btn', postData.photos.length > 0);
   set('add-video-btn', !!postData.video);
   set('add-location-btn', !!postData.location);
+  set('add-ascent-btn', !!postData.ascent);
 }
 
 // Teclado virtual en móvil: el editor ocupa el área visible para que la barra de acciones no quede oculta
@@ -8222,7 +8375,7 @@ function updateUserInfo() {
 
 function updateSubmitButton() {
   const submitBtn = document.getElementById('submit-create-post');
-  const hasContent = postData.text.trim().length > 0 || postData.photos.length > 0 || postData.video;
+  const hasContent = postData.text.trim().length > 0 || postData.photos.length > 0 || postData.video || postData.ascent;
 
   if (submitBtn && !submitBtn.classList.contains('is-loading')) {
     submitBtn.disabled = !hasContent;
@@ -8303,11 +8456,22 @@ function updatePreview() {
     `;
   }
 
+  // Ascensión elegida del libro
+  if (postData.ascent) previewHTML += kxAscentCardHTML(postData.ascent, { removable: true });
+
   updateActionStates();
 
   if (previewHTML) {
     preview.innerHTML = previewHTML;
     preview.classList.remove('hidden');
+
+    const ascentCard = preview.querySelector('[data-change-ascent]');
+    if (ascentCard) {
+      ascentCard.addEventListener('click', (e) => { if (!e.target.closest('.remove-preview-btn')) openAscentPicker(); });
+      ascentCard.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.remove-preview-btn')) { e.preventDefault(); openAscentPicker(); }
+      });
+    }
 
     preview.querySelector('[data-add="photos"]')?.addEventListener('click', () => {
       document.getElementById('create-post-photo-input')?.click();
@@ -8342,6 +8506,8 @@ function updatePreview() {
         if (type === 'video') {
           postData.video = null;
           document.getElementById('create-post-video-input').value = '';
+        } else if (type === 'ascent') {
+          postData.ascent = null;
         } else if (type === 'location') {
           postData.location = null;
           const locationBadge = document.getElementById('location-badge');
@@ -8374,8 +8540,8 @@ async function submitPost() {
   }
 
   // Validate that there's at least some content
-  if (!postData.text.trim() && postData.photos.length === 0 && !postData.video) {
-    showToast('Añade texto, una foto o un video para publicar', 'error');
+  if (!postData.text.trim() && postData.photos.length === 0 && !postData.video && !postData.ascent) {
+    showToast('Añade texto, una foto, un vídeo o una ascensión para publicar', 'error');
     return;
   }
 
@@ -8393,12 +8559,12 @@ async function submitPost() {
       showToast('Subiendo fotos...', 'info');
       // Upload photos to Firebase Storage
       for (let i = 0; i < postData.photos.length; i++) {
-        const photo = postData.photos[i];
+        const photo = await kxPrepareImageForUpload(postData.photos[i]);
         const timestamp = Date.now();
         const filename = `${timestamp}_${i}_${photo.name}`;
         const storageRef = storage.ref(`posts/${currentUser.uid}/${filename}`);
 
-        await storageRef.put(photo);
+        await kxStoragePut(storageRef, photo);
         const url = await storageRef.getDownloadURL();
         photoUrls.push(url);
       }
@@ -8410,7 +8576,7 @@ async function submitPost() {
       const filename = `${timestamp}_${postData.video.name}`;
       const storageRef = storage.ref(`posts/${currentUser.uid}/${filename}`);
 
-      await storageRef.put(postData.video);
+      await storageRef.put(postData.video, { contentType: postData.video.type || undefined, cacheControl: KX_IMAGE_CACHE_CONTROL });
       videoUrl = await storageRef.getDownloadURL();
     }
 
@@ -8830,7 +8996,7 @@ function renderPostCard(post, container) {
       mediaHTML += `
         <div class="feed-media-wrapper">
           <div class="feed-image-container">
-            <img src="${images[0]}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${images[0]}" data-lightbox-index="0" loading="lazy">
+            <img src="${images[0]}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${images[0]}" data-lightbox-index="0" loading="lazy" decoding="async">
             ${photoTag}
           </div>
         </div>
@@ -8840,7 +9006,7 @@ function renderPostCard(post, container) {
       mediaHTML += `
         <div class="feed-media-wrapper">
           <div class="feed-images-grid ${gridClass}">
-            ${images.slice(0, 4).map((img, i) => `<img src="${img}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${img}" data-lightbox-index="${i}" loading="lazy">`).join('')}
+            ${images.slice(0, 4).map((img, i) => `<img src="${img}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${img}" data-lightbox-index="${i}" loading="lazy" decoding="async">`).join('')}
           </div>
           ${photoTag}
           ${images.length > 4 ? `<span class="feed-photos-more" aria-label="${images.length - 4} fotos más">+${images.length - 4}</span>` : ''}
@@ -8935,7 +9101,7 @@ function renderPostCard(post, container) {
     </div>
   `;
 
-  card.innerHTML = headerHTML + mediaHTML + contentHTML + actionsHTML;
+  card.innerHTML = headerHTML + mediaHTML + contentHTML + kxAscentCardHTML(post.ascent) + actionsHTML;
 
   // La entrada animada va por CSS (@keyframes feedCardFadeIn). Sin transform inline: un transform
   // persistente atraparía las hojas inferiores (position: fixed) dentro de la tarjeta.
@@ -10824,6 +10990,70 @@ function formatCount(num) {
   return num > 0 ? num.toString() : '';
 }
 
+// ================== OPTIMIZACIÓN DE IMÁGENES AL SUBIR ==================
+// Las fotos del móvil pesan 3–5 MB y se mostraban a ~360 px. Antes de subirlas se reducen
+// (lado largo máx. 1600 px; 640 px para fotos de perfil) y se recodifican; además se suben con
+// Cache-Control de un año (los nombres llevan marca de tiempo, así que nunca cambian) para que
+// el navegador no las vuelva a descargar. Si algo falla se sube el archivo original sin tocar.
+const KX_IMAGE_CACHE_CONTROL = 'public,max-age=31536000,immutable';
+
+async function kxLoadImageSource(file) {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      // 'from-image' aplica la orientación EXIF (las fotos de móvil suelen venir giradas)
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      return { src: bmp, width: bmp.width, height: bmp.height, close: () => bmp.close && bmp.close() };
+    } catch (_) { /* navegador sin opciones: se usa <img> */ }
+  }
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
+  return { src: img, width: img.naturalWidth, height: img.naturalHeight, close: () => URL.revokeObjectURL(url) };
+}
+
+async function kxPrepareImageForUpload(file, { maxSide = 1600, quality = 0.82, lightBytes = 600 * 1024 } = {}) {
+  try {
+    // Solo JPEG, PNG, WebP y HEIC/HEIF; GIF (animados), SVG y otros se suben tal cual
+    if (!(file instanceof Blob) || !/^image\/(jpe?g|png|webp|heic|heif)$/i.test(file.type || '')) return file;
+
+    const source = await kxLoadImageSource(file);
+    try {
+      const scale = Math.min(1, maxSide / Math.max(source.width, source.height));
+      if (scale === 1 && file.size <= lightBytes) return file; // ya es ligera
+
+      const width = Math.max(1, Math.round(source.width * scale));
+      const height = Math.max(1, Math.round(source.height * scale));
+      const isPng = /png/i.test(file.type);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return file;
+      if (!isPng) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height); } // sin fondo negro al aplanar transparencias
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(source.src, 0, 0, width, height);
+
+      const outType = isPng ? 'image/png' : 'image/jpeg';
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, outType, quality));
+      canvas.width = canvas.height = 0; // libera memoria (iOS limita los lienzos vivos)
+      if (!blob || blob.size >= file.size) return file; // nunca se sube algo más pesado que el original
+
+      const base = (file.name || 'foto').replace(/\.[^.]+$/, '');
+      return new File([blob], `${base}.${isPng ? 'png' : 'jpg'}`, { type: outType, lastModified: Date.now() });
+    } finally {
+      source.close();
+    }
+  } catch (error) {
+    console.warn('No se pudo optimizar la imagen; se sube el original:', error);
+    return file;
+  }
+}
+
+// Subida a Storage con tipo y caché correctos (v8: ref.put(data, metadata))
+function kxStoragePut(ref, file) {
+  return ref.put(file, { contentType: file.type || undefined, cacheControl: KX_IMAGE_CACHE_CONTROL });
+}
+
 // ================== AVATAR HELPER FUNCTIONS ==================
 // Generate fallback avatar URL based on name
 function generateAvatarFallback(name, size = 200) {
@@ -11143,7 +11373,7 @@ function renderPostInModal(post, container) {
     </div>
   `;
 
-  container.innerHTML = headerHTML + contentHTML + actionsHTML;
+  container.innerHTML = headerHTML + contentHTML + kxAscentCardHTML(post.ascent) + actionsHTML;
 
   // Las fotos de la publicación ampliada se abren en el visor con zoom
   const modalPhotos = [...container.querySelectorAll('.feed-media-modal .feed-image')];
@@ -11620,12 +11850,12 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, video) {
     if (newPhotos.length > 0) {
       showToast('Subiendo nuevas fotos...', 'info');
       for (let i = 0; i < newPhotos.length; i++) {
-        const photo = newPhotos[i];
+        const photo = await kxPrepareImageForUpload(newPhotos[i]);
         const timestamp = Date.now();
         const filename = `${timestamp}_${i}_${photo.name}`;
         const storageRef = storage.ref(`posts/${currentUser.uid}/${filename}`);
 
-        await storageRef.put(photo);
+        await kxStoragePut(storageRef, photo);
         const url = await storageRef.getDownloadURL();
         photoUrls.push(url);
       }
