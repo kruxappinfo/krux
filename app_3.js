@@ -8624,6 +8624,10 @@ function initCreatePost() {
 function resetPostData() {
   postData = newPostData();
   cpGrabbedId = null;
+  const title = document.getElementById('create-post-title');
+  if (title) title.textContent = 'Crear publicación';
+  const submit = document.getElementById('submit-create-post');
+  if (submit && !submit.classList.contains('is-loading')) submit.textContent = 'Publicar';
   document.getElementById('create-post-text').value = '';
   if (postMentionAutocomplete) postMentionAutocomplete.clearMentions();
   document.getElementById('create-post-char-count-num').textContent = '0';
@@ -9902,20 +9906,22 @@ function updatePreview() {
     previewHTML += `<p class="cp-media-hint" ${n < 2 ? 'hidden' : ''}>Mantén pulsado y arrastra para cambiar el orden</p>`;
     previewHTML += `<div class="cp-media-grid ${cols}" role="list" aria-label="Fotos y vídeos de la publicación">`;
     postData.media.forEach((m, index) => {
-      const url = createPostPreviewUrl(m.file);
+      const url = m.remote ? m.url : createPostPreviewUrl(m.file);
+      const coverSrc = m.cover && m.cover.file ? createPostPreviewUrl(m.cover.file) : (m.remote && m.poster ? m.poster : '');
       const name = m.kind === 'video' ? 'Vídeo' : 'Foto';
       previewHTML += `
         <div class="cp-media-tile${m.kind === 'video' ? ' is-video' : ''}" role="listitem" tabindex="0" data-index="${index}"
           aria-roledescription="elemento ordenable" aria-label="${name} ${index + 1} de ${n}">
           ${m.kind === 'video'
             ? `<video src="${url}#t=0.001" preload="metadata" playsinline muted></video>
-               ${m.cover ? `<img class="cp-media-cover" src="${createPostPreviewUrl(m.cover.file)}" alt="" draggable="false">` : ''}
+               ${coverSrc ? `<img class="cp-media-cover" src="${coverSrc}" alt="" draggable="false">` : ''}
                <span class="cp-media-play" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="7 4 20 12 7 20 7 4"></polygon></svg></span>
                <span class="cp-media-duration" hidden></span>`
             : `<img src="${url}" alt="" draggable="false">`}
           <button type="button" class="remove-preview-btn" data-type="media" data-index="${index}" aria-label="Quitar ${name.toLowerCase()} ${index + 1}">${CP_REMOVE_ICON}</button>
-          ${m.kind === 'photo' ? `<button type="button" class="cp-media-trim${m.orig ? ' is-trimmed' : ''}" data-edit-id="${m.id}" aria-label="Editar foto ${index + 1}${m.orig ? ' (ya editada)' : ''}">${CP_CROP_ICON}<span>${m.orig ? 'Editada' : 'Editar'}</span></button>` : ''}
-          ${m.kind === 'video' && kxCanTrimVideo() ? `<button type="button" class="cp-media-trim${m.orig || m.cover ? ' is-trimmed' : ''}" data-trim-id="${m.id}" aria-label="Editar vídeo ${index + 1}: recortar y elegir portada${m.orig || m.cover ? ' (ya editado)' : ''}">${CP_TRIM_ICON}<span>${m.orig || m.cover ? 'Editado' : 'Editar'}</span></button>` : ''}
+          ${m.remote && m.kind === 'video' ? `<button type="button" class="cp-media-trim${m.cover || m.poster ? ' is-trimmed' : ''}" data-cover-id="${m.id}" aria-label="Elegir la portada del vídeo ${index + 1}">${CP_TRIM_ICON}<span>Portada</span></button>` : ''}
+          ${m.kind === 'photo' && !m.remote ? `<button type="button" class="cp-media-trim${m.orig ? ' is-trimmed' : ''}" data-edit-id="${m.id}" aria-label="Editar foto ${index + 1}${m.orig ? ' (ya editada)' : ''}">${CP_CROP_ICON}<span>${m.orig ? 'Editada' : 'Editar'}</span></button>` : ''}
+          ${m.kind === 'video' && !m.remote && kxCanTrimVideo() ? `<button type="button" class="cp-media-trim${m.orig || m.cover ? ' is-trimmed' : ''}" data-trim-id="${m.id}" aria-label="Editar vídeo ${index + 1}: recortar y elegir portada${m.orig || m.cover ? ' (ya editado)' : ''}">${CP_TRIM_ICON}<span>${m.orig || m.cover ? 'Editado' : 'Editar'}</span></button>` : ''}
         </div>`;
     });
     const plus = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
@@ -9973,6 +9979,24 @@ function updatePreview() {
 
     preview.querySelectorAll('[data-edit-id]').forEach(btn => {
       btn.addEventListener('click', () => openPhotoEditor(Number(btn.dataset.editId), btn));
+    });
+    // Vídeo ya publicado: solo se puede cambiar la portada
+    preview.querySelectorAll('[data-cover-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const m = postData.media.find(x => x.id === Number(btn.dataset.coverId));
+        if (!m) return;
+        openVideoTrimmer(null, btn, {
+          remote: {
+            url: m.url,
+            poster: m.cover || m.poster ? 'current' : '',
+            onSave: (file) => {
+              if (file) m.cover = { file, time: -1 };
+              else { delete m.cover; m.poster = null; }
+              updatePreview();
+            }
+          }
+        });
+      });
     });
     preview.querySelectorAll('[data-trim-id]').forEach(btn => {
       btn.addEventListener('click', () => openVideoTrimmer(Number(btn.dataset.trimId), btn));
@@ -10047,7 +10071,7 @@ async function submitPost() {
   const submitBtn = document.getElementById('submit-create-post');
   submitBtn.disabled = true;
   submitBtn.classList.add('is-loading');
-  submitBtn.textContent = 'Publicando…';
+  submitBtn.textContent = postData.editing ? 'Guardando…' : 'Publicando…';
 
   try {
     // Se sube todo en el orden elegido por el usuario
@@ -10058,7 +10082,24 @@ async function submitPost() {
     for (let i = 0; i < total; i++) {
       const item = postData.media[i];
       const storageRef0 = (name) => storage.ref(`posts/${currentUser.uid}/${Date.now()}_${i}_${name}`);
-      if (item.kind === 'photo') {
+      if (item.remote) {
+        // Ya publicado: se conserva su dirección; en vídeos solo puede cambiar la portada
+        const entry = { type: item.kind, url: item.url };
+        if (item.kind === 'photo') {
+          photoUrls.push(item.url);
+        } else {
+          videoUrls.push(item.url);
+          if (item.cover && item.cover.file) {
+            submitBtn.textContent = 'Subiendo portada…';
+            const posterRef = storageRef0(`portada_${item.cover.file.name}`);
+            await kxStoragePut(posterRef, item.cover.file);
+            entry.poster = await posterRef.getDownloadURL();
+          } else if (item.poster) {
+            entry.poster = item.poster;
+          }
+        }
+        mediaList.push(entry);
+      } else if (item.kind === 'photo') {
         submitBtn.textContent = total > 1 ? `Subiendo ${i + 1}/${total}…` : 'Subiendo foto…';
         const photo = await kxPrepareImageForUpload(item.file);
         const storageRef = storageRef0(photo.name);
@@ -10087,7 +10128,7 @@ async function submitPost() {
         mediaList.push(entry);
       }
     }
-    submitBtn.textContent = 'Publicando…';
+    submitBtn.textContent = postData.editing ? 'Guardando…' : 'Publicando…';
 
     // Determine post type
     let postType = 'text';
@@ -10138,6 +10179,11 @@ async function submitPost() {
     }
     if (postData.ascents.length > 0) {
       postDataToSave.ascents = postData.ascents;
+    }
+
+    if (postData.editing) {
+      await kxSavePostEdition(postData.editing, postDataToSave, mediaList);
+      return;
     }
 
     log('Saving post data:', postDataToSave);
@@ -10191,10 +10237,112 @@ async function submitPost() {
     showToast(errorMessage, 'error');
   } finally {
     submitBtn.classList.remove('is-loading');
-    submitBtn.textContent = 'Publicar';
+    submitBtn.textContent = postData.editing ? 'Guardar' : 'Publicar';
     // Se recalcula con la lógica existente (tras publicar, el editor ya está vacío)
     updateSubmitButton();
   }
+}
+
+// ================== EDITAR UNA PUBLICACIÓN EN EL EDITOR ==================
+// Se abre el mismo editor que al crear, con todo cargado: texto, menciones, fotos y vídeos (en su orden),
+// ascensiones y ubicación. Se puede quitar, añadir y reordenar todo; en los vídeos ya publicados
+// se puede cambiar la portada. Al guardar se actualiza la publicación y se borran los archivos que ya no usa.
+async function openEditPostInComposer(postId, { fromModal = false } = {}) {
+  if (!currentUser) {
+    showToast('Inicia sesión para editar publicaciones', 'info');
+    return;
+  }
+  let post;
+  try {
+    const snap = await db.collection('posts').doc(postId).get();
+    if (!snap.exists) { showToast('Esta publicación ya no existe', 'error'); return; }
+    post = { id: snap.id, ...snap.data() };
+  } catch (e) {
+    console.error('Error cargando la publicación para editar:', e);
+    showToast('No se pudo abrir la publicación. Inténtalo de nuevo', 'error');
+    return;
+  }
+  if (post.userId !== currentUser.uid) {
+    showToast('Solo puedes editar tus publicaciones', 'error');
+    return;
+  }
+
+  const modal = document.getElementById('create-post-modal');
+  const textarea = document.getElementById('create-post-text');
+  if (!modal || !textarea) return;
+  if (fromModal) document.getElementById('view-post-modal')?.classList.add('hidden');
+
+  resetPostData();
+  updateUserInfo();
+  postData.editing = { postId, post, fromModal };
+  postData.suggestDismissed = true; // al editar no se proponen ascensiones
+  postData.media = kxPostMedia(post).map(m => ({ id: ++cpMediaSeq, kind: m.type, url: m.url, poster: m.poster || null, remote: true }));
+  postData.ascents = kxPostAscents(post).map(a => ({ ...a }));
+  postData.location = post.location && typeof post.location === 'object' ? { ...post.location } : null;
+
+  const text = post.content || '';
+  textarea.value = text;
+  postData.text = text;
+  if (postMentionAutocomplete) {
+    postMentionAutocomplete.mentions = (post.mentions || []).map(m => ({ ...m }));
+  }
+  textarea.dispatchEvent(new Event('input', { bubbles: true })); // contador, altura y menciones en azul
+  postMentionAutocomplete?._hide?.();
+
+  document.getElementById('create-post-title').textContent = 'Editar publicación';
+  document.getElementById('submit-create-post').textContent = 'Guardar';
+  modal.classList.remove('hidden');
+  startCreatePostViewportSync();
+  updatePreview();
+  updateSubmitButton();
+}
+
+async function kxSavePostEdition(editing, data, mediaList) {
+  const { postId, post, fromModal } = editing;
+  const del = firebase.firestore.FieldValue.delete();
+  const update = {
+    type: data.type,
+    content: data.content || del,
+    mentions: data.mentions || del,
+    mentionedUserIds: data.mentionedUserIds || del,
+    photos: data.photos || del,
+    media: data.media || del,
+    videos: data.videos || del,
+    video: data.video || del,
+    location: data.location || del,
+    ascents: data.ascents || del,
+    ascent: del, // formato antiguo de una sola ascensión: ahora va en `ascents`
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  await db.collection('posts').doc(postId).update(update);
+
+  // Avisos solo a quien se menciona por primera vez
+  const before = new Set(post.mentionedUserIds || []);
+  const fresh = (data.mentions || []).filter(m => !before.has(m.uid));
+  if (fresh.length) sendMentionNotifications(fresh, { type: 'post', postId });
+
+  // Archivos que la publicación ya no usa (fotos, vídeos y portadas quitados o sustituidos)
+  const keep = new Set(mediaList.flatMap(m => [m.url, m.poster]).filter(Boolean));
+  const old = kxPostMedia(post).flatMap(m => [m.url, m.poster]).filter(Boolean);
+  for (const url of old) {
+    if (keep.has(url) || !url.includes('/o/posts%2F')) continue;
+    try {
+      const path = decodeURIComponent(url.split('/o/')[1].split('?')[0]);
+      await storage.ref(path).delete();
+    } catch (e) {
+      console.warn('No se pudo borrar un archivo que la publicación ya no usa:', e);
+    }
+  }
+
+  showToast('Publicación actualizada', 'success');
+  closeCreatePostModal();
+  setTimeout(async () => {
+    if (fromModal) await openPostModal(postId);
+    await loadFeed();
+    if (document.getElementById('profile-view') && !document.getElementById('profile-view').classList.contains('hidden')) {
+      await renderProfileGrid();
+    }
+  }, 300);
 }
 
 function closeCreatePostModal() {
@@ -10689,7 +10837,7 @@ function attachFeedEventListeners(container) {
       }
 
       if (action === 'edit') {
-        handleEditPost(postId, container);
+        openEditPostInComposer(postId);
       } else if (action === 'delete') {
         await handleDeletePost(postId, container);
       } else if (action === 'share') {
@@ -13066,7 +13214,7 @@ function renderPostInModal(post, container) {
       if (dropdown) dropdown.classList.add('hidden');
 
       if (action === 'edit') {
-        enablePostEditMode(post, container);
+        openEditPostInComposer(postId, { fromModal: true });
       } else if (action === 'delete') {
         confirmDeletePost(postId, post);
       } else if (action === 'share') {
