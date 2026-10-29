@@ -20777,7 +20777,7 @@ body.plan-editor-open { overflow: hidden; }
 .pe-row-head--sessions { padding: 0 4px 0 4px; justify-content: flex-start; }
 .pe-row-head--sessions .pe-meta { margin-left: auto; color: var(--tr-ink-3); font-weight: 500; }
 .pe-edit-toggle {
-  height: 36px;
+  height: 44px;
   padding: 0 14px;
   border-radius: 12px;
   background: var(--tr-surface);
@@ -28650,7 +28650,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 .xl-chip {
   --xb: var(--tr-surface);
   flex-shrink: 0;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
   border-radius: 999px;
   background: var(--xb);
@@ -28810,7 +28810,8 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 }
 .pe-ex-info { display: flex; flex-direction: column; }
 .pe-ex-name, .pe-ex-detail { display: block; }
-.pe-ex-up, .pe-ex-down { width: 40px; height: 40px; color: var(--tr-ink-2); }
+.pe-ex-up, .pe-ex-down { width: 44px; height: 44px; color: var(--tr-ink-2); }
+.pe-ex-row .pe-ex-del { width: 44px; height: 44px; margin-right: -8px; }
 .pe-ex-up:disabled, .pe-ex-down:disabled, .pe-tool-btn:disabled { opacity: 0.35; cursor: default; }
 .pe-session-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 0 12px 12px; }
 .pe-tool-btn {
@@ -28860,3 +28861,8 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 .pe-tool-btn--danger:hover { background: var(--tr-red-bg); }
 .ex-link-btn:hover { background: var(--tr-green-wash); }
 .train-lib-link:hover { background: var(--tr-surface); }
+
+.pe-replace-note { margin: 0; padding: 12px 14px; border-radius: 16px; background: var(--tr-amber-bg); color: var(--tr-amber-ink); font-size: 0.8125rem; line-height: 1.4; font-weight: 600; }
+
+/* Con ficha, los campos que no le corresponden se ocultan: el que queda ocupa toda la fila */
+#ex-editor-sheet .ex-field-row:has(> .ex-field.hidden) { grid-template-columns: minmax(0, 1fr); }

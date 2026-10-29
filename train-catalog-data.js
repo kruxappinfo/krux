@@ -141,22 +141,23 @@
     done: ['Todas las series con la técnica estable', 'Sin dolor articular'],
     stop: [DOLOR, 'Dolor en la polea o en una articulación del dedo.', 'La técnica se rompe: baja la carga o termina.'],
     rx: RX.hold(5, 10, 180, 8),
-    rel: { reg: [['suspension-regleta', 'Misma idea con menos carga.'], ['suspension-asistida', 'Con goma para ir más ligero.']], prog: [['suspension-lastrada', 'Mayor carga externa.']], alt: [['repeaters', 'Más volumen y menos intensidad por serie.']], pre: [['suspension-regleta', 'Domina antes la suspensión sin carga adicional.']] },
+    rel: { reg: [['suspension-regleta', 'Misma idea con menos carga.'], ['suspension-asistida', 'Con goma para ir más ligero.']], prog: [['suspension-lastrada', 'Mayor carga externa.']], alt: [['repeaters', 'Más volumen y menos intensidad por serie.']] },
     warn: [DEDO_WARN, 'No lo hagas en días consecutivos.'], prereq: ['Experiencia previa con suspensiones en regleta.'], minLevel: 2
   });
   ex('repeaters', 'Repeaters', 'dedos', {
     al: ['repeaters en regleta', 'suspensiones repetidas', 'hangs repetidos'],
-    desc: 'Series de suspensiones cortas con pausas muy breves, repetidas varias veces.',
+    desc: 'Suspensiones cortas con pausas muy breves entre ellas, repetidas varias veces.',
     purpose: 'Acumular volumen de trabajo de dedos con una intensidad moderada.',
     ab: ['fuerza-maxima', 'resistencia'], body: ['dedos', 'antebrazo'], pat: ['isometrico'], disc: ['bloque', 'deportiva'], ctx: ['principal'],
     tl: 2, pd: 3, min: 20, eq: ['multipresa'],
     setup: 'Calentamiento previo. Regleta cómoda y un temporizador de intervalos.',
-    steps: [['Cuélgate', 'Agarre estable con hombros activos.'], ['Aguanta el intervalo de trabajo', 'Mantén la suspensión el tiempo marcado.'], ['Pausa breve', 'Apoya los pies o descuelga unos segundos y repite.'], ['Completa la serie', 'Haz todas las repeticiones y descansa por completo antes de la siguiente serie.']],
-    br: 'Respiración constante.', cues: ['Misma técnica de la primera a la última repetición'],
-    mis: [['Elegir un agarre demasiado difícil', 'Escoge uno con el que puedas completar todas las repeticiones.']],
-    done: ['Serie completa sin perder la técnica'],
+    steps: [['Cuélgate', 'Agarre estable con hombros activos.'], ['Aguanta una suspensión', 'Mantén el tiempo marcado.'], ['Pausa breve', 'Apoya los pies o descuelga unos segundos y repite.'], ['Cierra la ronda', 'Tras todas las suspensiones de la ronda, descansa por completo antes de la siguiente.']],
+    br: 'Respiración constante.', cues: ['Misma técnica de la primera a la última suspensión'],
+    mis: [['Elegir un agarre demasiado difícil', 'Escoge uno con el que puedas completar toda la ronda.']],
+    done: ['Ronda completa sin perder la técnica'],
     stop: [DOLOR, 'Pérdida de control del agarre.'],
-    rx: RX.hold(3, 7, 180, 7, [P('repetitions', 6, 2, 10, 1, 'Repeticiones por serie')]),
+    notes: 'En el plan, cada serie es una suspensión y el descanso es la pausa breve. Para hacer varias rondas, añade el ejercicio varias veces con el descanso largo entre ellas.',
+    rx: [P('sets', 6, 1, 10, 1, 'Suspensiones por ronda'), P('holdDurationSeconds', 7, 3, 60, 1), P('restDurationSeconds', 3, 0, 60, 1, 'Pausa'), P('externalLoadKg', 0, 0, 80, 0.5), P('rpeTarget', 7, 0, 10, 1)],
     rel: { reg: [['suspension-regleta', 'Menos volumen y más sencillo.']], alt: [['max-hang', 'Más intensidad con menos volumen.']] },
     warn: [DEDO_WARN], minLevel: 2
   });
@@ -171,7 +172,7 @@
     cues: ['Más goma = menos carga'], mis: [['Anclaje poco fiable', 'Comprueba el anclaje antes de cada serie.']],
     done: ['Tiempo completado con el agarre firme'],
     stop: [DOLOR, 'La goma o el anclaje parecen dañados.'],
-    rx: RX.hold(3, 10, 120, 6, [P('assistanceKg', 10, 0, 40, 0.5)]),
+    rx: [P('sets', 3, 1, 10), P('holdDurationSeconds', 10, 3, 60, 1), P('restDurationSeconds', 120, 30, 300, 15), P('assistanceKg', 10, 0, 40, 0.5), P('rpeTarget', 6, 0, 10, 1)],
     rel: { prog: [['suspension-regleta', 'Retira la goma y cuélgate con tu peso.']], alt: [['suspension-pasiva', 'Sin goma, con agarre amplio.']] }
   });
   ex('suspension-lastrada', 'Suspensión con lastre', 'dedos', {
@@ -186,7 +187,7 @@
     done: ['Series completas con la técnica estable'],
     stop: [DOLOR, 'Pérdida de control del agarre.'],
     rx: RX.hold(5, 10, 180, 8),
-    rel: { reg: [['max-hang', 'Versión con menos carga.']], pre: [['max-hang', 'Trabaja antes con peso corporal o asistencia.']] },
+    rel: { reg: [['max-hang', 'Versión con menos carga.']] },
     warn: [DEDO_WARN], prereq: ['Experiencia previa con max hangs.'], minLevel: 3
   });
   ex('agarres-especificos', 'Entrenamiento de agarres específicos', 'dedos', {
@@ -250,7 +251,7 @@
     done: ['Recorrido completo en todas las repeticiones'],
     stop: [DOLOR, 'Dolor en codos u hombros.'],
     rx: RX.reps(4, 4, 180, 8),
-    rel: { reg: [['dominada-estricta', 'Sin peso adicional.']], pre: [['dominada-estricta', 'Domina antes varias dominadas con peso corporal.']] },
+    rel: { reg: [['dominada-estricta', 'Sin peso adicional.']] },
     warn: ['Aumenta el peso poco a poco.'], prereq: ['Varias dominadas estrictas con buena técnica.'], minLevel: 2
   });
   ex('dominada-asistida', 'Dominada asistida', 'traccion', {
@@ -263,8 +264,8 @@
     steps: [['Colócate en la goma', 'Pie o rodilla en el lazo y manos en la barra.'], ['Sube', 'Tira con los codos hacia el suelo hasta pasar la barbilla.'], ['Baja con control', 'Hasta estirar los brazos.']],
     mis: [['Rebotar con la goma', 'Controla la bajada.']],
     done: ['Recorrido completo'], stop: [DOLOR],
-    rx: RX.reps(3, 6, 120, 6, [P('assistanceKg', 15, 0, 60, 0.5)]),
-    rel: { prog: [['dominada-estricta', 'Reduce la asistencia hasta quitarla.']], alt: [['remo-invertido', 'Tracción horizontal.']] }
+    rx: [P('sets', 3, 1, 8), P('repetitions', 6, 1, 30), P('restDurationSeconds', 120, 30, 300, 15), P('assistanceKg', 15, 0, 60, 0.5), P('rpeTarget', 6, 0, 10, 1)],
+    rel: { reg: [['remo-invertido', 'Tracción horizontal más sencilla.'], ['jalon-polea', 'Movimiento similar en máquina.']], prog: [['dominada-estricta', 'Reduce la asistencia hasta quitarla.']] }
   });
   ex('bloqueo-isometrico', 'Bloqueo isométrico', 'traccion', {
     al: ['lock off', 'lock-off', 'bloqueos isométricos', 'bloqueo de brazo'],
@@ -277,7 +278,7 @@
     mis: [['Encoger los hombros', 'Mantén las escápulas activas.']],
     done: ['Posición mantenida el tiempo marcado'], stop: [DOLOR, 'Dolor en el codo.'],
     rx: RX.hold(3, 5, 120, 7),
-    rel: { reg: [['dominada-asistida', 'Con asistencia.']], prog: [['dominada-lastrada', 'Con peso.']] }, minLevel: 1
+    rel: { reg: [['dominada-asistida', 'Con asistencia.']], rel: [['dominada-lastrada', 'Con peso.']] }, minLevel: 1
   });
   ex('remo-invertido', 'Remo invertido', 'traccion', {
     al: ['remo horizontal', 'remo en barra baja', 'inverted row'],
@@ -404,7 +405,7 @@
     mis: [['Acelerar y fatigarse pronto', 'Mantén un ritmo constante.']],
     done: ['Tiempo marcado completado'], stop: [DOLOR, 'Malestar o mareo.'],
     rx: RX.endurance(3, 600, 240, 6),
-    rel: { alt: [['arc', 'Mismo concepto con más intensidad baja.']], prog: [['circuito-4x4', 'Más intensidad.']] }
+    rel: { alt: [['arc', 'Mismo concepto con más intensidad baja.']] }
   });
   ex('circuito-4x4', 'Circuito 4×4', 'resistencia', {
     al: ['4×4 bloque', '4x4 bloque', '4x4', 'cuatro por cuatro', '4×4'],
@@ -417,7 +418,7 @@
     mis: [['Elegir bloques demasiado duros', 'Deben poder repetirse con control.']],
     done: ['Cuatro rondas completadas'], stop: [DOLOR, 'La técnica se deteriora con riesgo de caída.'],
     rx: RX.attempts(4, 4, 240, 7),
-    rel: { reg: [['arc', 'Menor intensidad.']], prog: [['intervalos-pared', 'Intervalos específicos.']] }, minLevel: 2
+    rel: { reg: [['arc', 'Menor intensidad.'], ['travesias-continuas', 'Trabajo continuo más suave.']], prog: [['intervalos-pared', 'Intervalos específicos.']] }, minLevel: 2
   });
   ex('intervalos-pared', 'Intervalos en pared', 'resistencia', {
     al: ['intervalos en pared', 'intervalos de escalada'],
@@ -471,7 +472,7 @@
     mis: [['Talón que se levanta', 'Trabaja antes la movilidad de tobillo.']],
     done: ['Recorrido controlado'], stop: [DOLOR, 'Dolor en la rodilla.'],
     rx: RX.bodyReps(3, 4, 120, 7),
-    rel: { reg: [['sentadilla-una-pierna-goma', 'Menos recorrido.']], rel: [['movilidad-tobillos', 'Prepara el tobillo.']] },
+    rel: { reg: [['sentadilla-una-pierna-goma', 'Menos recorrido.'], ['sentadilla-bulgara', 'Unilateral con apoyo trasero.']], rel: [['movilidad-tobillos', 'Prepara el tobillo.']] },
     warn: ['Si tienes molestias de rodilla, consulta antes con un profesional.'], prereq: ['Buena movilidad de tobillo y cadera.'], minLevel: 2
   });
   ex('zancadas', 'Zancadas', 'piernas', {
@@ -502,7 +503,7 @@
     rel: { rel: [['movilidad-tobillos', 'Tobillos móviles y fuertes.']] }
   });
   ex('precision-pies', 'Precisión de pies', 'piernas', {
-    al: ['trabajo de pies', 'pisadas precisas', 'foot precision', 'pies silenciosos'],
+    al: ['trabajo de pies', 'pisadas precisas', 'foot precision'],
     desc: 'Colocar el pie con exactitud sobre pequeños apoyos, sin tocar de más.',
     purpose: 'Mejorar la colocación del pie y reducir el esfuerzo en brazos y dedos.',
     ab: ['tecnica', 'coordinacion'], body: ['piernas', 'tobillos'], pat: ['locomocion', 'unilateral'], disc: ['bloque', 'deportiva'], ctx: ['tecnica', 'calentamiento'],
@@ -890,7 +891,7 @@
     mis: [['Pie delantero muy cerca del banco', 'Da un paso más largo.']],
     done: ['Repeticiones controladas en ambas piernas'], stop: [DOLOR, 'Dolor en la rodilla.'],
     rx: RX.bodyReps(3, 8, 90, 6, [P('externalLoadKg', 0, 0, 60, 0.5)]),
-    rel: { reg: [['zancadas', 'Más sencillo.']], prog: [['pistol-asistida', 'A una pierna con recorrido completo.']] }
+    rel: { reg: [['zancadas', 'Más sencillo.'], ['sentadilla', 'Con las dos piernas.']], prog: [['pistol-asistida', 'A una pierna con recorrido completo.']] }
   });
   ex('acondicionamiento-cardio', 'Acondicionamiento cardiovascular', 'general', {
     al: ['cardio', 'correr', 'bici', 'trote', 'aeróbico'],

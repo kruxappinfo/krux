@@ -102,7 +102,7 @@
     ['flexion', 'flexiones', 'pushup', 'pushups'],
     ['hombro', 'hombros', 'manguito', 'escapula', 'escapular'],
     ['pie', 'pies', 'pisada', 'precision'],
-    ['resistencia', 'aerobica', 'aerobico', 'arc', 'capilarizacion'],
+    ['aerobica', 'aerobico', 'arc', 'capilarizacion'],
     ['traccion', 'tirar', 'jalar'],
     ['calentamiento', 'calentar', 'warmup', 'activacion'],
     ['movilidad', 'flexibilidad', 'estiramiento', 'estiramientos'],
@@ -154,19 +154,24 @@
         const key = normalize(n);
         if (key && !byName.has(key)) byName.set(key, ex);
       });
-      ex._index = buildIndex(ex, catById);
+      ex._index = buildIndex(ex, catById, eqById);
     });
 
     return { categories, equipment, exercises, catById, eqById, byId, byName, schemaVersion: data.schemaVersion || SCHEMA_VERSION };
   }
 
-  function buildIndex(ex, catById) {
+  function buildIndex(ex, catById, eqById) {
     const cat = catById.get(ex.primaryCategoryId);
     const tagNames = [];
     Object.keys(TAGS).forEach(group => arr(ex[group]).forEach(id => tagNames.push(TAGS[group][id] || id)));
     const nameN = normalize(ex.name);
     const aliasN = arr(ex.aliases).map(normalize);
-    const restN = normalize([ex.shortDescription, cat && cat.name, tagNames.join(' ')].join(' '));
+    const eqNames = arr(ex.equipment && ex.equipment.required).concat(arr(ex.equipment && ex.equipment.alternatives)).map(id => {
+      const e = eqById && eqById.get(id);
+      return e ? e.name + ' ' + (e.short || '') : id;
+    });
+    if (!arr(ex.equipment && ex.equipment.required).filter(id => id !== 'peso-corporal').length) eqNames.push('sin material');
+    const restN = normalize([ex.shortDescription, cat && cat.name, tagNames.join(' '), eqNames.join(' '), LEVEL_LABELS[ex.technicalLevel]].join(' '));
     return {
       nameN,
       aliasN,
@@ -333,7 +338,8 @@
   function searchScore(ex, query) {
     const q = normalize(query);
     if (!q) return 1;
-    const tokens = q.split(' ').filter(Boolean);
+    const tokens = q.split(' ').filter(t => t.length > 1);
+    if (!tokens.length) return 1;
     const idx = ex._index;
     if (!tokens.every(t => tokenMatches(expandToken(t), ex))) return 0;
     let score = 1;
@@ -396,9 +402,13 @@
     const full = normalize(name);
     if (!full) return null;
     if (catalog.byName.has(full)) return catalog.byName.get(full);
-    // «Max hang · 20mm»: la parte tras «·» es una configuración del mismo ejercicio
-    const base = normalize(String(name).split('·')[0]);
-    if (base && base !== full && catalog.byName.has(base)) return catalog.byName.get(base);
+    // «Max hang · 20mm»: la parte tras «·» es una configuración del mismo ejercicio solo si lleva
+    // cifras (20mm, 1-5-9, 45°). «ARC · intervalos» o «Core · Hollow» no se enlazan por parecido.
+    const parts = String(name).split('·');
+    if (parts.length > 1 && /\d/.test(parts.slice(1).join(' '))) {
+      const base = normalize(parts[0]);
+      if (base && base !== full && catalog.byName.has(base)) return catalog.byName.get(base);
+    }
     return null;
   }
 
@@ -426,13 +436,15 @@
   function paramsForPlanItem(catalog, item) {
     const ex = item && item.exerciseId ? catalog.byId.get(item.exerciseId) : null;
     const base = ['sets', 'repetitions', 'workDurationSeconds', 'externalLoadKg', 'restDurationSeconds', 'rpeTarget'];
+    const schemaKeys = new Set(ex ? arr(ex.prescriptionSchema).map(p => PARAMS[p.param] && PARAMS[p.param].key) : []);
     const out = [];
     const seen = new Set();
     const push = (param, label) => {
       const def = PARAMS[param];
       if (seen.has(def.key)) return;
       seen.add(def.key);
-      out.push({ param, key: def.key, label: label || def.label, unit: def.unit, min: def.min, max: def.max, step: def.step, type: def.type || 'number' });
+      // applies: el parámetro es propio de la ficha (sin ficha, los seis básicos aplican)
+      out.push({ param, key: def.key, label: label || def.label, unit: def.unit, min: def.min, max: def.max, step: def.step, type: def.type || 'number', applies: !ex || schemaKeys.has(def.key) });
     };
     base.forEach(p => push(p));
     if (ex) arr(ex.prescriptionSchema).forEach(p => {
@@ -441,6 +453,7 @@
       if (seen.has(def.key)) {
         const found = out.find(o => o.key === def.key);
         if (found && (p.label || p.param !== found.param)) { found.label = p.label || def.label; found.param = p.param; }
+        if (found) found.applies = true;
         if (found && p.min != null) found.min = p.min;
         if (found && p.max != null) found.max = p.max;
         if (found && p.step != null) found.step = p.step;
@@ -448,6 +461,7 @@
       }
       push(p.param, p.label);
       const added = out[out.length - 1];
+      added.applies = true;
       if (p.min != null) added.min = p.min;
       if (p.max != null) added.max = p.max;
       if (p.step != null) added.step = p.step;
@@ -507,6 +521,18 @@
       return acc + it.sets * work + Math.max(0, it.sets - 1) * (it.restSec || 0);
     }, 0);
     return Math.max(5, Math.round(sec / 300) * 5);
+  }
+
+  function shrinkLongest(items, catalog) {
+    const longest = items.slice().sort((a, b) => estimateMinutes([b]) - estimateMinutes([a]))[0];
+    if (!longest) return false;
+    const ex = catalog.byId.get(longest.exerciseId);
+    const sets = ex && arr(ex.prescriptionSchema).find(p => p.param === 'sets');
+    const work = ex && arr(ex.prescriptionSchema).find(p => PARAMS[p.param] && PARAMS[p.param].key === 'workSec');
+    if (longest.sets > ((sets && sets.min) || 1)) { longest.sets--; return true; }
+    const min = (work && work.min) || 0;
+    if (longest.workSec - 300 >= Math.max(min, 300)) { longest.workSec -= 300; return true; }
+    return false;
   }
 
   function whyText(ex, goal, level, catalog) {
@@ -576,8 +602,12 @@
         });
       });
 
-      // Ajuste al tiempo disponible: se quitan primero los accesorios del final
-      while (items.length > 2 && estimateMinutes(items) > minutes) items.pop();
+      // Ajuste al tiempo disponible: se quitan primero los accesorios del final y, con dos
+      // ejercicios, se acorta el más largo (series y después duración) hasta que quepa
+      while (estimateMinutes(items) > minutes) {
+        if (items.length > 2) { items.pop(); continue; }
+        if (!shrinkLongest(items, catalog)) break;
+      }
       if (items.length) sessions.push({ day: 'L', name: focus.name, exercises: items, focus: focusKey, _day: day });
     });
 

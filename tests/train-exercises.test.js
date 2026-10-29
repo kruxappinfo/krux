@@ -235,3 +235,158 @@ describe('recomendador', () => {
     expect(plan.level).toBe(1);
   });
 });
+
+// ── Auditoría de integridad y compatibilidad ────────────────────────────
+import { readFileSync } from 'node:fs';
+
+describe('integridad del catálogo (auditoría)', () => {
+  it('ningún nombre ni alias se repite entre fichas distintas', () => {
+    const owner = new Map();
+    const dup = [];
+    DATA.exercises.forEach(e => [e.name].concat(e.aliases).forEach(n => {
+      const k = K.normalize(n);
+      if (owner.has(k) && owner.get(k) !== e.id) dup.push(`${n}: ${owner.get(k)} / ${e.id}`);
+      owner.set(k, e.id);
+    }));
+    expect(dup).toEqual([]);
+  });
+
+  it('una ficha no repite un mismo ejercicio en varias relaciones', () => {
+    const rep = DATA.exercises.filter(e => {
+      const all = Object.values(e.relations).flat().map(r => r.exerciseId);
+      return new Set(all).size !== all.length;
+    }).map(e => e.id);
+    expect(rep).toEqual([]);
+  });
+
+  it('cada progresión tiene su regresión o prerrequisito recíproco', () => {
+    const missing = [];
+    DATA.exercises.forEach(e => e.relations.progressions.forEach(r => {
+      const t = catalog.byId.get(r.exerciseId);
+      const back = t.relations.regressions.concat(t.relations.prerequisites).some(x => x.exerciseId === e.id);
+      if (!back) missing.push(`${e.id} → ${t.id}`);
+    }));
+    expect(missing).toEqual([]);
+  });
+
+  it('regresiones más fáciles y progresiones no más fáciles; niveles mínimos coherentes', () => {
+    const bad = [];
+    DATA.exercises.forEach(e => {
+      e.relations.regressions.forEach(r => { const t = catalog.byId.get(r.exerciseId); if (t.technicalLevel > e.technicalLevel || t.physicalDemand > e.physicalDemand || t.safety.minLevel > e.safety.minLevel) bad.push(`reg ${e.id} → ${t.id}`); });
+      e.relations.progressions.forEach(r => { const t = catalog.byId.get(r.exerciseId); if (t.safety.minLevel < e.safety.minLevel || (t.technicalLevel < e.technicalLevel && t.physicalDemand <= e.physicalDemand)) bad.push(`prog ${e.id} → ${t.id}`); });
+    });
+    expect(bad).toEqual([]);
+  });
+
+  it('el material de una ficha existe y peso-corporal no se mezcla con otro material requerido', () => {
+    DATA.exercises.forEach(e => {
+      if (e.equipment.required.includes('peso-corporal')) expect(e.equipment.required, e.id).toEqual(['peso-corporal']);
+    });
+  });
+
+  it('ninguna ficha ofrece a la vez tiempo de trabajo y repeticiones por defecto (el temporizador ignoraría una)', () => {
+    const both = DATA.exercises.map(e => K.planItemFromExercise(e)).filter(i => i.workSec > 0 && i.reps > 0).map(i => i.exerciseId);
+    expect(both).toEqual([]);
+    DATA.exercises.map(e => K.planItemFromExercise(e)).forEach(i => expect(i.workSec > 0 || i.reps > 0, i.exerciseId).toBe(true));
+  });
+
+  it('ninguna ficha mezcla carga adicional y asistencia', () => {
+    const both = DATA.exercises.filter(e => { const k = e.prescriptionSchema.map(p => p.param); return k.includes('externalLoadKg') && k.includes('assistanceKg'); }).map(e => e.id);
+    expect(both).toEqual([]);
+  });
+
+  it('cada tipo de ejercicio solo muestra los parámetros que le corresponden', () => {
+    const keys = id => K.paramsForPlanItem(catalog, K.planItemFromExercise(catalog.byId.get(id))).filter(p => p.applies).map(p => p.key);
+    expect(keys('max-hang')).toEqual(expect.arrayContaining(['sets', 'workSec', 'restSec', 'weight']));
+    expect(keys('max-hang')).not.toContain('reps');
+    expect(keys('dominada-estricta')).toContain('reps');
+    expect(keys('dominada-estricta')).not.toContain('workSec');
+    expect(keys('arc')).not.toContain('weight');
+    expect(keys('dominada-asistida')).toContain('assistanceKg');
+    expect(keys('plancha')).not.toContain('assistanceKg');
+    // sin ficha (planes antiguos) se ofrecen los seis básicos
+    expect(K.paramsForPlanItem(catalog, { name: 'Libre', sets: 3 }).every(p => p.applies)).toBe(true);
+  });
+});
+
+describe('enlace con ejercicios antiguos (auditoría)', () => {
+  it('nombres y alias de fichas distintas no se confunden', () => {
+    expect(K.resolveByName(catalog, 'Pies silenciosos').id).toBe('escalada-silenciosa');
+    expect(K.resolveByName(catalog, 'Campus board').id).toBe('campus-board');
+    expect(K.resolveByName(catalog, 'Dominadas lastradas').id).toBe('dominada-lastrada');
+    expect(K.resolveByName(catalog, 'Dominadas asistidas').id).toBe('dominada-asistida');
+    expect(K.resolveByName(catalog, 'ARC · panel 45°').id).toBe('arc');
+    expect(K.resolveByName(catalog, '4×4 bloque').id).toBe('circuito-4x4');
+  });
+
+  it('lo que sigue a «·» solo cuenta como configuración si lleva cifras', () => {
+    expect(K.resolveByName(catalog, 'Max hang · 20mm').id).toBe('max-hang');
+    expect(K.resolveByName(catalog, 'ARC · intervalos')).toBeNull();
+    expect(K.resolveByName(catalog, 'Core · Hollow')).toBeNull();
+    expect(K.resolveByName(catalog, 'Campus board · potencia')).toBeNull();
+  });
+
+  it('entradas inválidas no lanzan errores', () => {
+    [null, undefined, 0, 123, '', '   ', '·', '· 20mm', '🙂', 'a'.repeat(5000), {}, []].forEach(v => {
+      expect(() => K.resolveByName(catalog, v)).not.toThrow();
+      expect(K.resolveByName(catalog, v)).toBeNull();
+    });
+  });
+
+  it('la estimación de minutos de la biblioteca coincide con la de Entrena', () => {
+    const src = readFileSync(new URL('../app_3.js', import.meta.url), 'utf8');
+    const fn = new Function(src.match(/function trEstimateMinutes\(exercises\) \{[\s\S]*?\n\}/)[0] + '; return trEstimateMinutes;')();
+    DATA.exercises.forEach(e => {
+      const items = [K.planItemFromExercise(e)];
+      expect(fn(items), e.id).toBe(K.estimateMinutes(items));
+    });
+  });
+});
+
+describe('búsqueda (auditoría)', () => {
+  const ids = q => K.filterExercises(catalog, { query: q }).map(e => e.id);
+  it('encuentra por material y por nivel, como promete el buscador', () => {
+    expect(ids('multipresa')).toContain('max-hang');
+    expect(ids('rocodromo')).toContain('arc');
+    expect(ids('barra')).toContain('dominada-estricta');
+    expect(ids('sin material')).toContain('plancha');
+    expect(ids('avanzado')).toContain('campus-board');
+  });
+  it('«arc» no arrastra todos los ejercicios de resistencia', () => {
+    expect(ids('arc').length).toBeLessThanOrEqual(3);
+    expect(ids('arc')[0]).toBe('arc');
+  });
+  it('una letra suelta no filtra', () => {
+    expect(ids('ñ').length).toBe(catalog.exercises.length);
+  });
+});
+
+describe('recomendador en todas las combinaciones (auditoría)', () => {
+  const EQ = ['rocodromo', 'multipresa', 'campus', 'barra', 'gomas', 'pesas', 'maquinas'];
+  it('respeta nivel, material, tiempo, repetición y días consecutivos intensos', () => {
+    const problems = [];
+    const equipSets = [[], EQ, ['barra'], ['multipresa', 'pesas'], ['rocodromo', 'gomas']];
+    ['fuerza', 'resistencia', 'potencia', 'tecnica', 'general'].forEach(goal => [1, 2, 3].forEach(level => [1, 3, 5, 6].forEach(days => [30, 60, 90].forEach(minutes => equipSets.forEach(equipment => {
+      const p = K.recommendPlan(catalog, { goal, level, days, minutes, equipment });
+      const ctx = `${goal}/n${level}/${days}d/${minutes}m/${equipment.length}`;
+      if (p.sessions.length > days) problems.push('más sesiones que días ' + ctx);
+      p.sessions.forEach(s => {
+        const ids = s.exercises.map(i => i.exerciseId);
+        if (new Set(ids).size !== ids.length) problems.push('repetido en sesión ' + ctx);
+        if (K.estimateMinutes(s.exercises) > minutes) problems.push('excede el tiempo ' + ctx);
+        s.exercises.forEach(i => {
+          const e = catalog.byId.get(i.exerciseId);
+          if (e.safety.minLevel > level) problems.push(`nivel ${e.id} ${ctx}`);
+          if (!K.equipmentOk(e, equipment)) problems.push(`material ${e.id} ${ctx}`);
+          if (level === 1 && e.physicalDemand === 3 && e.id !== 'dominada-estricta') problems.push(`principiante con exigencia alta ${e.id} ${ctx}`);
+        });
+      });
+      const order = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+      const heavy = s => s.exercises.some(x => ['dedos', 'potencia'].includes(catalog.byId.get(x.exerciseId).primaryCategoryId) && catalog.byId.get(x.exerciseId).physicalDemand === 3);
+      for (let i = 1; i < p.sessions.length; i++) {
+        if (heavy(p.sessions[i]) && heavy(p.sessions[i - 1]) && order.indexOf(p.sessions[i].day) - order.indexOf(p.sessions[i - 1].day) === 1) problems.push('intenso en días consecutivos ' + ctx);
+      }
+    })))));
+    expect(problems).toEqual([]);
+  });
+});
