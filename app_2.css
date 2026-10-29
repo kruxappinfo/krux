@@ -27611,8 +27611,8 @@ body.kx-sheet-open #feed-view .feed-container {
 .kx-trim-icon-pause,
 .kx-trim.is-playing .kx-trim-icon-play { display: none; }
 .kx-trim.is-playing .kx-trim-icon-pause { display: block; }
-.kx-trim.is-playing .kx-trim-play { opacity: 0; }
-.kx-trim.is-playing .kx-trim-stage:hover .kx-trim-play,
+/* Reproduciendo: el botón se esconde del todo (también en táctil, donde :hover se queda pegado) y un toque en el vídeo lo pausa */
+.kx-trim.is-playing .kx-trim-play { opacity: 0; pointer-events: none; }
 .kx-trim.is-playing .kx-trim-play:focus-visible { opacity: 1; }
 
 .kx-trim-panel {
