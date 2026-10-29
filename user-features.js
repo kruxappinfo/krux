@@ -44,6 +44,11 @@ function kxToastBottom() {
 // Indicación útil en español para un error de Firebase o de red (texto vacío si no hay nada que aconsejar)
 function kxFriendlyError(err) {
     const code = String((err && err.code) || '');
+    if (code === 'kx/conflict') return 'Este plan se modificó en otro dispositivo. Ábrelo de nuevo para ver los cambios.';
+    if (code === 'kx/plan-missing') return 'Este plan ya no existe.';
+    if (code === 'kx/plan-trashed') return 'Este plan está en la papelera. Restáuralo para editarlo.';
+    if (code === 'kx/not-allowed') return 'Esa acción no está permitida para este plan.';
+    if (code === 'kx/migration-conflict') return 'Hay un plan con el mismo identificador. No se ha cambiado nada.';
     if (/network|unavailable|deadline|timeout|retry/i.test(code) || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
         return 'Revisa tu conexión e inténtalo de nuevo.';
     }
