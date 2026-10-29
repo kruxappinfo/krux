@@ -4991,7 +4991,8 @@ function initFeedPullToRefresh() {
   const place = (y, animate) => {
     indicator.style.transition = animate ? 'transform .25s ease, opacity .2s ease' : 'none';
     indicator.style.top = container.offsetTop + 'px';
-    indicator.style.transform = `translate(-50%, ${y - 52}px)`;
+    indicator.style.transform = `translate(-50%, ${y / 2 - 13}px)`;
+    // Centrado en el hueco entre la línea de arriba y la primera publicación (el contenedor deja 14px de aire)
     indicator.style.opacity = y > 4 ? String(Math.min(1, y / 40)) : '0';
   };
   const setContent = (y, animate) => {
