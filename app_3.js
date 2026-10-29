@@ -4375,7 +4375,7 @@ function openImageLightbox(src, items, index) {
   lbUpdateGallery();
   const item = LB.items[LB.index];
   if (item.type === 'video') {
-    lbShowVideo(item.url); // se llama dentro del toque: el vídeo puede empezar con sonido
+    lbShowVideo(item.url, item.poster); // se llama dentro del toque: el vídeo puede empezar con sonido
     lbPreloadNeighbors();
   } else {
     lbOpenPhoto(item.url, token);
@@ -4440,7 +4440,7 @@ function lbvFormat(seconds) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function lbShowVideo(url) {
+function lbShowVideo(url, poster) {
   const { modal, img, video, videoEl, spinner, error } = lbEls();
   img.hidden = true;
   img.removeAttribute('src');
@@ -4448,6 +4448,7 @@ function lbShowVideo(url) {
   error.hidden = true;
   modal.classList.remove('is-error');
   modal.classList.add('is-video', 'is-loaded');
+  if (poster) videoEl.poster = poster; else videoEl.removeAttribute('poster');
   if (videoEl.dataset.src !== url) {
     videoEl.dataset.src = url;
     videoEl.src = url;
@@ -4620,6 +4621,7 @@ function lbPreparePeek(dir) {
   const other = el === peek ? peekVideo : peek;
   other.hidden = true;
   const src = item.type === 'video' ? `${item.url}#t=0.001` : item.url;
+  if (item.type === 'video') { if (item.poster) el.poster = item.poster; else el.removeAttribute('poster'); }
   if (el.getAttribute('src') !== src) el.setAttribute('src', src);
   el.hidden = false;
   el.style.transition = 'none';
@@ -4675,7 +4677,7 @@ async function lbCommit(dir) {
   error.hidden = true; spinner.hidden = true;
   modal.classList.remove('is-zoomed', 'is-error');
   if (item.type === 'video') {
-    lbShowVideo(item.url);
+    lbShowVideo(item.url, item.poster);
     await lbvReady();
   } else {
     lbShowPhotoLayer();
@@ -8889,12 +8891,17 @@ function openVideoTrimmer(mediaId, opener) {
   el.className = 'kx-trim';
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
-  el.setAttribute('aria-label', 'Recortar vídeo');
+  el.setAttribute('aria-label', 'Editar vídeo');
+  el.dataset.mode = 'trim';
   el.innerHTML = `
     <div class="kx-trim-head">
       <button type="button" class="kx-trim-cancel" data-trim-cancel>Cancelar</button>
-      <h2>Recortar vídeo</h2>
+      <h2>Editar vídeo</h2>
       <button type="button" class="kx-trim-apply" data-trim-apply disabled>Aplicar</button>
+    </div>
+    <div class="kx-trim-tabs" role="tablist" aria-label="Qué quieres cambiar">
+      <button type="button" role="tab" data-tab="trim" aria-selected="true">Recortar</button>
+      <button type="button" role="tab" data-tab="cover" aria-selected="false">Portada</button>
     </div>
     <div class="kx-trim-stage">
       <video playsinline preload="auto" aria-label="Vista previa del vídeo"></video>
@@ -8915,16 +8922,19 @@ function openVideoTrimmer(mediaId, opener) {
         <div class="kx-trim-shade is-after" data-shade-b></div>
         <div class="kx-trim-window" data-window></div>
         <div class="kx-trim-playhead" data-playhead></div>
+        <button type="button" class="kx-cover-thumb" data-cover-thumb role="slider" aria-label="Fotograma de la portada"
+          aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><span></span></button>
         <button type="button" class="kx-trim-handle is-start" data-handle="start" role="slider" aria-label="Inicio del vídeo"
           aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><span></span></button>
         <button type="button" class="kx-trim-handle is-end" data-handle="end" role="slider" aria-label="Final del vídeo"
           aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><span></span></button>
       </div>
-      <p class="kx-trim-hint">Arrastra los extremos para elegir el trozo que se publica.</p>
+      <p class="kx-trim-hint" data-hint>Arrastra los extremos para elegir el trozo que se publica.</p>
+      <button type="button" class="kx-cover-reset" data-cover-reset hidden>Usar el primer fotograma</button>
     </div>
     <div class="kx-trim-busy" data-busy hidden>
       <div class="kx-trim-spinner" aria-hidden="true"></div>
-      <p data-busy-text role="status">Recortando…</p>
+      <p data-busy-text role="status">Guardando…</p>
       <button type="button" class="kx-trim-cancel" data-busy-cancel>Cancelar</button>
     </div>`;
 
@@ -8935,6 +8945,8 @@ function openVideoTrimmer(mediaId, opener) {
   const playBtn = q('.kx-trim-play');
   const handles = { start: q('[data-handle="start"]'), end: q('[data-handle="end"]') };
   let D = 0, s = 0, e = 0;
+  let mode = 'trim';
+  let coverTime = item.cover ? item.cover.time : null; // null = primer fotograma
   let raf = 0;
   let abort = null;
   const app = document.getElementById('create-post-modal');
@@ -8958,9 +8970,23 @@ function openVideoTrimmer(mediaId, opener) {
     const changed = s > 0.05 || e < D - 0.05;
     const tooLong = changed && e - s > KX_VIDEO_MAX_COMPRESS_SECONDS;
     if (tooLong) q('[data-t-len]').textContent += ` · máx. ${KX_VIDEO_MAX_COMPRESS_SECONDS / 60} min`;
-    applyBtn.disabled = !D || tooLong || !(changed || item.orig);
+    // Portada: dentro del tramo elegido
+    const ct = coverTime === null ? null : Math.min(Math.max(coverTime, s), e);
+    const thumb = q('[data-cover-thumb]');
+    thumb.hidden = ct === null && mode !== 'cover';
+    thumb.style.left = `${pct(ct === null ? s : ct)}%`;
+    thumb.setAttribute('aria-valuemax', String(Math.round(D * 10) / 10));
+    thumb.setAttribute('aria-valuenow', String(Math.round((ct === null ? s : ct) * 10) / 10));
+    thumb.setAttribute('aria-valuetext', kxTrimTime(ct === null ? s : ct));
+    if (mode === 'cover') {
+      q('[data-t-len]').textContent = ct === null ? 'Primer fotograma' : `Portada en ${kxTrimTime(ct)}`;
+    }
+    q('[data-cover-reset]').hidden = mode !== 'cover' || coverTime === null;
+    const coverChanged = ct !== (item.cover ? item.cover.time : null);
+    applyBtn.disabled = !D || tooLong || !(changed || item.orig || coverChanged);
   };
   const paintHead = () => {
+    q('[data-playhead]').hidden = mode === 'cover';
     q('[data-playhead]').style.left = `${pct(Math.min(Math.max(video.currentTime, s), e))}%`;
   };
   const setPlaying = (on) => {
@@ -9012,6 +9038,74 @@ function openVideoTrimmer(mediaId, opener) {
       else if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') { ev.preventDefault(); move(which, (which === 'start' ? s : e) + step); }
     });
   });
+
+  // ---- Pestañas Recortar / Portada ----
+  const setMode = (next) => {
+    mode = next;
+    el.dataset.mode = next;
+    pause();
+    el.querySelectorAll('[data-tab]').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === next)));
+    q('[data-hint]').textContent = next === 'cover'
+      ? 'Toca o arrastra por la línea de tiempo para elegir la imagen de la portada.'
+      : 'Arrastra los extremos para elegir el trozo que se publica.';
+    if (next === 'cover' && D) { try { video.currentTime = coverTime === null ? s : Math.min(Math.max(coverTime, s), e); } catch (_) { /* sin metadatos */ } }
+    paint();
+    paintHead();
+  };
+  el.querySelectorAll('[data-tab]').forEach(t => t.addEventListener('click', () => setMode(t.dataset.tab)));
+
+  const moveCover = (t) => {
+    coverTime = Math.min(Math.max(t, s), e);
+    pause();
+    try { video.currentTime = coverTime; } catch (_) { /* sin metadatos */ }
+    paint();
+  };
+  track.addEventListener('pointerdown', (ev) => {
+    if (mode !== 'cover' || !D) return;
+    ev.preventDefault();
+    try { track.setPointerCapture(ev.pointerId); } catch (_) { /* puntero ya liberado */ }
+    const rect = track.getBoundingClientRect();
+    const at = (x) => moveCover(((x - rect.left) / rect.width) * D);
+    at(ev.clientX);
+    const onMove = (m) => at(m.clientX);
+    const onUp = () => {
+      track.removeEventListener('pointermove', onMove);
+      track.removeEventListener('pointerup', onUp);
+      track.removeEventListener('pointercancel', onUp);
+    };
+    track.addEventListener('pointermove', onMove);
+    track.addEventListener('pointerup', onUp);
+    track.addEventListener('pointercancel', onUp);
+  });
+  q('[data-cover-thumb]').addEventListener('keydown', (ev) => {
+    const step = ev.shiftKey ? 1 : 0.1;
+    const cur = coverTime === null ? s : coverTime;
+    if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') { ev.preventDefault(); moveCover(cur - step); }
+    else if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') { ev.preventDefault(); moveCover(cur + step); }
+  });
+  q('[data-cover-reset]').addEventListener('click', () => {
+    coverTime = null;
+    try { video.currentTime = s; } catch (_) { /* sin metadatos */ }
+    paint();
+  });
+
+  // Fotograma actual a JPEG para usarlo como portada
+  const captureCover = async (t) => {
+    await new Promise((resolve) => {
+      if (Math.abs(video.currentTime - t) < 0.02 && video.readyState >= 2) { resolve(); return; }
+      video.addEventListener('seeked', resolve, { once: true });
+      video.currentTime = t;
+      setTimeout(resolve, 3000);
+    });
+    const k = Math.min(1, 1080 / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(2, Math.round(video.videoWidth * k));
+    canvas.height = Math.max(2, Math.round(video.videoHeight * k));
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!blob) throw new Error('No se pudo crear la portada');
+    return new File([blob], 'portada.jpg', { type: 'image/jpeg' });
+  };
 
   // Miniaturas a lo largo de la línea de tiempo (si falla, la barra queda lisa)
   const buildStrip = async () => {
@@ -9086,28 +9180,35 @@ function openVideoTrimmer(mediaId, opener) {
   applyBtn.addEventListener('click', async () => {
     pause();
     const full = s <= 0.05 && e >= D - 0.05;
-    if (full) {
-      // Recorte completo = volver al original
-      if (item.orig) { item.file = item.orig; delete item.orig; delete item.trim; updatePreview(); updateSubmitButton(); }
-      close();
-      return;
-    }
+    const coverNow = coverTime === null ? null : Math.min(Math.max(coverTime, s), e);
+    const coverChanged = coverNow !== (item.cover ? item.cover.time : null);
     const busy = q('[data-busy]');
     const busyText = q('[data-busy-text]');
     busy.hidden = false;
-    busyText.textContent = 'Recortando… 0%';
+    busyText.textContent = full ? 'Guardando…' : 'Recortando… 0%';
     abort = new AbortController();
     q('[data-busy-cancel]').focus({ preventScroll: true });
     // El audio solo arranca si el contexto se crea y se activa dentro del toque (iOS lo exige): se hace aquí, antes de esperar nada
     const AC = window.AudioContext || window.webkitAudioContext;
-    const audioCtx = new AC();
-    audioCtx.resume().catch(() => {});
+    const audioCtx = full ? null : new AC();
+    audioCtx?.resume().catch(() => {});
     try {
-      const trimmed = await kxPrepareVideoForUpload(source, (p) => { busyText.textContent = `Recortando… ${p}%`; }, { trim: { start: s, end: e }, signal: abort.signal, audioCtx });
-      if (!kxTrimmerEl) return;
-      item.orig = source;
-      item.trim = { start: s, end: e };
-      item.file = trimmed;
+      // La portada se toma del vídeo original antes de recortar
+      const coverFile = coverChanged && coverNow !== null ? await captureCover(coverNow) : null;
+      if (full) {
+        // Tramo completo = volver al original
+        if (item.orig) { item.file = item.orig; delete item.orig; delete item.trim; }
+      } else {
+        const trimmed = await kxPrepareVideoForUpload(source, (p) => { busyText.textContent = `Recortando… ${p}%`; }, { trim: { start: s, end: e }, signal: abort.signal, audioCtx });
+        if (!kxTrimmerEl) return;
+        item.orig = source;
+        item.trim = { start: s, end: e };
+        item.file = trimmed;
+      }
+      if (coverChanged) {
+        if (coverFile) item.cover = { file: coverFile, time: coverNow };
+        else delete item.cover;
+      }
       updatePreview();
       updateSubmitButton();
       close();
@@ -9116,8 +9217,8 @@ function openVideoTrimmer(mediaId, opener) {
       abort = null;
       busy.hidden = true;
       if (err?.name !== 'AbortError') {
-        console.error('Error recortando el vídeo:', err);
-        showToast('No se pudo recortar el vídeo. Inténtalo de nuevo', 'error');
+        console.error('Error editando el vídeo:', err);
+        showToast('No se pudo guardar el vídeo. Inténtalo de nuevo', 'error');
       }
       applyBtn.focus({ preventScroll: true });
     }
@@ -9582,7 +9683,7 @@ function createPostPreviewUrl(file) {
   return createPostPreviewUrls.get(file);
 }
 function releaseCreatePostPreviewUrls() {
-  const keep = new Set(postData.media.map(m => m.file));
+  const keep = new Set(postData.media.flatMap(m => [m.file, m.cover && m.cover.file]).filter(Boolean));
   createPostPreviewUrls.forEach((url, file) => {
     if (!keep.has(file)) {
       URL.revokeObjectURL(url);
@@ -9788,12 +9889,13 @@ function updatePreview() {
           aria-roledescription="elemento ordenable" aria-label="${name} ${index + 1} de ${n}">
           ${m.kind === 'video'
             ? `<video src="${url}#t=0.001" preload="metadata" playsinline muted></video>
+               ${m.cover ? `<img class="cp-media-cover" src="${createPostPreviewUrl(m.cover.file)}" alt="" draggable="false">` : ''}
                <span class="cp-media-play" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="7 4 20 12 7 20 7 4"></polygon></svg></span>
                <span class="cp-media-duration" hidden></span>`
             : `<img src="${url}" alt="" draggable="false">`}
           <button type="button" class="remove-preview-btn" data-type="media" data-index="${index}" aria-label="Quitar ${name.toLowerCase()} ${index + 1}">${CP_REMOVE_ICON}</button>
           ${m.kind === 'photo' ? `<button type="button" class="cp-media-trim${m.orig ? ' is-trimmed' : ''}" data-edit-id="${m.id}" aria-label="Editar foto ${index + 1}${m.orig ? ' (ya editada)' : ''}">${CP_CROP_ICON}<span>${m.orig ? 'Editada' : 'Editar'}</span></button>` : ''}
-          ${m.kind === 'video' && kxCanTrimVideo() ? `<button type="button" class="cp-media-trim${m.orig ? ' is-trimmed' : ''}" data-trim-id="${m.id}" aria-label="Recortar vídeo ${index + 1}${m.orig ? ' (ya recortado)' : ''}">${CP_TRIM_ICON}<span>${m.orig ? 'Recortado' : 'Recortar'}</span></button>` : ''}
+          ${m.kind === 'video' && kxCanTrimVideo() ? `<button type="button" class="cp-media-trim${m.orig || m.cover ? ' is-trimmed' : ''}" data-trim-id="${m.id}" aria-label="Editar vídeo ${index + 1}: recortar y elegir portada${m.orig || m.cover ? ' (ya editado)' : ''}">${CP_TRIM_ICON}<span>${m.orig || m.cover ? 'Editado' : 'Editar'}</span></button>` : ''}
         </div>`;
     });
     const plus = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
@@ -9955,7 +10057,14 @@ async function submitPost() {
         await storageRef.put(video, { contentType: video.type || undefined, cacheControl: KX_IMAGE_CACHE_CONTROL });
         const url = await storageRef.getDownloadURL();
         videoUrls.push(url);
-        mediaList.push({ type: 'video', url });
+        const entry = { type: 'video', url };
+        if (item.cover) {
+          // Portada elegida: imagen aparte que se usa como miniatura del vídeo
+          const posterRef = storageRef0(`portada_${item.cover.file.name}`);
+          await kxStoragePut(posterRef, item.cover.file);
+          entry.poster = await posterRef.getDownloadURL();
+        }
+        mediaList.push(entry);
       }
     }
     submitBtn.textContent = 'Publicando…';
@@ -12443,13 +12552,13 @@ function kxPostMedia(post) {
 function kxMediaHTML(items, { modal = false, tag = '' } = {}) {
   if (!items.length) return '';
   const wrapClass = modal ? 'feed-media-wrapper feed-media-modal' : 'feed-media-wrapper';
-  const tiles = items.map((item, index) => ({ video: item.type === 'video', url: item.url, index }));
+  const tiles = items.map((item, index) => ({ video: item.type === 'video', url: item.url, poster: item.poster, index }));
   const hasVideo = tiles.some(t => t.video);
   const imgAttrs = (t) => modal
     ? `class="feed-image feed-image-clickable" data-lightbox-src="${t.url}" data-lightbox-index="${t.index}"`
     : `class="feed-image feed-image-clickable" data-lightbox-src="${t.url}" data-lightbox-index="${t.index}" loading="lazy" decoding="async"`;
   const tileHTML = (t) => t.video
-    ? kxVideoTileHTML(t.url, t.index)
+    ? kxVideoTileHTML(t.url, t.index, t.poster)
     : `<img src="${t.url}" alt="Foto de la publicación" ${imgAttrs(t)}>`;
 
   if (tiles.length === 1 && !hasVideo) {
@@ -12475,10 +12584,14 @@ function kxMediaHTML(items, { modal = false, tag = '' } = {}) {
 }
 
 // Casilla de vídeo del collage: primer fotograma + botón de reproducir. Al pulsarla se abre el visor.
-function kxVideoTileHTML(url, index) {
+function kxVideoTileHTML(url, index, poster) {
   const src = escapeHtmlMention(url);
+  // Con portada elegida se ve esa imagen; si no, el primer fotograma del propio vídeo
+  const cover = poster
+    ? `<img class="feed-video-poster" src="${escapeHtmlMention(poster)}" alt="" loading="lazy" decoding="async" draggable="false">`
+    : `<video src="${src}#t=0.001" muted playsinline preload="metadata" tabindex="-1" aria-hidden="true"></video>`;
   return `<button type="button" class="feed-video-tile" data-video-src="${src}" data-lightbox-index="${index}" aria-label="Reproducir vídeo">
-              <video src="${src}#t=0.001" muted playsinline preload="metadata" tabindex="-1" aria-hidden="true"></video>
+              ${cover}
               <span class="feed-video-play" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></span>
             </button>`;
 }
@@ -13134,6 +13247,18 @@ async function deletePost(postId, post) {
       } catch (error) {
         console.warn('Error deleting video from storage:', error);
         // Continue even if video deletion fails
+      }
+    }
+
+    // Portadas de vídeo
+    for (const m of kxPostMedia(post)) {
+      if (!m.poster) continue;
+      try {
+        const urlParts = m.poster.split('/');
+        const encodedPath = urlParts.slice(urlParts.indexOf('posts')).join('/');
+        await storage.ref(decodeURIComponent(encodedPath.split('?')[0])).delete();
+      } catch (error) {
+        console.warn('Error deleting video cover from storage:', error);
       }
     }
 
