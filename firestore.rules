@@ -97,6 +97,72 @@ service cloud.firestore {
           && request.resource.data.sessions.size() <= 7;
       }
 
+      // ───────── Entrena: planes (varios por usuario) ─────────
+      // El plan activo no es un campo del plan: lo marca training_state/current.activePlanId.
+      match /training_plans/{planId} {
+        function statePath() { return /databases/$(database)/documents/users/$(userId)/training_state/current; }
+
+        function validPlan(d) {
+          return d.keys().hasOnly(['schemaVersion', 'name', 'status', 'weeks', 'activeDays', 'sessions', 'goal', 'level',
+                                   'equipment', 'minutes', 'revision', 'sourcePlanId', 'migratedFrom', 'createdAt',
+                                   'updatedAt', 'archivedAt', 'trashedAt', 'trashedFrom'])
+            && d.keys().hasAll(['schemaVersion', 'name', 'status', 'weeks', 'activeDays', 'sessions', 'revision', 'createdAt', 'updatedAt'])
+            && d.schemaVersion == 2
+            && isString(d.name, 80) && d.name.size() > 0
+            && d.weeks is int && d.weeks >= 1 && d.weeks <= 16
+            && d.activeDays is list && d.activeDays.size() == 7
+            && d.sessions is list && d.sessions.size() <= 7
+            && d.status in ['ready', 'archived', 'trashed']
+            && d.revision is int && d.revision >= 1
+            && d.get('equipment', []) is list && d.get('equipment', []).size() <= 10
+            && (!('level' in d) || (d.level is int && d.level >= 1 && d.level <= 3));
+        }
+
+        // Un plan que deja de estar «ready» no puede seguir siendo el activo tras la escritura (se
+        // comprueba con el estado POSTERIOR: el puntero se vacía en el mismo lote)
+        function notActiveAfter() {
+          return !existsAfter(statePath()) || getAfter(statePath()).data.get('activePlanId', null) != planId;
+        }
+
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+          && validPlan(request.resource.data)
+          && request.resource.data.status == 'ready'
+          && request.resource.data.revision == 1
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+
+        // Cada guardado sube la revisión exactamente 1: una edición con una revisión antigua se rechaza
+        allow update: if isOwner(userId)
+          && validPlan(request.resource.data)
+          && request.resource.data.revision == resource.data.revision + 1
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.get('sourcePlanId', null) == resource.data.get('sourcePlanId', null)
+          && request.resource.data.get('migratedFrom', null) == resource.data.get('migratedFrom', null)
+          && (request.resource.data.status == 'ready' || notActiveAfter());
+
+        // Borrado definitivo: solo desde la papelera
+        allow delete: if isOwner(userId)
+          && resource.data.status == 'trashed'
+          && notActiveAfter();
+      }
+
+      match /training_state/{docId} {
+        allow read: if isOwner(userId);
+        // El puntero solo puede apuntar (tras la escritura) a un plan existente y «ready»
+        allow create, update: if isOwner(userId)
+          && docId == 'current'
+          && request.resource.data.keys().hasOnly(['activePlanId', 'migratedAt', 'migratedFrom', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time
+          && (request.resource.data.get('activePlanId', null) == null
+              || (request.resource.data.activePlanId is string
+                  && existsAfter(/databases/$(database)/documents/users/$(userId)/training_plans/$(request.resource.data.activePlanId))
+                  && getAfter(/databases/$(database)/documents/users/$(userId)/training_plans/$(request.resource.data.activePlanId)).data.status == 'ready'));
+        allow delete: if false;
+      }
+
       // ───────── Entrena: sesiones realizadas ─────────
       match /training_sessions/{sessionId} {
         allow read, delete: if isOwner(userId);
