@@ -83,6 +83,37 @@ service cloud.firestore {
                         request.resource.data.fromUserId == request.auth.uid;
       }
 
+      // ───────── Entrena: plan activo (un único documento 'active') ─────────
+      match /training_plan/{planId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && planId == 'active'
+          && isString(request.resource.data.name, 80)
+          && request.resource.data.weeks is int
+          && request.resource.data.weeks >= 1 && request.resource.data.weeks <= 16
+          && request.resource.data.activeDays is list
+          && request.resource.data.activeDays.size() == 7
+          && request.resource.data.sessions is list
+          && request.resource.data.sessions.size() <= 7;
+      }
+
+      // ───────── Entrena: sesiones realizadas ─────────
+      match /training_sessions/{sessionId} {
+        allow read, delete: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isString(request.resource.data.dateKey, 10)
+          && isString(request.resource.data.sessionName, 80)
+          && isNumber(request.resource.data.durationSec)
+          && request.resource.data.exercises is list
+          && request.resource.data.exercises.size() <= 30;
+        // Tras crearla solo se añade el registro final (sensaciones, RPE, notas, etiquetas)
+        allow update: if isOwner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feel', 'rpe', 'notes', 'tags'])
+          && isString(request.resource.data.get('notes', ''), 1000)
+          && request.resource.data.get('tags', []) is list
+          && request.resource.data.get('tags', []).size() <= 10;
+      }
+
       // ───────── Test Definitions ─────────
       match /test_definitions/{testId} {
         allow read: if isOwner(userId);

@@ -17379,8 +17379,143 @@ window.kruxTrainData = {
 };
 const KRUX_TRAIN_DEMO = window.kruxTrainData;
 
-// Sesiones hechas mientras la app está abierta (todavía no se guardan en la cuenta)
+// Sesiones realizadas (se cargan de la cuenta al iniciar sesión)
 window.kruxTrainLog = window.kruxTrainLog || [];
+
+// ============================================
+// PERSISTENCIA DE ENTRENA (Firestore)
+// ============================================
+// users/{uid}/training_plan/active        → plan activo
+// users/{uid}/training_sessions/{autoId}  → sesiones realizadas
+const KruxTrainStore = (() => {
+  const SESSION_WEEKS = 12; // historial que se carga al iniciar sesión
+  let planTouched = false;  // el usuario guardó un plan antes de que terminase la carga
+
+  const uid = () => (firebase.auth().currentUser || {}).uid || null;
+  const userRef = () => db.collection('users').doc(uid());
+  const int = v => Math.max(0, Math.round(Number(v) || 0));
+  const str = (v, max) => String(v ?? '').slice(0, max);
+
+  function exercisePayload(e) {
+    return { name: str(e.name, 80), sets: Math.max(1, int(e.sets)), workSec: int(e.workSec), reps: int(e.reps), weight: Math.max(0, Number(e.weight) || 0), restSec: int(e.restSec), rpeTarget: Math.min(10, int(e.rpeTarget)) };
+  }
+
+  function planPayload(plan) {
+    return {
+      name: str(plan.name || 'Mi plan', 80),
+      weeks: Math.min(16, Math.max(1, int(plan.weeks) || 4)),
+      activeDays: Array.from({ length: 7 }, (_, i) => !!(plan.activeDays || [])[i]),
+      sessions: (plan.sessions || []).slice(0, 7).map(sess => ({
+        day: str(sess.day, 2),
+        name: str(sess.name, 80),
+        exercises: (sess.exercises || []).slice(0, 30).map(exercisePayload)
+      }))
+    };
+  }
+
+  function sessionPayload(rec) {
+    return {
+      dateKey: str(rec.dateKey, 10),
+      sessionName: str(rec.sessionName, 80),
+      startedAt: Number(rec.startedAt) || Date.now(),
+      durationSec: int(rec.durationSec),
+      exercises: rec.exercises.slice(0, 30).map(e => ({
+        name: str(e.name, 80),
+        target: exercisePayload({ name: e.name, ...e.target }),
+        sets: e.sets.slice(0, 50).map(st => ({ n: int(st.n), workSec: int(st.workSec), reps: int(st.reps), weight: Math.max(0, Number(st.weight) || 0), rpe: Math.min(10, int(st.rpe)), time: str(st.time, 5) }))
+      }))
+    };
+  }
+
+  function reportError(title, error) {
+    console.error(title, error);
+    if (typeof showToast === 'function') {
+      showToast(title, 'error', { detail: typeof kxFriendlyError === 'function' ? kxFriendlyError(error) : 'Inténtalo de nuevo.' });
+    }
+  }
+
+  async function savePlan(plan) {
+    if (!uid() || !plan) return false;
+    planTouched = true;
+    try {
+      await userRef().collection('training_plan').doc('active').set({
+        ...planPayload(plan),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      return true;
+    } catch (error) {
+      reportError('No se ha podido guardar el plan', error);
+      return false;
+    }
+  }
+
+  async function saveSession(rec) {
+    if (!uid()) return false;
+    try {
+      const ref = await userRef().collection('training_sessions').add({
+        ...sessionPayload(rec),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      rec.id = ref.id;
+      return true;
+    } catch (error) {
+      reportError('No se ha podido guardar la sesión', error);
+      return false;
+    }
+  }
+
+  async function updateSession(rec, fields) {
+    if (!uid() || !rec.id) return false;
+    try {
+      await userRef().collection('training_sessions').doc(rec.id).update({
+        feel: str(fields.feel, 10),
+        rpe: Math.min(10, int(fields.rpe)),
+        notes: str(fields.notes, 1000),
+        tags: (fields.tags || []).slice(0, 10).map(t => str(t, 40))
+      });
+      return true;
+    } catch (error) {
+      reportError('No se ha podido guardar el registro', error);
+      return false;
+    }
+  }
+
+  async function load() {
+    if (!uid()) return;
+    planTouched = false;
+    const from = new Date();
+    from.setDate(from.getDate() - SESSION_WEEKS * 7);
+    const fromKey = trDateKey(from);
+    try {
+      const [planDoc, sessSnap] = await Promise.all([
+        userRef().collection('training_plan').doc('active').get(),
+        userRef().collection('training_sessions').where('dateKey', '>=', fromKey).orderBy('dateKey').get()
+      ]);
+      if (!planTouched) {
+        const data = planDoc.exists ? planDoc.data() : null;
+        window.kruxActivePlan = data && Array.isArray(data.sessions)
+          ? { name: data.name, weeks: data.weeks, activeDays: data.activeDays, sessions: data.sessions }
+          : null;
+      }
+      const loaded = sessSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Conserva lo registrado en esta apertura que aún no tenga id
+      window.kruxTrainLog = [...loaded, ...window.kruxTrainLog.filter(e => !e.id)];
+    } catch (error) {
+      console.error('Error cargando Entrena:', error);
+    }
+    if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+  }
+
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) { load(); return; }
+    window.kruxActivePlan = null;
+    window.kruxTrainLog = [];
+    if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+  });
+
+  return { savePlan, saveSession, updateSession, isSignedIn: () => !!uid() };
+})();
+window.KruxTrainStore = KruxTrainStore;
 
 function trEsc(text) {
   return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17472,6 +17607,7 @@ function initTrainView() {
   function logFor(dateKey, name) {
     const log = window.kruxTrainLog;
     for (let i = log.length - 1; i >= 0; i--) {
+      if (log[i].demo) continue;
       if (log[i].dateKey === dateKey && (!name || log[i].sessionName === name)) return log[i];
     }
     return null;
@@ -17504,6 +17640,7 @@ function initTrainView() {
     const planned = DAY_LABELS.filter(l => planSessionFor(l)).length;
     const monday = mondayOf(0);
     const doneKeys = new Set(window.kruxTrainLog
+      .filter(e => !e.demo)
       .filter(e => { const d = new Date(e.dateKey + 'T00:00'); return d >= monday && (d - monday) < 7 * 864e5; })
       .map(e => e.dateKey));
     const done = doneKeys.size;
@@ -17651,6 +17788,7 @@ function initTrainView() {
     const log = window.kruxTrainLog;
     let found = null;
     for (let i = log.length - 1; i >= 0 && !found; i--) {
+      if (log[i].demo) continue;
       for (const ex of log[i].exercises) {
         if (!ex.sets.length) continue;
         const current = data.exercises.find(e => e.name === ex.name);
@@ -17829,6 +17967,7 @@ function initTrainView() {
     close();
     reRenderList();
     if (typeof showToast === 'function') showToast('Ejercicio actualizado', 'success');
+    if (!window.kruxTrainData.demo && window.kruxActivePlan) KruxTrainStore.savePlan(window.kruxActivePlan);
   }
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -18262,7 +18401,7 @@ function makePcCard(d, isTop) {
   // ─────────────────────────────────────────────────────────────────────
 
   // mode: idle | work | paused | rest | between (ejercicio terminado, esperando al siguiente)
-  let exIdx, setsDone, mode, timerSec, targetSec, intervalId, elapsedSec, elapsedId, record, rpeOpen;
+  let exIdx, setsDone, mode, timerSec, targetSec, intervalId, elapsedSec, elapsedId, record, rpeOpen, planDirty;
   let TEMPLATE = '';
 
   function $ (id) { return document.getElementById(id); }
@@ -18296,7 +18435,7 @@ function makePcCard(d, isTop) {
 
     exIdx = 0; setsDone = 0; mode = 'idle';
     timerSec = 0; targetSec = 0; intervalId = null;
-    elapsedSec = 0; elapsedId = null; rpeOpen = false;
+    elapsedSec = 0; elapsedId = null; rpeOpen = false; planDirty = false;
 
     const data = window.kruxTrainData;
     record = {
@@ -18333,6 +18472,9 @@ function makePcCard(d, isTop) {
     const modal = $('session-modal');
     if (modal) modal.classList.add('hidden');
     document.body.classList.remove('session-open');
+    // La carga ajustada durante la sesión se queda en el plan
+    if (planDirty && record && !record.demo && window.kruxActivePlan) KruxTrainStore.savePlan(window.kruxActivePlan);
+    planDirty = false;
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
   }
 
@@ -18626,6 +18768,7 @@ function makePcCard(d, isTop) {
   function changeLoad(delta) {
     const ex = EXERCISES()[exIdx];
     ex.weight = Math.max(0, Math.min(200, (ex.weight || 0) + delta));
+    planDirty = true;
     renderSpecs();
     renderMetrics();
   }
@@ -18654,7 +18797,15 @@ function makePcCard(d, isTop) {
     const setRpes = record.exercises.flatMap(e => e.sets.map(s => s.rpe)).filter(Boolean);
     const mins = Math.max(1, Math.round(elapsedSec / 60));
     record.durationSec = elapsedSec;
-    if (doneSets > 0) window.kruxTrainLog.push(record);
+    // Las sesiones de ejemplo (sin plan) no se guardan en la cuenta
+    let saved = Promise.resolve(false);
+    if (doneSets > 0) {
+      window.kruxTrainLog.push(record);
+      if (!record.demo) saved = KruxTrainStore.saveSession(record);
+    }
+    const saveHint = record.demo
+      ? 'Es una sesión de ejemplo: no se guarda. Crea un plan para registrar tus entrenamientos.'
+      : !KruxTrainStore.isSignedIn() ? 'Inicia sesión para guardar tus entrenamientos en tu cuenta.' : '';
 
     let logFeel = null, logRpe = null;
     const logTags = new Set();
@@ -18688,13 +18839,19 @@ function makePcCard(d, isTop) {
       const notes = (document.getElementById('plog-notes') || {}).value || '';
       const feelLabel = (FEELS.find(f => f[0] === logFeel) || [])[1] || '';
       Object.assign(record, { feel: logFeel, rpe: logRpe, notes, tags: [...logTags] });
+      if (!saveHint) {
+        saved.then(ok => (ok ? KruxTrainStore.updateSession(record, record) : false)).then(ok => {
+          const hint = document.getElementById('plog-done-hint');
+          if (hint) hint.textContent = ok ? 'Guardada en tu cuenta.' : 'No se ha podido guardar en tu cuenta.';
+        });
+      }
       screen.innerHTML = `
         <div class="plog-done">
           <span class="plog-done-mark">${SVG.check}</span>
           <h2 class="plog-done-title" id="plog-done-title" tabindex="-1">Sesión completada</h2>
           <p class="plog-done-sub">${mins} min · ${doneSets} ${doneSets === 1 ? 'serie' : 'series'} · ${feelLabel} · RPE ${logRpe}</p>
           ${notes ? `<p class="plog-done-notes">${esc(notes)}</p>` : ''}
-          <p class="plog-done-hint">Queda reflejada en Entrena mientras la app siga abierta. Todavía no se guarda en tu cuenta.</p>
+          <p class="plog-done-hint" id="plog-done-hint" aria-live="polite">${saveHint || 'Guardando…'}</p>
           <button type="button" class="plog-save-btn" id="plog-close-done">Volver a Entrena</button>
         </div>`;
       document.getElementById('plog-close-done').addEventListener('click', close);
@@ -18723,7 +18880,7 @@ function makePcCard(d, isTop) {
         </div>
         <div class="plog-sec">
           <h3 class="plog-sec-label"><label for="plog-notes">Notas</label></h3>
-          <textarea class="plog-notes" id="plog-notes" rows="3" placeholder="Sensaciones, molestias, contexto… (opcional)"></textarea>
+          <textarea class="plog-notes" id="plog-notes" rows="3" maxlength="1000" placeholder="Sensaciones, molestias, contexto… (opcional)"></textarea>
           <div class="plog-tags-row" id="plog-tags-row"></div>
         </div>
       </div>
@@ -18950,7 +19107,7 @@ function makePcCard(d, isTop) {
         <div class="pe-scroll">
           <div class="pe-sec">
             <div class="pe-sec-label">NOMBRE DEL PLAN</div>
-            <input class="pe-name-input" id="pe-name-input" type="text" placeholder="Ej: Fuerza máx. 4 semanas" value="${planData.name}" autocomplete="off">
+            <input class="pe-name-input" id="pe-name-input" type="text" maxlength="60" placeholder="Ej: Fuerza máx. 4 semanas" value="${planData.name}" autocomplete="off">
           </div>
 
           <div class="pe-sec">
@@ -19263,6 +19420,7 @@ function makePcCard(d, isTop) {
 
     // Persist to global active plan + refresh train view
     window.kruxActivePlan = { name, sessions: planData.sessions, activeDays: planData.activeDays, weeks: planData.weeks };
+    KruxTrainStore.savePlan(window.kruxActivePlan);
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
 
     const screen = document.querySelector('#plan-editor-modal .pe-screen');
