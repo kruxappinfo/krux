@@ -24274,9 +24274,40 @@ body.plan-editor-open { overflow: hidden; }
 
 /* ---------- Feed: acceso rápido para crear publicación ---------- */
 .feed-composer-wrap {
+  position: relative;
   max-width: 640px;
   margin: 0 auto;
   padding: 2px 12px 12px;
+}
+
+/* Cámara: botón propio sobre el hueco de la derecha del compositor */
+.feed-composer-camera {
+  position: absolute;
+  top: 2px;
+  bottom: 12px;
+  right: calc(12px + 6px + 1px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: auto 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.feed-composer-camera:active {
+  background: var(--kx-sage-soft);
+}
+
+.feed-composer-camera:focus-visible {
+  outline: 2px solid var(--kx-primary);
+  outline-offset: 0;
 }
 
 .feed-composer {
@@ -24349,6 +24380,10 @@ body.plan-editor-open { overflow: hidden; }
   .feed-composer-wrap {
     padding-left: 10px;
     padding-right: 10px;
+  }
+
+  .feed-composer-camera {
+    right: calc(10px + 6px + 1px);
   }
 }
 
