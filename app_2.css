@@ -26855,3 +26855,110 @@ body.kx-sheet-open #feed-view .feed-container {
 .cp-media-ghost .cp-media-duration {
   display: none;
 }
+
+/* ================== VÍDEO DENTRO DEL COLLAGE ================== */
+.feed-images-grid .feed-video-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--kx-granite, #202923);
+  overflow: hidden;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.feed-images-grid .feed-video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 38%;
+  display: block;
+  pointer-events: none; /* el toque lo recibe el botón, nunca los controles del vídeo */
+}
+
+.feed-images-grid .feed-video-tile .feed-video-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 50%;
+  background: rgba(21, 32, 27, 0.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+  color: #fff;
+  pointer-events: none;
+}
+
+.feed-images-grid .feed-video-tile .feed-video-play svg {
+  width: 22px;
+  height: 22px;
+  margin-left: 2px; /* centra ópticamente el triángulo */
+}
+
+.feed-images-grid .feed-video-tile:focus-visible {
+  outline: 3px solid var(--kx-coral, #ff8d67);
+  outline-offset: -3px;
+}
+
+.feed-images-grid.grid-1 {
+  grid-template-columns: 1fr;
+}
+
+.feed-images-grid.grid-3 .feed-video-tile:first-child {
+  grid-row: 1 / span 2;
+}
+
+/* Visor de vídeo */
+.kx-video-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 10070;
+  display: grid;
+  place-items: center;
+  background: rgba(14, 20, 17, 0.96);
+  animation: kxFade 0.2s ease-out;
+}
+
+.kx-video-viewer-player {
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  background: #000;
+}
+
+.kx-video-viewer-close {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: 12px;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 50%;
+  background: rgba(21, 32, 27, 0.6);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #fff;
+  cursor: pointer;
+}
+
+.kx-video-viewer-close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.kx-video-viewer-close:focus-visible {
+  outline: 3px solid var(--kx-coral, #ff8d67);
+  outline-offset: 2px;
+}

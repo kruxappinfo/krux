@@ -9337,6 +9337,8 @@ function attachFeedEventListeners(container) {
     });
   });
 
+  kxBindVideoTiles(container);
+
   // Event listeners para lightbox de imÃ¡genes
   container.querySelectorAll('.feed-image-clickable').forEach(img => {
     img.addEventListener('click', (e) => {
@@ -11286,64 +11288,108 @@ function kxPostMedia(post) {
   return [...photos.map(url => ({ type: 'photo', url })), ...kxPostVideos(post).map(url => ({ type: 'video', url }))];
 }
 
-// HTML de fotos y vídeos. Las fotos seguidas forman una cuadrícula; cada vídeo va a ancho completo.
-// `modal` = publicación abierta (sin visor); si no, las fotos abren el visor con índice global.
+// HTML de fotos y vídeos en un único collage, en el orden de la publicación.
+// `modal` = publicación abierta (muestra todo y las fotos no abren el visor desde aquí);
+// si no, se ven 4 casillas como máximo y las fotos abren el visor con su índice entre las fotos.
 function kxMediaHTML(items, { modal = false, tag = '' } = {}) {
   if (!items.length) return '';
   const wrapClass = modal ? 'feed-media-wrapper feed-media-modal' : 'feed-media-wrapper';
-  let html = '';
   let photoIndex = 0;
-  let tagged = false;
-  for (let i = 0; i < items.length;) {
-    if (items[i].type === 'video') {
-      html += kxVideosHTML([items[i].url]);
-      i++;
-      continue;
-    }
-    const group = [];
-    while (i < items.length && items[i].type === 'photo') group.push(items[i++].url);
-    const start = photoIndex;
-    photoIndex += group.length;
-    const groupTag = tagged ? '' : tag; // la etiqueta de ubicación solo en el primer grupo de fotos
-    tagged = true;
-    const imgAttrs = (url, k) => modal
-      ? 'class="feed-image"'
-      : `class="feed-image feed-image-clickable" data-lightbox-src="${url}" data-lightbox-index="${start + k}" loading="lazy" decoding="async"`;
-    if (group.length === 1) {
-      html += `
+  const tiles = items.map(item => item.type === 'video'
+    ? { video: true, url: item.url }
+    : { url: item.url, index: photoIndex++ });
+  const hasVideo = tiles.some(t => t.video);
+  const imgAttrs = (t) => modal
+    ? 'class="feed-image"'
+    : `class="feed-image feed-image-clickable" data-lightbox-src="${t.url}" data-lightbox-index="${t.index}" loading="lazy" decoding="async"`;
+  const tileHTML = (t) => t.video
+    ? kxVideoTileHTML(t.url)
+    : `<img src="${t.url}" alt="Foto de la publicación" ${imgAttrs(t)}>`;
+
+  if (tiles.length === 1 && !hasVideo) {
+    return `
         <div class="${wrapClass}">
           <div class="feed-image-container">
-            <img src="${group[0]}" alt="Foto de la publicación" ${imgAttrs(group[0], 0)}>
-            ${groupTag}
+            ${tileHTML(tiles[0])}
+            ${tag}
           </div>
         </div>`;
-    } else if (modal) {
-      html += `
-        <div class="${wrapClass}">
-          <div class="feed-images-grid grid-modal">
-            ${group.map(url => `<img src="${url}" alt="Foto de la publicación" class="feed-image">`).join('')}
-          </div>
-          ${groupTag}
-        </div>`;
-    } else {
-      const gridClass = group.length === 2 ? 'grid-2' : group.length === 3 ? 'grid-3' : 'grid-4';
-      html += `
+  }
+  const visible = modal ? tiles : tiles.slice(0, 4);
+  const hidden = tiles.length - visible.length;
+  const gridClass = modal ? 'grid-modal' : `grid-${visible.length}`;
+  return `
         <div class="${wrapClass}">
           <div class="feed-images-grid ${gridClass}">
-            ${group.slice(0, 4).map((url, k) => `<img src="${url}" alt="Foto de la publicación" ${imgAttrs(url, k)}>`).join('')}
+            ${visible.map(tileHTML).join('')}
           </div>
-          ${groupTag}
-          ${group.length > 4 ? `<span class="feed-photos-more" aria-label="${group.length - 4} fotos más">+${group.length - 4}</span>` : ''}
+          ${tag}
+          ${hidden > 0 ? `<span class="feed-photos-more" aria-label="${hidden} más">+${hidden}</span>` : ''}
         </div>`;
-    }
-  }
-  return html;
 }
 
-function kxVideosHTML(urls) {
-  return (urls || []).map(url =>
-    `<div class="feed-video-container"><video src="${escapeHtmlMention(url)}" controls class="feed-video" preload="metadata" playsinline></video></div>`
-  ).join('');
+// Casilla de vídeo del collage: primer fotograma + botón de reproducir. Al pulsarla se abre el visor.
+function kxVideoTileHTML(url) {
+  const src = escapeHtmlMention(url);
+  return `<button type="button" class="feed-video-tile" data-video-src="${src}" aria-label="Reproducir vídeo">
+              <video src="${src}#t=0.001" muted playsinline preload="metadata" tabindex="-1" aria-hidden="true"></video>
+              <span class="feed-video-play" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></span>
+            </button>`;
+}
+
+function kxBindVideoTiles(root) {
+  root.querySelectorAll('.feed-video-tile').forEach(tile => {
+    tile.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openVideoViewer(tile.dataset.videoSrc, tile);
+    });
+  });
+}
+
+// Visor de vídeo a pantalla completa: reproduce con los controles nativos sin mover el feed
+let kxVideoViewerEl = null;
+function openVideoViewer(url, opener) {
+  if (!url || kxVideoViewerEl) return;
+  const viewer = document.createElement('div');
+  viewer.className = 'kx-video-viewer';
+  viewer.setAttribute('role', 'dialog');
+  viewer.setAttribute('aria-modal', 'true');
+  viewer.setAttribute('aria-label', 'Vídeo de la publicación');
+  viewer.innerHTML = `
+    <button type="button" class="kx-video-viewer-close" aria-label="Cerrar vídeo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <video class="kx-video-viewer-player" controls autoplay playsinline></video>`;
+  const video = viewer.querySelector('video');
+  video.src = url;
+  const app = document.getElementById('app');
+  const previousOverflow = document.body.style.overflow;
+  const close = () => {
+    document.removeEventListener('keydown', onKey, true);
+    try { video.pause(); } catch (_) { /* ya detenido */ }
+    video.removeAttribute('src');
+    video.load();
+    viewer.remove();
+    kxVideoViewerEl = null;
+    document.body.style.overflow = previousOverflow;
+    app?.removeAttribute('inert');
+    app?.removeAttribute('aria-hidden');
+    if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+  };
+  viewer.addEventListener('click', (e) => { if (e.target === viewer) close(); });
+  viewer.querySelector('.kx-video-viewer-close').addEventListener('click', close);
+  document.addEventListener('keydown', onKey, true);
+  document.body.style.overflow = 'hidden';
+  app?.setAttribute('inert', '');
+  app?.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(viewer);
+  kxVideoViewerEl = viewer;
+  viewer.querySelector('.kx-video-viewer-close').focus({ preventScroll: true });
+  // autoplay puede rechazarse sin gesto previo: los controles siguen disponibles
+  video.play?.().catch(() => {});
 }
 
 // MP4 con H.264: es lo que reproducen todos los dispositivos. Sin soporte, no se recodifica
@@ -11726,6 +11772,8 @@ function renderPostInModal(post, container) {
   `;
 
   container.innerHTML = headerHTML + contentHTML + kxAscentListHTML(kxPostAscents(post)) + actionsHTML;
+
+  kxBindVideoTiles(container);
 
   // Las fotos de la publicación ampliada se abren en el visor con zoom
   const modalPhotos = [...container.querySelectorAll('.feed-media-modal .feed-image')];
