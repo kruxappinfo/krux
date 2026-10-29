@@ -97,7 +97,7 @@
 
   <script defer src="./maplibre-map.js?v=15"></script>
 
-  <script defer src="./app_3.js?v=75"></script>
+  <script defer src="./app_3.js?v=76"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -154,6 +154,17 @@
         <div class="feed-composer-wrap">
           <button type="button" class="feed-composer" id="nav-create-btn" aria-label="Crear publicación">
             <img id="feed-composer-avatar" class="feed-composer-avatar" alt="">
+            <script>
+              // Foto del último usuario antes de que cargue el JS: evita el parpadeo con las iniciales
+              try {
+                var kxLast = JSON.parse(localStorage.getItem('kx-last-user') || 'null');
+                if (kxLast && kxLast.photo) {
+                  var kxAv = document.getElementById('feed-composer-avatar');
+                  kxAv.referrerPolicy = 'no-referrer';
+                  kxAv.src = kxLast.photo;
+                }
+              } catch (e) {}
+            </script>
             <span class="feed-composer-field">¿Qué quieres compartir?</span>
             <span class="feed-composer-icon" aria-hidden="true"></span>
           </button>
