@@ -26923,52 +26923,6 @@ body.kx-sheet-open #feed-view .feed-container {
   grid-row: 1 / span 2;
 }
 
-/* Visor de vídeo */
-.kx-video-viewer {
-  position: fixed;
-  inset: 0;
-  z-index: 10070;
-  display: grid;
-  place-items: center;
-  background: rgba(14, 20, 17, 0.96);
-  animation: kxFade 0.2s ease-out;
-}
-
-.kx-video-viewer-player {
-  width: 100%;
-  max-width: 100%;
-  max-height: 100%;
-  background: #000;
-}
-
-.kx-video-viewer-close {
-  position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + 12px);
-  right: 12px;
-  z-index: 1;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 50%;
-  background: rgba(21, 32, 27, 0.6);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  color: #fff;
-  cursor: pointer;
-}
-
-.kx-video-viewer-close svg {
-  width: 20px;
-  height: 20px;
-}
-
-.kx-video-viewer-close:focus-visible {
-  outline: 3px solid var(--kx-coral, #ff8d67);
-  outline-offset: 2px;
-}
-
 /* ================== NOTIFICAR UN PROBLEMA EN UNA VÍA ================== */
 .ml-route-report-section {
   display: flex;
@@ -27164,4 +27118,239 @@ body.kx-sheet-open #feed-view .feed-container {
 
 .mention-highlight-name {
   color: #2563eb;
+}
+
+/* ================== VISOR: VÍDEOS CON CONTROLES PROPIOS ==================
+   Los vídeos están en el mismo visor que las fotos y se desliza entre todos.
+   Controles en cristal oscuro como el resto del visor; mientras se reproduce
+   se ocultan solos (.is-idle) y al arrastrar no estorban (.is-dragging). */
+.image-lightbox-image[hidden],
+.lbv[hidden] {
+  display: none;
+}
+
+.lbv {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+  pointer-events: none; /* los gestos los recibe el escenario */
+}
+
+.lbv-video,
+.lbv-peek {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  background: transparent;
+  pointer-events: none;
+}
+
+.lbv-peek {
+  position: absolute;
+  inset: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+  height: auto;
+}
+
+.lbv-controls {
+  display: none;
+}
+
+.image-lightbox-modal.is-video .lbv-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  pointer-events: none;
+}
+
+.image-lightbox-modal.is-video .image-lightbox-zoom {
+  display: none;
+}
+
+/* Botón grande: solo con el vídeo en pausa */
+.lbv-big {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  margin: -38px 0 0 -38px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 50%;
+  background: rgba(21, 32, 27, 0.55);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.86);
+  pointer-events: none;
+  transition: opacity 0.18s var(--kx-ease), transform 0.18s var(--kx-ease);
+}
+
+.lbv-big svg {
+  width: 30px;
+  height: 30px;
+}
+
+.lbv-big .lbv-icon-play {
+  margin-left: 4px; /* centro óptico del triángulo */
+}
+
+.image-lightbox-modal.is-paused .lbv-big {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.lbv-big:active {
+  transform: scale(0.94);
+}
+
+/* Barra inferior */
+.lbv-bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: var(--kx-radius-pill);
+  background: rgba(21, 32, 27, 0.55);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #fff;
+  pointer-events: auto;
+  transition: opacity 0.25s var(--kx-ease), transform 0.25s var(--kx-ease);
+}
+
+.lbv-btn {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+
+.lbv-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.lbv-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.lbv-time {
+  flex: 0 0 auto;
+  min-width: 2.6em;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* Progreso: zona táctil de 44 px con una línea fina */
+.lbv-track {
+  --p: 0;
+  position: relative;
+  flex: 1 1 auto;
+  height: 44px;
+  margin: 0 6px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.lbv-rail {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 4px;
+  margin-top: -2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.lbv-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  transform: scaleX(var(--p));
+  transform-origin: left center;
+}
+
+.lbv-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--p) * 100%);
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s var(--kx-ease);
+}
+
+.image-lightbox-modal.is-scrubbing .lbv-thumb {
+  transform: scale(1.3);
+}
+
+/* Iconos según el estado */
+.image-lightbox-modal:not(.is-paused) .lbv-icon-play,
+.image-lightbox-modal.is-paused .lbv-icon-pause,
+.image-lightbox-modal:not(.is-muted) .lbv-icon-muted,
+.image-lightbox-modal.is-muted .lbv-icon-sound {
+  display: none;
+}
+
+.lbv-big:focus-visible,
+.lbv-btn:focus-visible,
+.lbv-track:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Mientras se reproduce sin tocar nada, o al arrastrar, los controles se apartan */
+.image-lightbox-modal.is-idle:not(.is-scrubbing) .lbv-bar,
+.image-lightbox-modal.is-dragging .lbv-bar {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.image-lightbox-modal.is-dragging .lbv-big {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lbv-big,
+  .lbv-bar,
+  .lbv-thumb {
+    transition: none;
+  }
 }

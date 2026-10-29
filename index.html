@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=64" />
+  <link rel="stylesheet" href="./app_2.css?v=65" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -97,7 +97,7 @@
 
   <script defer src="./maplibre-map.js?v=15"></script>
 
-  <script defer src="./app_3.js?v=62"></script>
+  <script defer src="./app_3.js?v=63"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -1555,15 +1555,46 @@
     </div>
   </div>
 
-  <!-- Image Lightbox Modal: visor con zoom (pellizco, doble toque, rueda, arrastre) -->
+  <!-- Visor de fotos y vídeos: zoom en fotos (pellizco, doble toque, rueda, arrastre), controles propios en vídeos -->
   <div id="image-lightbox-modal" class="image-lightbox-modal hidden" role="dialog" aria-modal="true"
-    aria-label="Visor de imagen">
+    aria-label="Visor de fotos y vídeos">
     <div class="image-lightbox-backdrop"></div>
     <div class="image-lightbox-stage" id="image-lightbox-stage">
       <img id="image-lightbox-img" src="" alt="Imagen ampliada" class="image-lightbox-image" draggable="false">
       <!-- Foto contigua: entra de lado mientras se desliza entre las fotos de una publicación -->
+      <div id="image-lightbox-video" class="lbv" hidden>
+        <video id="image-lightbox-video-el" class="lbv-video" playsinline preload="metadata"
+          aria-label="Vídeo de la publicación"></video>
+      </div>
+      <!-- Foto o vídeo contiguo: entra de lado mientras se desliza por la publicación -->
       <img id="image-lightbox-peek" src="" alt="" class="image-lightbox-image image-lightbox-peek" draggable="false"
         aria-hidden="true" hidden>
+      <video id="image-lightbox-peek-video" class="image-lightbox-peek lbv-peek" muted playsinline preload="metadata"
+        tabindex="-1" aria-hidden="true" hidden></video>
+    </div>
+    <!-- Controles del vídeo (se ocultan solos mientras se reproduce) -->
+    <div class="lbv-controls">
+      <button type="button" class="lbv-big" id="lbv-big" aria-label="Reproducir">
+        <svg class="lbv-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+        <svg class="lbv-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>
+      </button>
+      <div class="lbv-bar">
+        <button type="button" class="lbv-btn" id="lbv-play" aria-label="Reproducir">
+          <svg class="lbv-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+          <svg class="lbv-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>
+        </button>
+        <span class="lbv-time" id="lbv-current">0:00</span>
+        <div class="lbv-track" id="lbv-track" role="slider" tabindex="0" aria-label="Posición del vídeo"
+          aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+          <span class="lbv-rail"><span class="lbv-fill"></span></span>
+          <span class="lbv-thumb"></span>
+        </div>
+        <span class="lbv-time" id="lbv-duration">0:00</span>
+        <button type="button" class="lbv-btn" id="lbv-mute" aria-label="Silenciar">
+          <svg class="lbv-icon-sound" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+          <svg class="lbv-icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5z" fill="currentColor"/><path d="m16 9 6 6"/><path d="m22 9-6 6"/></svg>
+        </button>
+      </div>
     </div>
     <div class="image-lightbox-spinner" id="image-lightbox-spinner" aria-hidden="true"></div>
     <p class="image-lightbox-error" id="image-lightbox-error" role="alert" hidden>No se pudo cargar la imagen</p>
@@ -1575,11 +1606,11 @@
       </svg>
     </button>
     <div class="image-lightbox-counter" id="image-lightbox-counter" role="status" aria-live="polite" hidden></div>
-    <button type="button" class="image-lightbox-nav image-lightbox-prev" id="image-lightbox-prev" aria-label="Foto anterior" hidden>
+    <button type="button" class="image-lightbox-nav image-lightbox-prev" id="image-lightbox-prev" aria-label="Anterior" hidden>
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
     </button>
-    <button type="button" class="image-lightbox-nav image-lightbox-next" id="image-lightbox-next" aria-label="Foto siguiente" hidden>
+    <button type="button" class="image-lightbox-nav image-lightbox-next" id="image-lightbox-next" aria-label="Siguiente" hidden>
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
     </button>
