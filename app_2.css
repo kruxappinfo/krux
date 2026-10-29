@@ -27243,9 +27243,9 @@ body.kx-sheet-open #feed-view .feed-container {
 .train-hero-cta:active { background: var(--tr-green-press); }
 
 .train-hero-photo {
-  background: #8C6B4F url('assets/train/entrena-roca.jpg') center 30% / cover no-repeat;
-  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 34%);
-  mask-image: linear-gradient(to right, transparent 0, #000 34%);
+  background: #050B09 url('assets/train/mancuerna.svg') center / 100% auto no-repeat;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 22%);
+  mask-image: linear-gradient(to right, transparent 0, #000 22%);
 }
 
 /* Calendario */
