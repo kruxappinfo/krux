@@ -8176,16 +8176,48 @@ function initCreatePost() {
   if (!createBtn || !modal) return;
 
   // Open modal
-  createBtn.addEventListener('click', () => {
+  const openCreatePost = () => {
     if (!currentUser) {
       showToast('Inicia sesión para crear publicaciones', 'info');
-      return;
+      return false;
     }
     resetPostData();
     updateUserInfo();
     modal.classList.remove('hidden');
     startCreatePostViewportSync();
-    setTimeout(() => textarea?.focus(), 100);
+    return true;
+  };
+
+  createBtn.addEventListener('click', () => {
+    if (openCreatePost()) setTimeout(() => textarea?.focus(), 100);
+  });
+
+  // Cámara del compositor: abre la cámara del móvil y lo capturado va a una publicación nueva (sin publicarla).
+  // Se pasa por los mismos campos de foto y vídeo para que valgan sus límites y avisos.
+  const cameraBtn = document.getElementById('feed-camera-btn');
+  const cameraInput = document.getElementById('feed-camera-input');
+  cameraBtn?.addEventListener('click', () => {
+    if (!currentUser) {
+      showToast('Inicia sesión para crear publicaciones', 'info');
+      return;
+    }
+    cameraInput?.click();
+  });
+  cameraInput?.addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file || !openCreatePost()) return;
+    const isVideo = (file.type || '').startsWith('video/');
+    const target = isVideo ? videoInput : photoInput;
+    try {
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      target.files = transfer.files;
+      target.dispatchEvent(new Event('change'));
+    } catch (err) {
+      console.error('No se pudo añadir lo capturado a la publicación:', err);
+      showToast('No se pudo añadir. Prueba con los botones Foto o Vídeo', 'error');
+    }
   });
 
   // Escape cierra primero el buscador de ubicación y después el editor
