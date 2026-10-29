@@ -26962,3 +26962,164 @@ body.kx-sheet-open #feed-view .feed-container {
   outline: 3px solid var(--kx-coral, #ff8d67);
   outline-offset: 2px;
 }
+
+/* ================== NOTIFICAR UN PROBLEMA EN UNA VÍA ================== */
+.ml-route-report-section {
+  display: flex;
+  justify-content: center;
+  margin: 2px 0 4px;
+}
+
+.ml-route-report-section:empty {
+  display: none;
+}
+
+.ml-route-report-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: transparent;
+  color: var(--kx-ink-3);
+  font-family: var(--kx-font);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease);
+}
+
+.ml-route-report-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.ml-route-report-btn:hover {
+  background: var(--kx-sage-soft);
+  color: var(--kx-ink);
+}
+
+.ml-route-report-btn:focus-visible {
+  outline: 2px solid var(--kx-forest);
+  outline-offset: 2px;
+}
+
+#route-report-sheet .kx-sheet-panel {
+  min-height: 0;
+}
+
+#route-report-sheet .kx-sheet-header {
+  align-items: flex-start;
+}
+
+.rr-heading {
+  min-width: 0;
+}
+
+.rr-route {
+  margin: 4px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--kx-ink-3);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.rr-body {
+  padding: 4px 20px 16px;
+}
+
+.rr-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  margin: 0 0 22px;
+  padding: 0;
+  border: 0;
+}
+
+.rr-group[hidden] {
+  display: none;
+}
+
+.rr-label {
+  padding: 0;
+  color: var(--kx-ink);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.rr-optional {
+  color: var(--kx-ink-3);
+  font-weight: 500;
+}
+
+.rr-optional[hidden] {
+  display: none;
+}
+
+.rr-issues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rr-issues .kx-chip {
+  font-family: var(--kx-font);
+}
+
+.rr-grade-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rr-grade-now {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 800;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+.rr-grade-arrow {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--kx-ink-3);
+}
+
+.rr-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.rr-textarea {
+  min-height: 112px;
+  padding: 12px var(--kx-space-4);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.rr-error {
+  margin: -8px 0 0;
+  color: var(--kx-danger);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.rr-error[hidden] {
+  display: none;
+}

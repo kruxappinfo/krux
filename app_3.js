@@ -4723,7 +4723,7 @@ function updateFeedComposer(user) {
 // ---------- Paneles inferiores del feed: mensajes y notificaciones ----------
 // initMessages / initNotifications siguen abriendo y cerrando con la clase .hidden; aquí solo se
 // reacciona a esos cambios (MutationObserver) para bloquear el fondo, gestionar el foco y los gestos.
-const FEED_SHEET_IDS = ['messages-dropdown', 'notification-dropdown', 'search-sheet'];
+const FEED_SHEET_IDS = ['messages-dropdown', 'notification-dropdown', 'search-sheet', 'route-report-sheet'];
 const FEED_SHEET_CLOSE_MS = 200;
 let feedSheetOpener = null;
 let feedSheetScroll = null;
@@ -6126,6 +6126,7 @@ function initAdminPanelContent() {
           <option value="descripcion">Tipo de escalada</option>
           <option value="exp1">Express</option>
           <option value="long1">Metros</option>
+          <option value="report">Problemas notificados</option>
         </select>
       </div>
 
@@ -6853,17 +6854,31 @@ async function loadAdminSuggestions() {
       query = query.where('status', '==', statusFilter);
     }
 
-    if (fieldFilter !== 'all') {
-      query = query.where('field', '==', fieldFilter);
-    }
-
-    query = query.orderBy('createdAt', 'desc');
+    // La fecha se guarda en "timestamp" y los valores sugeridos dentro de "data" (igual que en admin.js)
+    query = query.orderBy('timestamp', 'desc');
 
     const snapshot = await query.get();
     adminSuggestions = [];
     snapshot.forEach(doc => {
-      adminSuggestions.push({ id: doc.id, ...doc.data() });
+      const raw = doc.data();
+      if (raw.kind === 'report') {
+        adminSuggestions.push({ id: doc.id, ...raw, createdAt: raw.timestamp || null, field: 'report' });
+        return;
+      }
+      const fields = Object.keys(raw.data || {});
+      if (!fields.length) {
+        adminSuggestions.push({ id: doc.id, ...raw, createdAt: raw.timestamp || raw.createdAt || null });
+        return;
+      }
+      fields.forEach(field => adminSuggestions.push({
+        id: doc.id, routeName: raw.routeName, schoolId: raw.schoolId, userEmail: raw.userEmail,
+        status: raw.status, createdAt: raw.timestamp || raw.createdAt || null,
+        field, suggestedValue: String(raw.data[field])
+      }));
     });
+    if (fieldFilter !== 'all') {
+      adminSuggestions = adminSuggestions.filter(s => s.field === fieldFilter);
+    }
 
     renderAdminSuggestions();
 
@@ -6902,6 +6917,7 @@ function renderAdminSuggestions() {
   };
 
   listEl.innerHTML = adminSuggestions.map(suggestion => {
+    if (suggestion.kind === 'report') return adminReportCardHTML(suggestion);
     const date = suggestion.createdAt?.toDate?.() ?
       suggestion.createdAt.toDate().toLocaleDateString('es-ES', {
         day: '2-digit',
@@ -6967,6 +6983,80 @@ function renderAdminSuggestions() {
       </div>
     `;
   }).join('');
+}
+
+const ADMIN_REPORT_ISSUE_LABELS = {
+  grado: 'Grado incorrecto',
+  nombre: 'Nombre incorrecto',
+  datos: 'Express, metros o tipo',
+  ubicacion: 'Ubicación en el mapa',
+  seguridad: 'Chapas o roca en mal estado',
+  otro: 'Otro'
+};
+
+// Tarjeta de un problema notificado desde la ficha de la vía
+function adminReportCardHTML(report) {
+  const date = report.createdAt?.toDate?.() ?
+    report.createdAt.toDate().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  const userInitial = report.userEmail ? report.userEmail.charAt(0).toUpperCase() : '?';
+  const isPending = report.status === 'pending';
+  const proposed = report.proposed || {};
+  const issues = (report.issues || []).map(i => escapeHtmlAdmin(ADMIN_REPORT_ISSUE_LABELS[i] || i)).join(' · ');
+  const changes = [
+    proposed.grado1 ? `Grado: ${escapeHtmlAdmin(report.grade || '?')} → <strong>${escapeHtmlAdmin(proposed.grado1)}</strong>` : '',
+    proposed.nombre ? `Nombre: <strong>${escapeHtmlAdmin(proposed.nombre)}</strong>` : ''
+  ].filter(Boolean).join('<br>');
+
+  return `
+    <div class="admin-suggestion-card ${report.status}" data-id="${report.id}">
+      <div class="admin-suggestion-header">
+        <div class="admin-suggestion-route">${escapeHtmlAdmin(report.routeName || 'Vía')} (${escapeHtmlAdmin(report.grade || '?')})</div>
+        <span class="admin-suggestion-badge report">Problema</span>
+      </div>
+      <div class="admin-suggestion-school">${escapeHtmlAdmin([report.schoolId, report.sector].filter(Boolean).join(' · '))}</div>
+      <div class="admin-suggestion-value">
+        <span class="admin-suggestion-label">${issues}</span>
+        ${changes ? `<span class="admin-suggestion-text">${changes}</span>` : ''}
+        ${report.message ? `<span class="admin-suggestion-text" style="white-space:pre-wrap;">${escapeHtmlAdmin(report.message)}</span>` : ''}
+      </div>
+      <div class="admin-suggestion-meta">
+        <div class="admin-suggestion-user">
+          <span class="admin-suggestion-avatar">${userInitial}</span>
+          <span>${escapeHtmlAdmin(report.userEmail || 'Anónimo')}</span>
+        </div>
+        <span>${date}</span>
+      </div>
+      ${isPending ? `
+        <div class="admin-suggestion-actions">
+          <button class="admin-btn admin-btn-success" onclick="resolveAdminReport('${report.id}')">Marcar resuelto</button>
+          <button class="admin-btn admin-btn-danger" onclick="rejectAdminSuggestion('${report.id}')">Descartar</button>
+        </div>
+      ` : `
+        <div class="admin-suggestion-status">
+          <span class="admin-status-badge ${report.status}">${report.status === 'approved' ? 'Resuelto' : 'Descartado'}</span>
+        </div>
+      `}
+    </div>
+  `;
+}
+
+// Marca el problema como resuelto; la vía se corrige a mano en sus datos
+async function resolveAdminReport(reportId) {
+  const report = adminSuggestions.find(s => s.id === reportId);
+  if (!report) return;
+  if (!confirm(`¿Marcar como resuelto?\n\nVía: ${report.routeName}\n\nRecuerda corregir los datos de la vía si hace falta.`)) return;
+  try {
+    await firebase.firestore().collection('routeSuggestions').doc(reportId).update({
+      status: 'approved',
+      resolvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      resolvedBy: firebase.auth().currentUser?.email || ''
+    });
+    showToast('Problema marcado como resuelto', 'success');
+    loadAdminSuggestions();
+  } catch (error) {
+    console.error('Error resolving report:', error);
+    showToast('Error al marcar como resuelto', 'error');
+  }
 }
 
 async function approveAdminSuggestion(suggestionId) {

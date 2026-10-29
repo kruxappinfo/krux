@@ -3295,6 +3295,8 @@ async function showRoutePopup(props, coords) {
         </button>
       </div>
 
+      <div class="ml-route-report-section">${mlReportButtonHTML({ routeId, routeName, schoolId, sector: sectorName, grade })}</div>
+
       <!-- Botón Ver vía (solo si tiene dibujo en la imagen) -->
       ${hasDrawing ? `
         <div class="ml-route-view-section">
@@ -3541,6 +3543,8 @@ async function mlBuildVariantSlideHTML(variantData, isTrinomial) {
         ${iconShare}
       </button>
     </div>
+
+    <div class="ml-route-report-section">${mlReportButtonHTML({ routeId, routeName, schoolId, sector: sectorName, grade })}</div>
 
     <!-- Botón Ver vía (si tiene dibujo en la imagen del sector) -->
     ${hasDrawing ? `
@@ -3906,6 +3910,11 @@ function mlUpdateBottomSheetContent(props, isTrinomial) {
       <button class="ml-route-action-btn ml-comment-btn" onclick="mlOpenComments(${routeId}, '${encodeURIComponent(routeName)}')" title="Comentarios">${iconComment}</button>
       <button class="ml-route-action-btn" onclick="mlShareRoute(${routeId}, '${encodeURIComponent(routeName)}')" title="Compartir">${iconShare}</button>
     `;
+  }
+
+  const reportSection = document.getElementById('rbs-report-section');
+  if (reportSection) {
+    reportSection.innerHTML = mlReportButtonHTML({ routeId, routeName, schoolId, sector: props.sector || '', grade });
   }
 
   // --- Ver vía / Vincular (async, al navegar entre variantes en mobile) ---
@@ -4836,6 +4845,164 @@ async function mlSubmitContribution(routeId, schoolId) {
 }
 window.mlContributeField = mlContributeField;
 window.mlSubmitContribution = mlSubmitContribution;
+
+// ============================================
+// NOTIFICAR UN PROBLEMA (vías de KRUX)
+// ============================================
+// Se guarda en routeSuggestions con kind: 'report' (las reglas ya permiten crearlo con status 'pending')
+// y los admins lo revisan en Sugerencias.
+
+let mlReportRoute = null;
+let mlReportReady = false;
+
+function mlReportButtonHTML(route) {
+  const data = encodeURIComponent(JSON.stringify(route));
+  return `<button type="button" class="ml-route-report-btn" data-route="${data}" onclick="mlOpenRouteReport(this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22V4"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
+    <span>Notificar un problema</span>
+  </button>`;
+}
+
+function mlOpenRouteReport(btn) {
+  let route = null;
+  try { route = JSON.parse(decodeURIComponent(btn?.dataset.route || '')); } catch (_) { /* sin datos */ }
+  const sheet = document.getElementById('route-report-sheet');
+  if (!route || !sheet) return;
+
+  if (typeof currentUser === 'undefined' || !currentUser) {
+    if (typeof showToast === 'function') showToast('Inicia sesión para notificar un problema', 'info');
+    return;
+  }
+
+  mlInitRouteReport();
+  mlReportRoute = route;
+
+  document.getElementById('route-report-route').textContent =
+    [route.routeName, route.sector].filter(Boolean).join(' · ');
+
+  const now = document.getElementById('route-report-grade-now');
+  now.textContent = route.grade || '?';
+  now.style.backgroundColor = getGradeColor(route.grade || '?');
+
+  const select = document.getElementById('route-report-grade');
+  select.innerHTML = '<option value="">Elige el grado</option>' +
+    ALL_GRADES_ORDERED.map(g => `<option value="${g}">${g}</option>`).join('');
+
+  document.getElementById('route-report-name').value = route.routeName || '';
+  document.getElementById('route-report-message').value = '';
+  document.querySelectorAll('#route-report-issues .kx-chip').forEach(chip => mlSetReportChip(chip, false));
+  mlUpdateReportFields();
+  mlShowReportError('');
+
+  const submit = document.getElementById('route-report-submit');
+  submit.disabled = false;
+  submit.textContent = 'Enviar';
+
+  sheet.classList.remove('hidden');
+}
+
+function mlSetReportChip(chip, on) {
+  chip.classList.toggle('is-active', on);
+  chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+
+function mlSelectedReportIssues() {
+  return [...document.querySelectorAll('#route-report-issues .kx-chip.is-active')].map(c => c.dataset.issue);
+}
+
+// Campos que dependen de lo marcado: grado correcto, nombre correcto y texto obligatorio con «Otro»
+function mlUpdateReportFields() {
+  const issues = mlSelectedReportIssues();
+  document.getElementById('route-report-grade-group').hidden = !issues.includes('grado');
+  document.getElementById('route-report-name-group').hidden = !issues.includes('nombre');
+  document.getElementById('route-report-optional').hidden = issues.includes('otro');
+}
+
+function mlShowReportError(text) {
+  const el = document.getElementById('route-report-error');
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+function mlInitRouteReport() {
+  if (mlReportReady) return;
+  mlReportReady = true;
+
+  document.getElementById('route-report-issues').addEventListener('click', (e) => {
+    const chip = e.target.closest('.kx-chip');
+    if (!chip) return;
+    mlSetReportChip(chip, !chip.classList.contains('is-active'));
+    mlUpdateReportFields();
+    mlShowReportError('');
+  });
+
+  document.getElementById('route-report-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    mlSubmitRouteReport();
+  });
+}
+
+async function mlSubmitRouteReport() {
+  const route = mlReportRoute;
+  if (!route) return;
+  if (typeof currentUser === 'undefined' || !currentUser) {
+    mlShowReportError('Inicia sesión para notificar un problema.');
+    return;
+  }
+
+  const issues = mlSelectedReportIssues();
+  const message = document.getElementById('route-report-message').value.trim();
+  const grade = document.getElementById('route-report-grade').value;
+  const name = document.getElementById('route-report-name').value.trim();
+
+  if (!issues.length) return mlShowReportError('Marca qué ocurre con la vía.');
+  if (issues.includes('grado') && (!grade || grade === route.grade)) {
+    return mlShowReportError('Elige el grado correcto.');
+  }
+  if (issues.includes('nombre') && (!name || name === route.routeName)) {
+    return mlShowReportError('Escribe el nombre correcto.');
+  }
+  if (issues.includes('otro') && !message) return mlShowReportError('Cuéntanos qué ocurre.');
+
+  const report = {
+    kind: 'report',
+    routeId: route.routeId,
+    routeName: route.routeName || 'Sin nombre',
+    schoolId: route.schoolId || '',
+    sector: route.sector || '',
+    grade: route.grade || '',
+    issues,
+    message,
+    userId: currentUser.uid,
+    userEmail: currentUser.email || '',
+    status: 'pending',
+    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  const proposed = {};
+  if (issues.includes('grado')) proposed.grado1 = grade;
+  if (issues.includes('nombre')) proposed.nombre = name;
+  if (Object.keys(proposed).length) report.proposed = proposed;
+
+  const submit = document.getElementById('route-report-submit');
+  submit.disabled = true;
+  submit.textContent = 'Enviando…';
+  mlShowReportError('');
+
+  try {
+    await db.collection('routeSuggestions').add(report);
+    const sheet = document.getElementById('route-report-sheet');
+    if (typeof closeFeedSheet === 'function') closeFeedSheet(sheet);
+    else sheet.classList.add('hidden');
+    if (typeof showToast === 'function') showToast('Gracias. Revisaremos la vía', 'success');
+  } catch (error) {
+    console.error('Error enviando el reporte de la vía:', error);
+    mlShowReportError('No se pudo enviar. Inténtalo de nuevo.');
+    submit.disabled = false;
+    submit.textContent = 'Enviar';
+  }
+}
+
+window.mlOpenRouteReport = mlOpenRouteReport;
 
 // Funciones para los botones del popup - conectadas con user-features.js
 function mlRegisterAscent(routeId, encodedName) {
@@ -7430,6 +7597,11 @@ async function showRouteBottomSheet(props, coords) {
       <button class="ml-route-action-btn ml-comment-btn" onclick="mlOpenComments(${routeId}, '${encodeURIComponent(routeName)}')" title="Comentarios">${iconComment}${commentBadge}</button>
       <button class="ml-route-action-btn" onclick="mlShareRoute(${routeId}, '${encodeURIComponent(routeName)}')" title="Compartir">${iconShare}</button>
     `;
+  }
+
+  const reportSection = document.getElementById('rbs-report-section');
+  if (reportSection) {
+    reportSection.innerHTML = mlReportButtonHTML({ routeId, routeName, schoolId, sector: props.sector || '', grade });
   }
 
   // --- Botón Ver vía ---

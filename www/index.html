@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=60" />
+  <link rel="stylesheet" href="./app_2.css?v=61" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -95,9 +95,9 @@
 
   <script defer src="./maplibre-config.js?v=3"></script>
 
-  <script defer src="./maplibre-map.js?v=14"></script>
+  <script defer src="./maplibre-map.js?v=15"></script>
 
-  <script defer src="./app_3.js?v=60"></script>
+  <script defer src="./app_3.js?v=61"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -1484,6 +1484,69 @@
     </section>
   </div>
 
+  <!-- Notificar un problema en una vía de KRUX -->
+  <div id="route-report-sheet" class="kx-sheet hidden" role="dialog" aria-modal="true"
+    aria-labelledby="route-report-title">
+    <div class="kx-sheet-scrim" data-sheet-close></div>
+    <section class="kx-sheet-panel" tabindex="-1">
+      <div class="kx-sheet-drag">
+        <div class="kx-sheet-handle" aria-hidden="true"></div>
+        <div class="kx-sheet-header">
+          <div class="rr-heading">
+            <h2 class="kx-sheet-title" id="route-report-title">Notificar un problema</h2>
+            <p class="rr-route" id="route-report-route"></p>
+          </div>
+          <button type="button" class="sheet-close" data-sheet-close aria-label="Cerrar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <form id="route-report-form" class="kx-sheet-body rr-body" novalidate>
+        <fieldset class="rr-group">
+          <legend class="rr-label">¿Qué ocurre?</legend>
+          <div class="rr-issues" id="route-report-issues">
+            <button type="button" class="kx-chip" data-issue="grado" aria-pressed="false">Grado incorrecto</button>
+            <button type="button" class="kx-chip" data-issue="nombre" aria-pressed="false">Nombre incorrecto</button>
+            <button type="button" class="kx-chip" data-issue="datos" aria-pressed="false">Express, metros o tipo</button>
+            <button type="button" class="kx-chip" data-issue="ubicacion" aria-pressed="false">Ubicación en el mapa</button>
+            <button type="button" class="kx-chip" data-issue="seguridad" aria-pressed="false">Chapas o roca en mal estado</button>
+            <button type="button" class="kx-chip" data-issue="otro" aria-pressed="false">Otro</button>
+          </div>
+        </fieldset>
+
+        <div class="rr-group" id="route-report-grade-group" hidden>
+          <label class="rr-label" for="route-report-grade">Grado correcto</label>
+          <div class="rr-grade-row">
+            <span class="rr-grade-now" id="route-report-grade-now"></span>
+            <svg class="rr-grade-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            <select class="kx-field rr-select" id="route-report-grade"></select>
+          </div>
+        </div>
+
+        <div class="rr-group" id="route-report-name-group" hidden>
+          <label class="rr-label" for="route-report-name">Nombre correcto</label>
+          <input type="text" class="kx-field" id="route-report-name" maxlength="120" autocomplete="off">
+        </div>
+
+        <div class="rr-group">
+          <label class="rr-label" for="route-report-message">Cuéntanos qué está mal <span class="rr-optional" id="route-report-optional">(opcional)</span></label>
+          <textarea class="kx-field rr-textarea" id="route-report-message" rows="4" maxlength="1000"
+            placeholder="Ej.: pone 5, pero el largo más difícil es 5b."></textarea>
+        </div>
+
+        <p class="rr-error" id="route-report-error" role="alert" hidden></p>
+      </form>
+      <div class="kx-sheet-footer">
+        <button type="submit" form="route-report-form" class="kx-btn kx-btn--primary kx-sheet-footer-btn" id="route-report-submit">Enviar</button>
+      </div>
+    </section>
+  </div>
+
   <!-- Overlay para foto grande de la vÃ­a -->
   <div id="route-photo-overlay" class="route-photo-overlay hidden">
     <div class="route-photo-overlay-inner">
@@ -2837,6 +2900,9 @@
 
       <!-- Botonera de acciones -->
       <div class="rbs-actions" id="rbs-actions"></div>
+
+      <!-- Notificar un problema (vías de KRUX) -->
+      <div class="ml-route-report-section" id="rbs-report-section"></div>
 
       <!-- Botón Ver vía -->
       <div class="rbs-view-section hidden" id="rbs-view-section">

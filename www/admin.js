@@ -2424,6 +2424,12 @@ async function loadSuggestions() {
         snapshot.forEach(doc => {
             const raw = doc.data();
 
+            // Problemas notificados desde la ficha de la vía: una sola tarjeta
+            if (raw.kind === 'report') {
+                allSuggestions.push({ id: doc.id, ...raw, createdAt: raw.timestamp || null, field: 'report' });
+                return;
+            }
+
             // Normalizar: expandir el objeto "data" a pares campo/valor individuales
             // para que renderSuggestions pueda iterar sobre cada campo sugerido
             const dataFields = raw.data || {};
@@ -2506,6 +2512,8 @@ function renderSuggestions(suggestions) {
     };
 
     container.innerHTML = suggestions.map((suggestion, idx) => {
+        if (suggestion.kind === 'report') return renderReportCard(suggestion);
+
         // Usar un ID único por entrada (docId + campo) para evitar colisiones
         const uniqueKey = suggestion.field ? `${suggestion.id}_${suggestion.field}` : `${suggestion.id}_${idx}`;
 
@@ -2591,6 +2599,95 @@ function renderSuggestions(suggestions) {
     }).join('');
 }
 
+const REPORT_ISSUE_LABELS = {
+    grado: 'Grado incorrecto',
+    nombre: 'Nombre incorrecto',
+    datos: 'Express, metros o tipo',
+    ubicacion: 'Ubicación en el mapa',
+    seguridad: 'Chapas o roca en mal estado',
+    otro: 'Otro'
+};
+
+/**
+ * Tarjeta de un problema notificado por un usuario (kind: 'report')
+ */
+function renderReportCard(report) {
+    const date = report.createdAt?.toDate?.() ?
+        report.createdAt.toDate().toLocaleDateString('es-ES', {
+            day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        }) : 'Fecha desconocida';
+    const userInitial = report.userEmail ? report.userEmail.charAt(0).toUpperCase() : '?';
+    const isPending = report.status === 'pending';
+    const issues = (report.issues || []).map(i =>
+        `<span class="suggestion-field-badge report">${escapeHtml(REPORT_ISSUE_LABELS[i] || i)}</span>`).join(' ');
+    const proposed = report.proposed || {};
+    const changes = [
+        proposed.grado1 ? `<div><strong>Grado:</strong> ${escapeHtml(report.grade || '?')} → ${escapeHtml(proposed.grado1)}</div>` : '',
+        proposed.nombre ? `<div><strong>Nombre:</strong> ${escapeHtml(report.routeName || '')} → ${escapeHtml(proposed.nombre)}</div>` : ''
+    ].join('');
+
+    return `
+        <div class="suggestion-card ${report.status}" data-id="${report.id}" data-field="report">
+            <div class="suggestion-header">
+                <div class="suggestion-route-info">
+                    <div class="suggestion-route-name">${escapeHtml(report.routeName)} <small>(${escapeHtml(report.grade || '?')})</small></div>
+                    <div class="suggestion-school">${escapeHtml([report.schoolId, report.sector].filter(Boolean).join(' · ') || 'Escuela desconocida')} · id ${escapeHtml(String(report.routeId ?? '?'))}</div>
+                </div>
+                <span class="suggestion-field-badge report">Problema</span>
+            </div>
+
+            <div class="suggestion-content">
+                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">${issues}</div>
+                ${changes ? `<div class="suggestion-value">${changes}</div>` : ''}
+                ${report.message ? `<div class="suggestion-value" style="white-space:pre-wrap;">${escapeHtml(report.message)}</div>` : ''}
+            </div>
+
+            <div class="suggestion-meta">
+                <div class="suggestion-user">
+                    <div class="suggestion-user-avatar">${userInitial}</div>
+                    <span>${escapeHtml(report.userEmail || 'Usuario anónimo')}</span>
+                </div>
+                <span>${date}</span>
+            </div>
+
+            ${isPending ? `
+                <div class="suggestion-actions">
+                    <button class="btn btn-success btn-sm" onclick="resolveReport('${report.id}')">Marcar resuelto</button>
+                    <button class="btn btn-danger btn-sm" onclick="rejectSuggestion('${report.id}')">Descartar</button>
+                    <button class="btn btn-secondary btn-sm" onclick="deleteSuggestion('${report.id}')">Eliminar</button>
+                </div>
+            ` : `
+                <div class="suggestion-actions">
+                    <span class="badge badge-${report.status}">${report.status === 'approved' ? 'Resuelto' : 'Descartado'}</span>
+                </div>
+            `}
+        </div>
+    `;
+}
+
+/**
+ * Marca un problema notificado como resuelto. No cambia la vía: la corrección se hace a mano en los datos.
+ */
+async function resolveReport(reportId) {
+    const report = allSuggestions.find(s => s.id === reportId);
+    if (!report) return;
+    if (!confirm(`¿Marcar como resuelto?\n\nVía: ${report.routeName}\n\nRecuerda corregir los datos de la vía si hace falta.`)) {
+        return;
+    }
+    try {
+        await db.collection('routeSuggestions').doc(reportId).update({
+            status: 'approved',
+            resolvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            resolvedBy: currentUser.email
+        });
+        showToast('Problema marcado como resuelto', 'success');
+        loadSuggestions();
+    } catch (error) {
+        console.error('Error resolving report:', error);
+        showToast('Error al marcar como resuelto', 'error');
+    }
+}
+
 /**
  * Aprueba una sugerencia y actualiza la vía en los datos
  */
@@ -2655,7 +2752,8 @@ async function rejectSuggestion(suggestionId) {
     const suggestion = allSuggestions.find(s => s.id === suggestionId);
     if (!suggestion) return;
 
-    if (!confirm(`¿Rechazar esta sugerencia?\n\nVía: ${suggestion.routeName}\nValor: ${suggestion.suggestedValue}`)) {
+    const detail = suggestion.kind === 'report' ? 'Problema notificado' : `Valor: ${suggestion.suggestedValue}`;
+    if (!confirm(`¿Rechazar esta sugerencia?\n\nVía: ${suggestion.routeName}\n${detail}`)) {
         return;
     }
 
