@@ -17443,13 +17443,19 @@ const KruxTrainStore = (() => {
     return {
       dateKey: str(rec.dateKey, 10),
       sessionName: str(rec.sessionName, 80),
+      ...(rec.planId ? { planId: str(rec.planId, 60), planName: str(rec.planName, 80) } : {}),
+      ...(rec.planRevision ? { planRevision: int(rec.planRevision) } : {}),
+      ...(rec.planSessionId ? { planSessionId: str(rec.planSessionId, 60) } : {}),
       startedAt: Number(rec.startedAt) || Date.now(),
       durationSec: int(rec.durationSec),
       exercises: rec.exercises.slice(0, 30).map(e => ({
         name: str(e.name, 80),
         ...(e.exerciseId ? { exerciseId: str(e.exerciseId, 80), exerciseContentVersion: Math.max(1, int(e.exerciseContentVersion) || 1) } : {}),
         target: exercisePayload({ name: e.name, ...e.target }),
-        sets: e.sets.slice(0, 50).map(st => ({ n: int(st.n), workSec: int(st.workSec), reps: int(st.reps), weight: Math.max(0, Number(st.weight) || 0), rpe: Math.min(10, int(st.rpe)), time: str(st.time, 5) }))
+        sets: e.sets.slice(0, 50).map(st => ({
+          n: int(st.n), workSec: int(st.workSec), reps: int(st.reps), weight: Math.max(0, Number(st.weight) || 0), rpe: Math.min(10, int(st.rpe)), time: str(st.time, 5),
+          ...(Number(st.assistanceKg) > 0 ? { assistanceKg: Math.min(80, Number(st.assistanceKg)) } : {})
+        }))
       }))
     };
   }
@@ -17478,12 +17484,20 @@ const KruxTrainStore = (() => {
 
   async function saveSession(rec) {
     if (!uid()) return false;
+    // Una sesión empezada con una cuenta no se guarda en otra distinta
+    if (rec.ownerUid && rec.ownerUid !== uid()) {
+      reportError('Esta sesión es de otra cuenta', Object.assign(new Error('owner mismatch'), { code: 'kx/other-account' }));
+      return false;
+    }
+    if (rec.id) return true;   // ya confirmada por el servidor: reintentar no la vuelve a escribir
     try {
       // El id se fija una vez: si se reintenta tras un corte de red no se duplica la sesión
       if (!rec._ref) Object.defineProperty(rec, '_ref', { value: userRef().collection('training_sessions').doc(), enumerable: false, writable: true });
+      // Fecha fijada una vez: un reintento escribe exactamente lo mismo (las reglas lo aceptan aunque la primera ya se aplicara)
+      if (!rec._createdAt) Object.defineProperty(rec, '_createdAt', { value: firebase.firestore.Timestamp.now(), enumerable: false, writable: true });
       await ack(rec._ref.set({
         ...sessionPayload(rec),
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        createdAt: rec._createdAt
       }));
       rec.id = rec._ref.id;
       return true;
@@ -17547,7 +17561,7 @@ const KruxTrainStore = (() => {
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
   });
 
-  return { savePlan, saveSession, updateSession, isSignedIn: () => !!uid() };
+  return { savePlan, saveSession, updateSession, isSignedIn: () => !!uid(), currentUid: uid };
 })();
 window.KruxTrainStore = KruxTrainStore;
 
@@ -17751,7 +17765,11 @@ function initTrainView() {
       badgeEl.className = 'train-session-badge is-demo';
     } else if (st.kind === 'session') {
       // Misma referencia que el plan: las ediciones del ejercicio se quedan en el plan
-      window.kruxTrainData = { name: st.sess.name, exercises: st.sess.exercises, demo: false };
+      const plan = window.kruxActivePlan || {};
+      window.kruxTrainData = {
+        name: st.sess.name, exercises: st.sess.exercises, demo: false,
+        planId: plan.id || null, planName: plan.name || '', planRevision: plan.revision || null, planSessionId: st.sess.id || null
+      };
       badgeEl.textContent = isSelectedToday() ? 'Hoy' : DAY_NAMES[selectedIdx];
       badgeEl.className = 'train-session-badge' + (isSelectedToday() ? ' is-today' : '');
     } else {
@@ -18506,8 +18524,38 @@ function makePcCard(d, isTop) {
 
 // ================== ACTIVE SESSION MODULE ==================
 (function () {
-  // Usa los datos compartidos para que las ediciones del train view se reflejen aquí
-  function EXERCISES() { return window.kruxTrainData ? window.kruxTrainData.exercises : []; }
+  // La sesión trabaja SIEMPRE con la copia tomada al empezar (run), nunca con el plan editable:
+  // refrescar Entrena, editar el plan, cargar datos o cambiar de cuenta no alteran lo que se ejecuta.
+  //   run.exercises     copia de trabajo (la carga puede ajustarse durante la sesión, solo en esta copia)
+  //   run.prescription  copia congelada de la prescripción original (es lo que se guarda como objetivo)
+  let run = null;
+  function EXERCISES() { return run ? run.exercises : []; }
+
+  function deepFreeze(o) {
+    Object.values(o).forEach(v => { if (v && typeof v === 'object') deepFreeze(v); });
+    return Object.freeze(o);
+  }
+
+  function takeSnapshot(data) {
+    const copy = () => JSON.parse(JSON.stringify(data.exercises || []));
+    return {
+      planId: data.planId || null,
+      planName: data.planName || '',
+      planRevision: data.planRevision || null,
+      planSessionId: data.planSessionId || null,
+      sessionName: data.name,
+      demo: !!data.demo,
+      ownerUid: (window.KruxTrainStore && KruxTrainStore.currentUid && KruxTrainStore.currentUid()) || null,
+      exercises: copy(),
+      prescription: deepFreeze(copy())
+    };
+  }
+
+  // ¿Hay un entrenamiento en curso? Lo consultan las acciones sobre planes
+  window.KruxTrainSession = {
+    isRunning: () => !!run,
+    info: () => (run ? { planId: run.planId, planName: run.planName, sessionName: run.sessionName } : null)
+  };
 
   const RING = 314;
   const SVG = {
@@ -18562,7 +18610,7 @@ function makePcCard(d, isTop) {
   // ─────────────────────────────────────────────────────────────────────
 
   // mode: idle | work | paused | rest | between (ejercicio terminado, esperando al siguiente)
-  let exIdx, setsDone, mode, timerSec, targetSec, intervalId, elapsedSec, elapsedId, record, rpeOpen, planDirty;
+  let exIdx, setsDone, mode, timerSec, targetSec, intervalId, elapsedSec, elapsedId, record, rpeOpen;
   let TEMPLATE = '';
 
   function $ (id) { return document.getElementById(id); }
@@ -18583,33 +18631,42 @@ function makePcCard(d, isTop) {
   function curSets() { return record.exercises[exIdx].sets; }
 
   function open() {
-    if (!EXERCISES().length) {
+    if (run) return;   // ya hay un entrenamiento abierto: no se reinicia
+    const source = window.kruxTrainData;
+    if (!source || !(source.exercises || []).length) {
       if (typeof showToast === 'function') showToast('Esta sesión no tiene ejercicios', 'info');
       return;
     }
     const modal = $('session-modal');
     const screen = $('session-screen');
     if (!modal || !screen) return;
+    run = takeSnapshot(source);
 
     // Restaurar la pantalla si la sustituyó el resumen final
     if (TEMPLATE && !screen.querySelector('.session-hero')) screen.innerHTML = TEMPLATE;
 
     exIdx = 0; setsDone = 0; mode = 'idle';
     timerSec = 0; targetSec = 0; intervalId = null;
-    elapsedSec = 0; elapsedId = null; rpeOpen = false; planDirty = false;
+    elapsedSec = 0; elapsedId = null; rpeOpen = false;
 
-    const data = window.kruxTrainData;
+    const data = run;
     record = {
       dateKey: typeof trDateKey === 'function' ? trDateKey(new Date()) : new Date().toISOString().slice(0, 10),
-      sessionName: data.name,
-      demo: !!data.demo,
+      sessionName: data.sessionName,
+      demo: data.demo,
       startedAt: Date.now(),
-      exercises: EXERCISES().map(ex => ({
+      ownerUid: data.ownerUid,
+      planId: data.planId, planName: data.planName, planRevision: data.planRevision, planSessionId: data.planSessionId,
+      exercises: data.prescription.map(ex => ({
         name: ex.name,
         exerciseId: ex.exerciseId || null,
         exerciseContentVersion: ex.exerciseContentVersion || null,
-        // Prescripción tal y como estaba al empezar: el historial no cambia si luego se edita el plan
-        target: { sets: ex.sets, workSec: ex.workSec, reps: ex.reps, weight: ex.weight, rpeTarget: ex.rpeTarget, assistanceKg: ex.assistanceKg, distanceM: ex.distanceM, tempo: ex.tempo, recoverySec: ex.recoverySec },
+        // Prescripción objetivo congelada al empezar: no cambia aunque luego se edite el plan,
+        // ni por los ajustes hechos durante la sesión (esos quedan en cada serie realizada)
+        target: {
+          sets: ex.sets, workSec: ex.workSec, reps: ex.reps, weight: ex.weight, restSec: ex.restSec, rpeTarget: ex.rpeTarget,
+          assistanceKg: ex.assistanceKg, distanceM: ex.distanceM, tempo: ex.tempo, recoverySec: ex.recoverySec, notes: ex.notes
+        },
         sets: []
       }))
     };
@@ -18624,7 +18681,7 @@ function makePcCard(d, isTop) {
       if (el) el.textContent = hms(elapsedSec);
     }, 1000);
 
-    $('session-session-name').textContent = data.demo ? `${data.name} · ejemplo` : data.name;
+    $('session-session-name').textContent = data.demo ? `${data.sessionName} · ejemplo` : data.sessionName;
     renderExercise();
     // Foco en el título del ejercicio para lectores de pantalla (sin anillo visible)
     setTimeout(() => $('session-ex-name')?.focus({ preventScroll: true }), 350);
@@ -18636,9 +18693,7 @@ function makePcCard(d, isTop) {
     const modal = $('session-modal');
     if (modal) modal.classList.add('hidden');
     document.body.classList.remove('session-open');
-    // La carga ajustada durante la sesión se queda en el plan
-    if (planDirty && record && !record.demo && window.kruxActivePlan) KruxTrainStore.savePlan(window.kruxActivePlan);
-    planDirty = false;
+    run = null;
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
   }
 
@@ -18903,7 +18958,10 @@ function makePcCard(d, isTop) {
     const held = (mode === 'work' || mode === 'paused') && timerSec > 0 ? timerSec : ex.workSec;
     clearInterval(intervalId);
     soundDone();
-    curSets().push({ n: setsDone + 1, workSec: ex.workSec > 0 ? held : 0, reps: ex.workSec > 0 ? 0 : ex.reps, weight: ex.weight || 0, rpe: 0, time: nowHM() });
+    curSets().push({
+      n: setsDone + 1, workSec: ex.workSec > 0 ? held : 0, reps: ex.workSec > 0 ? 0 : ex.reps, weight: ex.weight || 0, rpe: 0, time: nowHM(),
+      ...(ex.assistanceKg > 0 ? { assistanceKg: ex.assistanceKg } : {})
+    });
     setsDone++;
     rpeOpen = true;
     if (setsDone >= ex.sets) {
@@ -18931,8 +18989,8 @@ function makePcCard(d, isTop) {
 
   function changeLoad(delta) {
     const ex = EXERCISES()[exIdx];
+    // Solo cambia la copia de esta sesión: el plan original no se toca
     ex.weight = Math.max(0, Math.min(200, (ex.weight || 0) + delta));
-    planDirty = true;
     renderSpecs();
     renderMetrics();
   }
@@ -19003,12 +19061,15 @@ function makePcCard(d, isTop) {
       const notes = (document.getElementById('plog-notes') || {}).value || '';
       const feelLabel = (FEELS.find(f => f[0] === logFeel) || [])[1] || '';
       Object.assign(record, { feel: logFeel, rpe: logRpe, notes, tags: [...logTags] });
-      if (!saveHint) {
-        saved.then(ok => (ok ? KruxTrainStore.updateSession(record, record) : false)).then(ok => {
-          const hint = document.getElementById('plog-done-hint');
-          if (hint) hint.textContent = ok ? 'Guardada en tu cuenta.' : 'No se ha podido confirmar el guardado en tu cuenta. Comprueba tu conexión.';
-        });
-      }
+      // Guardado confirmado por el servidor; si falla, se puede reintentar sin duplicar la sesión
+      const sync = pending => pending.then(ok => (ok ? KruxTrainStore.updateSession(record, record) : false)).then(ok => {
+        const hint = document.getElementById('plog-done-hint');
+        const retry = document.getElementById('plog-retry');
+        const otherAccount = !ok && record.ownerUid && record.ownerUid !== KruxTrainStore.currentUid();
+        if (hint) hint.textContent = ok ? 'Guardada en tu cuenta.' : otherAccount ? 'Esta sesión era de otra cuenta y no se ha guardado en la actual.' : 'No se ha podido confirmar el guardado en tu cuenta. Comprueba tu conexión.';
+        if (retry) { retry.hidden = !!ok || !!otherAccount; retry.disabled = false; }
+      });
+      if (!saveHint) sync(saved);
       screen.innerHTML = `
         <div class="plog-done">
           <span class="plog-done-mark">${SVG.check}</span>
@@ -19016,8 +19077,14 @@ function makePcCard(d, isTop) {
           <p class="plog-done-sub">${mins} min · ${doneSets} ${doneSets === 1 ? 'serie' : 'series'} · ${feelLabel} · RPE ${logRpe}</p>
           ${notes ? `<p class="plog-done-notes">${esc(notes)}</p>` : ''}
           <p class="plog-done-hint" id="plog-done-hint" aria-live="polite">${saveHint || 'Guardando…'}</p>
+          <button type="button" class="plog-save-btn plog-retry" id="plog-retry" hidden>Reintentar guardado</button>
           <button type="button" class="plog-save-btn" id="plog-close-done">Volver a Entrena</button>
         </div>`;
+      document.getElementById('plog-retry').addEventListener('click', e => {
+        e.currentTarget.disabled = true;
+        document.getElementById('plog-done-hint').textContent = 'Guardando…';
+        sync(KruxTrainStore.saveSession(record));
+      });
       document.getElementById('plog-close-done').addEventListener('click', close);
       document.getElementById('plog-done-title').focus({ preventScroll: true });
     }
