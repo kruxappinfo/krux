@@ -2002,21 +2002,8 @@ function promptSectorPhoto(schoolId, sectorName, onNo) {
  * Muestra un toast de notificación
  */
 function showDevToast(message, type = 'info') {
-  // Remover toast existente
-  const existing = document.querySelector('.dev-toast');
-  if (existing) existing.remove();
-
-  const toast = document.createElement('div');
-  toast.className = `dev-toast dev-toast-${type}`;
-  toast.textContent = message;
-
-  document.body.appendChild(toast);
-
-  // Auto-remover después de 4 segundos
-  setTimeout(() => {
-    toast.classList.add('dev-toast-hide');
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
+  // Un único sistema de avisos para toda la app (showToast, en user-features.js)
+  showToast(message, type);
 }
 
 // ============================================

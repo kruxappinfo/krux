@@ -875,22 +875,14 @@ async function openRouteCreatorForCurrentSector() {
   const sectorName = await findNearestSector(mlCurrentSchool, center.lng, center.lat);
 
   if (!sectorName) {
-    if (typeof showRDToast === 'function') {
-      showRDToast('No se encontró ningún sector cercano', 'error');
-    } else {
-      alert('No se encontró ningún sector cercano');
-    }
+    showToast('No se encontró ningún sector cercano', 'warning');
     return;
   }
 
   // Verificar que existe imagen del sector
   const hasImage = await sectorHasImage(mlCurrentSchool, sectorName);
   if (!hasImage) {
-    if (typeof showRDToast === 'function') {
-      showRDToast(`El sector "${sectorName}" no tiene imagen. Sube una imagen primero.`, 'error');
-    } else {
-      alert(`El sector "${sectorName}" no tiene imagen. Sube una imagen primero.`);
-    }
+    showToast(`El sector «${sectorName}» no tiene imagen\nSube una imagen primero.`, 'warning');
     return;
   }
 
@@ -4080,11 +4072,11 @@ async function mlVoteAleje(routeId, schoolId, level) {
         : 'Aleje';
     }
 
-    if (typeof showToast === 'function') showToast(isUnvote ? 'Voto de aleje cancelado' : 'Aleje actualizado');
+    if (typeof showToast === 'function') showToast(isUnvote ? 'Voto de aleje cancelado' : 'Aleje actualizado', 'success');
 
   } catch (e) {
     console.error('[Aleje] Error votando:', e);
-    if (typeof showToast === 'function') showToast('Error al votar aleje');
+    if (typeof showToast === 'function') showToast('No se ha podido votar el aleje', 'error');
   }
 }
 
@@ -4293,10 +4285,10 @@ async function mlCancelGradeVote(routeId, schoolId, input) {
     const rbsBadge = document.getElementById('rbs-consensus-badge');
     if (rbsBadge && !showBadge) rbsBadge.style.display = 'none';
 
-    if (typeof showToast === 'function') showToast('Voto cancelado');
+    if (typeof showToast === 'function') showToast('Voto cancelado', 'success');
   } catch (e) {
     console.error('[GradeVotes] Error cancelando voto:', e);
-    if (typeof showToast === 'function') showToast('Error al cancelar el voto');
+    if (typeof showToast === 'function') showToast('No se ha podido cancelar el voto', 'error');
   }
 }
 
@@ -4385,10 +4377,10 @@ async function mlVoteGrade(routeId, schoolId, gradeIdx) {
     const sliderInput = container ? container.querySelector('.ml-grade-slider-input') : null;
     if (sliderInput) sliderInput.setAttribute('data-user-vote-step', sliderInput.value);
 
-    if (typeof showToast === 'function') showToast('Grado actualizado');
+    if (typeof showToast === 'function') showToast('Grado actualizado', 'success');
   } catch (e) {
     console.error('[GradeVotes] Error votando:', e);
-    if (typeof showToast === 'function') showToast('Error al votar el grado');
+    if (typeof showToast === 'function') showToast('No se ha podido votar el grado', 'error');
   }
 }
 
@@ -4548,7 +4540,7 @@ async function mlVoteEstado(routeId, schoolId, level) {
 
   } catch (e) {
     console.error('[Estado] Error votando:', e);
-    if (typeof showToast === 'function') showToast('Error al votar estado');
+    if (typeof showToast === 'function') showToast('No se ha podido votar el estado', 'error');
   }
 }
 
