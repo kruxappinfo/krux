@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=55" />
+  <link rel="stylesheet" href="./app_2.css?v=56" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -97,7 +97,7 @@
 
   <script defer src="./maplibre-map.js?v=14"></script>
 
-  <script defer src="./app_3.js?v=55"></script>
+  <script defer src="./app_3.js?v=56"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -2324,6 +2324,26 @@
           <input type="file" id="create-post-photo-input" accept="image/*" style="display: none;" multiple>
           <input type="file" id="create-post-video-input" accept="video/*" style="display: none;">
         </form>
+      </div>
+      <!-- Selector de ascensión: lista el libro de ascensiones del usuario -->
+      <div id="ascent-picker" class="cp-picker hidden" role="dialog" aria-modal="true" aria-labelledby="ascent-picker-title">
+        <div class="cp-picker-header">
+          <button type="button" class="close-btn" id="ascent-picker-back" aria-label="Volver al editor">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          </button>
+          <h3 id="ascent-picker-title">Elegir ascensión</h3>
+          <span class="cp-picker-spacer" aria-hidden="true"></span>
+        </div>
+        <div class="cp-picker-tools">
+          <label class="kx-search">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="search" id="ascent-picker-search" placeholder="Buscar por vía, escuela, sector o grado"
+              autocomplete="off" enterkeyhint="search" aria-label="Buscar ascensión">
+          </label>
+        </div>
+        <div class="cp-picker-list" id="ascent-picker-list" aria-live="polite"></div>
       </div>
     </div>
   </div>

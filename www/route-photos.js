@@ -128,8 +128,12 @@ async function uploadRoutePhoto(schoolId, routeId, routeName, file) {
         const storageRef = storage.ref();
         const photoRef = storageRef.child(`route-photos/${schoolId}/${filename}`);
 
-        // Upload file
-        const uploadTask = await photoRef.put(file);
+        // Upload file (reducida y con caché de un año; si no se puede optimizar se sube el original)
+        const toUpload = (typeof kxPrepareImageForUpload === 'function') ? await kxPrepareImageForUpload(file) : file;
+        const uploadTask = await photoRef.put(toUpload, {
+            contentType: toUpload.type || undefined,
+            cacheControl: 'public,max-age=31536000,immutable'
+        });
 
         // Get download URL
         const photoUrl = await uploadTask.ref.getDownloadURL();

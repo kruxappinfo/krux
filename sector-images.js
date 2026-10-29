@@ -1297,6 +1297,7 @@ async function uploadSectorImage(schoolId, encodedSectorName) {
 
       const uploadTask = storageRef.put(fileToUpload, {
         contentType: 'image/jpeg',
+        cacheControl: 'public,max-age=31536000,immutable',
         customMetadata: {
           schoolId,
           sectorName,
