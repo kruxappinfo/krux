@@ -4640,7 +4640,7 @@ function lbSwipeTo(dx) {
   main.style.transform = `translate3d(${x}px, 0, 0) scale(1)`;
   if (hasNeighbor) {
     if (!LB.peekEl || LB.peekDir !== dir) lbPreparePeek(dir);
-    LB.peekEl.style.transform = `translate3d(${x - dir * W}px, 0, 0)`;
+    LB.peekEl.style.transform = `translate3d(${x + dir * W}px, 0, 0)`; // el contiguo espera al lado contrario del dedo
   } else {
     lbHidePeek();
   }
