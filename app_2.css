@@ -24285,12 +24285,12 @@ body.plan-editor-open { overflow: hidden; }
   position: absolute;
   top: 2px;
   bottom: 12px;
-  right: calc(12px + 6px + 1px);
+  right: calc(12px + 4px); /* centrado en el hueco entre el campo y el borde de la tarjeta */
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   margin: auto 0;
   padding: 0;
   border: 0;
@@ -24383,7 +24383,7 @@ body.plan-editor-open { overflow: hidden; }
   }
 
   .feed-composer-camera {
-    right: calc(10px + 6px + 1px);
+    right: calc(10px + 4px);
   }
 }
 
