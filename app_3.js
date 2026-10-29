@@ -10658,6 +10658,7 @@ function attachFeedEventListeners(container) {
       // Toggle del dropdown actual
       if (dropdown) {
         dropdown.classList.toggle('hidden');
+        kxPlacePostMenu(dropdown);
       }
     });
   });
@@ -13049,6 +13050,7 @@ function renderPostInModal(post, container) {
       const dropdown = container.querySelector(`.feed-post-menu-dropdown[data-post-id="${postId}"]`);
       if (dropdown) {
         dropdown.classList.toggle('hidden');
+        kxPlacePostMenu(dropdown);
       }
     });
   }
@@ -13311,6 +13313,16 @@ async function deletePost(postId, post) {
     console.error('Error deleting post:', error);
     showToast('Error al eliminar la publicación: ' + error.message, 'error');
   }
+}
+
+// Menú de la publicación: pequeño y pegado a los tres puntos. Si abajo no cabe (queda tapado por la
+// botonera de ventanas o el borde de la pantalla) se abre hacia arriba.
+function kxPlacePostMenu(dropdown) {
+  dropdown.classList.remove('opens-up');
+  if (dropdown.classList.contains('hidden')) return;
+  const nav = document.querySelector('.bottom-nav');
+  const limit = Math.min(window.innerHeight, nav && getComputedStyle(nav).display !== 'none' ? nav.getBoundingClientRect().top : window.innerHeight) - 8;
+  if (dropdown.getBoundingClientRect().bottom > limit) dropdown.classList.add('opens-up');
 }
 
 // Enable edit mode for post
