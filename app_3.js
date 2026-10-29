@@ -10254,10 +10254,11 @@ async function submitPost() {
         const url = await storageRef.getDownloadURL();
         videoUrls.push(url);
         const entry = { type: 'video', url };
-        if (item.cover) {
-          // Portada elegida: imagen aparte que se usa como miniatura del vídeo
-          const posterRef = storageRef0(`portada_${item.cover.file.name}`);
-          await kxStoragePut(posterRef, item.cover.file);
+        // Portada elegida o, si no, el primer fotograma: imagen aparte que se usa como miniatura del vídeo
+        const coverFile = item.cover ? item.cover.file : await kxVideoPosterFromFile(video);
+        if (coverFile) {
+          const posterRef = storageRef0(`portada_${coverFile.name}`);
+          await kxStoragePut(posterRef, coverFile);
           entry.poster = await posterRef.getDownloadURL();
         }
         mediaList.push(entry);
@@ -12898,6 +12899,36 @@ function kxMediaHTML(items, { modal = false, tag = '' } = {}) {
 }
 
 // Casilla de vídeo del collage: primer fotograma + botón de reproducir. Al pulsarla se abre el visor.
+// Fotograma inicial del vídeo como JPEG ligero: se sube como portada para que el feed lo pinte al instante
+// sin descargar el vídeo. Devuelve null si el navegador no puede decodificarlo.
+async function kxVideoPosterFromFile(file) {
+  const objUrl = URL.createObjectURL(file);
+  try {
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    v.src = objUrl;
+    await new Promise((resolve, reject) => { v.onloadeddata = resolve; v.onerror = reject; setTimeout(reject, 8000); });
+    const t = Math.min(0.1, (v.duration || 0) / 2);
+    if (t > 0) {
+      await new Promise((resolve) => { v.onseeked = resolve; v.currentTime = t; setTimeout(resolve, 3000); });
+    }
+    if (!v.videoWidth || !v.videoHeight) return null;
+    const k = Math.min(1, 960 / Math.max(v.videoWidth, v.videoHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(2, Math.round(v.videoWidth * k));
+    canvas.height = Math.max(2, Math.round(v.videoHeight * k));
+    canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+    return blob ? new File([blob], 'portada.jpg', { type: 'image/jpeg' }) : null;
+  } catch (_) {
+    return null;
+  } finally {
+    URL.revokeObjectURL(objUrl);
+  }
+}
+
 function kxVideoTileHTML(url, index, poster) {
   const src = escapeHtmlMention(url);
   // Con portada elegida se ve esa imagen; si no, el primer fotograma del propio vídeo
