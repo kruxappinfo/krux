@@ -28084,3 +28084,8 @@ body.kx-sheet-open #feed-view .feed-container {
   100% { transform: translateY(0) scale(1); }
 }
 @media (prefers-reduced-motion: reduce) { .feed-wordmark.is-tapped { animation: none; } }
+
+
+/* Miniaturas de vídeo: la portada aparece con un fundido en vez de saltar */
+.feed-images-grid .feed-video-tile .feed-video-poster { animation: kxPosterIn .25s ease both; }
+@keyframes kxPosterIn { from { opacity: 0; } to { opacity: 1; } }
