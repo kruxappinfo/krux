@@ -17393,6 +17393,15 @@ const KruxTrainStore = (() => {
 
   const uid = () => (firebase.auth().currentUser || {}).uid || null;
   const userRef = () => db.collection('users').doc(uid());
+
+  // Sin red, Firestore deja la escritura en cola y la promesa no se resuelve nunca: se corta a
+  // los 15 s para poder avisar. La escritura puede aplicarse luego; reintentar es seguro porque
+  // el plan es un único documento y cada sesión conserva su propio id.
+  const ACK_MS = 15000;
+  const ack = promise => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('Sin respuesta del servidor'), { code: 'kx/timeout' })), ACK_MS))
+  ]);
   const int = v => Math.max(0, Math.round(Number(v) || 0));
   const str = (v, max) => String(v ?? '').slice(0, max);
 
@@ -17456,10 +17465,10 @@ const KruxTrainStore = (() => {
     if (!uid() || !plan) return false;
     planTouched = true;
     try {
-      await userRef().collection('training_plan').doc('active').set({
+      await ack(userRef().collection('training_plan').doc('active').set({
         ...planPayload(plan),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
+      }));
       return true;
     } catch (error) {
       reportError('No se ha podido guardar el plan', error);
@@ -17470,11 +17479,13 @@ const KruxTrainStore = (() => {
   async function saveSession(rec) {
     if (!uid()) return false;
     try {
-      const ref = await userRef().collection('training_sessions').add({
+      // El id se fija una vez: si se reintenta tras un corte de red no se duplica la sesión
+      if (!rec._ref) Object.defineProperty(rec, '_ref', { value: userRef().collection('training_sessions').doc(), enumerable: false, writable: true });
+      await ack(rec._ref.set({
         ...sessionPayload(rec),
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-      rec.id = ref.id;
+      }));
+      rec.id = rec._ref.id;
       return true;
     } catch (error) {
       reportError('No se ha podido guardar la sesión', error);
@@ -17485,12 +17496,12 @@ const KruxTrainStore = (() => {
   async function updateSession(rec, fields) {
     if (!uid() || !rec.id) return false;
     try {
-      await userRef().collection('training_sessions').doc(rec.id).update({
+      await ack(userRef().collection('training_sessions').doc(rec.id).update({
         feel: str(fields.feel, 10),
         rpe: Math.min(10, int(fields.rpe)),
         notes: str(fields.notes, 1000),
         tags: (fields.tags || []).slice(0, 10).map(t => str(t, 40))
-      });
+      }));
       return true;
     } catch (error) {
       reportError('No se ha podido guardar el registro', error);
@@ -17512,7 +17523,12 @@ const KruxTrainStore = (() => {
       if (!planTouched) {
         const data = planDoc.exists ? planDoc.data() : null;
         window.kruxActivePlan = data && Array.isArray(data.sessions)
-          ? { name: data.name, weeks: data.weeks, activeDays: data.activeDays, sessions: data.sessions }
+          ? {
+              name: data.name, weeks: data.weeks, activeDays: data.activeDays, sessions: data.sessions,
+              ...(data.goal ? { goal: data.goal } : {}),
+              ...(data.level ? { level: data.level } : {}),
+              ...(Array.isArray(data.equipment) ? { equipment: data.equipment } : {})
+            }
           : null;
       }
       const loaded = sessSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -18004,8 +18020,11 @@ function initTrainView() {
     const cat = catalog();
     const params = cat && kx() ? kx().paramsForPlanItem(cat, ex) : [];
     Object.keys(BASE).forEach(key => {
-      const label = $(BASE[key]).closest('.ex-field').querySelector('.ex-field-label');
+      const field = $(BASE[key]).closest('.ex-field');
+      const label = field.querySelector('.ex-field-label');
       const def = params.find(p => p.key === key);
+      // Con ficha, los básicos que no le corresponden se ocultan (salvo que ya tengan un valor)
+      field.classList.toggle('hidden', !!def && !def.applies && !(Number(ex[key]) > 0));
       const defaults = { sets: 'Series', reps: 'Repeticiones', workSec: 'Tiempo trabajo (seg)', weight: 'Peso adicional (kg)', restSec: 'Descanso (seg)', rpeTarget: 'RPE objetivo (0 = ninguno)' };
       label.textContent = def && (key === 'reps' || key === 'workSec') && def.label !== (kx().PARAMS[key === 'reps' ? 'repetitions' : 'workDurationSeconds'].label)
         ? `${def.label}${def.unit ? ` (${def.unit})` : ''}` : defaults[key];
@@ -18108,6 +18127,10 @@ function initTrainView() {
     if (closeBtn) closeBtn.addEventListener('click', close);
     if (backdrop) backdrop.addEventListener('click', close);
     if (saveBtn)  saveBtn.addEventListener('click', save);
+    $('ex-editor-sheet')?.addEventListener('focusin', e => {
+      if (!e.target.matches('input, textarea')) return;
+      setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 320);
+    });
     $('ex-links')?.addEventListener('click', e => {
       const btn = e.target.closest('[data-act]');
       if (!btn) return;
@@ -18983,7 +19006,7 @@ function makePcCard(d, isTop) {
       if (!saveHint) {
         saved.then(ok => (ok ? KruxTrainStore.updateSession(record, record) : false)).then(ok => {
           const hint = document.getElementById('plog-done-hint');
-          if (hint) hint.textContent = ok ? 'Guardada en tu cuenta.' : 'No se ha podido guardar en tu cuenta.';
+          if (hint) hint.textContent = ok ? 'Guardada en tu cuenta.' : 'No se ha podido confirmar el guardado en tu cuenta. Comprueba tu conexión.';
         });
       }
       screen.innerHTML = `
@@ -19290,6 +19313,8 @@ function makePcCard(d, isTop) {
         </header>
 
         <div class="pe-scroll" id="pe-scroll">
+          ${mode !== 'edit' && window.kruxActivePlan && Array.isArray(window.kruxActivePlan.sessions) ? `
+          <p class="pe-replace-note" role="note">Al guardar sustituirás tu plan activo «${trEsc(window.kruxActivePlan.name)}». Para cambiarlo sin perderlo, usa «Editar plan activo».</p>` : ''}
           <section class="pe-name-card" aria-labelledby="pe-name-label">
             <label class="pe-label pe-label--light" id="pe-name-label" for="pe-name-input">Nombre del plan</label>
             <div class="pe-name-field">

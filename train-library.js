@@ -14,15 +14,19 @@
 
   // ── Catálogo: base empaquetada (+ ampliación opcional desde Firestore) ──
   let catalog = K.createCatalog(window.KRUX_CATALOG_DATA);
-  let remoteLoaded = false;
+  let remotePromise = null;
 
   // Las fichas globales publicadas en Firestore (exercises/{id}) amplían o actualizan el catálogo
   // base. Si no hay red o las reglas aún no lo permiten, se sigue con el catálogo empaquetado.
-  async function loadRemote() {
-    if (remoteLoaded) return;
-    remoteLoaded = true;
+  function loadRemote() {
+    if (!remotePromise) remotePromise = fetchRemote();
+    return remotePromise;
+  }
+
+  async function fetchRemote() {
     try {
-      if (typeof db === 'undefined' || !firebase.auth().currentUser) return;
+      // Sin sesión no se intenta (se reintentará al abrir la biblioteca ya identificado)
+      if (typeof db === 'undefined' || !firebase.auth().currentUser) { remotePromise = null; return; }
       const snap = await db.collection('exercises').where('status', '==', 'published').get();
       if (snap.empty) return;
       const merged = new Map(catalog.exercises.map(e => [e.id, e]));
@@ -39,7 +43,7 @@
       });
       if (accepted.length) catalog = K.createCatalog({ ...base, exercises: Array.from(merged.values()) });
     } catch (error) {
-      remoteLoaded = false;   // se reintenta la próxima vez
+      remotePromise = null;   // se reintenta la próxima vez
     }
   }
 
@@ -67,22 +71,26 @@
     if (!id) { toast('Inicia sesión para guardar favoritos', 'info'); return false; }
     const ref = db.collection('users').doc(id).collection('exercise_favorites').doc(exerciseId);
     const had = favorites.has(exerciseId);
-    if (had) favorites.delete(exerciseId); else favorites.add(exerciseId);
-    try {
-      if (had) await ref.delete();
-      else await ref.set({ exerciseId, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-      return true;
-    } catch (error) {
-      if (had) favorites.add(exerciseId); else favorites.delete(exerciseId);
+    if (had) favorites.delete(exerciseId); else favorites.add(exerciseId);   // se refleja al instante
+    const write = had ? ref.delete() : ref.set({ exerciseId, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    const settled = write.then(() => true, error => {
+      if (had) favorites.add(exerciseId); else favorites.delete(exerciseId);   // el servidor lo rechazó: se deshace
       console.error('Error guardando el favorito:', error);
       toast('No se ha podido guardar el favorito', 'error', { detail: typeof kxFriendlyError === 'function' ? kxFriendlyError(error) : 'Inténtalo de nuevo.' });
       return false;
+    });
+    // Sin red la promesa no termina: tras 8 s se avisa y se deja en cola (si falla después, se deshace igualmente)
+    const first = await Promise.race([settled, new Promise(r => setTimeout(() => r('pending'), 8000))]);
+    if (first === 'pending') {
+      toast('Sin conexión', 'info', { detail: 'El favorito se guardará cuando vuelva la conexión.' });
+      return true;
     }
+    return first;
   }
 
   try {
     firebase.auth().onAuthStateChanged(user => {
-      if (!user) { favorites = new Set(); favoritesLoadedFor = null; remoteLoaded = false; }
+      if (!user) { favorites = new Set(); favoritesLoadedFor = null; remotePromise = null; }
     });
   } catch (_) { /* sin Firebase: la biblioteca funciona con el catálogo empaquetado */ }
 
@@ -545,16 +553,21 @@
     $('xl-add-label').textContent = pick ? (added ? 'Añadido · añadir otra vez' : 'Añadir a la sesión') : 'Añadir a mi plan';
 
     $('xl-detail-back').onclick = detailBack;
-    $('xl-fav').onclick = async () => {
+    const paintFav = () => {
       const btn = $('xl-fav');
-      const ok = await toggleFavorite(id);
-      if (!ok && !uid()) return;
+      if (!btn) return;
       const on = favorites.has(id);
       btn.classList.toggle('is-on', on);
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
       btn.setAttribute('aria-label', on ? 'Quitar de favoritos' : 'Guardar en favoritos');
       btn.innerHTML = on ? I.heartFill : I.heart;
       renderChips();
+    };
+    $('xl-fav').onclick = async () => {
+      const pending = toggleFavorite(id);   // el cambio local es inmediato
+      paintFav();
+      await pending;
+      paintFav();                           // si el servidor lo rechazó, vuelve al estado anterior
     };
     $('xl-add-plan').onclick = () => {
       if (pick) { if (addToPick(ex)) { $('xl-add-label').textContent = 'Añadido · añadir otra vez'; } }
