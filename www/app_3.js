@@ -7697,13 +7697,19 @@ class MentionAutocomplete {
 window.MentionAutocomplete = MentionAutocomplete;
 
 // ================== CREATE POST ==================
-let postData = {
-  text: '',
-  photos: [],
-  videos: [],
-  ascents: [],
-  location: null
-};
+// `media` guarda fotos y vídeos en el orden en que se publicarán; photos/videos son vistas de esa lista
+let cpMediaSeq = 0;
+function newPostData() {
+  return {
+    text: '',
+    media: [],
+    ascents: [],
+    location: null,
+    get photos() { return this.media.filter(m => m.kind === 'photo').map(m => m.file); },
+    get videos() { return this.media.filter(m => m.kind === 'video').map(m => m.file); }
+  };
+}
+let postData = newPostData();
 let postMentionAutocomplete = null;
 
 function initCreatePost() {
@@ -7798,7 +7804,7 @@ function initCreatePost() {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
       // Se añaden a las ya elegidas («Añadir más fotos»); las fotos y los vídeos conviven en la publicación
-      postData.photos = [...postData.photos, ...files];
+      postData.media.push(...files.map(file => ({ id: ++cpMediaSeq, kind: 'photo', file })));
       updatePreview();
       updateSubmitButton();
     }
@@ -7819,7 +7825,7 @@ function initCreatePost() {
       if (tooBig.length) showToast(`Los vídeos no pueden pesar más de ${Math.round(KX_VIDEO_MAX_BYTES / 1048576)} MB`, 'error');
       else if (files.length > room) showToast(`Máximo ${KX_MAX_POST_VIDEOS} vídeos por publicación`, 'info');
       if (accepted.length) {
-        postData.videos = [...postData.videos, ...accepted];
+        postData.media.push(...accepted.map(file => ({ id: ++cpMediaSeq, kind: 'video', file })));
         updatePreview();
         updateSubmitButton();
       }
@@ -8136,13 +8142,8 @@ function initCreatePost() {
 }
 
 function resetPostData() {
-  postData = {
-    text: '',
-    photos: [],
-    videos: [],
-    ascents: [],
-    location: null
-  };
+  postData = newPostData();
+  cpGrabbedId = null;
   if (postMentionAutocomplete) postMentionAutocomplete.clearMentions();
   document.getElementById('create-post-text').value = '';
   document.getElementById('create-post-char-count-num').textContent = '0';
@@ -8457,13 +8458,186 @@ function createPostPreviewUrl(file) {
   return createPostPreviewUrls.get(file);
 }
 function releaseCreatePostPreviewUrls() {
-  const keep = new Set([...postData.photos, ...postData.videos]);
+  const keep = new Set(postData.media.map(m => m.file));
   createPostPreviewUrls.forEach((url, file) => {
     if (!keep.has(file)) {
       URL.revokeObjectURL(url);
       createPostPreviewUrls.delete(file);
     }
   });
+}
+
+// ---- Reordenar fotos y vídeos: arrastrar (ratón o pulsación larga en táctil) y teclado ----
+let cpGrabbedId = null;
+
+function cpAnnounce(text) {
+  const live = document.querySelector('#create-post-preview .cp-media-live');
+  if (live) live.textContent = text;
+}
+
+function cpMoveMedia(from, to) {
+  const list = postData.media;
+  if (to < 0 || to >= list.length || from === to) return false;
+  const [item] = list.splice(from, 1);
+  list.splice(to, 0, item);
+  return true;
+}
+
+function cpInitMediaReorder(grid) {
+  let drag = null;
+  const tiles = () => Array.from(grid.querySelectorAll('.cp-media-tile'));
+
+  // El grabado por teclado sobrevive al repintado de la lista
+  const grabbed = cpGrabbedId ? postData.media.findIndex(m => m.id === cpGrabbedId) : -1;
+  if (grabbed >= 0 && tiles()[grabbed]) {
+    const t = tiles()[grabbed];
+    t.classList.add('is-grabbed');
+    t.setAttribute('aria-grabbed', 'true');
+    t.focus({ preventScroll: true });
+  } else {
+    cpGrabbedId = null;
+  }
+
+  grid.addEventListener('keydown', (e) => {
+    const tile = e.target.closest('.cp-media-tile');
+    if (!tile || e.target.closest('.remove-preview-btn')) return;
+    const index = tiles().indexOf(tile);
+    const n = postData.media.length;
+    const m = postData.media[index];
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      if (cpGrabbedId === m.id) {
+        cpGrabbedId = null;
+        tile.classList.remove('is-grabbed');
+        tile.removeAttribute('aria-grabbed');
+        cpAnnounce(`Soltada en la posición ${index + 1} de ${n}`);
+      } else {
+        cpGrabbedId = m.id;
+        tile.classList.add('is-grabbed');
+        tile.setAttribute('aria-grabbed', 'true');
+        cpAnnounce(`${m.kind === 'video' ? 'Vídeo' : 'Foto'} ${index + 1} de ${n} agarrado. Usa las flechas para moverlo`);
+      }
+    } else if (cpGrabbedId === m.id && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      e.preventDefault();
+      const cols = n <= 2 ? n : 3;
+      const step = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' ? -cols : cols;
+      const to = Math.min(n - 1, Math.max(0, index + step));
+      if (cpMoveMedia(index, to)) {
+        updatePreview();
+        cpAnnounce(`Movido a la posición ${to + 1} de ${n}`);
+      }
+    } else if (e.key === 'Escape' && cpGrabbedId === m.id) {
+      e.preventDefault();
+      e.stopPropagation(); // suelta el elemento sin cerrar el editor
+      cpGrabbedId = null;
+      tile.classList.remove('is-grabbed');
+      tile.removeAttribute('aria-grabbed');
+      cpAnnounce('Reordenación cancelada');
+    }
+  });
+
+  // En táctil, una vez agarrado el elemento hay que impedir que la lista haga scroll
+  grid.addEventListener('touchmove', (e) => { if (drag && drag.active) e.preventDefault(); }, { passive: false });
+  grid.addEventListener('contextmenu', (e) => { if (e.target.closest('.cp-media-tile')) e.preventDefault(); });
+
+  grid.addEventListener('pointerdown', (e) => {
+    const tile = e.target.closest('.cp-media-tile');
+    if (!tile || e.target.closest('.remove-preview-btn')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (postData.media.length < 2) return;
+    drag = { tile, x: e.clientX, y: e.clientY, active: false, touch: e.pointerType !== 'mouse', timer: null, ghost: null, dx: 0, dy: 0 };
+    if (drag.touch) drag.timer = setTimeout(() => startDrag(e.clientX, e.clientY), 260);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+  });
+
+  function startDrag(x, y) {
+    if (!drag || drag.active) return;
+    drag.active = true;
+    const rect = drag.tile.getBoundingClientRect();
+    drag.dx = x - rect.left;
+    drag.dy = y - rect.top;
+    const ghost = drag.tile.cloneNode(true);
+    ghost.removeAttribute('tabindex');
+    ghost.removeAttribute('role');
+    ghost.querySelectorAll('button').forEach(b => b.remove());
+    ghost.classList.add('cp-media-ghost');
+    ghost.style.width = `${rect.width}px`;
+    ghost.style.height = `${rect.height}px`;
+    document.body.appendChild(ghost);
+    drag.ghost = ghost;
+    drag.tile.classList.add('is-dragging');
+    grid.classList.add('is-reordering');
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) { /* sin vibración */ } }
+    placeGhost(x, y);
+  }
+
+  function placeGhost(x, y) {
+    drag.ghost.style.transform = `translate(${x - drag.dx}px, ${y - drag.dy}px) scale(1.04)`;
+  }
+
+  function scrollContainer() {
+    let el = grid.parentElement;
+    while (el && el !== document.body) {
+      const oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function onMove(e) {
+    if (!drag) return;
+    if (!drag.active) {
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) <= 8) return;
+      if (drag.touch) { endDrag(false); return; } // el dedo se movió antes de la pulsación larga: es un scroll
+      startDrag(e.clientX, e.clientY);
+    }
+    e.preventDefault();
+    placeGhost(e.clientX, e.clientY);
+    // Reordena en el DOM según la casilla sobre la que está el puntero
+    const over = tiles().find(t => t !== drag.tile && (() => {
+      const r = t.getBoundingClientRect();
+      return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    })());
+    if (over) {
+      const list = tiles();
+      if (list.indexOf(over) > list.indexOf(drag.tile)) over.after(drag.tile); else over.before(drag.tile);
+    }
+    // Scroll automático cerca de los bordes de la zona visible
+    const sc = scrollContainer();
+    if (sc) {
+      const r = sc.getBoundingClientRect();
+      if (e.clientY < r.top + 56) sc.scrollTop -= 14;
+      else if (e.clientY > r.bottom - 56) sc.scrollTop += 14;
+    }
+  }
+
+  function onEnd() { endDrag(true); }
+
+  function endDrag(commit) {
+    if (!drag) return;
+    clearTimeout(drag.timer);
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onEnd);
+    window.removeEventListener('pointercancel', onEnd);
+    const d = drag;
+    drag = null;
+    if (!d.active) return;
+    d.ghost?.remove();
+    d.tile.classList.remove('is-dragging');
+    grid.classList.remove('is-reordering');
+    if (commit) {
+      const order = tiles().map(t => parseInt(t.dataset.index));
+      const changed = order.some((v, i) => v !== i);
+      if (changed) {
+        postData.media = order.map(i => postData.media[i]);
+        cpAnnounce(`Movido a la posición ${order.indexOf(parseInt(d.tile.dataset.index)) + 1} de ${order.length}`);
+      }
+    }
+    updatePreview();
+  }
 }
 
 const CP_REMOVE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
@@ -8475,46 +8649,32 @@ function updatePreview() {
   releaseCreatePostPreviewUrls();
   let previewHTML = '';
 
-  // Fotos: cuadrícula según cantidad + «Añadir más fotos»
-  if (postData.photos.length > 0) {
-    const n = postData.photos.length;
-    const layout = n === 1 ? 'is-one' : n === 2 ? 'is-two' : 'is-many';
-    previewHTML += `<div class="create-post-preview-photos ${layout}">`;
-    postData.photos.forEach((file, index) => {
+  // Fotos y vídeos en una sola cuadrícula, reordenable arrastrando
+  if (postData.media.length > 0) {
+    const n = postData.media.length;
+    const cols = n <= 2 ? 'is-few' : 'is-many';
+    previewHTML += `<p class="cp-media-hint" ${n < 2 ? 'hidden' : ''}>Mantén pulsado y arrastra para cambiar el orden</p>`;
+    previewHTML += `<div class="cp-media-grid ${cols}" role="list" aria-label="Fotos y vídeos de la publicación">`;
+    postData.media.forEach((m, index) => {
+      const url = createPostPreviewUrl(m.file);
+      const name = m.kind === 'video' ? 'Vídeo' : 'Foto';
       previewHTML += `
-        <div class="create-post-preview-photo-item">
-          <img src="${createPostPreviewUrl(file)}" alt="Foto ${index + 1} de ${n}">
-          <button type="button" class="remove-preview-btn" data-index="${index}" aria-label="Quitar foto ${index + 1}">${CP_REMOVE_ICON}</button>
-        </div>
-      `;
+        <div class="cp-media-tile${m.kind === 'video' ? ' is-video' : ''}" role="listitem" tabindex="0" data-index="${index}"
+          aria-roledescription="elemento ordenable" aria-label="${name} ${index + 1} de ${n}">
+          ${m.kind === 'video'
+            ? `<video src="${url}#t=0.001" preload="metadata" playsinline muted></video>
+               <span class="cp-media-play" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="7 4 20 12 7 20 7 4"></polygon></svg></span>
+               <span class="cp-media-duration" hidden></span>`
+            : `<img src="${url}" alt="" draggable="false">`}
+          <button type="button" class="remove-preview-btn" data-type="media" data-index="${index}" aria-label="Quitar ${name.toLowerCase()} ${index + 1}">${CP_REMOVE_ICON}</button>
+        </div>`;
     });
-    previewHTML += `
-        <button type="button" class="create-post-add-more" data-add="photos" aria-label="Añadir más fotos">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <span>Añadir más fotos</span>
-        </button>
-      </div>`;
-  }
-
-  // Vídeo: vista previa real; la duración solo si el navegador la lee de los metadatos
-  postData.videos.forEach((file, index) => {
-    previewHTML += `
-      <div class="create-post-preview-video">
-        <video src="${createPostPreviewUrl(file)}" preload="metadata" playsinline muted></video>
-        <button type="button" class="create-post-video-play" aria-label="Reproducir vista previa">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="7 4 20 12 7 20 7 4"></polygon></svg>
-        </button>
-        <span class="create-post-video-duration" hidden></span>
-        <button type="button" class="remove-preview-btn" data-type="video" data-index="${index}" aria-label="Quitar vídeo ${index + 1}">${CP_REMOVE_ICON}</button>
-      </div>
-    `;
-  });
-  if (postData.videos.length > 0 && postData.videos.length < KX_MAX_POST_VIDEOS) {
-    previewHTML += `
-      <button type="button" class="create-post-add-more create-post-add-video" data-add="videos" aria-label="Añadir más vídeos">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        <span>Añadir más vídeos</span>
-      </button>`;
+    const plus = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+    previewHTML += `<button type="button" class="create-post-add-more" data-add="photos" aria-label="Añadir más fotos">${plus}<span>Fotos</span></button>`;
+    if (postData.videos.length < KX_MAX_POST_VIDEOS) {
+      previewHTML += `<button type="button" class="create-post-add-more" data-add="videos" aria-label="Añadir más vídeos">${plus}<span>Vídeos</span></button>`;
+    }
+    previewHTML += `</div><span class="cp-media-live kx-visually-hidden" role="status" aria-live="polite"></span>`;
   }
 
   // Ubicación: etiqueta compacta
@@ -8555,26 +8715,17 @@ function updatePreview() {
       document.getElementById('create-post-video-input')?.click();
     });
 
-    preview.querySelectorAll('.create-post-preview-video').forEach(item => {
-      const video = item.querySelector('video');
-      const playBtn = item.querySelector('.create-post-video-play');
-      if (!video || !playBtn) return;
+    preview.querySelectorAll('.cp-media-tile video').forEach(video => {
       video.addEventListener('loadedmetadata', () => {
-        if (Number.isFinite(video.duration) && video.duration > 0) {
-          const total = Math.round(video.duration);
-          const label = item.querySelector('.create-post-video-duration');
-          label.textContent = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
-          label.hidden = false;
-        }
+        if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+        const total = Math.round(video.duration);
+        const label = video.parentElement.querySelector('.cp-media-duration');
+        label.textContent = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+        label.hidden = false;
       });
-      const toggle = () => {
-        if (video.paused) { video.play().catch(() => {}); } else { video.pause(); }
-      };
-      playBtn.addEventListener('click', toggle);
-      video.addEventListener('click', toggle);
-      video.addEventListener('play', () => { playBtn.classList.add('is-playing'); playBtn.setAttribute('aria-label', 'Pausar vista previa'); });
-      video.addEventListener('pause', () => { playBtn.classList.remove('is-playing'); playBtn.setAttribute('aria-label', 'Reproducir vista previa'); });
     });
+    const grid = preview.querySelector('.cp-media-grid');
+    if (grid) cpInitMediaReorder(grid);
 
     // Add remove buttons listeners
     preview.querySelectorAll('.remove-preview-btn').forEach(btn => {
@@ -8582,18 +8733,16 @@ function updatePreview() {
         const index = btn.dataset.index;
         const type = btn.dataset.type;
 
-        if (type === 'video') {
-          postData.videos.splice(parseInt(index), 1);
+        if (type === 'media') {
+          postData.media.splice(parseInt(index), 1);
           document.getElementById('create-post-video-input').value = '';
+          document.getElementById('create-post-photo-input').value = '';
         } else if (type === 'ascent') {
           postData.ascents.splice(parseInt(index), 1);
         } else if (type === 'location') {
           postData.location = null;
           const locationBadge = document.getElementById('location-badge');
           if (locationBadge) locationBadge.classList.add('hidden');
-        } else if (index !== undefined) {
-          postData.photos.splice(parseInt(index), 1);
-          document.getElementById('create-post-photo-input').value = '';
         }
 
         updatePreview();
@@ -8619,7 +8768,7 @@ async function submitPost() {
   }
 
   // Validate that there's at least some content
-  if (!postData.text.trim() && postData.photos.length === 0 && postData.videos.length === 0 && postData.ascents.length === 0) {
+  if (!postData.text.trim() && postData.media.length === 0 && postData.ascents.length === 0) {
     showToast('Añade texto, una foto, un vídeo o una ascensión para publicar', 'error');
     return;
   }
@@ -8630,37 +8779,35 @@ async function submitPost() {
   submitBtn.textContent = 'Publicando…';
 
   try {
-    // Upload photos/video if any
-    let photoUrls = [];
-    let videoUrls = [];
-
-    if (postData.photos.length > 0) {
-      showToast('Subiendo fotos...', 'info');
-      // Upload photos to Firebase Storage
-      for (let i = 0; i < postData.photos.length; i++) {
-        const photo = await kxPrepareImageForUpload(postData.photos[i]);
-        const timestamp = Date.now();
-        const filename = `${timestamp}_${i}_${photo.name}`;
-        const storageRef = storage.ref(`posts/${currentUser.uid}/${filename}`);
-
+    // Se sube todo en el orden elegido por el usuario
+    const photoUrls = [];
+    const videoUrls = [];
+    const mediaList = [];
+    const total = postData.media.length;
+    for (let i = 0; i < total; i++) {
+      const item = postData.media[i];
+      const storageRef0 = (name) => storage.ref(`posts/${currentUser.uid}/${Date.now()}_${i}_${name}`);
+      if (item.kind === 'photo') {
+        submitBtn.textContent = total > 1 ? `Subiendo ${i + 1}/${total}…` : 'Subiendo foto…';
+        const photo = await kxPrepareImageForUpload(item.file);
+        const storageRef = storageRef0(photo.name);
         await kxStoragePut(storageRef, photo);
         const url = await storageRef.getDownloadURL();
         photoUrls.push(url);
+        mediaList.push({ type: 'photo', url });
+      } else {
+        const label = total > 1 ? ` ${i + 1}/${total}` : '';
+        // Reduce el peso antes de subir; si no se puede, se sube el original
+        const video = await kxPrepareVideoForUpload(item.file, (pct) => {
+          submitBtn.textContent = `Optimizando vídeo${label}… ${pct}%`;
+        });
+        submitBtn.textContent = `Subiendo vídeo${label}…`;
+        const storageRef = storageRef0(video.name);
+        await storageRef.put(video, { contentType: video.type || undefined, cacheControl: KX_IMAGE_CACHE_CONTROL });
+        const url = await storageRef.getDownloadURL();
+        videoUrls.push(url);
+        mediaList.push({ type: 'video', url });
       }
-    }
-
-    for (let i = 0; i < postData.videos.length; i++) {
-      const label = postData.videos.length > 1 ? ` ${i + 1}/${postData.videos.length}` : '';
-      // Reduce el peso antes de subir; si no se puede, se sube el original
-      const video = await kxPrepareVideoForUpload(postData.videos[i], (pct) => {
-        submitBtn.textContent = `Optimizando vídeo${label}… ${pct}%`;
-      });
-      submitBtn.textContent = `Subiendo vídeo${label}…`;
-      const filename = `${Date.now()}_${i}_${video.name}`;
-      const storageRef = storage.ref(`posts/${currentUser.uid}/${filename}`);
-
-      await storageRef.put(video, { contentType: video.type || undefined, cacheControl: KX_IMAGE_CACHE_CONTROL });
-      videoUrls.push(await storageRef.getDownloadURL());
     }
     submitBtn.textContent = 'Publicando…';
 
@@ -8700,6 +8847,9 @@ async function submitPost() {
     }
     if (photoUrls.length > 0) {
       postDataToSave.photos = photoUrls;
+    }
+    if (mediaList.length > 0) {
+      postDataToSave.media = mediaList; // orden de fotos y vídeos
     }
     if (videoUrls.length > 0) {
       postDataToSave.videos = videoUrls;
@@ -9073,34 +9223,12 @@ function renderPostCard(post, container) {
   }
 
   // Contenido multimedia (va antes que el texto)
-  const postVideos = kxPostVideos(post);
-  if (post.type === 'photo' || post.photos || post.image || postVideos.length > 0) {
-    const images = post.photos || (post.image ? [post.image] : []);
+  const postMedia = kxPostMedia(post);
+  if (post.type === 'photo' || post.type === 'video' || postMedia.length > 0) {
     // Etiqueta de cristal sobre la foto (decorativa: la ubicación ya está en la cabecera)
     const photoTag = locationName ? `<span class="feed-photo-tag" aria-hidden="true">${FEED_ICON_PIN}<span>${locationName}</span></span>` : '';
-    if (images.length === 1) {
-      mediaHTML += `
-        <div class="feed-media-wrapper">
-          <div class="feed-image-container">
-            <img src="${images[0]}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${images[0]}" data-lightbox-index="0" loading="lazy" decoding="async">
-            ${photoTag}
-          </div>
-        </div>
-      `;
-    } else if (images.length > 1) {
-      const gridClass = images.length === 2 ? 'grid-2' : images.length === 3 ? 'grid-3' : 'grid-4';
-      mediaHTML += `
-        <div class="feed-media-wrapper">
-          <div class="feed-images-grid ${gridClass}">
-            ${images.slice(0, 4).map((img, i) => `<img src="${img}" alt="Foto de la publicación" class="feed-image feed-image-clickable" data-lightbox-src="${img}" data-lightbox-index="${i}" loading="lazy" decoding="async">`).join('')}
-          </div>
-          ${photoTag}
-          ${images.length > 4 ? `<span class="feed-photos-more" aria-label="${images.length - 4} fotos más">+${images.length - 4}</span>` : ''}
-        </div>
-      `;
-    }
-    card._lightboxImages = images; // el visor recibe todas las fotos, no solo las 4 de la cuadrícula
-    mediaHTML += kxVideosHTML(postVideos);
+    mediaHTML += kxMediaHTML(postMedia, { tag: photoTag });
+    card._lightboxImages = postMedia.filter(m => m.type === 'photo').map(m => m.url); // el visor recibe todas las fotos, no solo las de la cuadrícula
   } else if (post.type === 'ascensions' && post.ascensions) {
     const ascensionsList = post.ascensions.map(a => `
       <div class="feed-ascension-item">
@@ -11149,6 +11277,69 @@ function kxPostVideos(post) {
   return list.filter(Boolean);
 }
 
+// Fotos y vídeos de una publicación en su orden: `media` si existe; si no, fotos y luego vídeos
+function kxPostMedia(post) {
+  if (Array.isArray(post?.media) && post.media.length > 0) {
+    return post.media.filter(m => m && m.url && (m.type === 'photo' || m.type === 'video'));
+  }
+  const photos = post?.photos || (post?.image ? [post.image] : []);
+  return [...photos.map(url => ({ type: 'photo', url })), ...kxPostVideos(post).map(url => ({ type: 'video', url }))];
+}
+
+// HTML de fotos y vídeos. Las fotos seguidas forman una cuadrícula; cada vídeo va a ancho completo.
+// `modal` = publicación abierta (sin visor); si no, las fotos abren el visor con índice global.
+function kxMediaHTML(items, { modal = false, tag = '' } = {}) {
+  if (!items.length) return '';
+  const wrapClass = modal ? 'feed-media-wrapper feed-media-modal' : 'feed-media-wrapper';
+  let html = '';
+  let photoIndex = 0;
+  let tagged = false;
+  for (let i = 0; i < items.length;) {
+    if (items[i].type === 'video') {
+      html += kxVideosHTML([items[i].url]);
+      i++;
+      continue;
+    }
+    const group = [];
+    while (i < items.length && items[i].type === 'photo') group.push(items[i++].url);
+    const start = photoIndex;
+    photoIndex += group.length;
+    const groupTag = tagged ? '' : tag; // la etiqueta de ubicación solo en el primer grupo de fotos
+    tagged = true;
+    const imgAttrs = (url, k) => modal
+      ? 'class="feed-image"'
+      : `class="feed-image feed-image-clickable" data-lightbox-src="${url}" data-lightbox-index="${start + k}" loading="lazy" decoding="async"`;
+    if (group.length === 1) {
+      html += `
+        <div class="${wrapClass}">
+          <div class="feed-image-container">
+            <img src="${group[0]}" alt="Foto de la publicación" ${imgAttrs(group[0], 0)}>
+            ${groupTag}
+          </div>
+        </div>`;
+    } else if (modal) {
+      html += `
+        <div class="${wrapClass}">
+          <div class="feed-images-grid grid-modal">
+            ${group.map(url => `<img src="${url}" alt="Foto de la publicación" class="feed-image">`).join('')}
+          </div>
+          ${groupTag}
+        </div>`;
+    } else {
+      const gridClass = group.length === 2 ? 'grid-2' : group.length === 3 ? 'grid-3' : 'grid-4';
+      html += `
+        <div class="${wrapClass}">
+          <div class="feed-images-grid ${gridClass}">
+            ${group.slice(0, 4).map((url, k) => `<img src="${url}" alt="Foto de la publicación" ${imgAttrs(url, k)}>`).join('')}
+          </div>
+          ${groupTag}
+          ${group.length > 4 ? `<span class="feed-photos-more" aria-label="${group.length - 4} fotos más">+${group.length - 4}</span>` : ''}
+        </div>`;
+    }
+  }
+  return html;
+}
+
 function kxVideosHTML(urls) {
   return (urls || []).map(url =>
     `<div class="feed-video-container"><video src="${escapeHtmlMention(url)}" controls class="feed-video" preload="metadata" playsinline></video></div>`
@@ -11481,40 +11672,10 @@ function renderPostInModal(post, container) {
   // Content based on type
   let contentHTML = '';
 
-  const modalVideos = kxPostVideos(post);
-  if (post.type === 'photo' || (post.photos && post.photos.length > 0)) {
-    const images = post.photos || (post.image ? [post.image] : []);
+  const modalMedia = kxPostMedia(post);
+  if (modalMedia.length > 0 || post.type === 'photo' || post.type === 'video') {
     const modalPhotoTag = locationName ? `<span class="feed-photo-tag" aria-hidden="true">${FEED_ICON_PIN}<span>${locationName}</span></span>` : '';
-    if (images.length === 1) {
-      contentHTML = `
-        <div class="feed-media-wrapper feed-media-modal">
-          <div class="feed-image-container">
-            <img src="${images[0]}" alt="Foto de la publicación" class="feed-image">
-            ${modalPhotoTag}
-          </div>
-        </div>
-      `;
-    } else if (images.length > 1) {
-      contentHTML = `
-        <div class="feed-media-wrapper feed-media-modal">
-          <div class="feed-images-grid grid-modal">
-            ${images.map(img => `<img src="${img}" alt="Foto de la publicación" class="feed-image">`).join('')}
-          </div>
-          ${modalPhotoTag}
-        </div>
-      `;
-    }
-    contentHTML += kxVideosHTML(modalVideos);
-    // Add text content if exists
-    if (post.content) {
-      contentHTML += `
-        <div class="feed-text-content">
-          <p class="feed-text-body">${renderTextWithMentions(post.content, post.mentions)}</p>
-        </div>
-      `;
-    }
-  } else if (post.type === 'video' || modalVideos.length > 0) {
-    contentHTML = kxVideosHTML(modalVideos);
+    contentHTML = kxMediaHTML(modalMedia, { modal: true, tag: modalPhotoTag });
     // Add text content if exists
     if (post.content) {
       contentHTML += `
@@ -12054,6 +12215,19 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, videos) 
       }
     }
 
+    // Orden: se conserva el de la publicación para lo que sigue y las fotos nuevas van al final
+    let previous = [];
+    try {
+      const snap = await db.collection('posts').doc(postId).get();
+      previous = snap.exists ? kxPostMedia(snap.data()) : [];
+    } catch (_) { /* sin orden previo: fotos y luego vídeos */ }
+    const keptUrls = new Set([...existingPhotos, ...videos]);
+    const mediaList = previous.filter(m => keptUrls.has(m.url));
+    const listed = new Set(mediaList.map(m => m.url));
+    existingPhotos.forEach(url => { if (!listed.has(url)) mediaList.push({ type: 'photo', url }); });
+    videos.forEach(url => { if (!listed.has(url)) mediaList.push({ type: 'video', url }); });
+    photoUrls.filter(url => !keptUrls.has(url)).forEach(url => mediaList.push({ type: 'photo', url }));
+
     // Determine post type
     let postType = 'text';
     if (photoUrls.length > 0) {
@@ -12067,6 +12241,7 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, videos) 
       type: postType,
       content: content.trim() || null,
       photos: photoUrls.length > 0 ? photoUrls : null,
+      media: mediaList.length > 0 ? mediaList : null,
       videos: videos.length > 0 ? videos : null,
       video: videos[0] || null,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
