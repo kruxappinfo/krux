@@ -26693,3 +26693,9 @@ body.kx-sheet-open #feed-view .feed-container {
   outline: 2px solid var(--kx-forest);
   outline-offset: 2px;
 }
+
+/* Varios vídeos en el editor: el botón para añadir más ocupa una fila */
+#create-post-modal .create-post-add-video {
+  flex-direction: row;
+  min-height: 52px;
+}
