@@ -28866,3 +28866,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 
 /* Con ficha, los campos que no le corresponden se ocultan: el que queda ocupa toda la fila */
 #ex-editor-sheet .ex-field-row:has(> .ex-field.hidden) { grid-template-columns: minmax(0, 1fr); }
+
+.plog-retry { margin-bottom: 10px; background: var(--tr-green-wash); color: var(--tr-green-ink); box-shadow: none; }
+.plog-retry[hidden] { display: none; }
+.plog-retry:hover { background: var(--tr-green-wash); }
