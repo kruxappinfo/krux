@@ -22463,7 +22463,7 @@ body.plan-editor-open { overflow: hidden; }
 :is(#feed-view, #view-post-modal) .feed-post-menu-wrapper {
   position: relative;
   flex-shrink: 0;
-  margin: -5px -11px 0 0; /* el icono (22 px dentro de 44) queda alineado con el borde del contenido */
+  margin: -5px -6px 0 0; /* el icono (22 px dentro de 44) queda 5 px más adentro que el borde del contenido */
 }
 
 :is(#feed-view, #view-post-modal) .feed-post-menu-btn {
@@ -22756,7 +22756,7 @@ body.plan-editor-open { overflow: hidden; }
   display: flex;
   align-items: center;
   gap: 2px;
-  margin: 0 -10px; /* cancela el relleno de los botones: el primer icono queda alineado con el contenido */
+  margin: 0 -5px; /* los iconos quedan 5 px más adentro que el borde del contenido */
   padding: 0 0 4px;
   border: 0;
 }
@@ -22783,6 +22783,11 @@ body.plan-editor-open { overflow: hidden; }
 
 :is(#feed-view, #view-post-modal) .feed-action-btn:hover {
   background: rgba(32, 41, 35, 0.05);
+}
+
+/* Comentar más cerca de me gusta: el contador de uno y el icono del otro quedan a unos 14 px */
+:is(#feed-view, #view-post-modal) .feed-action-btn[data-action="comment"] {
+  padding-left: 4px !important;
 }
 
 :is(#feed-view, #view-post-modal) .feed-action-btn:active {
