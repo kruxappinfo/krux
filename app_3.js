@@ -18949,21 +18949,37 @@ function makePcCard(d, isTop) {
 // ================== PLAN EDITOR MODULE ==================
 (function () {
   const DAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
   const MIN_WEEKS = 1;
   const MAX_WEEKS = 16;
 
+  const MAX_SESSIONS = 7; // límite de las reglas de Firestore (training_plan.sessions)
+
+  const ico = (body, size = 18, sw = 2) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
   const SVG = {
-    back: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>`,
-    close: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
-    chevDown: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`,
-    chevUp: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>`,
-    grip: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity="0.35"><circle cx="9" cy="5" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="9" cy="19" r="1.3"/><circle cx="15" cy="5" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="15" cy="19" r="1.3"/></svg>`,
-    x: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
-    plus: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
-    minus: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
-    save: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
-    edit: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
-    gear: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+    back: ico('<polyline points="15 18 9 12 15 6"></polyline>', 22, 2.2),
+    close: ico('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 18),
+    clear: ico('<circle cx="12" cy="12" r="9"></circle><path d="M15 9l-6 6M9 9l6 6"></path>', 18, 1.8),
+    chev: ico('<polyline points="6 9 12 15 18 9"></polyline>', 18),
+    plus: ico('<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>', 18, 2.2),
+    minus: ico('<line x1="5" y1="12" x2="19" y2="12"></line>', 18, 2.2),
+    save: ico('<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>', 17),
+    edit: ico('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>', 17),
+    trash: ico('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>', 17),
+    check: ico('<polyline points="20 6 9 17 4 12"></polyline>', 12, 3),
+    checkBig: ico('<polyline points="20 6 9 17 4 12"></polyline>', 30, 2.6),
+    timer: ico('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5"/><path d="M9.5 2.5h5"/>', 18, 1.8),
+    reps: ico('<path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-1a5 5 0 0 1 5-5h11"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v1a5 5 0 0 1-5 5H4"/>', 18, 1.8),
+  };
+
+  // Icono de cada plantilla (por su etiqueta, sin tocar el modelo de datos)
+  const TEMPLATE_ICONS = {
+    'Fuerza máxima': ico('<rect x="2.5" y="9" width="2.5" height="6" rx="1.25"/><rect x="5.5" y="6" width="3" height="12" rx="1.5"/><line x1="8.5" y1="12" x2="15.5" y2="12"/><rect x="15.5" y="6" width="3" height="12" rx="1.5"/><rect x="19" y="9" width="2.5" height="6" rx="1.25"/>', 26, 1.8),
+    'Resistencia': ico('<path d="M3 20h18"/><rect x="5" y="12" width="3" height="6" rx="1"/><rect x="10.5" y="8" width="3" height="10" rx="1"/><rect x="16" y="4" width="3" height="14" rx="1"/>', 26, 1.8),
+    'Periodización lineal': ico('<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>', 26, 1.8),
+    'Bloque específico': ico('<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M3 7l9 5 9-5"/><path d="M12 12v10"/>', 26, 1.8),
+    'Desde cero': ico('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>', 26, 1.8),
   };
 
   const TEMPLATES = [
@@ -19057,6 +19073,7 @@ function makePcCard(d, isTop) {
   let libForSession = -1;
   let sessEditMode = false;
   let pendingDeleteSi = -1;
+  let saving = false;
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
@@ -19075,6 +19092,7 @@ function makePcCard(d, isTop) {
     loadTemplate(0);
     sessEditMode = false;
     pendingDeleteSi = -1;
+    saving = false;
     const modal = document.getElementById('plan-editor-modal');
     if (!modal) return;
     renderModal();
@@ -19085,7 +19103,6 @@ function makePcCard(d, isTop) {
 
   function close() {
     closeLibrary();
-    openDayPickerSi = -1;
     const modal = document.getElementById('plan-editor-modal');
     if (!modal) return;
     modal.classList.remove('pe-open');
@@ -19097,119 +19114,154 @@ function makePcCard(d, isTop) {
     const modal = document.getElementById('plan-editor-modal');
     modal.innerHTML = `
       <div class="pe-screen">
-        <div class="pe-topbar">
-          <div class="pe-topbar-left">
-            <button class="pe-back-btn" id="pe-back-btn" aria-label="Volver">${SVG.back}</button>
-            <span class="pe-title">Nuevo plan</span>
+        <header class="pe-topbar">
+          <button type="button" class="pe-icon-btn pe-back-btn" id="pe-back-btn" aria-label="Volver">${SVG.back}</button>
+          <div class="pe-heading">
+            <h2 class="pe-title" id="pe-title">Nuevo plan</h2>
+            <p class="pe-subtitle">Diseña tu entrenamiento</p>
           </div>
-          <button class="pe-save-top" id="pe-save-top">Guardar</button>
-        </div>
-        <div class="pe-scroll">
-          <div class="pe-sec">
-            <div class="pe-sec-label">NOMBRE DEL PLAN</div>
-            <input class="pe-name-input" id="pe-name-input" type="text" maxlength="60" placeholder="Ej: Fuerza máx. 4 semanas" value="${planData.name}" autocomplete="off">
-          </div>
+          <button type="button" class="pe-save-btn" id="pe-save-top">${SVG.save}<span>Guardar</span></button>
+        </header>
 
-          <div class="pe-sec">
-            <div class="pe-sec-label">EMPEZAR DESDE PLANTILLA</div>
-            <div class="pe-tpl-row" id="pe-tpl-row">
-              ${TEMPLATES.map((t, i) => `<button class="pe-tpl-chip${i === templateIdx ? ' active' : ''}" data-tidx="${i}">${t.label}</button>`).join('')}
+        <div class="pe-scroll" id="pe-scroll">
+          <section class="pe-name-card" aria-labelledby="pe-name-label">
+            <label class="pe-label pe-label--light" id="pe-name-label" for="pe-name-input">Nombre del plan</label>
+            <div class="pe-name-field">
+              <input class="pe-name-input" id="pe-name-input" type="text" maxlength="60" placeholder="Ej: Fuerza máx. 4 semanas" autocomplete="off" enterkeyhint="done">
+              <button type="button" class="pe-name-clear" id="pe-name-clear" aria-label="Borrar nombre">${SVG.clear}</button>
             </div>
-            <div class="pe-tpl-hint">Aplicar una plantilla reemplaza las sesiones actuales.</div>
-          </div>
+          </section>
 
-          <div class="pe-sec">
-            <div class="pe-sec-label">DURACIÓN</div>
-            <div class="pe-stepper" id="pe-stepper">
-              <button class="pe-step-btn" id="pe-step-minus" aria-label="Menos">${SVG.minus}</button>
-              <div class="pe-step-val">
-                <span id="pe-step-num">${planData.weeks}</span>
-                <span class="pe-step-unit">semanas</span>
-              </div>
-              <button class="pe-step-btn" id="pe-step-plus" aria-label="Más">${SVG.plus}</button>
+          <section class="pe-card" aria-labelledby="pe-tpl-label">
+            <h3 class="pe-label" id="pe-tpl-label">Empezar desde plantilla</h3>
+            <div class="pe-tpl-row" id="pe-tpl-row" role="radiogroup" aria-labelledby="pe-tpl-label">
+              ${TEMPLATES.map((t, i) => `
+                <button type="button" class="pe-tpl-card" role="radio" data-tidx="${i}">
+                  <span class="pe-tpl-icon">${TEMPLATE_ICONS[t.label] || TEMPLATE_ICONS['Desde cero']}</span>
+                  <span class="pe-tpl-name">${trEsc(t.label)}</span>
+                  <span class="pe-tpl-check">${SVG.check}</span>
+                </button>`).join('')}
             </div>
-          </div>
+            <p class="pe-hint">Aplicar una plantilla reemplaza las sesiones actuales.</p>
+          </section>
 
-          <div class="pe-sec">
-            <div class="pe-sec-label">DÍAS DE ENTRENAMIENTO <span class="pe-sec-meta" id="pe-days-count"></span></div>
-            <div class="pe-days-grid" id="pe-days-grid"></div>
-            <div class="pe-tpl-hint">Toca un día para activarlo/desactivarlo. Las sesiones se reasignan automáticamente.</div>
-          </div>
+          <section class="pe-card" aria-label="Configuración del plan">
+            <div class="pe-row-head">
+              <h3 class="pe-label" id="pe-weeks-label">Duración del plan</h3>
+            </div>
+            <div class="pe-stepper" role="group" aria-labelledby="pe-weeks-label">
+              <button type="button" class="pe-step-btn" id="pe-step-minus" aria-label="Una semana menos">${SVG.minus}</button>
+              <div class="pe-step-val" aria-live="polite"><span class="pe-step-num" id="pe-step-num"></span> <span class="pe-step-unit" id="pe-step-unit">semanas</span></div>
+              <button type="button" class="pe-step-btn" id="pe-step-plus" aria-label="Una semana más">${SVG.plus}</button>
+            </div>
 
-          <div class="pe-sec">
-            <div class="pe-sec-row">
-              <div class="pe-sec-label">SESIONES <span class="pe-sec-meta" id="pe-sess-count"></span></div>
-              <button class="pe-gear-btn" id="pe-sess-gear" aria-label="Editar sesiones">${SVG.gear}</button>
+            <div class="pe-divider" aria-hidden="true"></div>
+
+            <div class="pe-row-head">
+              <h3 class="pe-label" id="pe-days-label">Días de entrenamiento</h3>
+              <span class="pe-meta" id="pe-days-count"></span>
+            </div>
+            <div class="pe-days-grid" id="pe-days-grid" role="group" aria-labelledby="pe-days-label"></div>
+            <p class="pe-hint">Toca un día para activarlo o desactivarlo. Las sesiones se reasignan automáticamente.</p>
+          </section>
+
+          <section class="pe-sessions" aria-labelledby="pe-sess-label">
+            <div class="pe-row-head pe-row-head--sessions">
+              <h3 class="pe-label" id="pe-sess-label">Sesiones</h3>
+              <span class="pe-meta" id="pe-sess-count"></span>
+              <button type="button" class="pe-edit-toggle" id="pe-sess-gear" aria-pressed="false">Editar</button>
             </div>
             <div class="pe-session-list" id="pe-session-list"></div>
-            <button class="pe-add-session-btn" id="pe-add-session-btn">${SVG.plus} Añadir sesión</button>
-          </div>
-
-          <div class="pe-sec pe-sec-last">
-            <button class="pe-save-bottom" id="pe-save-bottom">${SVG.save} Guardar plan</button>
-          </div>
+            <button type="button" class="pe-add-session-btn" id="pe-add-session-btn">${SVG.plus}<span>Añadir sesión</span></button>
+            <p class="pe-hint pe-hint--center" id="pe-sess-limit" hidden>Máximo ${MAX_SESSIONS} sesiones por semana.</p>
+          </section>
         </div>
       </div>`;
 
-    // Static events (rendered once)
+    const nameInput = document.getElementById('pe-name-input');
+    nameInput.value = planData.name;
+
     document.getElementById('pe-back-btn').onclick = close;
     document.getElementById('pe-save-top').onclick = savePlan;
-    document.getElementById('pe-save-bottom').onclick = savePlan;
-    document.getElementById('pe-name-input').oninput = e => { planData.name = e.target.value; };
+    nameInput.oninput = () => { planData.name = nameInput.value; updateNameClear(); };
+    nameInput.onkeydown = e => { if (e.key === 'Enter') nameInput.blur(); };
+    document.getElementById('pe-name-clear').onclick = () => {
+      nameInput.value = '';
+      planData.name = '';
+      updateNameClear();
+      nameInput.focus();
+    };
 
     document.getElementById('pe-tpl-row').onclick = e => {
-      const chip = e.target.closest('.pe-tpl-chip');
-      if (!chip) return;
-      const idx = parseInt(chip.dataset.tidx);
-      loadTemplate(idx);
-      const input = document.getElementById('pe-name-input');
-      if (input) input.value = planData.name;
-      document.getElementById('pe-step-num').textContent = planData.weeks;
-      document.querySelectorAll('.pe-tpl-chip').forEach((c, i) => c.classList.toggle('active', i === templateIdx));
+      const card = e.target.closest('.pe-tpl-card');
+      if (!card) return;
+      loadTemplate(parseInt(card.dataset.tidx));
+      nameInput.value = planData.name;
+      pendingDeleteSi = -1;
+      updateNameClear();
+      renderTemplates();
+      renderWeeks();
       renderDays();
       renderSessions();
     };
 
     document.getElementById('pe-step-minus').onclick = () => {
-      if (planData.weeks > MIN_WEEKS) {
-        planData.weeks--;
-        document.getElementById('pe-step-num').textContent = planData.weeks;
-      }
+      if (planData.weeks > MIN_WEEKS) { planData.weeks--; renderWeeks(); }
     };
     document.getElementById('pe-step-plus').onclick = () => {
-      if (planData.weeks < MAX_WEEKS) {
-        planData.weeks++;
-        document.getElementById('pe-step-num').textContent = planData.weeks;
-      }
+      if (planData.weeks < MAX_WEEKS) { planData.weeks++; renderWeeks(); }
     };
 
     document.getElementById('pe-sess-gear').onclick = () => {
       sessEditMode = !sessEditMode;
       pendingDeleteSi = -1;
-      const btn = document.getElementById('pe-sess-gear');
-      if (btn) btn.classList.toggle('active', sessEditMode);
       renderSessions();
     };
 
     document.getElementById('pe-add-session-btn').onclick = () => {
+      if (planData.sessions.length >= MAX_SESSIONS) return;
       planData.sessions.push({ day: '?', name: 'Nueva sesión', expanded: true, exercises: [] });
       syncSessionDays();
       renderSessions();
     };
 
-    // Single delegated handler on session list (no accumulation)
-    const list = document.getElementById('pe-session-list');
-    list.onclick = handleSessionListClick;
+    // Un único manejador delegado para la lista (no se acumulan)
+    document.getElementById('pe-session-list').onclick = handleSessionListClick;
 
+    updateNameClear();
+    renderTemplates();
+    renderWeeks();
     renderDays();
     renderSessions();
   }
 
+  function updateNameClear() {
+    const btn = document.getElementById('pe-name-clear');
+    if (btn) btn.hidden = !planData.name;
+  }
+
+  function renderTemplates() {
+    document.querySelectorAll('#pe-tpl-row .pe-tpl-card').forEach((c, i) => {
+      const on = i === templateIdx;
+      c.classList.toggle('is-active', on);
+      c.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
+  function renderWeeks() {
+    const num = document.getElementById('pe-step-num');
+    if (!num) return;
+    num.textContent = planData.weeks;
+    document.getElementById('pe-step-unit').textContent = planData.weeks === 1 ? 'semana' : 'semanas';
+    document.getElementById('pe-step-minus').disabled = planData.weeks <= MIN_WEEKS;
+    document.getElementById('pe-step-plus').disabled = planData.weeks >= MAX_WEEKS;
+  }
+
   function handleSessionListClick(e) {
-    // Editable name input — don't bubble
+    // Campo de nombre en edición: no propagar
     if (e.target.closest('.pe-session-name-input')) return;
 
-    // Delete exercise
+    // Eliminar ejercicio
     const delBtn = e.target.closest('.pe-ex-del');
     if (delBtn) {
       planData.sessions[parseInt(delBtn.dataset.si)].exercises.splice(parseInt(delBtn.dataset.ei), 1);
@@ -19217,62 +19269,60 @@ function makePcCard(d, isTop) {
       return;
     }
 
-    // Add exercise
+    // Añadir ejercicio
     const addBtn = e.target.closest('.pe-add-ex-btn');
     if (addBtn) {
       openLibrary(parseInt(addBtn.dataset.si));
       return;
     }
 
-    // Cancel pending delete
-    const cancelDel = e.target.closest('.pe-del-cancel');
-    if (cancelDel) {
-      e.stopPropagation();
+    // Cancelar eliminación pendiente
+    if (e.target.closest('.pe-del-cancel')) {
       pendingDeleteSi = -1;
       renderSessions();
       return;
     }
 
-    // Delete session (double confirm)
+    // Eliminar sesión (doble confirmación)
     const delSess = e.target.closest('.pe-session-del');
     if (delSess) {
-      e.stopPropagation();
       const si = parseInt(delSess.dataset.si);
       if (pendingDeleteSi === si) {
         planData.sessions.splice(si, 1);
         syncSessionDays();
         pendingDeleteSi = -1;
-        renderSessions();
       } else {
         pendingDeleteSi = si;
-        renderSessions();
       }
+      renderSessions();
       return;
     }
 
-    // Edit session name button
+    // Renombrar sesión
     const editName = e.target.closest('.pe-session-edit');
     if (editName) {
-      e.stopPropagation();
       const si = parseInt(editName.dataset.si);
       const nameEl = document.querySelector(`.pe-session-card[data-si="${si}"] .pe-session-name`);
       if (!nameEl) return;
       const current = planData.sessions[si].name;
-      nameEl.innerHTML = `<input class="pe-session-name-input" type="text" value="${current.replace(/"/g, '&quot;')}" maxlength="40">`;
+      nameEl.innerHTML = `<input class="pe-session-name-input" type="text" maxlength="40" aria-label="Nombre de la sesión" enterkeyhint="done">`;
       const inp = nameEl.querySelector('input');
+      inp.value = current;
       inp.focus();
       inp.select();
-      const commit = () => {
+      inp.onblur = () => {
         planData.sessions[si].name = inp.value.trim() || 'Sin nombre';
         renderSessions();
       };
-      inp.onblur = commit;
-      inp.onkeydown = ev => { if (ev.key === 'Enter') inp.blur(); if (ev.key === 'Escape') { inp.value = current; inp.blur(); } };
+      inp.onkeydown = ev => {
+        if (ev.key === 'Enter') inp.blur();
+        if (ev.key === 'Escape') { inp.value = current; inp.blur(); }
+      };
       return;
     }
 
-    // Header toggle expand (lowest priority — runs only if nothing above matched)
-    const hdr = e.target.closest('.pe-session-header');
+    // Desplegar o plegar (prioridad más baja)
+    const hdr = e.target.closest('.pe-session-toggle');
     if (hdr) {
       const si = parseInt(hdr.dataset.si);
       planData.sessions[si].expanded = !planData.sessions[si].expanded;
@@ -19291,8 +19341,11 @@ function makePcCard(d, isTop) {
     grid.innerHTML = '';
     DAYS.forEach((d, i) => {
       const btn = document.createElement('button');
+      btn.type = 'button';
       btn.className = 'pe-day-pill' + (planData.activeDays[i] ? ' on' : '');
       btn.textContent = d;
+      btn.setAttribute('aria-pressed', planData.activeDays[i] ? 'true' : 'false');
+      btn.setAttribute('aria-label', DAY_NAMES[i]);
       btn.onclick = () => {
         planData.activeDays[i] = !planData.activeDays[i];
         syncSessionDays();
@@ -19303,99 +19356,117 @@ function makePcCard(d, isTop) {
     });
     const count = planData.activeDays.filter(Boolean).length;
     const countEl = document.getElementById('pe-days-count');
-    if (countEl) countEl.textContent = `· ${count} ${count === 1 ? 'día' : 'días'}/sem`;
+    if (countEl) countEl.textContent = `${count} ${count === 1 ? 'día' : 'días'}/sem`;
   }
 
   function renderSessions() {
     const list = document.getElementById('pe-session-list');
     if (!list) return;
-    const sessCount = document.getElementById('pe-sess-count');
-    if (sessCount) sessCount.textContent = `· ${planData.sessions.length}`;
+    const n = planData.sessions.length;
+    document.getElementById('pe-sess-count').textContent = `${n} ${n === 1 ? 'sesión' : 'sesiones'}`;
 
-    if (planData.sessions.length === 0) {
-      list.innerHTML = `<div class="pe-empty">Aún no hay sesiones. Toca "Añadir sesión" para empezar.</div>`;
+    const gear = document.getElementById('pe-sess-gear');
+    gear.hidden = n === 0;
+    gear.textContent = sessEditMode ? 'Listo' : 'Editar';
+    gear.setAttribute('aria-pressed', sessEditMode ? 'true' : 'false');
+    gear.classList.toggle('is-active', sessEditMode);
+
+    const full = n >= MAX_SESSIONS;
+    document.getElementById('pe-add-session-btn').disabled = full;
+    document.getElementById('pe-sess-limit').hidden = !full;
+
+    if (n === 0) {
+      list.innerHTML = `
+        <div class="pe-empty">
+          <p class="pe-empty-title">Aún no hay sesiones</p>
+          <p class="pe-empty-text">Añade una sesión y se asignará al primer día activo libre.</p>
+        </div>`;
       return;
     }
 
-    const rpeColorCls = rpe => rpe >= 9 ? ' hi' : rpe >= 8 ? ' warn' : '';
-    const rpeTag = rpe => rpe ? `<span class="pe-ex-rpe${rpeColorCls(rpe)}">RPE ${rpe}</span>` : '';
+    const rpeTag = rpe => rpe ? `<span class="pe-ex-rpe${rpe >= 9 ? ' hi' : ''}">RPE ${rpe}</span>` : '';
 
     list.innerHTML = planData.sessions.map((s, si) => {
       const hasDay = s.day && s.day !== '?';
-      const badgeCls = 'pe-session-badge' + (hasDay ? '' : ' orphan');
+      const exCount = s.exercises.length;
+      const meta = [`${exCount} ejercicio${exCount !== 1 ? 's' : ''}`];
+      if (exCount && typeof trEstimateMinutes === 'function') meta.push(`≈ ${trEstimateMinutes(s.exercises)} min`);
+      const pending = pendingDeleteSi === si;
 
       const exHTML = s.expanded ? `
-        <div class="pe-ex-list">
-          ${s.exercises.length === 0 ? '<div class="pe-ex-empty">Sin ejercicios todavía</div>' : s.exercises.map((ex, ei) => `
+        <div class="pe-ex-list" id="pe-ex-list-${si}">
+          ${exCount === 0 ? '<p class="pe-ex-empty">Sin ejercicios todavía.</p>' : s.exercises.map((ex, ei) => `
             <div class="pe-ex-row">
-              <span class="pe-ex-drag">${SVG.grip}</span>
+              <span class="pe-ex-icon">${ex.workSec > 0 ? SVG.timer : SVG.reps}</span>
               <div class="pe-ex-info">
-                <div class="pe-ex-name">${ex.name}</div>
-                <div class="pe-ex-detail">${typeof buildExDetail === 'function' ? buildExDetail(ex) : ''}</div>
+                <div class="pe-ex-name">${trEsc(ex.name)}</div>
+                <div class="pe-ex-detail">${trEsc(typeof buildExDetail === 'function' ? buildExDetail(ex) : '')}</div>
               </div>
               ${rpeTag(ex.rpeTarget)}
-              <button class="pe-ex-del" data-si="${si}" data-ei="${ei}" aria-label="Eliminar">${SVG.x}</button>
+              <button type="button" class="pe-icon-btn pe-ex-del" data-si="${si}" data-ei="${ei}" aria-label="Eliminar ${trEsc(ex.name)}">${SVG.close}</button>
             </div>`).join('')}
-          <button class="pe-add-ex-btn" data-si="${si}">${SVG.plus} Añadir ejercicio</button>
+          <button type="button" class="pe-add-ex-btn" data-si="${si}">${SVG.plus}<span>Añadir ejercicio</span></button>
         </div>` : '';
 
-      const confirmBanner = pendingDeleteSi === si ? `
-        <div class="pe-del-confirm">
-          <span class="pe-del-confirm-text">¿Eliminar "${s.name}"?</span>
-          <button class="pe-session-del pe-del-yes" data-si="${si}">Eliminar</button>
-          <button class="pe-del-cancel">Cancelar</button>
+      const confirmBanner = pending ? `
+        <div class="pe-del-confirm" role="alert">
+          <span class="pe-del-confirm-text">¿Eliminar «${trEsc(s.name)}»?</span>
+          <button type="button" class="pe-del-cancel">Cancelar</button>
+          <button type="button" class="pe-session-del pe-del-yes" data-si="${si}">Eliminar</button>
         </div>` : '';
 
       return `
-        <div class="pe-session-card${pendingDeleteSi === si ? ' pending-del' : ''}" data-si="${si}">
-          <div class="pe-session-header" data-si="${si}">
-            <div class="${badgeCls}">${hasDay ? s.day : '?'}</div>
-            <div class="pe-session-info">
-              <div class="pe-session-name">${s.name}</div>
-              <div class="pe-session-count">${s.exercises.length} ejercicio${s.exercises.length !== 1 ? 's' : ''}</div>
-            </div>
+        <article class="pe-session-card${s.expanded ? ' is-open' : ''}${pending ? ' pending-del' : ''}" data-si="${si}">
+          <div class="pe-session-header">
+            <button type="button" class="pe-session-toggle" data-si="${si}" aria-expanded="${s.expanded ? 'true' : 'false'}"${s.expanded ? ` aria-controls="pe-ex-list-${si}"` : ''}>
+              <span class="pe-session-badge${hasDay ? '' : ' orphan'}" title="${hasDay ? DAY_NAMES[DAYS.indexOf(s.day)] : 'Sin día asignado'}">${hasDay ? s.day : '?'}</span>
+              <span class="pe-session-info">
+                <span class="pe-session-name">${trEsc(s.name)}</span>
+                <span class="pe-session-count">${hasDay ? '' : 'Sin día asignado · '}${meta.join(' · ')}</span>
+              </span>
+              <span class="pe-session-chev">${SVG.chev}</span>
+            </button>
             ${sessEditMode ? `
-              <button class="pe-session-edit" data-si="${si}" aria-label="Renombrar">${SVG.edit}</button>
-              <button class="pe-session-del" data-si="${si}" aria-label="Eliminar sesión">${SVG.x}</button>
+              <button type="button" class="pe-icon-btn pe-session-edit" data-si="${si}" aria-label="Renombrar ${trEsc(s.name)}">${SVG.edit}</button>
+              <button type="button" class="pe-icon-btn pe-session-del pe-icon-btn--danger" data-si="${si}" aria-label="Eliminar ${trEsc(s.name)}">${SVG.trash}</button>
             ` : ''}
-            <span class="pe-session-chev">${s.expanded ? SVG.chevUp : SVG.chevDown}</span>
           </div>
           ${confirmBanner}
           ${exHTML}
-        </div>`;
+        </article>`;
     }).join('');
   }
 
   function openLibrary(si) {
     libForSession = si;
-    closeLibrary();
+    closeLibrary(true);
     const catLabel = { str: 'Fuerza', pow: 'Potencia', ant: 'Antag.' };
     const sheet = document.createElement('div');
     sheet.id = 'pe-lib-sheet';
     sheet.className = 'pe-lib-sheet';
     sheet.innerHTML = `
       <div class="pe-lib-backdrop" id="pe-lib-backdrop"></div>
-      <div class="pe-lib-panel">
-        <div class="pe-lib-handle"></div>
+      <div class="pe-lib-panel" role="dialog" aria-modal="true" aria-labelledby="pe-lib-title">
+        <div class="pe-lib-handle" aria-hidden="true"></div>
         <div class="pe-lib-head">
-          <span class="pe-lib-title">Biblioteca de ejercicios</span>
-          <button class="pe-lib-close" id="pe-lib-close" aria-label="Cerrar">${SVG.close}</button>
+          <h3 class="pe-lib-title" id="pe-lib-title">Añadir ejercicio</h3>
+          <button type="button" class="pe-icon-btn" id="pe-lib-close" aria-label="Cerrar">${SVG.close}</button>
         </div>
         <div class="pe-lib-list">
           ${LIBRARY.map((ex, i) => `
-            <div class="pe-lib-item" data-lidx="${i}">
+            <button type="button" class="pe-lib-item" data-lidx="${i}">
+              <span class="pe-lib-info">
+                <span class="pe-lib-name">${trEsc(ex.name)}</span>
+                <span class="pe-lib-detail">${trEsc(ex.detail)}</span>
+              </span>
               <span class="pe-lib-cat ${ex.cat}">${catLabel[ex.cat]}</span>
-              <div class="pe-lib-info">
-                <div class="pe-lib-name">${ex.name}</div>
-                <div class="pe-lib-detail">${ex.detail}</div>
-              </div>
-            </div>`).join('')}
+            </button>`).join('')}
         </div>
       </div>`;
     document.getElementById('plan-editor-modal').appendChild(sheet);
     requestAnimationFrame(() => sheet.classList.add('pe-lib-open'));
-    document.getElementById('pe-lib-backdrop').onclick = closeLibrary;
-    document.getElementById('pe-lib-close').onclick = closeLibrary;
+    document.getElementById('pe-lib-backdrop').onclick = () => closeLibrary();
+    document.getElementById('pe-lib-close').onclick = () => closeLibrary();
     sheet.querySelector('.pe-lib-list').onclick = e => {
       const item = e.target.closest('.pe-lib-item');
       if (!item) return;
@@ -19406,36 +19477,56 @@ function makePcCard(d, isTop) {
     };
   }
 
-  function closeLibrary() {
+  function closeLibrary(immediate) {
     const sheet = document.getElementById('pe-lib-sheet');
     if (!sheet) return;
+    sheet.id = '';
+    if (immediate) { sheet.remove(); return; }
     sheet.classList.remove('pe-lib-open');
     setTimeout(() => { if (sheet.parentNode) sheet.remove(); }, 250);
   }
 
-  function savePlan() {
-    const name = planData.name || 'Mi plan';
+  async function savePlan() {
+    if (saving) return;
+    const name = planData.name.trim() || 'Mi plan';
     const activeDayLabels = DAYS.filter((_, i) => planData.activeDays[i]);
     const totalEx = planData.sessions.reduce((a, s) => a + s.exercises.length, 0);
+    const btn = document.getElementById('pe-save-top');
 
-    // Persist to global active plan + refresh train view
+    // Plan activo en memoria (Entrena lo usa aunque no haya sesión iniciada)
     window.kruxActivePlan = { name, sessions: planData.sessions, activeDays: planData.activeDays, weeks: planData.weeks };
-    KruxTrainStore.savePlan(window.kruxActivePlan);
+
+    const signedIn = !!(firebase.auth().currentUser);
+    if (signedIn) {
+      saving = true;
+      btn.disabled = true;
+      btn.classList.add('is-busy');
+      btn.querySelector('span').textContent = 'Guardando…';
+      const ok = await KruxTrainStore.savePlan(window.kruxActivePlan);
+      saving = false;
+      if (!ok) {
+        // El toast de error lo muestra KruxTrainStore; se puede reintentar
+        btn.disabled = false;
+        btn.classList.remove('is-busy');
+        btn.querySelector('span').textContent = 'Guardar';
+        if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+        return;
+      }
+    }
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
 
     const screen = document.querySelector('#plan-editor-modal .pe-screen');
     if (!screen) return;
     screen.innerHTML = `
-      <div class="pe-topbar">
-        <div class="pe-topbar-left">
-          <button class="pe-back-btn" id="pe-saved-back" aria-label="Cerrar">${SVG.back}</button>
-        </div>
-      </div>
+      <header class="pe-topbar">
+        <button type="button" class="pe-icon-btn pe-back-btn" id="pe-saved-back" aria-label="Cerrar">${SVG.back}</button>
+      </header>
       <div class="pe-saved-wrap">
-        <div class="pe-saved-icon">✅</div>
-        <div class="pe-saved-title">${name}</div>
-        <div class="pe-saved-sub">${planData.weeks} semanas · ${planData.sessions.length} sesiones · ${activeDayLabels.join(', ')} · ${totalEx} ejercicios</div>
-        <button class="pe-save-bottom" id="pe-saved-done">Empezar plan →</button>
+        <div class="pe-saved-icon">${SVG.checkBig}</div>
+        <h2 class="pe-saved-title">${trEsc(name)}</h2>
+        <p class="pe-saved-sub">${planData.weeks} ${planData.weeks === 1 ? 'semana' : 'semanas'} · ${planData.sessions.length} ${planData.sessions.length === 1 ? 'sesión' : 'sesiones'} · ${totalEx} ejercicios${activeDayLabels.length ? `<br>${activeDayLabels.join(' · ')}` : ''}</p>
+        <p class="pe-saved-note">${signedIn ? 'Guardado en tu cuenta.' : 'Inicia sesión para guardarlo en tu cuenta; si no, se perderá al cerrar KRUX.'}</p>
+        <button type="button" class="pe-save-btn pe-save-btn--wide" id="pe-saved-done"><span>Ir a Entrena</span></button>
       </div>`;
     document.getElementById('pe-saved-back').onclick = close;
     document.getElementById('pe-saved-done').onclick = close;
