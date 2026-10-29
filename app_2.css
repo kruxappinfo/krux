@@ -11435,8 +11435,7 @@ img[loading="lazy"]:not([src=""]) {
 @media (hover: none) {
 
   button:active,
-  .menu-item:active,
-  .feed-card:active {
+  .menu-item:active {
     transform: scale(0.98);
   }
 }
