@@ -9131,6 +9131,320 @@ function openVideoTrimmer(mediaId, opener) {
   q('[data-trim-cancel]').focus({ preventScroll: true });
 }
 
+// ================== RECORTAR Y GIRAR FOTOS ==================
+// Se trabaja sobre el original (`orig`): el archivo editado lo sustituye en el editor y se puede reabrir para reajustar.
+const KX_CROP_MAX_SIDE = 4096; // por encima algunos móviles no pueden crear el lienzo
+const KX_CROP_MIN_PX = 48;
+const KX_CROP_RATIOS = [
+  { key: 'free', label: 'Libre' },
+  { key: 'orig', label: 'Original' },
+  { key: '1:1', label: '1:1', r: 1 },
+  { key: '4:5', label: '4:5', r: 4 / 5 },
+  { key: '5:4', label: '5:4', r: 5 / 4 },
+  { key: '16:9', label: '16:9', r: 16 / 9 },
+  { key: '9:16', label: '9:16', r: 9 / 16 }
+];
+const CP_CROP_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v14a2 2 0 0 0 2 2h14"></path><path d="M18 22V8a2 2 0 0 0-2-2H2"></path></svg>';
+let kxCropperEl = null;
+
+async function kxLoadImageBitmapLike(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode(); // respeta la orientación EXIF
+    return img;
+  } finally {
+    // El <img> ya decodificado sigue siendo dibujable tras liberar la URL
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+}
+
+function openPhotoEditor(mediaId, opener) {
+  const item = postData.media.find(m => m.id === mediaId);
+  if (!item || item.kind !== 'photo' || kxCropperEl) return;
+  const source = item.orig || item.file;
+
+  const el = document.createElement('div');
+  el.className = 'kx-trim kx-crop';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', 'Recortar y girar foto');
+  const rotIcon = (flip) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${flip ? 'style="transform:scaleX(-1)"' : ''}><path d="M21 12a9 9 0 1 1-3-6.7"></path><polyline points="21 3 21 9 15 9"></polyline></svg>`;
+  el.innerHTML = `
+    <div class="kx-trim-head">
+      <button type="button" class="kx-trim-cancel" data-crop-cancel>Cancelar</button>
+      <h2>Editar foto</h2>
+      <button type="button" class="kx-trim-apply" data-crop-apply disabled>Aplicar</button>
+    </div>
+    <div class="kx-crop-stage" data-stage>
+      <div class="kx-crop-wrap" data-wrap hidden>
+        <canvas data-canvas></canvas>
+        <div class="kx-crop-box" data-box tabindex="0" role="group" aria-label="Zona que se conserva. Flechas para moverla">
+          <i class="kx-crop-corner is-nw"></i><i class="kx-crop-corner is-ne"></i><i class="kx-crop-corner is-sw"></i><i class="kx-crop-corner is-se"></i>
+        </div>
+      </div>
+      <p class="kx-crop-state" data-state role="status">Cargando foto…</p>
+    </div>
+    <div class="kx-crop-panel">
+      <div class="kx-crop-tools">
+        <button type="button" class="kx-crop-tool" data-rotate="-1" aria-label="Girar a la izquierda">${rotIcon(true)}</button>
+        <button type="button" class="kx-crop-tool" data-rotate="1" aria-label="Girar a la derecha">${rotIcon(false)}</button>
+        <button type="button" class="kx-crop-reset" data-reset>Restablecer</button>
+      </div>
+      <div class="kx-crop-ratios" role="group" aria-label="Proporción">
+        ${KX_CROP_RATIOS.map(r => `<button type="button" class="kx-crop-chip" data-ratio="${r.key}" aria-pressed="false">${r.label}</button>`).join('')}
+      </div>
+    </div>
+    <div class="kx-trim-busy" data-busy hidden>
+      <div class="kx-trim-spinner" aria-hidden="true"></div>
+      <p role="status">Guardando…</p>
+    </div>`;
+
+  const q = (sel) => el.querySelector(sel);
+  const stage = q('[data-stage]');
+  const wrap = q('[data-wrap]');
+  const canvas = q('[data-canvas]');
+  const box = q('[data-box]');
+  const applyBtn = q('[data-crop-apply]');
+  const app = document.getElementById('create-post-modal');
+
+  let img = null;
+  let base = null; // lienzo con la foto ya girada (máx. KX_CROP_MAX_SIDE)
+  let rot = item.edit ? item.edit.rot : 0; // cuartos de vuelta a la derecha
+  let c = item.edit ? { ...item.edit.c } : { x: 0, y: 0, w: 1, h: 1 }; // zona conservada, normalizada sobre la foto girada
+  let ratioKey = item.edit ? item.edit.ratio : 'free';
+  let dispW = 0, dispH = 0;
+
+  const rotatedDims = () => (rot % 2 ? [img.naturalHeight, img.naturalWidth] : [img.naturalWidth, img.naturalHeight]);
+  const ratioValue = () => {
+    if (ratioKey === 'free') return null;
+    const [W, H] = rotatedDims();
+    if (ratioKey === 'orig') return W / H;
+    return KX_CROP_RATIOS.find(r => r.key === ratioKey).r;
+  };
+  // w/h de la zona en coordenadas normalizadas para que en píxeles tenga la proporción pedida
+  const normK = () => { const r = ratioValue(); const [W, H] = rotatedDims(); return r ? (r * H) / W : null; };
+
+  const buildBase = () => {
+    const [W, H] = rotatedDims();
+    const k = Math.min(1, KX_CROP_MAX_SIDE / Math.max(W, H));
+    base = document.createElement('canvas');
+    base.width = Math.round(W * k);
+    base.height = Math.round(H * k);
+    const g = base.getContext('2d');
+    g.save();
+    g.translate(base.width / 2, base.height / 2);
+    g.rotate((rot * Math.PI) / 2);
+    const dw = (rot % 2 ? base.height : base.width);
+    const dh = (rot % 2 ? base.width : base.height);
+    g.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+    g.restore();
+  };
+
+  const layout = () => {
+    if (!base) return;
+    const r = stage.getBoundingClientRect();
+    const availW = Math.max(60, r.width - 32), availH = Math.max(60, r.height - 32);
+    const scale = Math.min(availW / base.width, availH / base.height);
+    dispW = Math.round(base.width * scale);
+    dispH = Math.round(base.height * scale);
+    wrap.style.width = `${dispW}px`;
+    wrap.style.height = `${dispH}px`;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(dispW * dpr);
+    canvas.height = Math.round(dispH * dpr);
+    canvas.style.width = `${dispW}px`;
+    canvas.style.height = `${dispH}px`;
+    canvas.getContext('2d').drawImage(base, 0, 0, canvas.width, canvas.height);
+    paintBox();
+  };
+
+  const changed = () => rot % 4 !== 0 || c.x > 0.001 || c.y > 0.001 || c.w < 0.999 || c.h < 0.999;
+  const paintBox = () => {
+    box.style.cssText = `left:${c.x * dispW}px;top:${c.y * dispH}px;width:${c.w * dispW}px;height:${c.h * dispH}px`;
+    applyBtn.disabled = !base || !(changed() || item.orig);
+    el.querySelectorAll('[data-ratio]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ratio === ratioKey)));
+  };
+
+  // Mayor zona con la proporción pedida, centrada en la actual
+  const fitRatio = () => {
+    const k = normK();
+    if (!k) return;
+    let w = k >= 1 ? 1 : k;
+    let h = k >= 1 ? 1 / k : 1;
+    const cx = c.x + c.w / 2, cy = c.y + c.h / 2;
+    c = { w, h, x: Math.min(1 - w, Math.max(0, cx - w / 2)), y: Math.min(1 - h, Math.max(0, cy - h / 2)) };
+  };
+
+  // ---- Arrastre: mover la zona, estirar bordes o esquinas ----
+  let drag = null;
+  const minW = () => Math.min(1, KX_CROP_MIN_PX / Math.max(1, dispW));
+  const minH = () => Math.min(1, KX_CROP_MIN_PX / Math.max(1, dispH));
+  const hitTest = (px, py) => {
+    const bx = c.x * dispW, by = c.y * dispH, bw = c.w * dispW, bh = c.h * dispH;
+    const m = Math.min(30, bw / 3, bh / 3);
+    const nearL = Math.abs(px - bx) <= m, nearR = Math.abs(px - (bx + bw)) <= m;
+    const nearT = Math.abs(py - by) <= m, nearB = Math.abs(py - (by + bh)) <= m;
+    const inX = px >= bx - m && px <= bx + bw + m, inY = py >= by - m && py <= by + bh + m;
+    if (!inX || !inY) return null;
+    const locked = !!normK();
+    const l = nearL, r = nearR, t = nearT, b = nearB;
+    if ((l || r) && (t || b)) return { l, r, t, b };
+    if (locked) return { move: true };
+    if (l || r || t || b) return { l, r, t, b };
+    return { move: true };
+  };
+
+  stage.addEventListener('pointerdown', (ev) => {
+    if (!base || ev.target.closest('button')) return;
+    const wr = wrap.getBoundingClientRect();
+    const px = ev.clientX - wr.left, py = ev.clientY - wr.top;
+    const hit = hitTest(px, py);
+    if (!hit) return;
+    ev.preventDefault();
+    try { stage.setPointerCapture(ev.pointerId); } catch (_) { /* puntero ya liberado */ }
+    drag = { hit, startX: px, startY: py, c0: { ...c } };
+  });
+  stage.addEventListener('pointermove', (ev) => {
+    if (!drag) return;
+    const wr = wrap.getBoundingClientRect();
+    const dx = (ev.clientX - wr.left - drag.startX) / dispW;
+    const dy = (ev.clientY - wr.top - drag.startY) / dispH;
+    const c0 = drag.c0;
+    const h = drag.hit;
+    const k = normK();
+    if (h.move) {
+      c = { ...c0, x: Math.min(1 - c0.w, Math.max(0, c0.x + dx)), y: Math.min(1 - c0.h, Math.max(0, c0.y + dy)) };
+    } else if (k && (h.l || h.r) && (h.t || h.b)) {
+      // Con proporción fija la esquina opuesta se queda quieta
+      const ax = h.l ? c0.x + c0.w : c0.x, ay = h.t ? c0.y + c0.h : c0.y;
+      const cornerX = (h.l ? c0.x : c0.x + c0.w) + dx, cornerY = (h.t ? c0.y : c0.y + c0.h) + dy;
+      const roomX = h.l ? ax : 1 - ax, roomY = h.t ? ay : 1 - ay;
+      let w = Math.max(Math.abs(cornerX - ax), Math.abs(cornerY - ay) * k, minW());
+      w = Math.min(w, roomX, roomY * k);
+      const hh = w / k;
+      c = { w, h: hh, x: h.l ? ax - w : ax, y: h.t ? ay - hh : ay };
+    } else {
+      let x0 = c0.x, y0 = c0.y, x1 = c0.x + c0.w, y1 = c0.y + c0.h;
+      if (h.l) x0 = Math.min(Math.max(0, x0 + dx), x1 - minW());
+      if (h.r) x1 = Math.max(Math.min(1, x1 + dx), x0 + minW());
+      if (h.t) y0 = Math.min(Math.max(0, y0 + dy), y1 - minH());
+      if (h.b) y1 = Math.max(Math.min(1, y1 + dy), y0 + minH());
+      c = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    }
+    paintBox();
+  });
+  const endDrag = () => { drag = null; };
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+
+  box.addEventListener('keydown', (ev) => {
+    const step = ev.shiftKey ? 0.1 : 0.02;
+    const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
+    if (!d) return;
+    ev.preventDefault();
+    c = { ...c, x: Math.min(1 - c.w, Math.max(0, c.x + d[0])), y: Math.min(1 - c.h, Math.max(0, c.y + d[1])) };
+    paintBox();
+  });
+
+  // ---- Girar, proporción y restablecer ----
+  const rotate = (dir) => {
+    if (!img) return;
+    // La zona gira con la foto
+    const { x, y, w, h } = c;
+    c = dir > 0 ? { x: 1 - y - h, y: x, w: h, h: w } : { x: y, y: 1 - x - w, w: h, h: w };
+    rot = (rot + dir + 4) % 4;
+    if (ratioKey !== 'free') { /* la proporción se mantiene: se reajusta a la nueva orientación */ fitRatio(); }
+    buildBase();
+    layout();
+  };
+  el.querySelectorAll('[data-rotate]').forEach(b => b.addEventListener('click', () => rotate(Number(b.dataset.rotate))));
+  el.querySelectorAll('[data-ratio]').forEach(b => b.addEventListener('click', () => {
+    ratioKey = b.dataset.ratio;
+    fitRatio();
+    paintBox();
+  }));
+  q('[data-reset]').addEventListener('click', () => {
+    if (!img) return;
+    rot = 0; c = { x: 0, y: 0, w: 1, h: 1 }; ratioKey = 'free';
+    buildBase();
+    layout();
+  });
+
+  // ---- Cerrar y aplicar ----
+  const close = () => {
+    document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('resize', layout);
+    el.remove();
+    kxCropperEl = null;
+    base = null; img = null;
+    app?.removeAttribute('inert');
+    if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+  };
+  const onKey = (ev) => {
+    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); close(); return; }
+    if (ev.key === 'Tab') {
+      const focusables = [...el.querySelectorAll('button:not([disabled]), [tabindex="0"]')].filter(b => b.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
+  };
+  q('[data-crop-cancel]').addEventListener('click', close);
+
+  applyBtn.addEventListener('click', async () => {
+    if (!base) return;
+    if (!changed()) {
+      // Sin cambios sobre el original: se vuelve a él
+      if (item.orig) { item.file = item.orig; delete item.orig; delete item.edit; updatePreview(); updateSubmitButton(); }
+      close();
+      return;
+    }
+    q('[data-busy]').hidden = false;
+    try {
+      const sx = Math.round(c.x * base.width), sy = Math.round(c.y * base.height);
+      const sw = Math.max(1, Math.round(c.w * base.width)), sh = Math.max(1, Math.round(c.h * base.height));
+      const out = document.createElement('canvas');
+      out.width = sw; out.height = sh;
+      out.getContext('2d').drawImage(base, sx, sy, sw, sh, 0, 0, sw, sh);
+      const blob = await new Promise((resolve) => out.toBlob(resolve, 'image/jpeg', 0.92));
+      if (!blob) throw new Error('No se pudo generar la imagen');
+      if (!kxCropperEl) return;
+      item.orig = source;
+      item.edit = { rot, c: { ...c }, ratio: ratioKey };
+      item.file = new File([blob], source.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+      updatePreview();
+      updateSubmitButton();
+      close();
+    } catch (err) {
+      console.error('Error editando la foto:', err);
+      q('[data-busy]').hidden = true;
+      showToast('No se pudo guardar la foto. Inténtalo de nuevo', 'error');
+    }
+  });
+
+  document.addEventListener('keydown', onKey, true);
+  window.addEventListener('resize', layout);
+  app?.setAttribute('inert', '');
+  document.body.appendChild(el);
+  kxCropperEl = el;
+  q('[data-crop-cancel]').focus({ preventScroll: true });
+
+  kxLoadImageBitmapLike(source).then((image) => {
+    if (!kxCropperEl) return;
+    img = image;
+    buildBase();
+    wrap.hidden = false;
+    q('[data-state]').hidden = true;
+    layout();
+  }).catch(() => {
+    const state = q('[data-state]');
+    if (state) state.textContent = 'No se pudo abrir la foto';
+  });
+}
+
 // ---- Sugerencia de ascensión al añadir fotos o vídeos ----
 // Si la publicación lleva fotos o vídeos y ninguna ascensión, se proponen las de los últimos días
 // para añadirlas con un toque (la foto suele ser de lo que acabas de escalar).
@@ -9478,6 +9792,7 @@ function updatePreview() {
                <span class="cp-media-duration" hidden></span>`
             : `<img src="${url}" alt="" draggable="false">`}
           <button type="button" class="remove-preview-btn" data-type="media" data-index="${index}" aria-label="Quitar ${name.toLowerCase()} ${index + 1}">${CP_REMOVE_ICON}</button>
+          ${m.kind === 'photo' ? `<button type="button" class="cp-media-trim${m.orig ? ' is-trimmed' : ''}" data-edit-id="${m.id}" aria-label="Editar foto ${index + 1}${m.orig ? ' (ya editada)' : ''}">${CP_CROP_ICON}<span>${m.orig ? 'Editada' : 'Editar'}</span></button>` : ''}
           ${m.kind === 'video' && kxCanTrimVideo() ? `<button type="button" class="cp-media-trim${m.orig ? ' is-trimmed' : ''}" data-trim-id="${m.id}" aria-label="Recortar vídeo ${index + 1}${m.orig ? ' (ya recortado)' : ''}">${CP_TRIM_ICON}<span>${m.orig ? 'Recortado' : 'Recortar'}</span></button>` : ''}
         </div>`;
     });
@@ -9534,6 +9849,9 @@ function updatePreview() {
       updatePreview();
     });
 
+    preview.querySelectorAll('[data-edit-id]').forEach(btn => {
+      btn.addEventListener('click', () => openPhotoEditor(Number(btn.dataset.editId), btn));
+    });
     preview.querySelectorAll('[data-trim-id]').forEach(btn => {
       btn.addEventListener('click', () => openVideoTrimmer(Number(btn.dataset.trimId), btn));
     });
