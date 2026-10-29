@@ -8149,6 +8149,7 @@ function newPostData() {
     text: '',
     media: [],
     ascents: [],
+    suggestDismissed: false, // «ascensiones recientes» ocultadas con la X
     location: null,
     get photos() { return this.media.filter(m => m.kind === 'photo').map(m => m.file); },
     get videos() { return this.media.filter(m => m.kind === 'video').map(m => m.file); }
@@ -8860,6 +8861,68 @@ function confirmAscentSelection() {
   updateSubmitButton();
 }
 
+// ---- Sugerencia de ascensión al añadir fotos o vídeos ----
+// Si la publicación lleva fotos o vídeos y ninguna ascensión, se proponen las de los últimos días
+// para añadirlas con un toque (la foto suele ser de lo que acabas de escalar).
+const KX_SUGGEST_DAYS = 3;
+const KX_SUGGEST_MAX = 3;
+let cpSuggestLoading = false;
+
+// Carga el libro de ascensiones una vez (se comparte con el selector) y repinta las sugerencias
+async function cpEnsureAscentsForSuggestions() {
+  if (cpAscentsCache || cpSuggestLoading || !currentUser?.uid) return;
+  cpSuggestLoading = true;
+  const token = cpPickerToken;
+  try {
+    const all = await getUserAscentsByUserId(currentUser.uid, 500);
+    if (token !== cpPickerToken || cpAscentsCache) return;
+    cpAscentsCache = (all || [])
+      .filter(a => a && a.routeName)
+      .sort((a, b) => (kxAscentDate(b)?.getTime() || 0) - (kxAscentDate(a)?.getTime() || 0));
+    if (!document.getElementById('create-post-modal')?.classList.contains('hidden')) updatePreview();
+  } catch (e) {
+    console.error('Error cargando ascensiones para sugerir:', e);
+  } finally {
+    cpSuggestLoading = false;
+  }
+}
+
+function cpRecentAscentSuggestions() {
+  if (!cpAscentsCache || postData.media.length === 0 || postData.ascents.length > 0 || postData.suggestDismissed) return [];
+  const since = Date.now() - KX_SUGGEST_DAYS * 86400000;
+  return cpAscentsCache
+    .filter(a => (kxAscentDate(a)?.getTime() || 0) >= since)
+    .slice(0, KX_SUGGEST_MAX);
+}
+
+function cpSuggestionsHTML() {
+  if (postData.media.length > 0 && !cpAscentsCache) cpEnsureAscentsForSuggestions();
+  const items = cpRecentAscentSuggestions();
+  if (items.length === 0) return '';
+  const plus = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+  const rows = items.map(a => {
+    const place = [a.schoolName, a.sector].filter(Boolean).map(escapeHtmlMention).join(' · ');
+    const when = kxAscentDateLabel(a);
+    return `
+      <button type="button" class="cp-suggest-item" data-suggest-ascent="${escapeHtmlMention(a.id)}" aria-label="Añadir la ascensión ${escapeHtmlMention(a.routeName)}">
+        ${kxGradeChipHTML(a.grade)}
+        <span class="kx-ascent-info">
+          <span class="kx-ascent-name">${escapeHtmlMention(a.routeName)}</span>
+          <span class="kx-ascent-meta">${[place, when].filter(Boolean).join(' · ')}</span>
+        </span>
+        <span class="cp-suggest-add" aria-hidden="true">${plus}</span>
+      </button>`;
+  }).join('');
+  return `
+    <div class="cp-suggest" role="group" aria-label="Ascensiones recientes">
+      <div class="cp-suggest-head">
+        <span>¿Es de una ascensión reciente?</span>
+        <button type="button" class="cp-suggest-dismiss" data-suggest-dismiss aria-label="Ocultar sugerencias">${CP_REMOVE_ICON}</button>
+      </div>
+      ${rows}
+    </div>`;
+}
+
 // Altura del texto según su contenido (mínimo tres líneas)
 function autoSizeCreatePostText() {
   const textarea = document.getElementById('create-post-text');
@@ -9170,6 +9233,7 @@ function updatePreview() {
 
   // Ascensión elegida del libro
   previewHTML += kxAscentListHTML(postData.ascents, { removable: true });
+  previewHTML += cpSuggestionsHTML();
 
   updateActionStates();
 
@@ -9182,6 +9246,20 @@ function updatePreview() {
       ascentCard.addEventListener('keydown', (e) => {
         if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.remove-preview-btn')) { e.preventDefault(); openAscentPicker(); }
       });
+    });
+
+    preview.querySelectorAll('[data-suggest-ascent]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const a = (cpAscentsCache || []).find(x => x.id === btn.dataset.suggestAscent);
+        if (!a) return;
+        postData.ascents = [ascentToPostData(a)];
+        updatePreview();
+        updateSubmitButton();
+      });
+    });
+    preview.querySelector('[data-suggest-dismiss]')?.addEventListener('click', () => {
+      postData.suggestDismissed = true;
+      updatePreview();
     });
 
     preview.querySelector('[data-add="photos"]')?.addEventListener('click', () => {
