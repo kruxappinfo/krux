@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=82" />
+  <link rel="stylesheet" href="./app_2.css?v=83" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -97,7 +97,7 @@
 
   <script defer src="./maplibre-map.js?v=16"></script>
 
-  <script defer src="./app_3.js?v=79"></script>
+  <script defer src="./app_3.js?v=80"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -1255,77 +1255,75 @@
       <div id="train-view" class="view hidden">
         <div class="train-wrap">
 
-          <!-- Header fijo -->
+          <!-- Cabecera -->
           <header class="train-header">
             <h1 class="train-title">Entrena</h1>
             <div class="train-gear-wrap">
-            <button class="train-settings-btn" id="train-new-plan-btn" aria-label="Opciones de plan">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
-            <!-- Dropdown menu -->
-            <div class="train-gear-menu hidden" id="train-gear-menu">
-              <button class="train-gear-item" id="train-gear-new">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                Mis planes
+              <button class="train-settings-btn" id="train-new-plan-btn" aria-label="Opciones de plan" aria-haspopup="menu" aria-expanded="false" aria-controls="train-gear-menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               </button>
+              <div class="train-gear-menu hidden" id="train-gear-menu" role="menu">
+                <button class="train-gear-item" id="train-gear-new" role="menuitem">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="2.5" x2="8" y2="5.5"/><line x1="16" y1="2.5" x2="16" y2="5.5"/><line x1="12" y1="13" x2="12" y2="18"/><line x1="9.5" y1="15.5" x2="14.5" y2="15.5"/></svg>
+                  Crear plan
+                </button>
+              </div>
             </div>
-            </div><!-- /train-gear-wrap -->
           </header>
 
-          <!-- Contenido scrollable -->
+          <!-- Contenido con scroll -->
           <div class="train-content">
 
+            <!-- Resumen de la semana -->
+            <section class="train-hero" aria-labelledby="train-hero-title">
+              <div class="train-hero-text">
+                <h2 class="train-hero-title" id="train-hero-title">Tu semana</h2>
+                <p class="train-hero-sub" id="train-hero-sub"></p>
+                <div class="train-hero-meter" id="train-hero-meter" aria-hidden="true"></div>
+                <p class="train-hero-note" id="train-hero-note"></p>
+                <button type="button" class="train-hero-cta hidden" id="train-hero-cta">Crear plan</button>
+              </div>
+              <div class="train-hero-photo" aria-hidden="true"></div>
+            </section>
+
             <!-- Calendario semanal -->
-            <div class="train-section">
+            <section class="train-week" aria-label="Calendario semanal">
               <div class="train-week-header">
-                <span class="train-week-title" id="train-week-title"></span>
+                <span class="train-week-title" id="train-week-title" aria-live="polite"></span>
                 <div class="train-week-nav">
                   <button class="train-week-btn" id="train-week-prev" aria-label="Semana anterior">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
                   </button>
                   <button class="train-week-btn" id="train-week-next" aria-label="Semana siguiente">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
                   </button>
                 </div>
               </div>
               <div class="train-days-row" id="train-days-row"></div>
+            </section>
 
-              <!-- Auto-progresión -->
-              <div class="train-suggestion" id="train-suggestion">
-                <svg class="train-suggestion-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line>
-                  <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
-                  <line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line>
-                  <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
-                </svg>
-                <span class="train-suggestion-text"><strong>Sugerencia:</strong> última sesión hiciste Max Hang 4×10s +20kg · RPE 7 → prueba +22kg hoy</span>
-              </div>
-            </div>
+            <!-- Último registro (solo con datos reales de una sesión hecha) -->
+            <section class="train-suggestion hidden" id="train-suggestion" aria-label="Último registro"></section>
 
-            <!-- Sesión del día -->
-            <div class="train-section">
-              <div class="train-session-card">
-                <div class="train-session-top">
-                  <div>
-                    <div class="train-session-name" id="train-session-name">Fuerza en media llave</div>
-                    <div class="train-session-meta" id="train-session-meta">4 ejercicios · ~60 min</div>
-                  </div>
-                  <span class="train-session-badge" id="train-session-badge">Hoy</span>
+            <!-- Sesión del día seleccionado -->
+            <section class="train-session" aria-labelledby="train-session-name">
+              <div class="train-session-top">
+                <div class="train-session-head">
+                  <h2 class="train-session-name" id="train-session-name">Sesión</h2>
+                  <p class="train-session-meta" id="train-session-meta"></p>
                 </div>
-                <div class="train-exercise-list" id="train-exercise-list"></div>
+                <span class="train-session-badge" id="train-session-badge">Hoy</span>
               </div>
-            </div>
+              <div class="train-exercise-list" id="train-exercise-list" role="list"></div>
+            </section>
 
           </div><!-- /train-content -->
 
-          <!-- Botón anclado al fondo -->
+          <!-- Acción principal -->
           <div class="train-footer">
             <button class="train-start-btn" id="train-start-btn">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-              Iniciar sesión activa ↗
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
+              <span id="train-start-label">Comenzar entrenamiento</span>
             </button>
           </div>
 
@@ -3839,90 +3837,123 @@
   </div>
 
   <!-- ACTIVE SESSION MODAL -->
-  <div id="session-modal" class="session-modal hidden" aria-modal="true" role="dialog">
+  <div id="session-modal" class="session-modal hidden" aria-modal="true" role="dialog" aria-labelledby="session-ex-name">
     <div class="session-screen" id="session-screen">
 
-      <!-- Top bar -->
-      <div class="session-topbar">
-        <div class="session-topbar-left">
-          <button class="session-close-btn" id="session-close-btn" aria-label="Cerrar sesión">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      <!-- Cabecera del ejercicio -->
+      <header class="session-hero">
+        <div class="session-hero-bar">
+          <button class="session-round-btn" id="session-close-btn" aria-label="Salir del entrenamiento">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
           </button>
-          <div>
-            <div class="session-session-name" id="session-session-name">Fuerza en media llave</div>
-            <div class="session-session-sub" id="session-session-sub">Semana 2 · Viernes</div>
+          <span class="session-hero-name" id="session-session-name"></span>
+          <button class="session-finish-btn" id="session-finish-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h11l-1.5 4L16 12H5"/></svg>
+            Finalizar
+          </button>
+        </div>
+        <div class="session-hero-body">
+          <h2 class="session-ex-name" id="session-ex-name" tabindex="-1"></h2>
+          <div class="session-ex-specs">
+            <span class="session-ex-detail" id="session-ex-detail"></span>
+            <span class="session-ex-rpe hidden" id="session-ex-rpe"></span>
+          </div>
+          <div class="session-steps-wrap">
+            <ol class="session-steps" id="session-steps"></ol>
+            <span class="session-ex-counter" id="session-ex-counter"></span>
           </div>
         </div>
-        <span class="session-elapsed" id="session-elapsed">00:00</span>
-      </div>
+      </header>
 
-      <!-- Progress bar -->
-      <div class="session-progress-wrap">
-        <div class="session-progress-bar" id="session-progress-bar"></div>
-      </div>
-
-      <!-- Scrollable main area -->
+      <!-- Zona de trabajo -->
       <div class="session-main">
-
-        <!-- Exercise info -->
-        <div class="session-ex-main">
-          <div class="session-ex-counter" id="session-ex-counter"></div>
-          <div class="session-ex-name" id="session-ex-name"></div>
-          <div class="session-ex-detail" id="session-ex-detail"></div>
-          <div class="session-sets-row" id="session-sets-row"></div>
-        </div>
-
-        <!-- Timer block -->
-        <div class="session-timer-block" id="session-timer-block">
-          <div class="session-timer-label" id="session-timer-label">CRONÓMETRO DE TRABAJO</div>
+        <section class="session-timer-block" id="session-timer-block" aria-label="Cronómetro">
+          <div class="session-timer-top">
+            <span class="session-set-chip" id="session-set-chip"></span>
+            <span class="session-timer-label" id="session-timer-label"></span>
+          </div>
           <div class="session-ring-wrap">
-            <svg viewBox="0 0 120 120" width="210" height="210">
-              <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(0,0,0,0.07)" stroke-width="5"/>
-              <circle id="session-ring-arc" cx="60" cy="60" r="50" fill="none" stroke="#1D9E75" stroke-width="5"
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="session-ring-track" cx="60" cy="60" r="50" fill="none" stroke-width="6"/>
+              <circle id="session-ring-arc" cx="60" cy="60" r="50" fill="none" stroke-width="6"
                 stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="314"
                 transform="rotate(-90 60 60)"/>
             </svg>
-            <div class="session-ring-center">
-              <div class="session-ring-time" id="session-ring-time">0:10</div>
-              <div class="session-ring-lbl" id="session-ring-lbl">objetivo</div>
+            <div class="session-ring-center" role="timer" aria-live="off">
+              <div class="session-ring-time" id="session-ring-time"></div>
+              <div class="session-ring-lbl" id="session-ring-lbl"></div>
             </div>
           </div>
+          <div class="session-sets-row" id="session-sets-row" aria-hidden="true"></div>
           <div class="session-timer-controls">
-            <button class="session-ctrl-btn" id="session-btn-reset">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 .49-4.5"></path></svg>
-              Reset
+            <button class="session-round-ctrl" id="session-btn-reset" aria-label="Reiniciar cronómetro">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 .49-4.5"></path></svg>
             </button>
-            <button class="session-ctrl-btn session-ctrl-primary" id="session-btn-main">
-              <span id="session-btn-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></span>
+            <button class="session-main-btn" id="session-btn-main">
+              <span class="session-btn-icon" id="session-btn-icon"></span>
               <span id="session-btn-label">Iniciar</span>
             </button>
-            <button class="session-ctrl-btn" id="session-btn-set">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              Serie
+            <button class="session-round-ctrl session-round-ctrl--done" id="session-btn-set" aria-label="Completar serie">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
             </button>
           </div>
+          <p class="session-sr-status" id="session-sr-status" aria-live="polite"></p>
+        </section>
+
+        <!-- Registro rápido: carga, RPE y descanso -->
+        <section class="session-metrics" aria-label="Registro de la serie">
+          <div class="session-metric">
+            <span class="session-metric-lbl">Carga</span>
+            <div class="session-load">
+              <button class="session-step-btn" id="session-load-minus" aria-label="Quitar 1 kg">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <span class="session-metric-val" id="session-load-val">0 kg</span>
+              <button class="session-step-btn" id="session-load-plus" aria-label="Añadir 1 kg">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+            </div>
+          </div>
+          <button class="session-metric session-metric--btn" id="session-rpe-btn" aria-expanded="false" aria-controls="session-rpe-section">
+            <span class="session-metric-lbl" id="session-rpe-lbl">RPE</span>
+            <span class="session-metric-val" id="session-rpe-val">—</span>
+          </button>
+          <div class="session-metric">
+            <span class="session-metric-lbl">Descanso</span>
+            <span class="session-metric-val" id="session-rest-val">—</span>
+          </div>
+        </section>
+
+        <!-- Selector de RPE de la última serie -->
+        <div class="session-rpe-section hidden" id="session-rpe-section">
+          <div class="session-rpe-label" id="session-rpe-label">¿Cómo ha ido la serie?</div>
+          <div class="session-rpe-dots" id="session-rpe-dots" role="group" aria-labelledby="session-rpe-label"></div>
         </div>
 
-        <!-- RPE selector (visible during rest) -->
-        <div class="session-rpe-section" id="session-rpe-section" style="display:none">
-          <div class="session-rpe-label">¿Cómo fue? RPE percibido</div>
-          <div class="session-rpe-dots" id="session-rpe-dots"></div>
-        </div>
-
+        <!-- Historial -->
+        <section class="session-history" aria-labelledby="session-history-title">
+          <h3 class="session-history-title" id="session-history-title">Series de este ejercicio</h3>
+          <ol class="session-history-list" id="session-history"></ol>
+        </section>
       </div><!-- /session-main -->
 
-      <!-- Next up — fijo al fondo -->
-      <div class="session-next-up" id="session-next-up">
-        <div class="session-next-label" id="session-next-label">SIGUIENTE</div>
-        <div class="session-next-row">
-          <div class="session-next-icon">···</div>
-          <div class="session-next-info">
-            <div class="session-next-name" id="session-next-name"></div>
-            <div class="session-next-detail" id="session-next-detail"></div>
+      <!-- Tiempo total y siguiente ejercicio -->
+      <footer class="session-footer">
+        <div class="session-total">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M9.5 2.5h5"/></svg>
+          <div>
+            <span class="session-foot-lbl">Tiempo total</span>
+            <span class="session-elapsed" id="session-elapsed">00:00:00</span>
           </div>
-          <button class="session-skip-btn" id="session-skip-btn">Saltar →</button>
         </div>
-      </div>
+        <button class="session-next" id="session-skip-btn">
+          <span class="session-next-text">
+            <span class="session-foot-lbl" id="session-next-label">Siguiente</span>
+            <span class="session-next-name" id="session-next-name"></span>
+          </span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
+      </footer>
 
     </div>
   </div>
