@@ -22515,12 +22515,34 @@ body.plan-editor-open { overflow: hidden; }
   display: none;
 }
 
+/* Pequeño desplegable junto a los tres puntos (también en móvil) */
+:is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden) {
+  min-width: 180px;
+  transform-origin: top right;
+  animation: kxPopIn 0.14s var(--kx-ease);
+}
+
+:is(#feed-view, #view-post-modal) .feed-post-menu-dropdown.opens-up {
+  top: auto;
+  bottom: calc(100% - 4px);
+  transform-origin: bottom right;
+}
+
+@keyframes kxPopIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden) { animation: none; }
+}
+
 :is(#feed-view, #view-post-modal) .feed-post-menu-item {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 48px;
+  min-height: 48px !important; /* la regla base .feed-post-menu-item lo deja en auto con !important */
   padding: 0 14px;
   border: 0;
   border-radius: 12px;
@@ -23241,53 +23263,6 @@ body.plan-editor-open { overflow: hidden; }
    MÓVIL (≤768px): hojas a pantalla completa e inferiores
    ==================================================================== */
 @media (max-width: 768px) {
-  /* Menú de publicación como hoja inferior.
-     ::before = velo (z -2) · ::after = panel con tirador (z -1): ambos por detrás de las opciones */
-  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden) {
-    position: fixed;
-    inset: auto 0 0 0;
-    min-width: 0;
-    padding: 22px 12px calc(14px + env(safe-area-inset-bottom, 0px));
-    border: 0;
-    border-radius: 26px 26px 0 0;
-    margin: 0;
-    background: transparent;
-    box-shadow: none;
-    overflow: visible;
-    /* La máscara del desplegable original recorta el velo y el panel a su caja */
-    -webkit-mask-image: none;
-    mask-image: none;
-    z-index: 10040;
-    /* Solo opacidad: un transform en la hoja haría que el velo (fixed) se midiera contra ella */
-    animation: kxFade 0.2s ease-out;
-  }
-
-  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden)::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: -2;
-    background: rgba(32, 41, 35, 0.42);
-  }
-
-  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden)::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: 26px 26px 0 0;
-    background:
-      linear-gradient(rgba(32, 41, 35, 0.18), rgba(32, 41, 35, 0.18)) center 9px / 38px 4px no-repeat,
-      var(--kx-surface);
-    box-shadow: 0 -12px 40px rgba(32, 41, 35, 0.22);
-    animation: kxSheetUp 0.32s var(--kx-ease);
-  }
-
-  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden) .feed-post-menu-item {
-    min-height: 56px;
-    font-size: 1.0625rem;
-  }
-
   #feed-view .feed-container {
     padding-left: 10px;
     padding-right: 10px;
