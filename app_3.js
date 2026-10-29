@@ -17396,12 +17396,24 @@ const KruxTrainStore = (() => {
   const int = v => Math.max(0, Math.round(Number(v) || 0));
   const str = (v, max) => String(v ?? '').slice(0, max);
 
+  // Prescripción plana (compatible con planes e historial anteriores) + referencia opcional a la ficha.
+  // La ficha nunca se copia: solo exerciseId y la versión de contenido con la que se añadió.
   function exercisePayload(e) {
-    return { name: str(e.name, 80), sets: Math.max(1, int(e.sets)), workSec: int(e.workSec), reps: int(e.reps), weight: Math.max(0, Number(e.weight) || 0), restSec: int(e.restSec), rpeTarget: Math.min(10, int(e.rpeTarget)) };
+    const out = { name: str(e.name, 80), sets: Math.max(1, int(e.sets)), workSec: int(e.workSec), reps: int(e.reps), weight: Math.max(0, Number(e.weight) || 0), restSec: int(e.restSec), rpeTarget: Math.min(10, int(e.rpeTarget)) };
+    if (e.exerciseId) {
+      out.exerciseId = str(e.exerciseId, 80);
+      out.exerciseContentVersion = Math.max(1, int(e.exerciseContentVersion) || 1);
+    }
+    if (e.notes) out.notes = str(e.notes, 300);
+    if (Number(e.assistanceKg) > 0) out.assistanceKg = Math.min(80, Number(e.assistanceKg));
+    if (Number(e.distanceM) > 0) out.distanceM = Math.min(5000, int(e.distanceM));
+    if (Number(e.recoverySec) > 0) out.recoverySec = Math.min(1800, int(e.recoverySec));
+    if (typeof e.tempo === 'string' && /^\d{1,2}(-\d{1,2}){1,3}$/.test(e.tempo)) out.tempo = e.tempo;
+    return out;
   }
 
   function planPayload(plan) {
-    return {
+    const out = {
       name: str(plan.name || 'Mi plan', 80),
       weeks: Math.min(16, Math.max(1, int(plan.weeks) || 4)),
       activeDays: Array.from({ length: 7 }, (_, i) => !!(plan.activeDays || [])[i]),
@@ -17411,6 +17423,11 @@ const KruxTrainStore = (() => {
         exercises: (sess.exercises || []).slice(0, 30).map(exercisePayload)
       }))
     };
+    // Respuestas del asistente (opcionales): permiten reabrir el plan con su contexto
+    if (plan.goal) out.goal = str(plan.goal, 20);
+    if (plan.level >= 1 && plan.level <= 3) out.level = Math.round(plan.level);
+    if (Array.isArray(plan.equipment)) out.equipment = plan.equipment.slice(0, 10).map(x => str(x, 20));
+    return out;
   }
 
   function sessionPayload(rec) {
@@ -17421,6 +17438,7 @@ const KruxTrainStore = (() => {
       durationSec: int(rec.durationSec),
       exercises: rec.exercises.slice(0, 30).map(e => ({
         name: str(e.name, 80),
+        ...(e.exerciseId ? { exerciseId: str(e.exerciseId, 80), exerciseContentVersion: Math.max(1, int(e.exerciseContentVersion) || 1) } : {}),
         target: exercisePayload({ name: e.name, ...e.target }),
         sets: e.sets.slice(0, 50).map(st => ({ n: int(st.n), workSec: int(st.workSec), reps: int(st.reps), weight: Math.max(0, Number(st.weight) || 0), rpe: Math.min(10, int(st.rpe)), time: str(st.time, 5) }))
       }))
@@ -17553,6 +17571,9 @@ function trEstimateMinutes(exercises) {
 function buildExDetail(ex) {
   const parts = [trFmtWork(ex)];
   if (ex.weight > 0) parts.push(`+${ex.weight} kg`);
+  if (ex.assistanceKg > 0) parts.push(`−${ex.assistanceKg} kg asistencia`);
+  if (ex.distanceM > 0) parts.push(`${ex.distanceM} m`);
+  if (ex.tempo) parts.push(`tempo ${ex.tempo}`);
   if (ex.restSec > 0) parts.push(`descanso ${trFmtDuration(ex.restSec)}`);
   return parts.join(' · ');
 }
@@ -17853,6 +17874,20 @@ function initTrainView() {
     if (typeof window.openPlanEditor === 'function') window.openPlanEditor();
   }
 
+  function editActivePlan() {
+    const plan = window.kruxActivePlan;
+    if (!plan || !Array.isArray(plan.sessions)) {
+      if (typeof showToast === 'function') showToast('Aún no tienes un plan activo', 'info', { detail: 'Crea uno desde «Crear plan» o con el asistente.' });
+      return;
+    }
+    if (typeof window.openPlanEditor === 'function') window.openPlanEditor({ edit: true });
+  }
+
+  function openLibrary() {
+    closeGearMenu();
+    if (window.KruxLibrary) window.KruxLibrary.open({ mode: 'browse' });
+  }
+
   if (gearBtn && gearMenu) {
     gearBtn.addEventListener('click', e => {
       e.stopPropagation();
@@ -17860,6 +17895,15 @@ function initTrainView() {
       gearBtn.setAttribute('aria-expanded', String(open));
     });
     document.getElementById('train-gear-new')?.addEventListener('click', openPlanEditor);
+    document.getElementById('train-gear-wizard')?.addEventListener('click', () => {
+      closeGearMenu();
+      if (window.KruxWizard) window.KruxWizard.open();
+    });
+    document.getElementById('train-gear-edit')?.addEventListener('click', () => {
+      closeGearMenu();
+      editActivePlan();
+    });
+    document.getElementById('train-gear-library')?.addEventListener('click', openLibrary);
     document.addEventListener('click', e => {
       if (!e.target.closest('.train-gear-wrap')) closeGearMenu();
     });
@@ -17867,6 +17911,7 @@ function initTrainView() {
   }
 
   document.getElementById('train-hero-cta')?.addEventListener('click', openPlanEditor);
+  document.getElementById('train-lib-link')?.addEventListener('click', openLibrary);
 
   document.getElementById('train-days-row')?.addEventListener('click', e => {
     const day = e.target.closest('.train-day');
@@ -17905,33 +17950,102 @@ function initTrainView() {
 }
 
 // ================== EXERCISE EDITOR ==================
+// Edita la prescripción de un ejercicio del plan (el de Entrena o el de un plan en edición).
+// Los parámetros básicos siempre se ven; los propios de la ficha del ejercicio (asistencia,
+// distancia, tempo…) aparecen debajo solo cuando aplican.
 (function () {
   let editingIdx = -1;
+  let ctx = null;          // { exercise, onSave, onReplace } cuando se edita fuera de Entrena
+  let extraParams = [];
   const $ = id => document.getElementById(id);
+  const BASE = { sets: 'ex-field-sets', reps: 'ex-field-reps', workSec: 'ex-field-work', weight: 'ex-field-weight', restSec: 'ex-field-rest', rpeTarget: 'ex-field-rpe' };
+  const kx = () => window.KruxExercises;
+  const catalog = () => (window.KruxLibrary ? window.KruxLibrary.catalog() : null);
+  const num = (id, parse) => parse($(id).value.replace(',', '.'));
+
+  function current() {
+    return ctx ? ctx.exercise : (window.kruxTrainData && window.kruxTrainData.exercises[editingIdx]);
+  }
 
   function readFields() {
-    return {
+    const out = {
       name:      $('ex-field-name').value.trim(),
-      sets:      Math.max(1, parseInt($('ex-field-sets').value)   || 1),
-      reps:      Math.max(0, parseInt($('ex-field-reps').value)   || 0),
-      workSec:   Math.max(0, parseInt($('ex-field-work').value)   || 0),
-      weight:    Math.max(0, parseInt($('ex-field-weight').value) || 0),
-      restSec:   Math.max(0, parseInt($('ex-field-rest').value)   || 0),
-      rpeTarget: Math.min(10, Math.max(0, parseInt($('ex-field-rpe').value) || 0)),
+      sets:      Math.max(1, num('ex-field-sets', parseInt) || 1),
+      reps:      Math.max(0, num('ex-field-reps', parseInt) || 0),
+      workSec:   Math.max(0, num('ex-field-work', parseInt) || 0),
+      weight:    Math.max(0, num('ex-field-weight', parseFloat) || 0),
+      restSec:   Math.max(0, num('ex-field-rest', parseInt) || 0),
+      rpeTarget: Math.min(10, Math.max(0, num('ex-field-rpe', parseInt) || 0)),
+      notes:     $('ex-field-notes').value.trim().slice(0, 300)
     };
+    extraParams.forEach(p => {
+      const el = $('ex-extra-' + p.key);
+      if (!el) return;
+      if (p.type === 'text') {
+        const v = el.value.trim();
+        out[p.key] = kx().TEMPO_RE.test(v) ? v : '';
+        out['_invalid_' + p.key] = !!v && !out[p.key];
+      } else {
+        const n = parseFloat(el.value.replace(',', '.'));
+        out[p.key] = isFinite(n) ? Math.max(p.min || 0, Math.min(p.max, n)) : 0;
+      }
+    });
+    return out;
   }
 
   function updatePreview() {
     const preview = $('ex-preview-text');
     if (!preview) return;
-    const tmp = readFields();
-    preview.textContent = buildExDetail(tmp) || '—';
+    preview.textContent = buildExDetail(readFields()) || '—';
   }
 
-  function open(idx) {
-    const ex = window.kruxTrainData && window.kruxTrainData.exercises[idx];
+  // Etiquetas y campos según la ficha del ejercicio (p. ej. «Intentos» en lugar de «Repeticiones»)
+  function renderParams(ex) {
+    const cat = catalog();
+    const params = cat && kx() ? kx().paramsForPlanItem(cat, ex) : [];
+    Object.keys(BASE).forEach(key => {
+      const label = $(BASE[key]).closest('.ex-field').querySelector('.ex-field-label');
+      const def = params.find(p => p.key === key);
+      const defaults = { sets: 'Series', reps: 'Repeticiones', workSec: 'Tiempo trabajo (seg)', weight: 'Peso adicional (kg)', restSec: 'Descanso (seg)', rpeTarget: 'RPE objetivo (0 = ninguno)' };
+      label.textContent = def && (key === 'reps' || key === 'workSec') && def.label !== (kx().PARAMS[key === 'reps' ? 'repetitions' : 'workDurationSeconds'].label)
+        ? `${def.label}${def.unit ? ` (${def.unit})` : ''}` : defaults[key];
+    });
+    extraParams = params.filter(p => !BASE[p.key]);
+    const box = $('ex-extra');
+    const wrap = $('ex-extra-fields');
+    wrap.innerHTML = extraParams.map(p => `
+      <div class="ex-field">
+        <label class="ex-field-label" for="ex-extra-${p.key}">${trEsc(p.label)}${p.unit ? ` (${p.unit})` : ''}</label>
+        ${p.type === 'text'
+          ? `<input class="ex-field-input ex-field-num" id="ex-extra-${p.key}" type="text" inputmode="numeric" maxlength="11" placeholder="3-1-1">`
+          : `<input class="ex-field-input ex-field-num" id="ex-extra-${p.key}" type="number" min="${p.min}" max="${p.max}" step="${p.step}" inputmode="decimal" placeholder="0">`}
+      </div>`).join('');
+    box.classList.toggle('hidden', !extraParams.length);
+    extraParams.forEach(p => {
+      const el = $('ex-extra-' + p.key);
+      const v = ex[p.key];
+      el.value = p.type === 'text' ? (v || '') : (v > 0 ? v : '');
+      el.addEventListener('input', updatePreview);
+    });
+  }
+
+  function renderLinks(ex) {
+    const box = $('ex-links');
+    const items = [];
+    if (ex.exerciseId && window.KruxLibrary) items.push('<button type="button" class="ex-link-btn" data-act="sheet">Ver ficha del ejercicio</button>');
+    if (ctx && ctx.onReplace) items.push('<button type="button" class="ex-link-btn" data-act="replace">Sustituir ejercicio</button>');
+    box.innerHTML = items.join('');
+    box.classList.toggle('hidden', !items.length);
+  }
+
+  function open(idx, opts) {
+    ctx = opts && opts.exercise ? opts : null;
+    const ex = ctx ? ctx.exercise : window.kruxTrainData && window.kruxTrainData.exercises[idx];
     if (!ex) return;
-    editingIdx = idx;
+    editingIdx = typeof idx === 'number' ? idx : -1;
+    // Enlace en memoria con la ficha (por nombre exacto); se guarda al guardar el plan
+    const cat = catalog();
+    if (cat && kx()) kx().linkPlanItem(cat, ex);
     $('ex-field-name').value   = ex.name;
     $('ex-field-sets').value   = ex.sets;
     $('ex-field-reps').value   = ex.reps   || 0;
@@ -17939,6 +18053,9 @@ function initTrainView() {
     $('ex-field-weight').value = ex.weight || 0;
     $('ex-field-rest').value   = ex.restSec;
     $('ex-field-rpe').value    = ex.rpeTarget;
+    $('ex-field-notes').value  = ex.notes || '';
+    renderParams(ex);
+    renderLinks(ex);
     updatePreview();
     $('ex-editor-sheet').classList.remove('hidden');
     setTimeout(() => $('ex-field-name').focus(), 320);
@@ -17947,6 +18064,7 @@ function initTrainView() {
   function close() {
     $('ex-editor-sheet').classList.add('hidden');
     editingIdx = -1;
+    ctx = null;
   }
 
   function reRenderList() {
@@ -17954,16 +18072,25 @@ function initTrainView() {
   }
 
   function save() {
-    if (editingIdx < 0 || !window.kruxTrainData) return;
-    const ex = window.kruxTrainData.exercises[editingIdx];
-    const f  = readFields();
+    const ex = current();
+    if (!ex) return;
+    const f = readFields();
+    const bad = extraParams.find(p => f['_invalid_' + p.key]);
+    if (bad) {
+      if (typeof showToast === 'function') showToast('El tempo no es válido', 'error', { detail: 'Usa números separados por guiones, por ejemplo 3-1-1.' });
+      return;
+    }
     if (f.name) ex.name = f.name;
-    ex.sets      = f.sets;
-    ex.reps      = f.reps;
-    ex.workSec   = f.workSec;
-    ex.weight    = f.weight;
-    ex.restSec   = f.restSec;
-    ex.rpeTarget = f.rpeTarget;
+    ['sets', 'reps', 'workSec', 'weight', 'restSec', 'rpeTarget'].forEach(k => { ex[k] = f[k]; });
+    if (f.notes) ex.notes = f.notes; else delete ex.notes;
+    extraParams.forEach(p => { if (f[p.key]) ex[p.key] = f[p.key]; else delete ex[p.key]; });
+
+    if (ctx) {
+      const done = ctx.onSave;
+      close();
+      if (done) done();
+      return;
+    }
     close();
     reRenderList();
     if (typeof showToast === 'function') showToast('Ejercicio actualizado', 'success');
@@ -17971,8 +18098,7 @@ function initTrainView() {
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    const liveFields = ['ex-field-sets','ex-field-reps','ex-field-work','ex-field-weight','ex-field-rest'];
-    liveFields.forEach(id => {
+    ['ex-field-sets', 'ex-field-reps', 'ex-field-work', 'ex-field-weight', 'ex-field-rest', 'ex-field-rpe'].forEach(id => {
       const el = $(id);
       if (el) el.addEventListener('input', updatePreview);
     });
@@ -17982,6 +18108,18 @@ function initTrainView() {
     if (closeBtn) closeBtn.addEventListener('click', close);
     if (backdrop) backdrop.addEventListener('click', close);
     if (saveBtn)  saveBtn.addEventListener('click', save);
+    $('ex-links')?.addEventListener('click', e => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      const ex = current();
+      if (btn.dataset.act === 'sheet' && ex && ex.exerciseId) {
+        window.KruxLibrary.openSheet(ex.exerciseId);
+      } else if (btn.dataset.act === 'replace' && ctx && ctx.onReplace) {
+        const done = ctx.onReplace;
+        close();
+        done();
+      }
+    });
   });
 
   window.openExerciseEditor = open;
@@ -18445,7 +18583,10 @@ function makePcCard(d, isTop) {
       startedAt: Date.now(),
       exercises: EXERCISES().map(ex => ({
         name: ex.name,
-        target: { sets: ex.sets, workSec: ex.workSec, reps: ex.reps, weight: ex.weight, rpeTarget: ex.rpeTarget },
+        exerciseId: ex.exerciseId || null,
+        exerciseContentVersion: ex.exerciseContentVersion || null,
+        // Prescripción tal y como estaba al empezar: el historial no cambia si luego se edita el plan
+        target: { sets: ex.sets, workSec: ex.workSec, reps: ex.reps, weight: ex.weight, rpeTarget: ex.rpeTarget, assistanceKg: ex.assistanceKg, distanceM: ex.distanceM, tempo: ex.tempo, recoverySec: ex.recoverySec },
         sets: []
       }))
     };
@@ -18969,6 +19110,8 @@ function makePcCard(d, isTop) {
     trash: ico('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>', 17),
     check: ico('<polyline points="20 6 9 17 4 12"></polyline>', 12, 3),
     checkBig: ico('<polyline points="20 6 9 17 4 12"></polyline>', 30, 2.6),
+    up: ico('<polyline points="18 15 12 9 6 15"></polyline>', 18),
+    down: ico('<polyline points="6 9 12 15 18 9"></polyline>', 18),
     timer: ico('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5"/><path d="M9.5 2.5h5"/>', 18, 1.8),
     reps: ico('<path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-1a5 5 0 0 1 5-5h11"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v1a5 5 0 0 1-5 5H4"/>', 18, 1.8),
   };
@@ -19056,43 +19199,60 @@ function makePcCard(d, isTop) {
     },
   ];
 
-  const LIBRARY = [
-    { name: 'Max hang', detail: 'Suspensión en media llave', cat: 'str' },
-    { name: 'Campus board 1-5-9', detail: 'Explosividad de dedos', cat: 'pow' },
-    { name: 'Block pull · máx', detail: 'Fuerza en bloque', cat: 'str' },
-    { name: 'Dynos a dedo', detail: 'Potencia explosiva', cat: 'pow' },
-    { name: 'ARC en panel', detail: 'Resistencia aeróbica', cat: 'str' },
-    { name: 'Pullover isométrico', detail: 'Fuerza hombro', cat: 'str' },
-    { name: 'Manguito rotador', detail: 'Antagonista hombro', cat: 'ant' },
-    { name: 'Core · plancha', detail: 'Estabilización central', cat: 'ant' },
-    { name: 'Estiramiento muñecas', detail: 'Flexores y extensores', cat: 'ant' },
-  ];
-
   let planData = null;
   let templateIdx = 0;
-  let libForSession = -1;
   let sessEditMode = false;
   let pendingDeleteSi = -1;
   let saving = false;
+  let mode = 'new';   // 'new' | 'draft' | 'edit'
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  const catalog = () => (window.KruxLibrary ? window.KruxLibrary.catalog() : null);
+
+  // Enlaza (en memoria) los ejercicios con su ficha cuando el nombre coincide exactamente
+  function linkAll(plan) {
+    const cat = catalog();
+    if (!cat || !window.KruxExercises) return plan;
+    plan.sessions.forEach(s => s.exercises.forEach(ex => window.KruxExercises.linkPlanItem(cat, ex)));
+    return plan;
+  }
 
   function loadTemplate(idx) {
     templateIdx = idx;
     const t = clone(TEMPLATES[idx]);
-    planData = {
+    planData = linkAll({
       name: t.name,
       weeks: t.weeks,
       activeDays: t.activeDays,
       sessions: t.sessions,
-    };
+    });
   }
 
-  function open() {
-    loadTemplate(0);
+  // opts.edit  → abre el plan activo guardado
+  // opts.draft → abre una propuesta (asistente) para revisarla antes de guardar
+  // sin opts   → plan nuevo desde la primera plantilla
+  function open(opts) {
+    const o = opts || {};
     sessEditMode = false;
     pendingDeleteSi = -1;
     saving = false;
+    mode = 'new';
+    if (o.edit && window.kruxActivePlan && Array.isArray(window.kruxActivePlan.sessions)) {
+      mode = 'edit';
+      templateIdx = -1;
+      const p = clone(window.kruxActivePlan);
+      p.sessions.forEach((s, i) => { s.expanded = i === 0; s.exercises = s.exercises || []; });
+      planData = linkAll(p);
+    } else if (o.draft) {
+      mode = 'draft';
+      templateIdx = -1;
+      const p = clone(o.draft);
+      p.sessions.forEach((s, i) => { s.expanded = i === 0; });
+      planData = linkAll(p);
+    } else {
+      loadTemplate(0);
+    }
     const modal = document.getElementById('plan-editor-modal');
     if (!modal) return;
     renderModal();
@@ -19102,7 +19262,6 @@ function makePcCard(d, isTop) {
   }
 
   function close() {
-    closeLibrary();
     const modal = document.getElementById('plan-editor-modal');
     if (!modal) return;
     modal.classList.remove('pe-open');
@@ -19110,15 +19269,22 @@ function makePcCard(d, isTop) {
     setTimeout(() => modal.classList.add('hidden'), 280);
   }
 
+  const MODE_TEXT = {
+    new:   ['Nuevo plan', 'Diseña tu entrenamiento'],
+    draft: ['Plan propuesto', 'Revísalo y ajústalo antes de guardar'],
+    edit:  ['Editar plan', 'Cambia tu planificación activa']
+  };
+
   function renderModal() {
     const modal = document.getElementById('plan-editor-modal');
+    const [title, subtitle] = MODE_TEXT[mode];
     modal.innerHTML = `
       <div class="pe-screen">
         <header class="pe-topbar">
           <button type="button" class="pe-icon-btn pe-back-btn" id="pe-back-btn" aria-label="Volver">${SVG.back}</button>
           <div class="pe-heading">
-            <h2 class="pe-title" id="pe-title">Nuevo plan</h2>
-            <p class="pe-subtitle">Diseña tu entrenamiento</p>
+            <h2 class="pe-title" id="pe-title">${title}</h2>
+            <p class="pe-subtitle">${subtitle}</p>
           </div>
           <button type="button" class="pe-save-btn" id="pe-save-top">${SVG.save}<span>Guardar</span></button>
         </header>
@@ -19132,6 +19298,7 @@ function makePcCard(d, isTop) {
             </div>
           </section>
 
+          ${mode === 'new' ? `
           <section class="pe-card" aria-labelledby="pe-tpl-label">
             <h3 class="pe-label" id="pe-tpl-label">Empezar desde plantilla</h3>
             <div class="pe-tpl-row" id="pe-tpl-row" role="radiogroup" aria-labelledby="pe-tpl-label">
@@ -19143,7 +19310,7 @@ function makePcCard(d, isTop) {
                 </button>`).join('')}
             </div>
             <p class="pe-hint">Aplicar una plantilla reemplaza las sesiones actuales.</p>
-          </section>
+          </section>` : ''}
 
           <section class="pe-card" aria-label="Configuración del plan">
             <div class="pe-row-head">
@@ -19162,7 +19329,8 @@ function makePcCard(d, isTop) {
               <span class="pe-meta" id="pe-days-count"></span>
             </div>
             <div class="pe-days-grid" id="pe-days-grid" role="group" aria-labelledby="pe-days-label"></div>
-            <p class="pe-hint">Toca un día para activarlo o desactivarlo. Las sesiones se reasignan automáticamente.</p>
+            <p class="pe-hint">Las sesiones se asignan a los días activos en orden. Para cambiar el día de una sesión, actívalo aquí o súbela o bájala desde «Editar».</p>
+            <div class="pe-assign" id="pe-assign" aria-live="polite"></div>
           </section>
 
           <section class="pe-sessions" aria-labelledby="pe-sess-label">
@@ -19192,7 +19360,8 @@ function makePcCard(d, isTop) {
       nameInput.focus();
     };
 
-    document.getElementById('pe-tpl-row').onclick = e => {
+    const tplRow = document.getElementById('pe-tpl-row');
+    if (tplRow) tplRow.onclick = e => {
       const card = e.target.closest('.pe-tpl-card');
       if (!card) return;
       loadTemplate(parseInt(card.dataset.tidx));
@@ -19257,22 +19426,62 @@ function makePcCard(d, isTop) {
     document.getElementById('pe-step-plus').disabled = planData.weeks >= MAX_WEEKS;
   }
 
+  function move(list, from, to) {
+    if (to < 0 || to >= list.length || from === to) return false;
+    list.splice(to, 0, list.splice(from, 1)[0]);
+    return true;
+  }
+
   function handleSessionListClick(e) {
     // Campo de nombre en edición: no propagar
     if (e.target.closest('.pe-session-name-input')) return;
+    const num = (el, key) => parseInt(el.dataset[key], 10);
+
+    // Parámetros del ejercicio
+    const open = e.target.closest('.pe-ex-open');
+    if (open) {
+      const si = num(open, 'si'), ei = num(open, 'ei');
+      const ex = planData.sessions[si].exercises[ei];
+      window.openExerciseEditor(ei, {
+        exercise: ex,
+        onSave: () => renderSessions(),
+        onReplace: () => replaceExercise(si, ei)
+      });
+      return;
+    }
+
+    // Subir o bajar ejercicio
+    const exMove = e.target.closest('.pe-ex-up, .pe-ex-down');
+    if (exMove) {
+      const si = num(exMove, 'si'), ei = num(exMove, 'ei');
+      if (move(planData.sessions[si].exercises, ei, ei + (exMove.classList.contains('pe-ex-up') ? -1 : 1))) renderSessions();
+      return;
+    }
 
     // Eliminar ejercicio
     const delBtn = e.target.closest('.pe-ex-del');
     if (delBtn) {
-      planData.sessions[parseInt(delBtn.dataset.si)].exercises.splice(parseInt(delBtn.dataset.ei), 1);
+      planData.sessions[num(delBtn, 'si')].exercises.splice(num(delBtn, 'ei'), 1);
       renderSessions();
       return;
     }
 
-    // Añadir ejercicio
+    // Añadir ejercicio (biblioteca en modo selección)
     const addBtn = e.target.closest('.pe-add-ex-btn');
     if (addBtn) {
-      openLibrary(parseInt(addBtn.dataset.si));
+      addExercises(num(addBtn, 'si'));
+      return;
+    }
+
+    // Subir o bajar sesión (cambia el día que le toca)
+    const sMove = e.target.closest('.pe-session-up, .pe-session-down');
+    if (sMove) {
+      const si = num(sMove, 'si');
+      if (move(planData.sessions, si, si + (sMove.classList.contains('pe-session-up') ? -1 : 1))) {
+        pendingDeleteSi = -1;
+        syncSessionDays();
+        renderSessions();
+      }
       return;
     }
 
@@ -19286,7 +19495,7 @@ function makePcCard(d, isTop) {
     // Eliminar sesión (doble confirmación)
     const delSess = e.target.closest('.pe-session-del');
     if (delSess) {
-      const si = parseInt(delSess.dataset.si);
+      const si = num(delSess, 'si');
       if (pendingDeleteSi === si) {
         planData.sessions.splice(si, 1);
         syncSessionDays();
@@ -19301,7 +19510,7 @@ function makePcCard(d, isTop) {
     // Renombrar sesión
     const editName = e.target.closest('.pe-session-edit');
     if (editName) {
-      const si = parseInt(editName.dataset.si);
+      const si = num(editName, 'si');
       const nameEl = document.querySelector(`.pe-session-card[data-si="${si}"] .pe-session-name`);
       if (!nameEl) return;
       const current = planData.sessions[si].name;
@@ -19324,15 +19533,67 @@ function makePcCard(d, isTop) {
     // Desplegar o plegar (prioridad más baja)
     const hdr = e.target.closest('.pe-session-toggle');
     if (hdr) {
-      const si = parseInt(hdr.dataset.si);
+      const si = num(hdr, 'si');
       planData.sessions[si].expanded = !planData.sessions[si].expanded;
       renderSessions();
     }
   }
 
+  const MAX_EXERCISES = 30; // igual que el límite que guarda KruxTrainStore
+
+  function addExercises(si) {
+    if (!window.KruxLibrary) return;
+    const sess = planData.sessions[si];
+    window.KruxLibrary.open({
+      mode: 'pick',
+      title: sess.name,
+      onPick: item => {
+        if (sess.exercises.length >= MAX_EXERCISES) {
+          if (typeof showToast === 'function') showToast(`Máximo ${MAX_EXERCISES} ejercicios por sesión`, 'info');
+          return false;
+        }
+        sess.exercises.push(item);
+        sess.expanded = true;
+        renderSessions();
+        return true;
+      }
+    });
+  }
+
+  function replaceExercise(si, ei) {
+    if (!window.KruxLibrary) return;
+    const old = planData.sessions[si].exercises[ei];
+    const cat = catalog();
+    const ficha = cat && old.exerciseId ? cat.byId.get(old.exerciseId) : null;
+    window.KruxLibrary.open({
+      mode: 'pick',
+      single: true,
+      title: `Sustituir: ${old.name}`,
+      categoryId: ficha ? ficha.primaryCategoryId : null,
+      onPick: item => {
+        planData.sessions[si].exercises[ei] = item;
+        renderSessions();
+        return true;
+      }
+    });
+  }
+
   function syncSessionDays() {
     const active = DAYS.filter((_, i) => planData.activeDays[i]);
     planData.sessions.forEach((s, i) => { s.day = active[i] || '?'; });
+  }
+
+  function renderAssign() {
+    const box = document.getElementById('pe-assign');
+    if (!box) return;
+    const sessions = planData.sessions;
+    if (!sessions.length) { box.innerHTML = ''; return; }
+    const orphans = sessions.filter(s => !s.day || s.day === '?').length;
+    box.innerHTML = `
+      <ul class="pe-assign-list">
+        ${sessions.map(s => `<li class="${s.day && s.day !== '?' ? '' : 'is-orphan'}"><b>${s.day && s.day !== '?' ? s.day : '?'}</b><span>${trEsc(s.name)}</span></li>`).join('')}
+      </ul>
+      ${orphans ? `<p class="pe-assign-warn">${orphans === 1 ? '1 sesión no tiene día' : `${orphans} sesiones no tienen día`}: activa más días o elimínalas antes de guardar.</p>` : ''}`;
   }
 
   function renderDays() {
@@ -19362,6 +19623,7 @@ function makePcCard(d, isTop) {
   function renderSessions() {
     const list = document.getElementById('pe-session-list');
     if (!list) return;
+    renderAssign();
     const n = planData.sessions.length;
     document.getElementById('pe-sess-count').textContent = `${n} ${n === 1 ? 'sesión' : 'sesiones'}`;
 
@@ -19385,6 +19647,7 @@ function makePcCard(d, isTop) {
     }
 
     const rpeTag = rpe => rpe ? `<span class="pe-ex-rpe${rpe >= 9 ? ' hi' : ''}">RPE ${rpe}</span>` : '';
+    const cat = catalog();
 
     list.innerHTML = planData.sessions.map((s, si) => {
       const hasDay = s.day && s.day !== '?';
@@ -19395,17 +19658,33 @@ function makePcCard(d, isTop) {
 
       const exHTML = s.expanded ? `
         <div class="pe-ex-list" id="pe-ex-list-${si}">
-          ${exCount === 0 ? '<p class="pe-ex-empty">Sin ejercicios todavía.</p>' : s.exercises.map((ex, ei) => `
+          ${exCount === 0 ? '<p class="pe-ex-empty">Sin ejercicios todavía.</p>' : s.exercises.map((ex, ei) => {
+            const ficha = cat && ex.exerciseId ? cat.byId.get(ex.exerciseId) : null;
+            return `
             <div class="pe-ex-row">
-              <span class="pe-ex-icon">${ex.workSec > 0 ? SVG.timer : SVG.reps}</span>
-              <div class="pe-ex-info">
-                <div class="pe-ex-name">${trEsc(ex.name)}</div>
-                <div class="pe-ex-detail">${trEsc(typeof buildExDetail === 'function' ? buildExDetail(ex) : '')}</div>
-              </div>
-              ${rpeTag(ex.rpeTarget)}
-              <button type="button" class="pe-icon-btn pe-ex-del" data-si="${si}" data-ei="${ei}" aria-label="Eliminar ${trEsc(ex.name)}">${SVG.close}</button>
-            </div>`).join('')}
+              <button type="button" class="pe-ex-open" data-si="${si}" data-ei="${ei}" aria-label="Editar ${trEsc(ex.name)}">
+                <span class="pe-ex-icon">${ficha && window.KruxLibrary ? window.KruxLibrary.categoryIcon(ficha.primaryCategoryId, 20) : (ex.workSec > 0 ? SVG.timer : SVG.reps)}</span>
+                <span class="pe-ex-info">
+                  <span class="pe-ex-name">${trEsc(ex.name)}</span>
+                  <span class="pe-ex-detail">${trEsc(typeof buildExDetail === 'function' ? buildExDetail(ex) : '')}</span>
+                </span>
+                ${sessEditMode ? '' : rpeTag(ex.rpeTarget)}
+              </button>
+              ${sessEditMode ? `
+                <button type="button" class="pe-icon-btn pe-ex-up" data-si="${si}" data-ei="${ei}" aria-label="Subir ${trEsc(ex.name)}"${ei === 0 ? ' disabled' : ''}>${SVG.up}</button>
+                <button type="button" class="pe-icon-btn pe-ex-down" data-si="${si}" data-ei="${ei}" aria-label="Bajar ${trEsc(ex.name)}"${ei === exCount - 1 ? ' disabled' : ''}>${SVG.down}</button>` : ''}
+              <button type="button" class="pe-icon-btn pe-ex-del" data-si="${si}" data-ei="${ei}" aria-label="Quitar ${trEsc(ex.name)}">${SVG.close}</button>
+            </div>`;
+          }).join('')}
           <button type="button" class="pe-add-ex-btn" data-si="${si}">${SVG.plus}<span>Añadir ejercicio</span></button>
+        </div>` : '';
+
+      const tools = sessEditMode ? `
+        <div class="pe-session-tools">
+          <button type="button" class="pe-tool-btn pe-session-up" data-si="${si}"${si === 0 ? ' disabled' : ''}>${SVG.up}<span>Subir</span></button>
+          <button type="button" class="pe-tool-btn pe-session-down" data-si="${si}"${si === n - 1 ? ' disabled' : ''}>${SVG.down}<span>Bajar</span></button>
+          <button type="button" class="pe-tool-btn pe-session-edit" data-si="${si}">${SVG.edit}<span>Renombrar</span></button>
+          <button type="button" class="pe-tool-btn pe-tool-btn--danger pe-session-del" data-si="${si}">${SVG.trash}<span>Eliminar</span></button>
         </div>` : '';
 
       const confirmBanner = pending ? `
@@ -19426,64 +19705,12 @@ function makePcCard(d, isTop) {
               </span>
               <span class="pe-session-chev">${SVG.chev}</span>
             </button>
-            ${sessEditMode ? `
-              <button type="button" class="pe-icon-btn pe-session-edit" data-si="${si}" aria-label="Renombrar ${trEsc(s.name)}">${SVG.edit}</button>
-              <button type="button" class="pe-icon-btn pe-session-del pe-icon-btn--danger" data-si="${si}" aria-label="Eliminar ${trEsc(s.name)}">${SVG.trash}</button>
-            ` : ''}
           </div>
+          ${tools}
           ${confirmBanner}
           ${exHTML}
         </article>`;
     }).join('');
-  }
-
-  function openLibrary(si) {
-    libForSession = si;
-    closeLibrary(true);
-    const catLabel = { str: 'Fuerza', pow: 'Potencia', ant: 'Antag.' };
-    const sheet = document.createElement('div');
-    sheet.id = 'pe-lib-sheet';
-    sheet.className = 'pe-lib-sheet';
-    sheet.innerHTML = `
-      <div class="pe-lib-backdrop" id="pe-lib-backdrop"></div>
-      <div class="pe-lib-panel" role="dialog" aria-modal="true" aria-labelledby="pe-lib-title">
-        <div class="pe-lib-handle" aria-hidden="true"></div>
-        <div class="pe-lib-head">
-          <h3 class="pe-lib-title" id="pe-lib-title">Añadir ejercicio</h3>
-          <button type="button" class="pe-icon-btn" id="pe-lib-close" aria-label="Cerrar">${SVG.close}</button>
-        </div>
-        <div class="pe-lib-list">
-          ${LIBRARY.map((ex, i) => `
-            <button type="button" class="pe-lib-item" data-lidx="${i}">
-              <span class="pe-lib-info">
-                <span class="pe-lib-name">${trEsc(ex.name)}</span>
-                <span class="pe-lib-detail">${trEsc(ex.detail)}</span>
-              </span>
-              <span class="pe-lib-cat ${ex.cat}">${catLabel[ex.cat]}</span>
-            </button>`).join('')}
-        </div>
-      </div>`;
-    document.getElementById('plan-editor-modal').appendChild(sheet);
-    requestAnimationFrame(() => sheet.classList.add('pe-lib-open'));
-    document.getElementById('pe-lib-backdrop').onclick = () => closeLibrary();
-    document.getElementById('pe-lib-close').onclick = () => closeLibrary();
-    sheet.querySelector('.pe-lib-list').onclick = e => {
-      const item = e.target.closest('.pe-lib-item');
-      if (!item) return;
-      const ex = LIBRARY[parseInt(item.dataset.lidx)];
-      planData.sessions[libForSession].exercises.push({ name: ex.name, sets: 3, workSec: 0, reps: 10, weight: 0, restSec: 120, rpeTarget: 7 });
-      closeLibrary();
-      renderSessions();
-    };
-  }
-
-  function closeLibrary(immediate) {
-    const sheet = document.getElementById('pe-lib-sheet');
-    if (!sheet) return;
-    sheet.id = '';
-    if (immediate) { sheet.remove(); return; }
-    sheet.classList.remove('pe-lib-open');
-    setTimeout(() => { if (sheet.parentNode) sheet.remove(); }, 250);
   }
 
   async function savePlan() {
@@ -19493,8 +19720,16 @@ function makePcCard(d, isTop) {
     const totalEx = planData.sessions.reduce((a, s) => a + s.exercises.length, 0);
     const btn = document.getElementById('pe-save-top');
 
+    if (planData.sessions.some(s => !s.day || s.day === '?')) {
+      if (typeof showToast === 'function') showToast('Hay sesiones sin día', 'error', { detail: 'Activa más días o elimina las sesiones sobrantes.' });
+      return;
+    }
+
     // Plan activo en memoria (Entrena lo usa aunque no haya sesión iniciada)
-    window.kruxActivePlan = { name, sessions: planData.sessions, activeDays: planData.activeDays, weeks: planData.weeks };
+    window.kruxActivePlan = {
+      name, sessions: planData.sessions, activeDays: planData.activeDays, weeks: planData.weeks,
+      ...(planData.goal ? { goal: planData.goal, level: planData.level, equipment: planData.equipment } : {})
+    };
 
     const signedIn = !!(firebase.auth().currentUser);
     if (signedIn) {
