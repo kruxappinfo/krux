@@ -390,3 +390,48 @@ describe('recomendador en todas las combinaciones (auditoría)', () => {
     expect(problems).toEqual([]);
   });
 });
+
+describe('multimedia verificada (guía rápida)', () => {
+  const base = () => ({ media: { primaryMediaId: null, items: [] } });
+  const item = over => Object.assign({ id: 'm', type: 'image', externalUrl: 'https://cdn.ejemplo.com/a.jpg', reviewStatus: 'verified', attribution: 'Autor', order: 1 }, over);
+
+  it('las fichas actuales no tienen multimedia, así que no se muestra ninguna', () => {
+    DATA.exercises.forEach(e => expect(K.verifiedMedia(e), e.id).toEqual([]));
+  });
+
+  it('solo pasa lo verificado, con atribución y ubicación segura', () => {
+    const ex = base();
+    ex.media.items = [
+      item({ id: 'ok-url' }),
+      item({ id: 'ok-storage', externalUrl: undefined, storagePath: 'exercises/max-hang/a.jpg', order: 2 }),
+      item({ id: 'pendiente', reviewStatus: 'pending' }),
+      item({ id: 'rechazado', reviewStatus: 'rejected' }),
+      item({ id: 'sin-atribucion', attribution: '' }),
+      item({ id: 'http', externalUrl: 'http://inseguro.test/a.jpg' }),
+      item({ id: 'javascript', externalUrl: 'javascript:alert(1)' }),
+      item({ id: 'data', externalUrl: 'data:image/png;base64,AAAA' }),
+      item({ id: 'sin-ubicacion', externalUrl: undefined }),
+      item({ id: 'tipo-raro', type: 'pdf' })
+    ];
+    expect(K.verifiedMedia(ex).map(m => m.id)).toEqual(['ok-url', 'ok-storage']);
+  });
+
+  it('el elemento principal va primero', () => {
+    const ex = base();
+    ex.media.primaryMediaId = 'b';
+    ex.media.items = [item({ id: 'a', order: 1 }), item({ id: 'b', order: 2 })];
+    expect(K.verifiedMedia(ex).map(m => m.id)).toEqual(['b', 'a']);
+  });
+
+  it('entradas inválidas no lanzan errores', () => {
+    [null, undefined, {}, { media: null }, { media: { items: 'x' } }].forEach(v => expect(() => K.verifiedMedia(v)).not.toThrow());
+  });
+
+  it('la validación exige estado de revisión y atribución para lo verificado', () => {
+    const ex = JSON.parse(JSON.stringify(DATA.exercises[0]));
+    ex.media.items = [{ id: 'x', type: 'image', externalUrl: 'https://a.test/x.jpg', reviewStatus: 'verified', attribution: '' }];
+    expect(K.validateExercise(ex, catalog).join()).toContain('sin atribución');
+    ex.media.items[0].reviewStatus = 'ok';
+    expect(K.validateExercise(ex, catalog).join()).toContain('reviewStatus');
+  });
+});

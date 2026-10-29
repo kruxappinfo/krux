@@ -17822,7 +17822,8 @@ function initTrainView() {
       const state = done >= ex.sets ? 'is-done' : i === nextIdx ? 'is-next' : '';
       const spec = [trFmtWork(ex), ex.weight > 0 ? `+${ex.weight} kg` : ''].filter(Boolean).join(' · ');
       const status = done >= ex.sets ? 'Hecho' : done > 0 ? `${done}/${ex.sets} series` : '';
-      return `<button type="button" class="train-ex-row ${state}" data-idx="${i}" role="listitem" aria-label="${trEsc(`Editar ${ex.name}. ${spec}${ex.restSec ? `, descanso ${trFmtDuration(ex.restSec)}` : ''}${ex.rpeTarget ? `, RPE ${ex.rpeTarget}` : ''}${status ? `, ${status}` : ''}`)}">
+      const gid = window.KruxGuide ? window.KruxGuide.idFor(ex) : null;
+      return `<div class="train-ex-item ${state}${gid ? ' has-guide' : ''}" role="listitem"><button type="button" class="train-ex-row ${state}" data-idx="${i}" aria-label="${trEsc(`Editar ${ex.name}. ${spec}${ex.restSec ? `, descanso ${trFmtDuration(ex.restSec)}` : ''}${ex.rpeTarget ? `, RPE ${ex.rpeTarget}` : ''}${status ? `, ${status}` : ''}`)}">
         <span class="train-ex-glyph">${done >= ex.sets ? ICONS.check : (ex.workSec > 0 ? ICONS.timer : ICONS.reps)}</span>
         <span class="train-ex-info">
           <span class="train-ex-name">${trEsc(ex.name)}</span>
@@ -17831,7 +17832,7 @@ function initTrainView() {
         </span>
         ${ex.rpeTarget ? `<span class="train-ex-rpe">RPE ${ex.rpeTarget}</span>` : ''}
         ${ICONS.chevron}
-      </button>`;
+      </button>${gid ? window.KruxGuide.button(gid) : ''}</div>`;
     }).join('');
   }
 
@@ -18537,7 +18538,13 @@ function makePcCard(d, isTop) {
   }
 
   function takeSnapshot(data) {
-    const copy = () => JSON.parse(JSON.stringify(data.exercises || []));
+    const copy = () => {
+      const items = JSON.parse(JSON.stringify(data.exercises || []));
+      // Enlace en memoria con la ficha (por nombre exacto) antes de congelar: el historial guarda exerciseId
+      const cat = window.KruxLibrary && window.KruxLibrary.catalog();
+      if (cat && window.KruxExercises) items.forEach(it => window.KruxExercises.linkPlanItem(cat, it));
+      return items;
+    };
     return {
       planId: data.planId || null,
       planName: data.planName || '',
@@ -18743,6 +18750,12 @@ function makePcCard(d, isTop) {
     $('session-ex-counter').textContent = `Ejercicio ${exIdx + 1} de ${total}`;
     $('session-ex-name').textContent = ex.name;
     renderSpecs();
+    const guideBtn = $('session-guide-btn');
+    if (guideBtn) {
+      const gid = window.KruxGuide ? window.KruxGuide.idFor(ex) : null;
+      guideBtn.hidden = !gid;
+      guideBtn.dataset.guide = gid || '';
+    }
 
     const rpe = $('session-ex-rpe');
     rpe.textContent = ex.rpeTarget ? `RPE ${ex.rpeTarget}` : '';
@@ -19169,6 +19182,7 @@ function makePcCard(d, isTop) {
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape' || modal.classList.contains('hidden')) return;
       if (!$('confirm-modal')?.classList.contains('hidden')) return;
+      if (document.body.classList.contains('xg-open')) return;   // Escape cierra la guía, no el entrenamiento
       requestClose();
     });
   });
@@ -19766,6 +19780,7 @@ function makePcCard(d, isTop) {
                 <button type="button" class="pe-icon-btn pe-ex-up" data-si="${si}" data-ei="${ei}" aria-label="Subir ${trEsc(ex.name)}"${ei === 0 ? ' disabled' : ''}>${SVG.up}</button>
                 <button type="button" class="pe-icon-btn pe-ex-down" data-si="${si}" data-ei="${ei}" aria-label="Bajar ${trEsc(ex.name)}"${ei === exCount - 1 ? ' disabled' : ''}>${SVG.down}</button>` : ''}
               <button type="button" class="pe-icon-btn pe-ex-del" data-si="${si}" data-ei="${ei}" aria-label="Quitar ${trEsc(ex.name)}">${SVG.close}</button>
+              ${window.KruxGuide && window.KruxGuide.idFor(ex) ? `<div class="pe-ex-guide">${window.KruxGuide.button(window.KruxGuide.idFor(ex))}</div>` : ''}
             </div>`;
           }).join('')}
           <button type="button" class="pe-add-ex-btn" data-si="${si}">${SVG.plus}<span>Añadir ejercicio</span></button>
