@@ -17366,196 +17366,404 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ── Datos compartidos de sesión (train view ↔ session module) ──────────
+// Sin plan activo se muestra esta sesión marcada como «Ejemplo» para poder probar el modo activo.
 window.kruxTrainData = {
   name: 'Fuerza en media llave',
+  demo: true,
   exercises: [
-    { name: 'Max hang · 20mm',      sets: 4, workSec: 10, reps: 0,  weight: 20, restSec: 180, rpeTarget: 8, active: true  },
-    { name: 'Campus board · 1-5-9', sets: 3, workSec: 0,  reps: 5,  weight: 0,  restSec: 120, rpeTarget: 7, active: false },
-    { name: 'Pullover isométrico',  sets: 3, workSec: 7,  reps: 0,  weight: 0,  restSec: 120, rpeTarget: 6, active: false },
-    { name: 'Manguito rotador',     sets: 2, workSec: 0,  reps: 15, weight: 0,  restSec: 60,  rpeTarget: 0, active: false },
+    { name: 'Max hang · 20mm',      sets: 4, workSec: 10, reps: 0,  weight: 20, restSec: 180, rpeTarget: 8 },
+    { name: 'Campus board · 1-5-9', sets: 3, workSec: 0,  reps: 5,  weight: 0,  restSec: 120, rpeTarget: 7 },
+    { name: 'Pullover isométrico',  sets: 3, workSec: 7,  reps: 0,  weight: 0,  restSec: 120, rpeTarget: 6 },
+    { name: 'Manguito rotador',     sets: 2, workSec: 0,  reps: 15, weight: 0,  restSec: 60,  rpeTarget: 0 },
   ]
 };
+const KRUX_TRAIN_DEMO = window.kruxTrainData;
+
+// Sesiones hechas mientras la app está abierta (todavía no se guardan en la cuenta)
+window.kruxTrainLog = window.kruxTrainLog || [];
+
+function trEsc(text) {
+  return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function trDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// «10 s», «2 min», «1 min 30 s»
+function trFmtDuration(sec) {
+  if (!sec) return '';
+  if (sec < 60) return `${sec} s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return s ? `${m} min ${s} s` : `${m} min`;
+}
+
+// «4 × 10 s», «3 × 5 rep», «3 series»
+function trFmtWork(ex) {
+  if (ex.workSec > 0) return `${ex.sets} × ${trFmtDuration(ex.workSec)}`;
+  if (ex.reps > 0) return `${ex.sets} × ${ex.reps} rep`;
+  return `${ex.sets} series`;
+}
+
+// Duración aproximada: trabajo (≈3 s por repetición) + descansos entre series
+function trEstimateMinutes(exercises) {
+  const sec = exercises.reduce((acc, ex) => {
+    const work = ex.workSec > 0 ? ex.workSec : (ex.reps || 0) * 3;
+    return acc + ex.sets * work + Math.max(0, ex.sets - 1) * (ex.restSec || 0);
+  }, 0);
+  return Math.max(5, Math.round(sec / 300) * 5);
+}
 
 // Genera la descripción corta a partir de los parámetros del ejercicio
 function buildExDetail(ex) {
-  let unit = '';
-  if (ex.workSec > 0)      unit = `${ex.workSec}s`;
-  else if (ex.reps > 0)    unit = `${ex.reps} rep`;
-
-  let setStr = unit ? `${ex.sets} × ${unit}` : `${ex.sets} series`;
-  if (ex.weight > 0) setStr += ` +${ex.weight}kg`;
-
-  const parts = [setStr];
-  if (ex.restSec > 0) {
-    const r = ex.restSec >= 60 ? `${Math.floor(ex.restSec / 60)} min` : `${ex.restSec}s`;
-    parts.push(`descanso ${r}`);
-  }
-  return parts.join(' — ');
+  const parts = [trFmtWork(ex)];
+  if (ex.weight > 0) parts.push(`+${ex.weight} kg`);
+  if (ex.restSec > 0) parts.push(`descanso ${trFmtDuration(ex.restSec)}`);
+  return parts.join(' · ');
 }
 
 // ================== TRAIN VIEW ==================
 function initTrainView() {
-  const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   const DAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+  const ICONS = {
+    timer: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5"/><path d="M9.5 2.5h5"/></svg>`,
+    reps: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-1a5 5 0 0 1 5-5h11"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v1a5 5 0 0 1-5 5H4"/></svg>`,
+    check: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    chevron: `<svg class="train-ex-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>`,
+    record: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>`,
+  };
 
   let weekOffset = 0;
+  let selectedIdx = todayIdx();
 
-  function getTodayLabel() {
-    // getDay(): 0=Sun,1=Mon...6=Sat → map to L=0,M=1,X=2,J=3,V=4,S=5,D=6
-    return ['D', 'L', 'M', 'X', 'J', 'V', 'S'][new Date().getDay()];
+  function todayIdx() { return (new Date().getDay() + 6) % 7; } // 0 = lunes
+
+  function mondayOf(offset) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - todayIdx() + offset * 7);
+    return d;
   }
 
-  function getTodaySession() {
+  function dateAt(offset, idx) {
+    const d = mondayOf(offset);
+    d.setDate(d.getDate() + idx);
+    return d;
+  }
+
+  function planSessionFor(label) {
     const plan = window.kruxActivePlan;
     if (!plan || !plan.sessions) return null;
-    const todayLabel = getTodayLabel();
-    return plan.sessions.find(s => s.day === todayLabel) || null;
+    return plan.sessions.find(s => s.day === label) || null;
   }
 
-  function getNextSession() {
-    const plan = window.kruxActivePlan;
-    if (!plan || !plan.sessions || plan.sessions.length === 0) return null;
-    const todayIdx = DAY_LABELS.indexOf(getTodayLabel());
+  function nextPlannedAfter(idx) {
     for (let i = 1; i <= 7; i++) {
-      const d = DAY_LABELS[(todayIdx + i) % 7];
-      const s = plan.sessions.find(sess => sess.day === d);
-      if (s) return s;
+      const j = (idx + i) % 7;
+      const s = planSessionFor(DAY_LABELS[j]);
+      if (s) return { idx: j, session: s };
     }
     return null;
   }
 
-  function loadTodaySession() {
-    const todaySess = getTodaySession();
-    const nameEl = document.getElementById('train-session-name');
-    const metaEl = document.getElementById('train-session-meta');
-    const badgeEl = document.getElementById('train-session-badge');
-
-    if (todaySess) {
-      // Sync exercises into shared data for the session module
-      window.kruxTrainData.name = todaySess.name;
-      window.kruxTrainData.exercises = todaySess.exercises.map((ex, i) => ({ ...ex, active: i === 0 }));
-      if (nameEl) nameEl.textContent = todaySess.name;
-      const exCount = todaySess.exercises.length;
-      if (metaEl) metaEl.textContent = `${exCount} ejercicio${exCount !== 1 ? 's' : ''} · ~${Math.ceil(exCount * 12)} min`;
-      if (badgeEl) { badgeEl.textContent = 'Hoy'; badgeEl.style.display = ''; }
-    } else if (window.kruxActivePlan) {
-      // Rest day — show next session info
-      const next = getNextSession();
-      if (nameEl) nameEl.textContent = 'Descanso hoy';
-      if (metaEl) metaEl.textContent = next ? `Próxima sesión: ${next.day} · ${next.name}` : 'Sin sesiones programadas';
-      if (badgeEl) { badgeEl.textContent = 'Descanso'; badgeEl.style.cssText = 'background:#f8f9fb;color:var(--text-muted);border-color:var(--border-color);'; }
-      const list = document.getElementById('train-exercise-list');
-      if (list) list.innerHTML = '<div class="train-rest-day">💤 Día de descanso — disfruta la recuperación</div>';
-      return;
+  function logFor(dateKey, name) {
+    const log = window.kruxTrainLog;
+    for (let i = log.length - 1; i >= 0; i--) {
+      if (log[i].dateKey === dateKey && (!name || log[i].sessionName === name)) return log[i];
     }
-    // else: no active plan, use default kruxTrainData as-is
-    renderExercises();
+    return null;
   }
 
+  function isSelectedToday() { return weekOffset === 0 && selectedIdx === todayIdx(); }
+
+  // ── Resumen semanal ─────────────────────────────────────────────────
+  function renderHero() {
+    const plan = window.kruxActivePlan;
+    const title = document.getElementById('train-hero-title');
+    const sub = document.getElementById('train-hero-sub');
+    const meter = document.getElementById('train-hero-meter');
+    const note = document.getElementById('train-hero-note');
+    const cta = document.getElementById('train-hero-cta');
+    if (!title) return;
+
+    if (!plan) {
+      title.textContent = 'Sin plan activo';
+      sub.textContent = 'Crea un plan para organizar tus sesiones de la semana.';
+      meter.innerHTML = '';
+      meter.hidden = true;
+      note.textContent = '';
+      note.hidden = true;
+      cta.classList.remove('hidden');
+      return;
+    }
+
+    cta.classList.add('hidden');
+    const planned = DAY_LABELS.filter(l => planSessionFor(l)).length;
+    const monday = mondayOf(0);
+    const doneKeys = new Set(window.kruxTrainLog
+      .filter(e => { const d = new Date(e.dateKey + 'T00:00'); return d >= monday && (d - monday) < 7 * 864e5; })
+      .map(e => e.dateKey));
+    const done = doneKeys.size;
+
+    title.textContent = done > 0 ? `${done} de ${planned} sesiones` : `${planned} ${planned === 1 ? 'sesión' : 'sesiones'}`;
+    sub.textContent = `${done > 0 ? 'completadas' : 'planificadas'} esta semana · ${plan.name || 'Mi plan'}`;
+
+    meter.hidden = planned === 0;
+    meter.innerHTML = Array.from({ length: planned }, (_, i) => `<span class="${i < done ? 'is-done' : ''}"></span>`).join('');
+
+    const todaySess = planSessionFor(DAY_LABELS[todayIdx()]);
+    if (todaySess) {
+      note.textContent = logFor(trDateKey(new Date()), todaySess.name) ? `Hoy: ${todaySess.name} · hecha` : `Hoy: ${todaySess.name}`;
+    } else {
+      const next = nextPlannedAfter(todayIdx());
+      note.textContent = next ? `Hoy descansas · ${DAY_NAMES[next.idx]}: ${next.session.name}` : 'Hoy descansas';
+    }
+    note.hidden = false;
+  }
+
+  // ── Calendario ──────────────────────────────────────────────────────
   function renderWeek() {
     const daysRow = document.getElementById('train-days-row');
     const weekTitle = document.getElementById('train-week-title');
     if (!daysRow || !weekTitle) return;
 
-    const today = new Date();
-    const jsDay = today.getDay();
-    const mondayDelta = jsDay === 0 ? -6 : 1 - jsDay;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + mondayDelta + weekOffset * 7);
+    const monday = mondayOf(weekOffset);
+    const sunday = dateAt(weekOffset, 6);
+    const range = monday.getMonth() === sunday.getMonth()
+      ? `${monday.getDate()}–${sunday.getDate()} ${MONTHS[sunday.getMonth()]}`
+      : `${monday.getDate()} ${MONTHS[monday.getMonth()]} – ${sunday.getDate()} ${MONTHS[sunday.getMonth()]}`;
+    weekTitle.textContent = weekOffset === 0 ? `Esta semana · ${range}` : range;
 
-    const weekNum = Math.ceil(monday.getDate() / 7);
-    weekTitle.textContent = `Semana ${weekNum} · ${MONTH_NAMES[monday.getMonth()]}`;
-
-    const plan = window.kruxActivePlan;
-    const activePlanDays = plan ? new Set(plan.sessions.map(s => s.day)) : null;
-    const checkSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-    const todayLabel = getTodayLabel();
-
+    const hasPlan = !!window.kruxActivePlan;
     daysRow.innerHTML = DAY_LABELS.map((label, i) => {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const isToday = weekOffset === 0 && label === todayLabel;
-      const hasSession = activePlanDays ? activePlanDays.has(label) : [0, 2, 4].includes(i); // fallback L,X,V
-      let state, content;
-      if (weekOffset === 0) {
-        // Past days with session = done (simplified: Mon/Wed before today)
-        const isPast = i < DAY_LABELS.indexOf(todayLabel);
-        if (isToday) { state = 'today'; content = `${d.getDate()}`; }
-        else if (isPast && hasSession) { state = 'done'; content = checkSvg; }
-        else if (hasSession) { state = 'scheduled'; content = `${d.getDate()}`; }
-        else { state = 'rest'; content = '–'; }
-      } else {
-        state = hasSession ? 'scheduled' : 'rest';
-        content = hasSession ? `${d.getDate()}` : '–';
-      }
-      return `<div class="train-day-cell"><span class="train-day-name">${label}</span><div class="train-day-dot ${state}">${content}</div></div>`;
+      const d = dateAt(weekOffset, i);
+      const isToday = weekOffset === 0 && i === todayIdx();
+      const sess = hasPlan ? planSessionFor(label) : null;
+      const isDone = !!logFor(trDateKey(d));
+      const isSelected = i === selectedIdx;
+      const cls = ['train-day', isToday && 'is-today', sess && 'has-session', isDone && 'is-done', isSelected && 'is-selected']
+        .filter(Boolean).join(' ');
+      const desc = [`${DAY_NAMES[i]} ${d.getDate()}`, isToday && 'hoy', sess ? `sesión: ${sess.name}` : (hasPlan && 'descanso'), isDone && 'completada']
+        .filter(Boolean).join(', ');
+      return `<button type="button" class="${cls}" data-idx="${i}" aria-pressed="${isSelected}" aria-label="${trEsc(desc)}">
+        <span class="train-day-name">${label}</span>
+        <span class="train-day-num">${isDone ? ICONS.check : d.getDate()}</span>
+        <span class="train-day-mark"></span>
+      </button>`;
     }).join('');
+  }
+
+  // ── Sesión del día seleccionado ─────────────────────────────────────
+  function selectedState() {
+    const plan = window.kruxActivePlan;
+    const date = dateAt(weekOffset, selectedIdx);
+    if (!plan) return { kind: 'demo', date };
+    const sess = planSessionFor(DAY_LABELS[selectedIdx]);
+    return sess ? { kind: 'session', date, sess } : { kind: 'rest', date };
+  }
+
+  function loadSelectedSession() {
+    const nameEl = document.getElementById('train-session-name');
+    const metaEl = document.getElementById('train-session-meta');
+    const badgeEl = document.getElementById('train-session-badge');
+    const st = selectedState();
+
+    if (st.kind === 'demo') {
+      window.kruxTrainData = KRUX_TRAIN_DEMO;
+      badgeEl.textContent = 'Ejemplo';
+      badgeEl.className = 'train-session-badge is-demo';
+    } else if (st.kind === 'session') {
+      // Misma referencia que el plan: las ediciones del ejercicio se quedan en el plan
+      window.kruxTrainData = { name: st.sess.name, exercises: st.sess.exercises, demo: false };
+      badgeEl.textContent = isSelectedToday() ? 'Hoy' : DAY_NAMES[selectedIdx];
+      badgeEl.className = 'train-session-badge' + (isSelectedToday() ? ' is-today' : '');
+    } else {
+      window.kruxTrainData = { name: 'Descanso', exercises: [], demo: false };
+      badgeEl.textContent = 'Descanso';
+      badgeEl.className = 'train-session-badge is-rest';
+    }
+
+    const data = window.kruxTrainData;
+    nameEl.textContent = st.kind === 'rest' ? `Descanso · ${DAY_NAMES[selectedIdx].toLowerCase()}` : data.name;
+    if (st.kind === 'rest') {
+      metaEl.textContent = 'No hay sesión planificada este día.';
+    } else {
+      const n = data.exercises.length;
+      metaEl.textContent = n ? `${n} ${n === 1 ? 'ejercicio' : 'ejercicios'} · ≈ ${trEstimateMinutes(data.exercises)} min` : 'Sin ejercicios';
+    }
+    renderExercises();
+    renderSuggestion();
+    renderCta();
   }
 
   function renderExercises() {
     const list = document.getElementById('train-exercise-list');
     if (!list) return;
-    const data = window.kruxTrainData;
-    if (!data || !data.exercises || data.exercises.length === 0) {
-      list.innerHTML = '<div class="train-rest-day">Sin ejercicios configurados</div>';
+    const st = selectedState();
+
+    if (st.kind === 'rest') {
+      const next = nextPlannedAfter(selectedIdx);
+      list.innerHTML = `<div class="train-empty" role="listitem">
+        <p class="train-empty-title">Día de recuperación</p>
+        <p class="train-empty-text">${next ? `Próxima sesión: ${DAY_NAMES[next.idx].toLowerCase()}, ${trEsc(next.session.name)}.` : 'Tu plan no tiene sesiones con día asignado.'}</p>
+        ${next ? `<button type="button" class="train-empty-btn" data-goto="${next.idx}">Ver ${DAY_NAMES[next.idx].toLowerCase()}</button>` : ''}
+      </div>`;
       return;
     }
-    const playIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
-    const circleIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"><circle cx="12" cy="12" r="9"></circle></svg>`;
-    list.innerHTML = data.exercises.map((ex, i) => `
-      <div class="train-ex-row${ex.active ? ' active-ex' : ''} train-ex-editable" data-idx="${i}">
-        <div class="train-ex-icon${ex.active ? ' active-icon' : ''}">${ex.active ? playIcon : circleIcon}</div>
-        <div class="train-ex-info">
-          <div class="train-ex-name${ex.active ? ' active-name' : ''}">${ex.name}</div>
-          <div class="train-ex-detail${ex.active ? ' active-detail' : ''}">${buildExDetail(ex)}</div>
-        </div>
-        ${ex.rpeTarget ? `<span class="train-ex-rpe">RPE ${ex.rpeTarget}</span>` : ''}
-      </div>`).join('');
 
-    list.querySelectorAll('.train-ex-editable').forEach(row => {
-      row.addEventListener('click', () => openExerciseEditor(parseInt(row.dataset.idx)));
-    });
+    const data = window.kruxTrainData;
+    if (!data.exercises.length) {
+      list.innerHTML = `<div class="train-empty" role="listitem"><p class="train-empty-title">Sin ejercicios</p><p class="train-empty-text">Añade ejercicios a esta sesión desde el editor de planes.</p></div>`;
+      return;
+    }
+
+    // Estado real: solo cuenta lo registrado en una sesión hecha ese día
+    const entry = st.kind === 'session' ? logFor(trDateKey(st.date), data.name) : null;
+    const doneSets = i => (entry && entry.exercises[i] && entry.exercises[i].name === data.exercises[i].name) ? entry.exercises[i].sets.length : 0;
+    const nextIdx = data.exercises.findIndex((ex, i) => doneSets(i) < ex.sets);
+
+    list.innerHTML = data.exercises.map((ex, i) => {
+      const done = doneSets(i);
+      const state = done >= ex.sets ? 'is-done' : i === nextIdx ? 'is-next' : '';
+      const spec = [trFmtWork(ex), ex.weight > 0 ? `+${ex.weight} kg` : ''].filter(Boolean).join(' · ');
+      const status = done >= ex.sets ? 'Hecho' : done > 0 ? `${done}/${ex.sets} series` : '';
+      return `<button type="button" class="train-ex-row ${state}" data-idx="${i}" role="listitem" aria-label="${trEsc(`Editar ${ex.name}. ${spec}${ex.restSec ? `, descanso ${trFmtDuration(ex.restSec)}` : ''}${ex.rpeTarget ? `, RPE ${ex.rpeTarget}` : ''}${status ? `, ${status}` : ''}`)}">
+        <span class="train-ex-glyph">${done >= ex.sets ? ICONS.check : (ex.workSec > 0 ? ICONS.timer : ICONS.reps)}</span>
+        <span class="train-ex-info">
+          <span class="train-ex-name">${trEsc(ex.name)}</span>
+          <span class="train-ex-spec">${trEsc(spec)}</span>
+          ${ex.restSec || status ? `<span class="train-ex-rest">${[ex.restSec ? `Descanso ${trFmtDuration(ex.restSec)}` : '', status].filter(Boolean).join(' · ')}</span>` : ''}
+        </span>
+        ${ex.rpeTarget ? `<span class="train-ex-rpe">RPE ${ex.rpeTarget}</span>` : ''}
+        ${ICONS.chevron}
+      </button>`;
+    }).join('');
   }
 
-  // Gear button → dropdown menu
+  // Último registro real de algún ejercicio de esta sesión (sin progresiones automáticas)
+  function renderSuggestion() {
+    const box = document.getElementById('train-suggestion');
+    if (!box) return;
+    const data = window.kruxTrainData;
+    const log = window.kruxTrainLog;
+    let found = null;
+    for (let i = log.length - 1; i >= 0 && !found; i--) {
+      for (const ex of log[i].exercises) {
+        if (!ex.sets.length) continue;
+        const current = data.exercises.find(e => e.name === ex.name);
+        if (current) { found = { entry: log[i], ex, current }; break; }
+      }
+    }
+    if (!found) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+
+    const { entry, ex, current } = found;
+    const last = ex.sets[ex.sets.length - 1];
+    const rpes = ex.sets.map(s => s.rpe).filter(Boolean);
+    const unit = ex.target.workSec > 0 ? trFmtDuration(ex.target.workSec) : `${ex.target.reps} rep`;
+    const lastLine = [`${ex.sets.length} × ${unit}`, last.weight > 0 ? `+${last.weight} kg` : '', rpes.length ? `RPE ${Math.round(rpes.reduce((a, b) => a + b, 0) / rpes.length * 10) / 10}` : '']
+      .filter(Boolean).join(' · ');
+    const goal = [trFmtWork(current), current.weight > 0 ? `+${current.weight} kg` : '', current.rpeTarget ? `RPE ${current.rpeTarget}` : '']
+      .filter(Boolean).join(' · ');
+    const when = entry.dateKey === trDateKey(new Date()) ? 'hoy' : `el ${new Date(entry.dateKey + 'T00:00').getDate()} de ${MONTHS[new Date(entry.dateKey + 'T00:00').getMonth()]}`;
+
+    box.innerHTML = `
+      <span class="train-suggestion-icon">${ICONS.record}</span>
+      <div class="train-suggestion-body">
+        <p class="train-suggestion-title">Último registro · ${trEsc(ex.name)}</p>
+        <p class="train-suggestion-text">${trEsc(lastLine)} <span class="train-suggestion-when">(${when})</span></p>
+        <p class="train-suggestion-goal">Plan para hoy: ${trEsc(goal)}</p>
+      </div>`;
+    box.classList.remove('hidden');
+  }
+
+  function renderCta() {
+    const btn = document.getElementById('train-start-btn');
+    const label = document.getElementById('train-start-label');
+    if (!btn || !label) return;
+    const st = selectedState();
+    const data = window.kruxTrainData;
+    let text = 'Comenzar entrenamiento';
+    let disabled = false;
+    if (st.kind === 'rest') { text = 'Día de descanso'; disabled = true; }
+    else if (!data.exercises.length) { text = 'Sin ejercicios'; disabled = true; }
+    else if (st.kind === 'demo') text = 'Probar sesión de ejemplo';
+    else if (logFor(trDateKey(st.date), data.name)) text = 'Repetir entrenamiento';
+    label.textContent = text;
+    btn.disabled = disabled;
+  }
+
+  function renderAll() {
+    renderHero();
+    renderWeek();
+    loadSelectedSession();
+  }
+
+  // ── Eventos ─────────────────────────────────────────────────────────
   const gearBtn = document.getElementById('train-new-plan-btn');
   const gearMenu = document.getElementById('train-gear-menu');
 
   function closeGearMenu() {
     if (gearMenu) gearMenu.classList.add('hidden');
+    if (gearBtn) gearBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  function openPlanEditor() {
+    closeGearMenu();
+    if (typeof window.openPlanEditor === 'function') window.openPlanEditor();
   }
 
   if (gearBtn && gearMenu) {
     gearBtn.addEventListener('click', e => {
       e.stopPropagation();
-      gearMenu.classList.toggle('hidden');
+      const open = gearMenu.classList.toggle('hidden') === false;
+      gearBtn.setAttribute('aria-expanded', String(open));
     });
-    const gearNew = document.getElementById('train-gear-new');
-    if (gearNew) gearNew.addEventListener('click', () => {
-      closeGearMenu();
-      if (typeof window.openPlanEditor === 'function') window.openPlanEditor();
-    });
-    // Close on outside click
+    document.getElementById('train-gear-new')?.addEventListener('click', openPlanEditor);
     document.addEventListener('click', e => {
       if (!e.target.closest('.train-gear-wrap')) closeGearMenu();
     });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGearMenu(); });
   }
 
-  // Week navigation
-  const prevBtn = document.getElementById('train-week-prev');
-  const nextBtn = document.getElementById('train-week-next');
-  if (prevBtn) prevBtn.addEventListener('click', () => { weekOffset--; renderWeek(); });
-  if (nextBtn) nextBtn.addEventListener('click', () => { weekOffset++; renderWeek(); });
+  document.getElementById('train-hero-cta')?.addEventListener('click', openPlanEditor);
 
-  // Start button
-  const startBtn = document.getElementById('train-start-btn');
-  if (startBtn) startBtn.addEventListener('click', () => openActiveSession());
+  document.getElementById('train-days-row')?.addEventListener('click', e => {
+    const day = e.target.closest('.train-day');
+    if (!day) return;
+    selectedIdx = parseInt(day.dataset.idx, 10);
+    renderWeek();
+    loadSelectedSession();
+  });
 
-  // Expose refresh so plan editor can trigger it after saving
-  window.refreshTrainView = () => { loadTodaySession(); renderWeek(); };
+  document.getElementById('train-exercise-list')?.addEventListener('click', e => {
+    const go = e.target.closest('[data-goto]');
+    if (go) {
+      const target = parseInt(go.dataset.goto, 10);
+      if (target <= selectedIdx) weekOffset++; // la próxima sesión cae en la semana siguiente
+      selectedIdx = target;
+      renderWeek();
+      loadSelectedSession();
+      return;
+    }
+    const row = e.target.closest('.train-ex-row');
+    if (row && typeof window.openExerciseEditor === 'function') window.openExerciseEditor(parseInt(row.dataset.idx, 10));
+  });
 
-  renderWeek();
-  loadTodaySession();
+  document.getElementById('train-week-prev')?.addEventListener('click', () => { weekOffset--; renderWeek(); loadSelectedSession(); });
+  document.getElementById('train-week-next')?.addEventListener('click', () => { weekOffset++; renderWeek(); loadSelectedSession(); });
+
+  document.getElementById('train-start-btn')?.addEventListener('click', () => {
+    if (typeof window.openActiveSession === 'function') window.openActiveSession();
+  });
+
+  // Refresco tras guardar un plan, editar un ejercicio o terminar una sesión
+  window.refreshTrainView = () => renderAll();
+  window.kruxRenderTrainExercises = () => { loadSelectedSession(); };
+
+  renderAll();
 }
 
 // ================== EXERCISE EDITOR ==================
@@ -17604,22 +17812,7 @@ function initTrainView() {
   }
 
   function reRenderList() {
-    const listEl = document.getElementById('train-exercise-list');
-    if (!listEl || !window.kruxTrainData) return;
-    const playIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
-    const circleIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"><circle cx="12" cy="12" r="9"></circle></svg>`;
-    listEl.innerHTML = window.kruxTrainData.exercises.map((e, i) => `
-      <div class="train-ex-row${e.active ? ' active-ex' : ''} train-ex-editable" data-idx="${i}">
-        <div class="train-ex-icon${e.active ? ' active-icon' : ''}">${e.active ? playIcon : circleIcon}</div>
-        <div class="train-ex-info">
-          <div class="train-ex-name${e.active ? ' active-name' : ''}">${e.name}</div>
-          <div class="train-ex-detail${e.active ? ' active-detail' : ''}">${buildExDetail(e)}</div>
-        </div>
-        ${e.rpeTarget ? `<span class="train-ex-rpe">RPE ${e.rpeTarget}</span>` : ''}
-      </div>`).join('');
-    listEl.querySelectorAll('.train-ex-editable').forEach(row => {
-      row.addEventListener('click', () => open(parseInt(row.dataset.idx)));
-    });
+    if (typeof window.kruxRenderTrainExercises === 'function') window.kruxRenderTrainExercises();
   }
 
   function save() {
@@ -18016,10 +18209,13 @@ function makePcCard(d, isTop) {
   // Usa los datos compartidos para que las ediciones del train view se reflejen aquí
   function EXERCISES() { return window.kruxTrainData ? window.kruxTrainData.exercises : []; }
 
+  const RING = 314;
   const SVG = {
-    play:  `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`,
-    pause: `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`,
-    skip:  `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>`,
+    play:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>`,
+    pause: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4.5" width="4" height="15" rx="1.2"></rect><rect x="14" y="4.5" width="4" height="15" rx="1.2"></rect></svg>`,
+    skip:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 5.5v13a1 1 0 0 0 1.53.85L16 13.2V18a1 1 0 0 0 2 0V6a1 1 0 0 0-2 0v4.8L6.53 4.65A1 1 0 0 0 5 5.5z"/></svg>`,
+    check: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    flag:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h11l-1.5 4L16 12H5"/></svg>`,
   };
 
   // ── Audio (Web Audio API, sin archivos externos) ──────────────────────
@@ -18065,39 +18261,70 @@ function makePcCard(d, isTop) {
   }
   // ─────────────────────────────────────────────────────────────────────
 
-  let exIdx, setsDone, mode, timerSec, targetSec, intervalId, elapsedSec, elapsedId, selectedRpe;
+  // mode: idle | work | paused | rest | between (ejercicio terminado, esperando al siguiente)
+  let exIdx, setsDone, mode, timerSec, targetSec, intervalId, elapsedSec, elapsedId, record, rpeOpen;
+  let TEMPLATE = '';
 
   function $ (id) { return document.getElementById(id); }
+  function fmt2(n) { return String(n).padStart(2, '0'); }
+  function clock(sec) { return `${Math.floor(sec / 60)}:${fmt2(sec % 60)}`; }
+  function hms(sec) { return `${fmt2(Math.floor(sec / 3600))}:${fmt2(Math.floor(sec / 60) % 60)}:${fmt2(sec % 60)}`; }
+  function nowHM() { const d = new Date(); return `${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`; }
+  function esc(t) { return typeof trEsc === 'function' ? trEsc(t) : String(t ?? ''); }
+  function dur(sec) { return typeof trFmtDuration === 'function' ? trFmtDuration(sec) : `${sec} s`; }
+
+  function announce(text) {
+    const el = $('session-sr-status');
+    if (el) el.textContent = text;
+  }
+
+  function doneSetsTotal() { return record ? record.exercises.reduce((a, e) => a + e.sets.length, 0) : 0; }
+  function plannedSetsTotal() { return EXERCISES().reduce((a, e) => a + e.sets, 0); }
+  function curSets() { return record.exercises[exIdx].sets; }
 
   function open() {
+    if (!EXERCISES().length) {
+      if (typeof showToast === 'function') showToast('Esta sesión no tiene ejercicios', 'info');
+      return;
+    }
+    const modal = $('session-modal');
+    const screen = $('session-screen');
+    if (!modal || !screen) return;
+
+    // Restaurar la pantalla si la sustituyó el resumen final
+    if (TEMPLATE && !screen.querySelector('.session-hero')) screen.innerHTML = TEMPLATE;
+
     exIdx = 0; setsDone = 0; mode = 'idle';
     timerSec = 0; targetSec = 0; intervalId = null;
-    elapsedSec = 0; elapsedId = null; selectedRpe = 0;
+    elapsedSec = 0; elapsedId = null; rpeOpen = false;
 
-    const modal = $('session-modal');
-    if (!modal) return;
-
-    // Restore session-screen in case it was replaced by completion
-    const screen = $('session-screen');
-    if (screen && !screen.querySelector('.session-topbar')) location.reload();
+    const data = window.kruxTrainData;
+    record = {
+      dateKey: typeof trDateKey === 'function' ? trDateKey(new Date()) : new Date().toISOString().slice(0, 10),
+      sessionName: data.name,
+      demo: !!data.demo,
+      startedAt: Date.now(),
+      exercises: EXERCISES().map(ex => ({
+        name: ex.name,
+        target: { sets: ex.sets, workSec: ex.workSec, reps: ex.reps, weight: ex.weight, rpeTarget: ex.rpeTarget },
+        sets: []
+      }))
+    };
 
     modal.classList.remove('hidden');
     document.body.classList.add('session-open');
 
+    $('session-elapsed').textContent = hms(0);
     elapsedId = setInterval(() => {
       elapsedSec++;
       const el = $('session-elapsed');
-      if (el) el.textContent = fmt2(Math.floor(elapsedSec / 60)) + ':' + fmt2(elapsedSec % 60);
+      if (el) el.textContent = hms(elapsedSec);
     }, 1000);
 
-    // Update session name/date
-    const now = new Date();
-    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-    const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const sub = $('session-session-sub');
-    if (sub) sub.textContent = `${days[now.getDay()]} · ${months[now.getMonth()]}`;
-
+    $('session-session-name').textContent = data.demo ? `${data.name} · ejemplo` : data.name;
     renderExercise();
+    // Foco en el título del ejercicio para lectores de pantalla (sin anillo visible)
+    setTimeout(() => $('session-ex-name')?.focus({ preventScroll: true }), 350);
   }
 
   function close() {
@@ -18106,99 +18333,217 @@ function makePcCard(d, isTop) {
     const modal = $('session-modal');
     if (modal) modal.classList.add('hidden');
     document.body.classList.remove('session-open');
+    if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
   }
 
-  function fmt2(n) { return String(n).padStart(2, '0'); }
+  // Reutiliza el diálogo de confirmación con un botón propio (no destructivo por defecto)
+  function confirmThen(title, message, fn, okLabel = 'Finalizar', danger = false) {
+    const ok = $('confirm-ok');
+    const cancel = $('confirm-cancel');
+    if (typeof showConfirmModal !== 'function' || !ok || !cancel) {
+      if (window.confirm(`${title}\n${message}`)) fn();
+      return;
+    }
+    const prev = { text: ok.textContent, cls: ok.className };
+    const restore = () => {
+      ok.textContent = prev.text;
+      ok.className = prev.cls;
+      ok.removeEventListener('click', restore);
+      cancel.removeEventListener('click', restore);
+      $('confirm-modal')?.removeEventListener('click', onBackdrop);
+    };
+    const onBackdrop = e => { if (e.target.id === 'confirm-modal') restore(); };
+    ok.textContent = okLabel;
+    ok.className = danger ? 'btn-danger' : 'btn-primary kx-confirm-primary';
+    showConfirmModal(title, message, fn);
+    ok.addEventListener('click', restore);
+    cancel.addEventListener('click', restore);
+    $('confirm-modal')?.addEventListener('click', onBackdrop);
+  }
 
+  function requestClose() {
+    const n = doneSetsTotal();
+    if (!n || !$('session-screen').querySelector('.session-hero')) return close();
+    confirmThen('¿Salir sin terminar?', `Se perderán las ${n} ${n === 1 ? 'serie registrada' : 'series registradas'}.`, close, 'Salir', true);
+  }
+
+  function requestFinish() {
+    const n = doneSetsTotal();
+    const total = plannedSetsTotal();
+    if (!n) return confirmThen('¿Salir del entrenamiento?', 'Todavía no has completado ninguna serie.', close, 'Salir');
+    if (n >= total) return showCompletion();
+    confirmThen('¿Finalizar el entrenamiento?', `Llevas ${n} de ${total} series. Pasarás al resumen con lo que has hecho.`, showCompletion);
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────
   function renderExercise() {
     const ex = EXERCISES()[exIdx];
-    $('session-ex-counter').textContent = `EJERCICIO ${exIdx + 1} DE ${EXERCISES().length}`;
+    const total = EXERCISES().length;
+    $('session-ex-counter').textContent = `Ejercicio ${exIdx + 1} de ${total}`;
     $('session-ex-name').textContent = ex.name;
-    $('session-ex-detail').textContent = typeof buildExDetail === 'function' ? buildExDetail(ex) : (ex.detail || '');
-    $('session-progress-bar').style.width = Math.round((exIdx / EXERCISES().length) * 100) + '%';
+    renderSpecs();
 
-    const next = exIdx + 1 < EXERCISES().length ? EXERCISES()[exIdx + 1] : null;
-    $('session-next-label').textContent = next ? 'SIGUIENTE' : 'ÚLTIMO EJERCICIO';
-    $('session-next-name').textContent = next ? next.name : '¡Último ejercicio!';
-    $('session-next-detail').textContent = next ? next.detail : 'Dale todo';
+    const rpe = $('session-ex-rpe');
+    rpe.textContent = ex.rpeTarget ? `RPE ${ex.rpeTarget}` : '';
+    rpe.classList.toggle('hidden', !ex.rpeTarget);
 
-    renderDots();
+    $('session-steps').innerHTML = EXERCISES().map((e, i) => {
+      const st = i < exIdx ? 'is-done' : i === exIdx ? 'is-current' : '';
+      return `<li class="${st}"><span class="sr-only">${esc(e.name)}${i < exIdx ? ', hecho' : i === exIdx ? ', en curso' : ''}</span></li>`;
+    }).join('');
+
+    renderNext();
+    rpeOpen = false;
     setMode('idle');
+    announce(`Ejercicio ${exIdx + 1} de ${total}: ${ex.name}`);
+  }
+
+  function renderSpecs() {
+    const ex = EXERCISES()[exIdx];
+    const parts = [typeof trFmtWork === 'function' ? trFmtWork(ex) : `${ex.sets} series`];
+    if (ex.weight > 0) parts.push(`+${ex.weight} kg`);
+    if (ex.restSec > 0) parts.push(`Descanso ${dur(ex.restSec)}`);
+    $('session-ex-detail').textContent = parts.join(' · ');
+  }
+
+  function renderNext() {
+    const next = EXERCISES()[exIdx + 1];
+    $('session-next-label').textContent = next ? 'Siguiente' : 'Último ejercicio';
+    $('session-next-name').textContent = next ? next.name : 'Terminar sesión';
+    $('session-skip-btn').setAttribute('aria-label', next ? `Pasar a ${next.name}` : 'Terminar sesión');
   }
 
   function renderDots() {
     const ex = EXERCISES()[exIdx];
-    const row = $('session-sets-row');
-    if (!row) return;
     let html = '';
     for (let i = 0; i < ex.sets; i++) {
-      const cls = i < setsDone ? 'done' : i === setsDone ? 'current' : '';
-      const label = i < setsDone
-        ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`
-        : (i + 1);
-      html += `<div class="session-set-dot ${cls}">${label}</div>`;
+      const cls = i < setsDone ? 'is-done' : (i === setsDone && mode !== 'between') ? 'is-current' : '';
+      html += `<span class="${cls}"></span>`;
     }
-    row.innerHTML = html;
+    $('session-sets-row').innerHTML = html;
+    const shown = Math.min(setsDone + (mode === 'between' ? 0 : 1), ex.sets);
+    $('session-set-chip').textContent = `Serie ${Math.max(1, shown)} / ${ex.sets}`;
+  }
+
+  function renderMetrics() {
+    const ex = EXERCISES()[exIdx];
+    $('session-load-val').textContent = ex.weight > 0 ? `+${ex.weight} kg` : '0 kg';
+    $('session-load-minus').disabled = !(ex.weight > 0);
+    $('session-rest-val').textContent = ex.restSec > 0 ? dur(ex.restSec) : 'Sin descanso';
+
+    const sets = curSets();
+    const last = sets[sets.length - 1];
+    const btn = $('session-rpe-btn');
+    $('session-rpe-lbl').textContent = last ? `RPE serie ${last.n}` : 'RPE';
+    $('session-rpe-val').textContent = last && last.rpe ? String(last.rpe) : (last ? 'Anotar' : '—');
+    btn.classList.toggle('is-empty', !(last && last.rpe));
+    btn.setAttribute('aria-expanded', String(rpeOpen));
+
+    const sec = $('session-rpe-section');
+    sec.classList.toggle('hidden', !(rpeOpen && last));
+    if (rpeOpen && last) {
+      $('session-rpe-label').textContent = `¿Cómo ha ido la serie ${last.n}?${ex.rpeTarget ? ` Objetivo: RPE ${ex.rpeTarget}` : ''}`;
+      $('session-rpe-dots').innerHTML = [5, 6, 7, 8, 9, 10].map(v => {
+        const tone = v >= 9 ? ' is-hi' : v >= 8 ? ' is-warn' : '';
+        return `<button type="button" class="session-rpe-dot${tone}${v === last.rpe ? ' is-selected' : ''}" data-rpe="${v}" aria-pressed="${v === last.rpe}">${v}</button>`;
+      }).join('');
+    }
+  }
+
+  function renderHistory() {
+    const ex = EXERCISES()[exIdx];
+    const sets = curSets();
+    const rows = [];
+    for (let i = 0; i < ex.sets; i++) {
+      const s = sets[i];
+      if (s) {
+        const val = s.workSec ? dur(s.workSec) : s.reps ? `${s.reps} rep` : 'Hecha';
+        const meta = [val, s.weight > 0 ? `+${s.weight} kg` : '', s.rpe ? `RPE ${s.rpe}` : ''].filter(Boolean).join(' · ');
+        rows.push(`<li class="is-done"><span class="session-h-mark">${SVG.check}</span><span class="session-h-text"><strong>Serie ${i + 1}</strong><span>${esc(meta)}</span></span><time>${s.time}</time></li>`);
+      } else {
+        const current = i === setsDone && mode !== 'between';
+        const txt = current ? (mode === 'work' ? 'En curso' : mode === 'rest' ? 'Después del descanso' : 'Preparada') : 'Pendiente';
+        rows.push(`<li class="${current ? 'is-current' : ''}"><span class="session-h-mark"></span><span class="session-h-text"><strong>Serie ${i + 1}</strong><span>${txt}</span></span><time>–</time></li>`);
+      }
+    }
+    $('session-history').innerHTML = rows.join('');
+  }
+
+  function setRing(fraction) {
+    const arc = $('session-ring-arc');
+    arc.style.strokeDashoffset = String(Math.max(0, Math.min(RING, RING - RING * fraction)));
+    arc.classList.toggle('is-empty', fraction <= 0);
+  }
+
+  function showBig(sec, longLabel = 'restantes') {
+    const t = $('session-ring-time');
+    t.textContent = sec < 60 ? String(sec) : clock(sec);
+    $('session-ring-lbl').textContent = sec < 60 ? (sec === 1 ? 'segundo' : 'segundos') : longLabel;
+  }
+
+  function setMainBtn(icon, text, primary = true) {
+    $('session-btn-main').removeAttribute('aria-label');
+    $('session-btn-icon').innerHTML = icon;
+    $('session-btn-label').textContent = text;
+    $('session-btn-main').classList.toggle('is-quiet', !primary);
   }
 
   function setMode(m) {
     mode = m;
     clearInterval(intervalId);
     const ex = EXERCISES()[exIdx];
-    const block  = $('session-timer-block');
-    const label  = $('session-timer-label');
-    const btnMain  = $('session-btn-main');
-    const btnLabel = $('session-btn-label');
-    const btnIcon  = $('session-btn-icon');
-    const ringArc  = $('session-ring-arc');
-    const ringTime = $('session-ring-time');
-    const ringLbl  = $('session-ring-lbl');
-
-    block.classList.remove('rest-mode');
-    ringArc.style.stroke = '#1D9E75';
-    ringTime.className = 'session-ring-time';
-    $('session-rpe-section').style.display = 'none';
+    const block = $('session-timer-block');
+    const time = $('session-ring-time');
+    block.classList.toggle('is-rest', m === 'rest');
+    block.classList.toggle('is-between', m === 'between');
+    time.classList.remove('is-urgent');
+    $('session-btn-reset').disabled = m === 'between';
+    $('session-btn-set').disabled = m === 'between';
 
     if (m === 'idle') {
-      label.textContent = ex.workSec > 0 ? 'CRONÓMETRO DE TRABAJO' : 'LISTO';
-      ringArc.style.strokeDashoffset = '314';
-      ringTime.textContent = ex.workSec > 0 ? '0:' + fmt2(ex.workSec) : '—';
-      ringLbl.textContent = ex.workSec > 0 ? 'objetivo' : '';
-      btnIcon.innerHTML = SVG.play;
-      btnLabel.textContent = ex.workSec > 0 ? 'Iniciar' : 'Marcar serie';
-      btnMain.className = 'session-ctrl-btn session-ctrl-primary';
-
+      $('session-timer-label').textContent = 'Preparado';
+      setRing(0);
+      if (ex.workSec > 0) { showBig(ex.workSec, 'minutos'); setMainBtn(SVG.play, 'Iniciar'); }
+      else {
+        time.textContent = ex.reps > 0 ? String(ex.reps) : '—';
+        $('session-ring-lbl').textContent = ex.reps > 0 ? 'repeticiones' : 'serie libre';
+        setMainBtn(SVG.check, 'Serie hecha');
+      }
     } else if (m === 'work') {
-      label.textContent = 'TRABAJANDO';
+      $('session-timer-label').textContent = 'Trabajo';
       timerSec = 0; targetSec = ex.workSec;
-      btnIcon.innerHTML = SVG.pause;
-      btnLabel.textContent = 'Pausar';
+      showBig(targetSec);
+      setMainBtn(SVG.pause, 'Pausar');
       intervalId = setInterval(tickWork, 1000);
-
     } else if (m === 'rest') {
-      label.textContent = 'DESCANSO';
-      block.classList.add('rest-mode');
-      ringTime.className = 'session-ring-time green';
+      $('session-timer-label').textContent = 'Descanso';
       timerSec = ex.restSec; targetSec = ex.restSec;
-      ringTime.textContent = Math.floor(timerSec / 60) + ':' + fmt2(timerSec % 60);
-      ringLbl.textContent = 'descanso';
-      btnIcon.innerHTML = SVG.skip;
-      btnLabel.textContent = 'Saltarme';
-      btnMain.className = 'session-ctrl-btn';
-      updateRing(timerSec, targetSec);
+      showBig(timerSec, 'de descanso');
+      setRing(1);
+      setMainBtn(SVG.skip, 'Saltar', false);
+      $('session-btn-main').setAttribute('aria-label', 'Saltar descanso');
       intervalId = setInterval(tickRest, 1000);
-      showRpe();
+    } else if (m === 'between') {
+      const last = exIdx + 1 >= EXERCISES().length;
+      $('session-timer-label').textContent = 'Ejercicio completado';
+      setRing(1);
+      time.textContent = String(ex.sets);
+      $('session-ring-lbl').textContent = ex.sets === 1 ? 'serie hecha' : 'series hechas';
+      setMainBtn(last ? SVG.flag : SVG.skip, last ? 'Terminar' : 'Siguiente');
     }
+    renderDots();
+    renderMetrics();
+    renderHistory();
   }
 
   function tickWork() {
     timerSec++;
-    const pct = timerSec / targetSec;
-    $('session-ring-arc').style.strokeDashoffset = Math.max(0, 314 - 314 * pct);
-    const remaining = targetSec - timerSec;
-    $('session-ring-time').textContent = '0:' + fmt2(remaining);
+    setRing(timerSec / targetSec);
+    const remaining = Math.max(0, targetSec - timerSec);
+    showBig(remaining);
+    const time = $('session-ring-time');
     if (remaining <= 3 && remaining > 0) {
-      $('session-ring-time').className = 'session-ring-time red';
+      time.classList.add('is-urgent');
       soundUrgent();
     } else if (remaining > 3) {
       soundTick();
@@ -18208,24 +18553,19 @@ function makePcCard(d, isTop) {
 
   function tickRest() {
     timerSec--;
-    updateRing(timerSec, targetSec);
-    $('session-ring-time').textContent = Math.floor(timerSec / 60) + ':' + fmt2(timerSec % 60);
+    setRing(timerSec / targetSec);
+    showBig(Math.max(0, timerSec), 'de descanso');
+    const time = $('session-ring-time');
     if (timerSec <= 3 && timerSec > 0) {
-      $('session-ring-time').className = 'session-ring-time red';
+      time.classList.add('is-urgent');
       soundUrgent();
-    } else if (timerSec <= 10) {
-      $('session-ring-time').className = 'session-ring-time red';
     }
     if (timerSec <= 0) {
       clearInterval(intervalId);
       soundRestEnd();
-      $('session-ring-time').textContent = '¡Ya!';
       setMode('idle');
+      announce(`Fin del descanso. Serie ${setsDone + 1}.`);
     }
-  }
-
-  function updateRing(cur, total) {
-    $('session-ring-arc').style.strokeDashoffset = Math.max(0, 314 - 314 * (cur / total));
   }
 
   function toggleTimer() {
@@ -18235,53 +18575,91 @@ function makePcCard(d, isTop) {
     } else if (mode === 'work') {
       clearInterval(intervalId);
       mode = 'paused';
-      $('session-btn-label').textContent = 'Reanudar';
-      $('session-btn-icon').innerHTML = SVG.play;
+      $('session-timer-label').textContent = 'En pausa';
+      setMainBtn(SVG.play, 'Reanudar');
+      announce('Cronómetro en pausa');
     } else if (mode === 'paused') {
       mode = 'work';
-      $('session-btn-label').textContent = 'Pausar';
-      $('session-btn-icon').innerHTML = SVG.pause;
+      $('session-timer-label').textContent = 'Trabajo';
+      setMainBtn(SVG.pause, 'Pausar');
       intervalId = setInterval(tickWork, 1000);
     } else if (mode === 'rest') {
       setMode('idle');
+    } else if (mode === 'between') {
+      nextExercise();
     }
   }
 
   function completeSet() {
+    const ex = EXERCISES()[exIdx];
+    if (mode === 'between' || setsDone >= ex.sets) return;
+    // Tiempo real sostenido si se marca la serie con el cronómetro en marcha
+    const held = (mode === 'work' || mode === 'paused') && timerSec > 0 ? timerSec : ex.workSec;
+    clearInterval(intervalId);
     soundDone();
+    curSets().push({ n: setsDone + 1, workSec: ex.workSec > 0 ? held : 0, reps: ex.workSec > 0 ? 0 : ex.reps, weight: ex.weight || 0, rpe: 0, time: nowHM() });
     setsDone++;
-    renderDots();
-    if (setsDone >= EXERCISES()[exIdx].sets) {
-      setTimeout(nextExercise, 350);
-    } else {
+    rpeOpen = true;
+    if (setsDone >= ex.sets) {
+      setMode('between');
+      announce(`Ejercicio completado: ${ex.name}`);
+    } else if (ex.restSec > 0) {
       setMode('rest');
+      announce(`Serie ${setsDone} hecha. Descanso de ${dur(ex.restSec)}.`);
+    } else {
+      setMode('idle');
+      announce(`Serie ${setsDone} hecha.`);
     }
   }
 
   function nextExercise() {
     clearInterval(intervalId);
-    exIdx++;
-    setsDone = 0;
-    selectedRpe = 0;
-    if (exIdx >= EXERCISES().length) {
-      showCompletion();
+    if (exIdx + 1 >= EXERCISES().length) {
+      requestFinish();
       return;
     }
+    exIdx++;
+    setsDone = 0;
     renderExercise();
   }
 
+  function changeLoad(delta) {
+    const ex = EXERCISES()[exIdx];
+    ex.weight = Math.max(0, Math.min(200, (ex.weight || 0) + delta));
+    renderSpecs();
+    renderMetrics();
+  }
+
+  function setRpe(v) {
+    const sets = curSets();
+    const last = sets[sets.length - 1];
+    if (!last) return;
+    last.rpe = v;
+    renderMetrics();
+    renderHistory();
+    announce(`RPE ${v} en la serie ${last.n}`);
+  }
+
+  // ── Resumen final ───────────────────────────────────────────────────
   function showCompletion() {
+    clearInterval(intervalId);
     clearInterval(elapsedId);
-    $('session-progress-bar').style.width = '100%';
-    const totalSets = EXERCISES().reduce((a, e) => a + e.sets, 0);
-    const mins = Math.floor(elapsedSec / 60);
-    const exCount = EXERCISES().length;
     const screen = $('session-screen');
     if (!screen) return;
+
+    const doneSets = doneSetsTotal();
+    const plannedSets = plannedSetsTotal();
+    const exCount = EXERCISES().length;
+    const exDone = record.exercises.filter((e, i) => e.sets.length >= (EXERCISES()[i]?.sets || 0)).length;
+    const setRpes = record.exercises.flatMap(e => e.sets.map(s => s.rpe)).filter(Boolean);
+    const mins = Math.max(1, Math.round(elapsedSec / 60));
+    record.durationSec = elapsedSec;
+    if (doneSets > 0) window.kruxTrainLog.push(record);
 
     let logFeel = null, logRpe = null;
     const logTags = new Set();
     const PRESET_TAGS = ['Poleas tensas', 'Buena adherencia', 'Sin dolor', 'Hombro cargado', 'Mucho calor', 'Bien descansado', 'Sin energía'];
+    const FEELS = [['beast', 'Muy fuerte'], ['great', 'Bien'], ['ok', 'Normal'], ['bad', 'Cansado']];
 
     function updateSaveBtn() {
       const btn = document.getElementById('plog-save-btn');
@@ -18289,188 +18667,122 @@ function makePcCard(d, isTop) {
     }
 
     function buildFeel() {
-      document.querySelectorAll('.plog-feel-btn').forEach(btn => {
-        const f = btn.dataset.feel;
-        const clsMap = { beast: 'sel-beast', great: 'sel-great', ok: 'sel-ok', bad: 'sel-bad' };
-        btn.className = 'plog-feel-btn' + (f === logFeel ? ' ' + clsMap[f] : '');
-        btn.onclick = () => { logFeel = f; buildFeel(); updateSaveBtn(); };
-      });
+      const row = document.getElementById('plog-feel-row');
+      row.innerHTML = FEELS.map(([k, l]) => `<button type="button" class="plog-feel-btn${k === logFeel ? ' is-selected' : ''}" data-feel="${k}" aria-pressed="${k === logFeel}">${l}</button>`).join('');
     }
 
     function buildRpe() {
       const row = document.getElementById('plog-rpe-row');
-      if (!row) return;
-      row.innerHTML = '';
-      [5, 6, 7, 8, 9, 10].forEach(v => {
-        const btn = document.createElement('button');
-        const colorCls = v >= 9 ? ' hi' : v >= 8 ? ' warn' : '';
-        btn.className = 'plog-rpe-num' + colorCls + (v === logRpe ? ' sel' : '');
-        btn.textContent = v;
-        btn.onclick = () => {
-          logRpe = v;
-          const avg = document.getElementById('plog-rpe-avg');
-          if (avg) avg.textContent = v;
-          buildRpe();
-          updateSaveBtn();
-        };
-        row.appendChild(btn);
-      });
+      row.innerHTML = [5, 6, 7, 8, 9, 10].map(v => {
+        const tone = v >= 9 ? ' is-hi' : v >= 8 ? ' is-warn' : '';
+        return `<button type="button" class="session-rpe-dot${tone}${v === logRpe ? ' is-selected' : ''}" data-rpe="${v}" aria-pressed="${v === logRpe}">${v}</button>`;
+      }).join('');
     }
 
     function buildTags() {
       const row = document.getElementById('plog-tags-row');
-      if (!row) return;
-      row.innerHTML = '';
-      PRESET_TAGS.forEach(t => {
-        const btn = document.createElement('button');
-        btn.className = 'plog-tag' + (logTags.has(t) ? ' sel' : '');
-        btn.textContent = t;
-        btn.onclick = () => { logTags.has(t) ? logTags.delete(t) : logTags.add(t); buildTags(); };
-        row.appendChild(btn);
-      });
-    }
-
-    function buildHeatmap() {
-      const container = document.getElementById('plog-heatmap');
-      if (!container) return;
-      container.innerHTML = '';
-      const today = new Date();
-      const dow = (today.getDay() + 6) % 7; // 0=Mon
-      const startDate = new Date(today);
-      startDate.setDate(today.getDate() - dow - 49); // 8 weeks ago (Monday)
-      const dummy = [0,0,1,0,2,0,0, 0,2,0,1,0,2,0, 1,0,2,0,0,1,0, 0,3,0,1,0,2,0, 1,0,2,0,1,0,0, 0,2,0,3,0,1,0, 2,0,1,0,2,0,1, 0,0,0,0,0,0,0];
-      for (let i = 0; i < 56; i++) {
-        const d = new Date(startDate);
-        d.setDate(startDate.getDate() + i);
-        const isToday = d.toDateString() === today.toDateString();
-        const cell = document.createElement('div');
-        const lvl = isToday ? 3 : (dummy[i] || 0);
-        cell.className = 'plog-hm-cell' + (lvl > 0 ? ' hm-l' + lvl : '') + (isToday ? ' hm-today' : '');
-        container.appendChild(cell);
-      }
+      row.innerHTML = PRESET_TAGS.map(t => `<button type="button" class="plog-tag${logTags.has(t) ? ' is-selected' : ''}" aria-pressed="${logTags.has(t)}">${t}</button>`).join('');
     }
 
     function showSaved() {
       const notes = (document.getElementById('plog-notes') || {}).value || '';
-      const feelLabel = { beast: 'Bestia', great: 'Bien', ok: 'Normal', bad: 'Cansado' }[logFeel] || '';
+      const feelLabel = (FEELS.find(f => f[0] === logFeel) || [])[1] || '';
+      Object.assign(record, { feel: logFeel, rpe: logRpe, notes, tags: [...logTags] });
       screen.innerHTML = `
-        <div class="session-topbar">
-          <div class="session-topbar-left">
-            <span class="plog-title">Sesión guardada</span>
-          </div>
-        </div>
-        <div class="plog-scroll plog-done-center">
-          <div class="plog-done-icon">🏆</div>
-          <div class="plog-done-title">¡Bien hecho!</div>
-          <div class="plog-done-sub">${mins} min · ${feelLabel} · RPE ${logRpe}</div>
-          ${notes ? `<div class="plog-done-notes">"${notes}"</div>` : ''}
-          <div class="plog-progress-banner">
-            <div class="plog-progress-label">SUGERENCIA PARA PRÓXIMA SESIÓN</div>
-            <div class="plog-progress-text">Max hang +22kg · Campus 1-5-9 mantén carga</div>
-          </div>
-          <button class="plog-save-btn" id="plog-close-done">Cerrar</button>
+        <div class="plog-done">
+          <span class="plog-done-mark">${SVG.check}</span>
+          <h2 class="plog-done-title" id="plog-done-title" tabindex="-1">Sesión completada</h2>
+          <p class="plog-done-sub">${mins} min · ${doneSets} ${doneSets === 1 ? 'serie' : 'series'} · ${feelLabel} · RPE ${logRpe}</p>
+          ${notes ? `<p class="plog-done-notes">${esc(notes)}</p>` : ''}
+          <p class="plog-done-hint">Queda reflejada en Entrena mientras la app siga abierta. Todavía no se guarda en tu cuenta.</p>
+          <button type="button" class="plog-save-btn" id="plog-close-done">Volver a Entrena</button>
         </div>`;
       document.getElementById('plog-close-done').addEventListener('click', close);
+      document.getElementById('plog-done-title').focus({ preventScroll: true });
     }
 
     screen.innerHTML = `
       <div class="session-topbar">
-        <div class="session-topbar-left">
-          <span class="plog-title">Log post-sesión</span>
-        </div>
-        <button class="plog-skip" id="plog-skip">Omitir</button>
+        <h2 class="plog-title">Resumen de la sesión</h2>
+        <button type="button" class="plog-skip" id="plog-skip">Omitir</button>
       </div>
       <div class="plog-scroll">
-        <div class="plog-sec">
-          <div class="plog-sec-label">RESUMEN</div>
-          <div class="plog-stats-grid">
-            <div class="plog-stat"><div class="plog-stat-val">${mins} min</div><div class="plog-stat-lbl">Duración</div></div>
-            <div class="plog-stat"><div class="plog-stat-val">${totalSets}</div><div class="plog-stat-lbl">Series completadas</div></div>
-            <div class="plog-stat"><div class="plog-stat-val">${exCount} / ${exCount}</div><div class="plog-stat-lbl">Ejercicios</div></div>
-            <div class="plog-stat"><div class="plog-stat-val" id="plog-rpe-avg">—</div><div class="plog-stat-lbl">RPE medio</div></div>
-          </div>
+        <div class="plog-stats-grid">
+          <div class="plog-stat"><div class="plog-stat-val">${mins} min</div><div class="plog-stat-lbl">Duración</div></div>
+          <div class="plog-stat"><div class="plog-stat-val">${doneSets}<small> / ${plannedSets}</small></div><div class="plog-stat-lbl">Series</div></div>
+          <div class="plog-stat"><div class="plog-stat-val">${exDone}<small> / ${exCount}</small></div><div class="plog-stat-lbl">Ejercicios completos</div></div>
+          <div class="plog-stat"><div class="plog-stat-val">${setRpes.length ? Math.round(setRpes.reduce((a, b) => a + b, 0) / setRpes.length * 10) / 10 : '—'}</div><div class="plog-stat-lbl">RPE medio por serie</div></div>
         </div>
         <div class="plog-sec">
-          <div class="plog-sec-label">¿CÓMO TE SIENTES?</div>
-          <div class="plog-feel-row" id="plog-feel-row">
-            <button class="plog-feel-btn" data-feel="beast"><span class="plog-feel-icon">🔥</span><span class="plog-feel-lbl">Bestia</span></button>
-            <button class="plog-feel-btn" data-feel="great"><span class="plog-feel-icon">😊</span><span class="plog-feel-lbl">Bien</span></button>
-            <button class="plog-feel-btn" data-feel="ok"><span class="plog-feel-icon">😐</span><span class="plog-feel-lbl">Normal</span></button>
-            <button class="plog-feel-btn" data-feel="bad"><span class="plog-feel-icon">😔</span><span class="plog-feel-lbl">Cansado</span></button>
-          </div>
+          <h3 class="plog-sec-label" id="plog-feel-lbl">¿Cómo te sientes?</h3>
+          <div class="plog-feel-row" id="plog-feel-row" role="group" aria-labelledby="plog-feel-lbl"></div>
         </div>
         <div class="plog-sec">
-          <div class="plog-sec-label">RPE GLOBAL DE LA SESIÓN</div>
-          <div class="plog-rpe-row" id="plog-rpe-row"></div>
+          <h3 class="plog-sec-label" id="plog-rpe-lbl">RPE global de la sesión</h3>
+          <div class="session-rpe-dots plog-rpe-row" id="plog-rpe-row" role="group" aria-labelledby="plog-rpe-lbl"></div>
         </div>
         <div class="plog-sec">
-          <div class="plog-sec-label">NOTAS</div>
-          <textarea class="plog-notes" id="plog-notes" rows="3" placeholder="Sensaciones, lesiones, contexto... (opcional)"></textarea>
+          <h3 class="plog-sec-label"><label for="plog-notes">Notas</label></h3>
+          <textarea class="plog-notes" id="plog-notes" rows="3" placeholder="Sensaciones, molestias, contexto… (opcional)"></textarea>
           <div class="plog-tags-row" id="plog-tags-row"></div>
-        </div>
-        <div class="plog-sec plog-sec-last">
-          <div class="plog-sec-label">ACTIVIDAD — ÚLTIMAS 8 SEMANAS</div>
-          <div class="plog-day-headers"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
-          <div class="plog-heatmap" id="plog-heatmap"></div>
-          <div class="plog-hm-legend">
-            <span class="plog-hm-lbl">Menos</span>
-            <div class="plog-hm-cell"></div><div class="plog-hm-cell hm-l1"></div><div class="plog-hm-cell hm-l2"></div><div class="plog-hm-cell hm-l3"></div><div class="plog-hm-cell hm-l4"></div>
-            <span class="plog-hm-lbl">Más</span>
-          </div>
         </div>
       </div>
       <div class="plog-footer">
-        <button class="plog-save-btn" id="plog-save-btn" disabled>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          Guardar sesión
-        </button>
+        <button type="button" class="plog-save-btn" id="plog-save-btn" disabled>Guardar sesión</button>
+        <p class="plog-footer-hint">Elige cómo te sientes y el RPE global para guardar.</p>
       </div>`;
 
     buildFeel();
     buildRpe();
     buildTags();
-    buildHeatmap();
+    document.getElementById('plog-feel-row').addEventListener('click', e => {
+      const b = e.target.closest('[data-feel]'); if (!b) return;
+      logFeel = b.dataset.feel; buildFeel(); updateSaveBtn();
+    });
+    document.getElementById('plog-rpe-row').addEventListener('click', e => {
+      const b = e.target.closest('[data-rpe]'); if (!b) return;
+      logRpe = parseInt(b.dataset.rpe, 10); buildRpe(); updateSaveBtn();
+    });
+    document.getElementById('plog-tags-row').addEventListener('click', e => {
+      const b = e.target.closest('.plog-tag'); if (!b) return;
+      const t = b.textContent; logTags.has(t) ? logTags.delete(t) : logTags.add(t); buildTags();
+    });
     document.getElementById('plog-skip').addEventListener('click', close);
     document.getElementById('plog-save-btn').addEventListener('click', () => { if (logFeel && logRpe) showSaved(); });
   }
 
-  function showRpe() {
-    const ex = EXERCISES()[exIdx];
-    if (!ex.rpeTarget) return;
-    const sec = $('session-rpe-section');
-    sec.style.display = 'block';
-    const dots = $('session-rpe-dots');
-    const values = [6, 7, 8, 9, 10];
-    dots.innerHTML = values.map(v => {
-      const colorCls = v <= 7 ? '' : v <= 8 ? ' warn' : ' hi';
-      const selCls = v === selectedRpe ? ' selected' : '';
-      return `<button class="session-rpe-dot${colorCls}${selCls}" data-v="${v}">${v}</button>`;
-    }).join('');
-    dots.querySelectorAll('.session-rpe-dot').forEach(btn => {
-      btn.addEventListener('click', () => {
-        selectedRpe = parseInt(btn.dataset.v);
-        dots.querySelectorAll('.session-rpe-dot').forEach((b, i) => {
-          const val = values[i];
-          const cc = val <= 7 ? '' : val <= 8 ? ' warn' : ' hi';
-          const sc = val === selectedRpe ? ' selected' : '';
-          b.className = `session-rpe-dot${cc}${sc}`;
-        });
-      });
-    });
-  }
-
-  // Wire up static buttons
+  // Eventos delegados: siguen funcionando aunque se restaure el marcado de la pantalla
   document.addEventListener('DOMContentLoaded', () => {
-    const closeBtn = $('session-close-btn');
-    if (closeBtn) closeBtn.addEventListener('click', close);
-    const btnMain = $('session-btn-main');
-    if (btnMain) btnMain.addEventListener('click', toggleTimer);
-    const btnReset = $('session-btn-reset');
-    if (btnReset) btnReset.addEventListener('click', () => setMode('idle'));
-    const btnSet = $('session-btn-set');
-    if (btnSet) btnSet.addEventListener('click', completeSet);
-    const skipBtn = $('session-skip-btn');
-    if (skipBtn) skipBtn.addEventListener('click', nextExercise);
+    const modal = $('session-modal');
+    const screen = $('session-screen');
+    if (!modal || !screen) return;
+    TEMPLATE = screen.innerHTML;
+
+    modal.addEventListener('click', e => {
+      const rpe = e.target.closest('#session-rpe-dots [data-rpe]');
+      if (rpe) { setRpe(parseInt(rpe.dataset.rpe, 10)); return; }
+      const btn = e.target.closest('button[id]');
+      if (!btn || btn.disabled) return;
+      switch (btn.id) {
+        case 'session-close-btn': requestClose(); break;
+        case 'session-finish-btn': requestFinish(); break;
+        case 'session-btn-main': toggleTimer(); break;
+        case 'session-btn-reset': setMode('idle'); announce('Cronómetro reiniciado'); break;
+        case 'session-btn-set': completeSet(); break;
+        case 'session-skip-btn': nextExercise(); break;
+        case 'session-load-minus': changeLoad(-1); break;
+        case 'session-load-plus': changeLoad(1); break;
+        case 'session-rpe-btn':
+          if (!curSets().length) { announce('Completa una serie para anotar su RPE'); if (typeof showToast === 'function') showToast('Completa una serie para anotar su RPE', 'info'); break; }
+          rpeOpen = !rpeOpen; renderMetrics(); break;
+      }
+    });
+
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape' || modal.classList.contains('hidden')) return;
+      if (!$('confirm-modal')?.classList.contains('hidden')) return;
+      requestClose();
+    });
   });
 
   window.openActiveSession = open;

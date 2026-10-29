@@ -4,7 +4,7 @@
  * PWA completa con soporte offline
  */
 
-const CACHE_VERSION = 'v67';
+const CACHE_VERSION = 'v68';
 const CACHE_NAME = `krux-cache-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `krux-data-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
@@ -28,6 +28,8 @@ const STATIC_ASSETS = [
   './assets/logo.png',
   './assets/krux-logo-login.png',
   './assets/reset-view-icon.png',
+  './assets/train/entrena-roca.jpg',
+  './assets/train/sesion-roca.jpg',
   './icons/climbing-marker.png',
   './icons/parking_icon.png',
   './icons/pwa/icon-192x192.png',
