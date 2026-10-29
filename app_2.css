@@ -27137,7 +27137,8 @@ body.kx-sheet-open #feed-view .feed-container {
 #ex-editor-sheet,
 #plan-editor-modal,
 #ex-library-modal,
-#plan-wizard-modal {
+#plan-wizard-modal,
+#ex-guide-sheet {
   --tr-bg: var(--kx-chalk, #F7F6F0);
   --tr-surface: #FFFFFF;
   --tr-fill: #F0F1EC;
@@ -27555,7 +27556,7 @@ body.kx-sheet-open #feed-view .feed-container {
 }
 
 /* Separador fino entre filas (se oculta junto a la fila destacada) */
-.train-ex-row + .train-ex-row::before {
+.train-ex-item + .train-ex-item > .train-ex-row::before {
   content: '';
   position: absolute;
   top: 0;
@@ -27565,7 +27566,7 @@ body.kx-sheet-open #feed-view .feed-container {
   background: var(--tr-line);
 }
 .train-ex-row.is-next::before,
-.train-ex-row.is-next + .train-ex-row::before { display: none; }
+.train-ex-item.is-next + .train-ex-item > .train-ex-row::before { display: none; }
 
 .train-ex-row:active { background: var(--tr-fill); }
 .train-ex-row.is-next { background: var(--tr-green-wash); }
@@ -28499,7 +28500,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 }
 
 /* Entrena no hereda el estilo global de <button> (fondo, sombra, salto al pasar el ratón) */
-:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal) button {
+:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal, #ex-guide-sheet) button {
   min-height: 0;
   border: 0;
   box-shadow: none;
@@ -28507,8 +28508,8 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
   will-change: auto;
   transform: none;
 }
-:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal) button:hover { transform: none; box-shadow: none; }
-:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal) button:disabled:hover { transform: none; }
+:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal, #ex-guide-sheet) button:hover { transform: none; box-shadow: none; }
+:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal, #ex-guide-sheet) button:disabled:hover { transform: none; }
 
 /* :hover global pinta de blanco: cada control conserva su propio fondo (también en iOS tras tocar) */
 .train-day:not(.is-selected):hover,
@@ -28870,3 +28871,96 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 .plog-retry { margin-bottom: 10px; background: var(--tr-green-wash); color: var(--tr-green-ink); box-shadow: none; }
 .plog-retry[hidden] { display: none; }
 .plog-retry:hover { background: var(--tr-green-wash); }
+
+/* ====================================================================
+   GUÍA RÁPIDA «Cómo hacerlo» — hoja superpuesta al entrenamiento
+   ==================================================================== */
+.xg-btn {
+  --xb: var(--tr-green-wash);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--xb);
+  color: var(--tr-green-ink);
+  font-size: 0.875rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background-color 0.15s;
+}
+.xg-btn:active { background: var(--tr-green-soft); }
+.xg-btn:hover { background: var(--tr-green-wash); }
+
+/* En Entrena: debajo del texto de cada ejercicio, alineado con él */
+.train-ex-item { position: relative; }
+.train-ex-item.has-guide > .train-ex-row { padding-bottom: 62px; }
+.train-ex-item > .xg-btn { position: absolute; left: 72px; bottom: 8px; }
+.train-ex-item.is-next > .xg-btn { background: var(--tr-surface); }
+.train-ex-item.is-next > .xg-btn:hover { background: var(--tr-surface); }
+
+/* En el editor de planes: línea propia bajo la fila */
+.pe-ex-row { flex-wrap: wrap; }
+.pe-ex-guide { flex: 0 0 100%; padding: 0 0 6px 52px; }
+
+/* Sobre la foto de la sesión activa */
+.xg-btn--photo {
+  --xb: rgba(255, 255, 255, 0.16);
+  margin-top: 10px;
+  background: var(--xb);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.xg-btn--photo:hover, .xg-btn--photo:active { background: rgba(255, 255, 255, 0.24); }
+.xg-btn--photo[hidden] { display: none; }
+
+.xg-sheet { position: fixed; inset: 0; z-index: 100050; }
+.xg-sheet.hidden { display: none; }
+.xg-backdrop { position: absolute; inset: 0; background: rgba(20, 30, 26, 0.45); opacity: 0; transition: opacity 0.22s; touch-action: none; }
+.xg-sheet.is-open .xg-backdrop { opacity: 1; }
+.xg-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(var(--xg-vh, 100vh) - 12px);
+  height: min(86vh, calc(var(--xg-vh, 100vh) - 12px));
+  padding: 8px 0 0;
+  border-radius: 26px 26px 0 0;
+  background: var(--tr-bg);
+  box-shadow: 0 -12px 40px rgba(20, 30, 26, 0.22);
+  transform: translateY(100%);
+  transition: transform 0.28s var(--tr-ease);
+}
+.xg-sheet.is-open .xg-panel { transform: none; }
+.xg-handle { width: 36px; height: 5px; margin: 0 auto 4px; border-radius: 3px; background: rgba(32, 43, 39, 0.18); flex-shrink: 0; }
+.xg-head { display: flex; align-items: center; gap: 8px; padding: 4px 8px 10px 20px; flex-shrink: 0; border-bottom: 1px solid var(--tr-line); }
+.xg-head-text { flex: 1; min-width: 0; }
+.xg-kicker { margin: 0; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tr-ink-3); }
+.xg-title { margin: 2px 0 0; font-size: 1.1875rem; font-weight: 800; letter-spacing: -0.01em; color: var(--tr-ink); overflow-wrap: anywhere; }
+.xg-title:focus { outline: none; }
+.xg-close { --xb: transparent; flex-shrink: 0; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border-radius: 14px; background: transparent; color: var(--tr-ink-2); }
+.xg-close:hover { background: var(--tr-fill); }
+.xg-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 14px 16px 18px; }
+.xg-content { display: flex; flex-direction: column; gap: 12px; }
+.xg-foot { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--tr-line); background: var(--tr-bg); }
+.xg-full { --xb: transparent; min-height: 44px; padding: 0 14px; background: transparent; color: var(--tr-green-ink); font-size: 0.875rem; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.xg-full:hover { background: transparent; }
+.xg-full[hidden] { display: none; }
+.xg-media { display: flex; flex-direction: column; gap: 10px; }
+.xg-media-item { margin: 0; border-radius: 18px; overflow: hidden; background: var(--tr-fill); }
+.xg-media-el { display: block; width: 100%; max-height: 42vh; object-fit: contain; background: #0d1512; }
+.xg-media-item figcaption { padding: 8px 12px; font-size: 0.75rem; color: var(--tr-ink-3); }
+body.xg-open { overflow: hidden; }
+@media (min-width: 640px) {
+  .xg-panel { left: 50%; right: auto; width: 560px; margin-left: -280px; height: min(80vh, calc(var(--xg-vh, 100vh) - 24px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xg-panel, .xg-backdrop { transition: none; }
+}

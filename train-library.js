@@ -460,6 +460,80 @@
   }
   const list = (items, ordered) => items && items.length ? `<${ordered ? 'ol' : 'ul'} class="xl-bullets">${items.map(i => `<li>${esc(i)}</li>`).join('')}</${ordered ? 'ol' : 'ul'}>` : '';
 
+  // ── Contenido compartido por la ficha completa y la guía rápida ──────────
+  // Una sola implementación: lo que se ve en la guía sale de las mismas funciones que la ficha.
+  const stopList = ex => Array.from(new Set((ex.instructions.stopCriteria || []).concat(ex.safety.stopCriteria || [])));
+
+  const secSetup = ex => section('Preparación', ex.instructions.setup ? `<p class="xl-text">${esc(ex.instructions.setup)}</p>` : '');
+  const secSteps = ex => {
+    const ins = ex.instructions;
+    return section('Cómo se hace', ins.executionSteps && ins.executionSteps.length ? `<ol class="xl-steps">${ins.executionSteps.map(s => `<li><b>${esc(s.title)}</b><span>${esc(s.description)}</span></li>`).join('')}</ol>${ins.breathing ? `<p class="xl-text xl-text--muted">Respiración: ${esc(ins.breathing)}</p>` : ''}` : '');
+  };
+  const secCues = ex => section('Claves técnicas', list(ex.instructions.keyCues));
+  const secMistakes = ex => section('Errores frecuentes', ex.instructions.commonMistakes && ex.instructions.commonMistakes.length ? `<ul class="xl-mistakes">${ex.instructions.commonMistakes.map(m => `<li><b>${esc(m.name)}</b><span>${esc(m.correction)}</span></li>`).join('')}</ul>` : '');
+  const secValid = ex => section('Ejecución válida', list(ex.instructions.completionCriteria));
+  const secSafety = ex => {
+    const stops = stopList(ex);
+    return stops.length || ex.safety.warnings.length || ex.safety.prerequisites.length || ex.safety.supervisionRequired ? `
+          <section class="xl-sec xl-alert" role="note">
+            <h3 class="xl-alert-title">${I.warn}<span>Seguridad</span></h3>
+            ${ex.safety.supervisionRequired ? '<p class="xl-text"><b>Conviene hacerlo con supervisión de un entrenador.</b></p>' : ''}
+            ${list(ex.safety.warnings)}
+            ${ex.safety.prerequisites.length ? `<p class="xl-text xl-text--muted">Requisitos: ${esc(ex.safety.prerequisites.join(' '))}</p>` : ''}
+            ${stops.length ? `<p class="xl-text"><b>Detén el ejercicio si:</b></p>${list(stops)}` : ''}
+          </section>` : '';
+  };
+  const reviewNote = ex => ex.review.status === 'reviewed'
+    ? `<p class="xl-review is-ok">Contenido revisado por ${esc(ex.review.reviewedBy)}.</p>`
+    : '<p class="xl-review">Contenido orientativo, pendiente de revisión por un entrenador. No sustituye el consejo de un profesional.</p>';
+
+  // Imagen o vídeo SOLO si está verificado; si no hay o falla la carga, ficha textual (icono en la completa)
+  const fallbackHero = ex => `<div class="xl-hero" aria-hidden="true"><span class="xl-hero-icon">${categoryIcon(ex.primaryCategoryId, 44)}</span></div>`;
+  function mediaBlock(ex, compact) {
+    const items = K.verifiedMedia(ex);
+    if (!items.length) return compact ? '' : fallbackHero(ex);
+    const fig = m => {
+      const attrs = m.storagePath ? `data-storage="${esc(m.storagePath)}"` : `src="${esc(m.externalUrl)}"`;
+      const tag = m.type === 'video'
+        ? `<video class="xg-media-el" ${attrs} controls muted loop playsinline preload="none"${m.posterPath ? '' : ''} aria-label="${esc(m.caption || ex.name)}"></video>`
+        : `<img class="xg-media-el" ${attrs} alt="${esc(m.caption || ex.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+      return `<figure class="xg-media-item">${tag}<figcaption>${esc(m.caption || '')}${m.caption ? ' · ' : ''}${esc(m.attribution)}</figcaption></figure>`;
+    };
+    return `<div class="xg-media" data-fallback="${compact ? 'none' : 'hero'}">${items.map(fig).join('')}</div>`;
+  }
+
+  // Resuelve rutas de Storage y retira lo que no cargue: nunca rompe la guía
+  function hydrateMedia(root) {
+    root.querySelectorAll('.xg-media').forEach(box => {
+      const ex = catalog.byId.get(box.closest('[data-guide-for]') ? box.closest('[data-guide-for]').dataset.guideFor : '');
+      const drop = el => {
+        const fig = el.closest('figure');
+        if (fig) fig.remove();
+        if (!box.querySelector('figure')) {
+          if (box.dataset.fallback === 'hero' && ex) box.outerHTML = fallbackHero(ex); else box.remove();
+        }
+      };
+      box.querySelectorAll('.xg-media-el').forEach(el => {
+        el.addEventListener('error', () => drop(el), { once: true });
+        if (el.dataset.storage) {
+          try {
+            firebase.storage().ref(el.dataset.storage).getDownloadURL().then(url => { el.src = url; }, () => drop(el));
+          } catch (_) { drop(el); }
+        }
+      });
+    });
+  }
+
+  // Guía rápida: mismo contenido, solo lo necesario para ejecutar el ejercicio
+  function guideHTML(ex) {
+    return `<div class="xg-content" data-guide-for="${esc(ex.id)}">
+      ${mediaBlock(ex, true)}
+      <p class="xl-lead">${esc(ex.shortDescription)}</p>
+      ${secSetup(ex)}${secSteps(ex)}${secCues(ex)}${secMistakes(ex)}${secSafety(ex)}
+      ${reviewNote(ex)}
+    </div>`;
+  }
+
   function detailHTML(ex) {
     const ins = ex.instructions;
     const cat = catalog.catById.get(ex.primaryCategoryId);
@@ -472,7 +546,6 @@
       ex.movementPatterns.map(id => K.TAGS.movementPatterns[id])
     );
     const rels = K.getRelations(catalog, ex);
-    const stops = Array.from(new Set((ins.stopCriteria || []).concat(ex.safety.stopCriteria || [])));
     const rxRows = (ex.prescriptionSchema || []).map(p => {
       const def = K.PARAMS[p.param];
       const value = p.default;
@@ -480,11 +553,6 @@
       const unit = def.unit ? ` ${def.unit}` : '';
       return `<div class="xl-fact"><dt>${esc(p.label || def.label)}</dt><dd>${esc(value)}${unit}</dd></div>`;
     }).join('');
-
-    const mediaItems = ex.media && ex.media.items || [];
-    const hero = mediaItems.length && mediaItems[0].storagePath
-      ? '' // Los recursos multimedia se mostrarán aquí cuando existan (storagePath/externalUrl)
-      : `<div class="xl-hero" aria-hidden="true"><span class="xl-hero-icon">${categoryIcon(ex.primaryCategoryId, 44)}</span></div>`;
 
     return `
       <header class="pe-topbar xl-topbar">
@@ -495,8 +563,8 @@
         </div>
         <button type="button" class="xl-fav-btn${favorites.has(ex.id) ? ' is-on' : ''}" id="xl-fav" aria-pressed="${favorites.has(ex.id) ? 'true' : 'false'}" aria-label="${favorites.has(ex.id) ? 'Quitar de favoritos' : 'Guardar en favoritos'}">${favorites.has(ex.id) ? I.heartFill : I.heart}</button>
       </header>
-      <div class="xl-detail-scroll">
-        ${hero}
+      <div class="xl-detail-scroll" data-guide-for="${esc(ex.id)}">
+        ${mediaBlock(ex, false)}
         <p class="xl-lead">${esc(ex.shortDescription)}</p>
         <div class="xl-tagrow">${tags.map(t => `<span class="xl-pill xl-pill--soft">${esc(t)}</span>`).join('')}</div>
 
@@ -509,19 +577,7 @@
 
         ${section('Objetivo', `<p class="xl-text">${esc(ex.purpose)}</p>`)}
         ${section('Material', `<p class="xl-text">${esc(eqReq.length ? eqReq.join(', ') + '.' : 'No necesitas material.')}${eqAlt.length ? ` Alternativa: ${esc(eqAlt.join(', '))}.` : ''}${eqOpt.length ? ` Opcional: ${esc(eqOpt.join(', '))}.` : ''}</p>${ex.equipment.setupNotes ? `<p class="xl-text xl-text--muted">${esc(ex.equipment.setupNotes)}</p>` : ''}`)}
-        ${section('Preparación', ins.setup ? `<p class="xl-text">${esc(ins.setup)}</p>` : '')}
-        ${section('Cómo se hace', ins.executionSteps && ins.executionSteps.length ? `<ol class="xl-steps">${ins.executionSteps.map(s => `<li><b>${esc(s.title)}</b><span>${esc(s.description)}</span></li>`).join('')}</ol>${ins.breathing ? `<p class="xl-text xl-text--muted">Respiración: ${esc(ins.breathing)}</p>` : ''}` : '')}
-        ${section('Claves técnicas', list(ins.keyCues))}
-        ${section('Errores frecuentes', ins.commonMistakes && ins.commonMistakes.length ? `<ul class="xl-mistakes">${ins.commonMistakes.map(m => `<li><b>${esc(m.name)}</b><span>${esc(m.correction)}</span></li>`).join('')}</ul>` : '')}
-        ${section('Ejecución válida', list(ins.completionCriteria))}
-        ${stops.length || ex.safety.warnings.length || ex.safety.prerequisites.length || ex.safety.supervisionRequired ? `
-          <section class="xl-sec xl-alert" role="note">
-            <h3 class="xl-alert-title">${I.warn}<span>Seguridad</span></h3>
-            ${ex.safety.supervisionRequired ? '<p class="xl-text"><b>Conviene hacerlo con supervisión de un entrenador.</b></p>' : ''}
-            ${list(ex.safety.warnings)}
-            ${ex.safety.prerequisites.length ? `<p class="xl-text xl-text--muted">Requisitos: ${esc(ex.safety.prerequisites.join(' '))}</p>` : ''}
-            ${stops.length ? `<p class="xl-text"><b>Detén el ejercicio si:</b></p>${list(stops)}` : ''}
-          </section>` : ''}
+        ${secSetup(ex)}${secSteps(ex)}${secCues(ex)}${secMistakes(ex)}${secValid(ex)}${secSafety(ex)}
         ${rels.map(g => section(REL_TITLES[g.type], `<div class="xl-rels">${g.items.map(i => `
           <button type="button" class="xl-rel" data-rel="${esc(i.ex.id)}">
             <span class="xl-rel-icon">${categoryIcon(i.ex.primaryCategoryId, 20)}</span>
@@ -530,9 +586,7 @@
           </button>`).join('')}</div>`)).join('')}
         ${section('Parámetros orientativos', rxRows ? `<dl class="xl-facts xl-facts--rx">${rxRows}</dl><p class="xl-text xl-text--muted">Valores de partida. Ajústalos según tu nivel, tu objetivo y cómo te sientas ese día.</p>` : '')}
         ${ins.coachingNotes ? section('Notas', `<p class="xl-text">${esc(ins.coachingNotes)}</p>`) : ''}
-        ${ex.review.status === 'reviewed'
-          ? `<p class="xl-review is-ok">Contenido revisado por ${esc(ex.review.reviewedBy)}.</p>`
-          : '<p class="xl-review">Contenido orientativo, pendiente de revisión por un entrenador. No sustituye el consejo de un profesional.</p>'}
+        ${reviewNote(ex)}
       </div>
       <div class="xl-detail-foot">
         <button type="button" class="pe-save-btn pe-save-btn--wide" id="xl-add-plan">${I.plus}<span id="xl-add-label"></span></button>
@@ -546,6 +600,7 @@
     lib.detailId = id;
     const box = $('xl-detail');
     box.innerHTML = detailHTML(ex);
+    hydrateMedia(box);
     box.classList.remove('hidden');
     requestAnimationFrame(() => box.classList.add('is-open'));
     const pick = lib.mode === 'pick';
@@ -788,6 +843,103 @@
     };
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // GUÍA RÁPIDA «CÓMO HACERLO»
+  // ═══════════════════════════════════════════════════════════════════
+  // Hoja superpuesta (no desmonta nada de lo que hay debajo): el cronómetro, la serie, las cargas
+  // y los campos del entrenamiento siguen intactos mientras se consulta. Solo se lee la ficha.
+  const GUIDE_ICON = svg('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h5"/>', 18, 2);
+  let guide = null;   // { trigger, id }
+
+  function guideButton(exerciseId, extraClass) {
+    return `<button type="button" class="xg-btn${extraClass ? ' ' + extraClass : ''}" data-guide="${esc(exerciseId)}">${GUIDE_ICON}<span>Cómo hacerlo</span></button>`;
+  }
+
+  // Ficha asociada a un ejercicio de plan (por id o, en planes antiguos, por nombre exacto)
+  function guideIdFor(item) {
+    if (!item) return null;
+    if (item.exerciseId && catalog.byId.has(item.exerciseId)) return item.exerciseId;
+    const ex = K.resolveByName(catalog, item.name);
+    return ex ? ex.id : null;
+  }
+
+  function fitGuide() {
+    const vv = window.visualViewport;
+    const h = vv ? vv.height : window.innerHeight;
+    document.documentElement.style.setProperty('--xg-vh', Math.round(h) + 'px');
+  }
+
+  function openGuide(exerciseId, opts) {
+    const ex = catalog.byId.get(exerciseId);
+    const sheet = $('ex-guide-sheet');
+    if (!ex || !sheet) return false;
+    if (guide) closeGuide(true);
+    guide = { id: exerciseId, trigger: (opts && opts.trigger) || document.activeElement };
+    const running = !!(window.KruxTrainSession && window.KruxTrainSession.isRunning());
+    $('xg-title').textContent = ex.name;
+    $('xg-body').innerHTML = guideHTML(ex);
+    hydrateMedia($('xg-body'));
+    $('xg-done').querySelector('span').textContent = running ? 'Volver al entrenamiento' : 'Cerrar';
+    const full = $('xg-full');
+    full.hidden = running;       // durante un entrenamiento no se sale hacia la biblioteca
+    full.dataset.exercise = exerciseId;
+    sheet.classList.remove('hidden');
+    document.body.classList.add('xg-open');
+    fitGuide();
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', fitGuide);
+    requestAnimationFrame(() => sheet.classList.add('is-open'));
+    $('xg-body').scrollTop = 0;
+    setTimeout(() => $('xg-title').focus({ preventScroll: true }), 60);
+    return true;
+  }
+
+  function closeGuide(immediate) {
+    const sheet = $('ex-guide-sheet');
+    if (!sheet || !guide) return;
+    const trigger = guide.trigger;
+    guide = null;
+    if (window.visualViewport) window.visualViewport.removeEventListener('resize', fitGuide);
+    document.body.classList.remove('xg-open');
+    sheet.classList.remove('is-open');
+    const finish = () => { if (!guide) sheet.classList.add('hidden'); };
+    if (immediate) finish(); else setTimeout(finish, 240);
+    // Vuelve al mismo control, sin desplazar nada
+    if (trigger && document.contains(trigger) && typeof trigger.focus === 'function') trigger.focus({ preventScroll: true });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const sheet = $('ex-guide-sheet');
+    if (!sheet) return;
+    sheet.addEventListener('click', e => {
+      if (e.target.closest('[data-xg-close]')) { closeGuide(); return; }
+      const full = e.target.closest('#xg-full');
+      if (full) { const id = full.dataset.exercise; closeGuide(true); window.KruxLibrary.openSheet(id); }
+    });
+    // Foco dentro de la hoja mientras está abierta
+    sheet.addEventListener('keydown', e => {
+      if (e.key !== 'Tab' || !guide) return;
+      const f = Array.from(sheet.querySelectorAll('button:not([hidden]), [tabindex="-1"]:not(.xg-panel)')).filter(el => el.offsetParent !== null);
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+  });
+
+  // Cualquier botón con data-guide abre la guía de ese ejercicio
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-guide]');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openGuide(btn.dataset.guide, { trigger: btn });
+  }, true);
+
+  // Escape cierra solo la guía (por encima del entrenamiento y de la biblioteca)
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && guide) { e.stopImmediatePropagation(); closeGuide(); }
+  }, true);
+
   // Cierre con Escape de lo que esté arriba
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
@@ -797,7 +949,13 @@
     if (wiz && wizModal().classList.contains('pe-open')) closeWizard();
   });
 
+  window.KruxGuide = {
+    open: openGuide, close: closeGuide, button: guideButton, idFor: guideIdFor, isOpen: () => !!guide,
+    // Solo para pruebas: simula la altura visible con el teclado abierto
+    _fit: h => document.documentElement.style.setProperty('--xg-vh', h + 'px')
+  };
   window.KruxLibrary = {
+    html: { guide: guideHTML, detail: detailHTML },
     open: openLibrary,
     close: closeLibrary,
     // Abre la ficha de un ejercicio concreto (p. ej. desde el editor de un ejercicio del plan)

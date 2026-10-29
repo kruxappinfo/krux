@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=90" />
+  <link rel="stylesheet" href="./app_2.css?v=91" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -98,9 +98,9 @@
   <script defer src="./maplibre-map.js?v=16"></script>
 
   <script defer src="./train-catalog-data.js?v=2"></script>
-  <script defer src="./train-exercises.js?v=2"></script>
-  <script defer src="./app_3.js?v=85"></script>
-  <script defer src="./train-library.js?v=2"></script>
+  <script defer src="./train-exercises.js?v=3"></script>
+  <script defer src="./app_3.js?v=86"></script>
+  <script defer src="./train-library.js?v=3"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -3887,6 +3887,9 @@
             <span class="session-ex-detail" id="session-ex-detail"></span>
             <span class="session-ex-rpe hidden" id="session-ex-rpe"></span>
           </div>
+          <button type="button" class="xg-btn xg-btn--photo" id="session-guide-btn" data-guide="" hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h5"/></svg><span>Cómo hacerlo</span>
+          </button>
           <div class="session-steps-wrap">
             <ol class="session-steps" id="session-steps"></ol>
             <span class="session-ex-counter" id="session-ex-counter"></span>
@@ -3989,6 +3992,28 @@
 
   <!-- PLAN EDITOR MODAL -->
   <div id="plan-editor-modal" class="plan-editor-modal hidden" role="dialog" aria-modal="true"></div>
+
+  <!-- Guía rápida «Cómo hacerlo» (se superpone al entrenamiento sin desmontarlo) -->
+  <div id="ex-guide-sheet" class="xg-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="xg-title">
+    <div class="xg-backdrop" data-xg-close></div>
+    <div class="xg-panel">
+      <div class="xg-handle" aria-hidden="true"></div>
+      <header class="xg-head">
+        <div class="xg-head-text">
+          <p class="xg-kicker">Cómo hacerlo</p>
+          <h2 class="xg-title" id="xg-title" tabindex="-1"></h2>
+        </div>
+        <button type="button" class="xg-close" data-xg-close aria-label="Cerrar la guía">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </header>
+      <div class="xg-body" id="xg-body"></div>
+      <footer class="xg-foot">
+        <button type="button" class="xg-full" id="xg-full" hidden>Ver ficha completa</button>
+        <button type="button" class="pe-save-btn pe-save-btn--wide" id="xg-done" data-xg-close><span>Cerrar</span></button>
+      </footer>
+    </div>
+  </div>
   <div id="ex-library-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Ejercicios"></div>
   <div id="plan-wizard-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Asistente de planes"></div>
 

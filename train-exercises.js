@@ -235,6 +235,8 @@
         if (!isStr(m.id) || ids.has(m.id)) err(`media[${i}].id inválido o repetido`);
         ids.add(m.id);
         if (!['image', 'video', 'animation'].includes(m.type)) err(`media[${i}].type inválido`);
+        if (!['pending', 'verified', 'rejected'].includes(m.reviewStatus)) err(`media[${i}].reviewStatus inválido`);
+        if (m.reviewStatus === 'verified' && !isStr(m.attribution, 200)) err(`media[${i}] verificado sin atribución`);
         if (!m.storagePath && !m.externalUrl) err(`media[${i}] sin storagePath ni externalUrl`);
       });
       if (media.primaryMediaId != null && !ids.has(media.primaryMediaId)) err('primaryMediaId no existe en items');
@@ -381,6 +383,19 @@
     });
     list.sort((a, b) => b.score - a.score || a.ex.name.localeCompare(b.ex.name, 'es'));
     return list.map(x => x.ex);
+  }
+
+  // ── Multimedia ──────────────────────────────────────────────────────
+  // Solo se muestra material verificado (reviewStatus 'verified'), con atribución y con una
+  // ubicación utilizable: ruta de Storage o URL https. Cualquier otra cosa se ignora.
+  const MEDIA_TYPES = ['image', 'video', 'animation'];
+  function verifiedMedia(ex) {
+    const items = ex && ex.media && Array.isArray(ex.media.items) ? ex.media.items : [];
+    const ok = items.filter(m => m && MEDIA_TYPES.includes(m.type) && m.reviewStatus === 'verified'
+      && isStr(m.attribution, 200)
+      && ((typeof m.storagePath === 'string' && m.storagePath.trim()) || (typeof m.externalUrl === 'string' && /^https:\/\//i.test(m.externalUrl))));
+    const primary = ex && ex.media ? ex.media.primaryMediaId : null;
+    return ok.slice().sort((a, b) => (a.id === primary ? -1 : b.id === primary ? 1 : 0) || (a.order || 0) - (b.order || 0));
   }
 
   // ── Relaciones ──────────────────────────────────────────────────────
@@ -631,7 +646,7 @@
   return {
     SCHEMA_VERSION, PARAMS, EXTRA_KEYS, TAGS, GOALS, LEVEL_LABELS, DEMAND_LABELS, DURATION_BUCKETS, RELATION_TYPES, TEMPO_RE, MAX_PLAN_NOTES,
     normalize, createCatalog, validateExercise, validateCatalog, findProgressionCycles,
-    searchScore, filterExercises, getRelations, resolveByName, planItemFromExercise, linkPlanItem,
+    searchScore, filterExercises, getRelations, verifiedMedia, resolveByName, planItemFromExercise, linkPlanItem,
     paramsForPlanItem, recommendPlan, estimateMinutes, equipmentOk
   };
 }));
