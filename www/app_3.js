@@ -7701,7 +7701,7 @@ let postData = {
   text: '',
   photos: [],
   video: null,
-  ascent: null,
+  ascents: [],
   location: null
 };
 let postMentionAutocomplete = null;
@@ -7840,8 +7840,9 @@ function initCreatePost() {
     }
     if (e.target.closest('[data-retry]')) { openAscentPicker(true); return; }
     const row = e.target.closest('[data-ascent-id]');
-    if (row) selectAscentForPost(row.dataset.ascentId);
+    if (row) toggleAscentSelection(row.dataset.ascentId);
   });
+  document.getElementById('ascent-picker-done')?.addEventListener('click', confirmAscentSelection);
 
   // Location selector setup
   const locationSearchContainer = document.getElementById('location-search-container');
@@ -8138,7 +8139,7 @@ function resetPostData() {
     text: '',
     photos: [],
     video: null,
-    ascent: null,
+    ascents: [],
     location: null
   };
   if (postMentionAutocomplete) postMentionAutocomplete.clearMentions();
@@ -8172,6 +8173,7 @@ function resetPostData() {
 // ================== ASCENSIÓN EN EL EDITOR (desde el libro de ascensiones) ==================
 let cpAscentsCache = null;
 let cpPickerToken = 0;
+let cpPickerSel = []; // ids elegidos en el selector, en orden de elección
 
 // Chip de grado con el color oficial y texto legible (lo usan el buscador y las tarjetas de ascensión)
 function kxGradeChipHTML(grade, className = 'kx-ascent-grade') {
@@ -8202,22 +8204,48 @@ function kxAscentDateLabel(ascent) {
   return date.toLocaleDateString('es-ES', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', '');
 }
 
+const KX_MAX_POST_ASCENTS = 10;
+const KX_ASCENTS_VISIBLE = 3;
+
+// Ascensiones de una publicación: `ascents` (varias) o `ascent` (publicaciones con una sola)
+function kxPostAscents(post) {
+  const list = Array.isArray(post?.ascents) ? post.ascents : (post?.ascent ? [post.ascent] : []);
+  return list.filter(a => a && a.routeName);
+}
+
+// Lista de tarjetas. En el feed muestra las primeras y deja el resto plegado
+function kxAscentListHTML(ascents, { removable = false } = {}) {
+  if (!ascents || ascents.length === 0) return '';
+  const card = (a, i) => kxAscentCardHTML(a, { removable, index: i });
+  if (removable || ascents.length <= KX_ASCENTS_VISIBLE) {
+    return `<div class="kx-ascent-list">${ascents.map(card).join('')}</div>`;
+  }
+  const rest = ascents.length - KX_ASCENTS_VISIBLE;
+  return `<div class="kx-ascent-list">
+    ${ascents.slice(0, KX_ASCENTS_VISIBLE).map(card).join('')}
+    <details class="kx-ascent-more">
+      <summary>Ver ${rest} ${rest === 1 ? 'ascensión más' : 'ascensiones más'}</summary>
+      ${ascents.slice(KX_ASCENTS_VISIBLE).map(card).join('')}
+    </details>
+  </div>`;
+}
+
 // Tarjeta de ascensión (editor, feed y publicación abierta)
-function kxAscentCardHTML(ascent, { removable = false } = {}) {
+function kxAscentCardHTML(ascent, { removable = false, index = 0 } = {}) {
   if (!ascent || !ascent.routeName) return '';
   const style = (typeof STYLE_LABELS !== 'undefined' && STYLE_LABELS[ascent.style]) || '';
   const place = [ascent.schoolName, ascent.sector].filter(Boolean).map(escapeHtmlMention).join(' · ');
   const sub = [style, kxAscentDateLabel(ascent)].filter(Boolean).map(escapeHtmlMention).join(' · ');
   const attempt = ascent.style === 'project' ? ' is-attempt' : '';
   return `
-    <div class="kx-ascent-card${attempt}${removable ? ' is-removable' : ''}"${removable ? ' role="button" tabindex="0" data-change-ascent aria-label="Cambiar ascensión"' : ''}>
+    <div class="kx-ascent-card${attempt}${removable ? ' is-removable' : ''}"${removable ? ' role="button" tabindex="0" data-change-ascent aria-label="Editar ascensiones"' : ''}>
       ${kxGradeChipHTML(ascent.grade)}
       <div class="kx-ascent-info">
         <span class="kx-ascent-name">${escapeHtmlMention(ascent.routeName)}</span>
         ${place ? `<span class="kx-ascent-meta">${place}</span>` : ''}
         ${sub ? `<span class="kx-ascent-sub">${sub}</span>` : ''}
       </div>
-      ${removable ? `<button type="button" class="remove-preview-btn" data-type="ascent" aria-label="Quitar ascensión">${CP_REMOVE_ICON}</button>` : ''}
+      ${removable ? `<button type="button" class="remove-preview-btn" data-type="ascent" data-index="${index}" aria-label="Quitar ${escapeHtmlMention(ascent.routeName)}">${CP_REMOVE_ICON}</button>` : ''}
     </div>`;
 }
 
@@ -8232,6 +8260,8 @@ async function openAscentPicker(forceReload = false) {
   if (!picker || !list) return;
   picker.classList.remove('hidden');
   if (search) search.value = '';
+  cpPickerSel = (postData.ascents || []).map(a => a.ascentId).filter(Boolean);
+  updateAscentPickerFooter();
   if (cpAscentsCache && !forceReload) {
     renderAscentPicker();
     setTimeout(() => search?.focus(), 60);
@@ -8268,19 +8298,20 @@ function renderAscentPicker() {
     list.innerHTML = '<div class="cp-picker-state">Ninguna ascensión coincide con la búsqueda.</div>';
     return;
   }
-  const selectedId = postData.ascent?.ascentId;
   list.innerHTML = items.map(a => {
+    const on = cpPickerSel.includes(a.id);
     const style = STYLE_LABELS[a.style] || '';
     const place = [a.schoolName, a.sector].filter(Boolean).map(escapeHtmlMention).join(' · ');
     const sub = [style, kxAscentDateLabel(a)].filter(Boolean).map(escapeHtmlMention).join(' · ');
     return `
-      <button type="button" class="cp-ascent-row${a.id === selectedId ? ' is-selected' : ''}" data-ascent-id="${escapeHtmlMention(a.id)}">
+      <button type="button" class="cp-ascent-row${on ? ' is-selected' : ''}" data-ascent-id="${escapeHtmlMention(a.id)}" aria-pressed="${on}">
         ${kxGradeChipHTML(a.grade)}
         <span class="kx-ascent-info">
           <span class="kx-ascent-name">${escapeHtmlMention(a.routeName)}</span>
           ${place ? `<span class="kx-ascent-meta">${place}</span>` : ''}
           ${sub ? `<span class="kx-ascent-sub">${sub}</span>` : ''}
         </span>
+        <span class="cp-ascent-check" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
       </button>`;
   }).join('');
 }
@@ -8291,9 +8322,7 @@ function closeAscentPicker() {
   if (btn && document.activeElement && document.getElementById('ascent-picker')?.contains(document.activeElement)) btn.focus();
 }
 
-function selectAscentForPost(id) {
-  const a = (cpAscentsCache || []).find(x => x.id === id);
-  if (!a) return;
+function ascentToPostData(a) {
   const date = kxAscentDate(a);
   const ascent = {
     ascentId: a.id,
@@ -8308,7 +8337,45 @@ function selectAscentForPost(id) {
   };
   // Firestore no admite undefined
   Object.keys(ascent).forEach(k => { if (ascent[k] === undefined || ascent[k] === null) delete ascent[k]; });
-  postData.ascent = ascent;
+  return ascent;
+}
+
+function updateAscentPickerFooter() {
+  const btn = document.getElementById('ascent-picker-done');
+  if (!btn) return;
+  const n = cpPickerSel.length;
+  btn.disabled = n === 0;
+  btn.textContent = n === 0 ? 'Elige una o varias' : n === 1 ? 'Añadir 1 ascensión' : `Añadir ${n} ascensiones`;
+}
+
+function toggleAscentSelection(id) {
+  const i = cpPickerSel.indexOf(id);
+  if (i >= 0) {
+    cpPickerSel.splice(i, 1);
+  } else {
+    if (cpPickerSel.length >= KX_MAX_POST_ASCENTS) {
+      showToast(`Máximo ${KX_MAX_POST_ASCENTS} ascensiones por publicación`, 'info');
+      return;
+    }
+    cpPickerSel.push(id);
+  }
+  const row = document.querySelector(`#ascent-picker-list [data-ascent-id="${CSS.escape(id)}"]`);
+  if (row) {
+    row.classList.toggle('is-selected', i < 0);
+    row.setAttribute('aria-pressed', String(i < 0));
+  }
+  updateAscentPickerFooter();
+}
+
+function confirmAscentSelection() {
+  if (cpPickerSel.length === 0) return;
+  const current = new Map((postData.ascents || []).map(a => [a.ascentId, a]));
+  postData.ascents = cpPickerSel
+    .map(id => {
+      const a = (cpAscentsCache || []).find(x => x.id === id);
+      return a ? ascentToPostData(a) : current.get(id);
+    })
+    .filter(Boolean);
   closeAscentPicker();
   updatePreview();
   updateSubmitButton();
@@ -8333,7 +8400,7 @@ function updateActionStates() {
   set('add-photo-btn', postData.photos.length > 0);
   set('add-video-btn', !!postData.video);
   set('add-location-btn', !!postData.location);
-  set('add-ascent-btn', !!postData.ascent);
+  set('add-ascent-btn', postData.ascents.length > 0);
 }
 
 // Teclado virtual en móvil: el editor ocupa el área visible para que la barra de acciones no quede oculta
@@ -8375,7 +8442,7 @@ function updateUserInfo() {
 
 function updateSubmitButton() {
   const submitBtn = document.getElementById('submit-create-post');
-  const hasContent = postData.text.trim().length > 0 || postData.photos.length > 0 || postData.video || postData.ascent;
+  const hasContent = postData.text.trim().length > 0 || postData.photos.length > 0 || postData.video || postData.ascents.length > 0;
 
   if (submitBtn && !submitBtn.classList.contains('is-loading')) {
     submitBtn.disabled = !hasContent;
@@ -8457,7 +8524,7 @@ function updatePreview() {
   }
 
   // Ascensión elegida del libro
-  if (postData.ascent) previewHTML += kxAscentCardHTML(postData.ascent, { removable: true });
+  previewHTML += kxAscentListHTML(postData.ascents, { removable: true });
 
   updateActionStates();
 
@@ -8465,13 +8532,12 @@ function updatePreview() {
     preview.innerHTML = previewHTML;
     preview.classList.remove('hidden');
 
-    const ascentCard = preview.querySelector('[data-change-ascent]');
-    if (ascentCard) {
+    preview.querySelectorAll('[data-change-ascent]').forEach(ascentCard => {
       ascentCard.addEventListener('click', (e) => { if (!e.target.closest('.remove-preview-btn')) openAscentPicker(); });
       ascentCard.addEventListener('keydown', (e) => {
         if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.remove-preview-btn')) { e.preventDefault(); openAscentPicker(); }
       });
-    }
+    });
 
     preview.querySelector('[data-add="photos"]')?.addEventListener('click', () => {
       document.getElementById('create-post-photo-input')?.click();
@@ -8507,7 +8573,7 @@ function updatePreview() {
           postData.video = null;
           document.getElementById('create-post-video-input').value = '';
         } else if (type === 'ascent') {
-          postData.ascent = null;
+          postData.ascents.splice(parseInt(index), 1);
         } else if (type === 'location') {
           postData.location = null;
           const locationBadge = document.getElementById('location-badge');
@@ -8540,7 +8606,7 @@ async function submitPost() {
   }
 
   // Validate that there's at least some content
-  if (!postData.text.trim() && postData.photos.length === 0 && !postData.video && !postData.ascent) {
+  if (!postData.text.trim() && postData.photos.length === 0 && !postData.video && postData.ascents.length === 0) {
     showToast('Añade texto, una foto, un vídeo o una ascensión para publicar', 'error');
     return;
   }
@@ -8623,8 +8689,8 @@ async function submitPost() {
     if (postData.location) {
       postDataToSave.location = postData.location;
     }
-    if (postData.ascent) {
-      postDataToSave.ascent = postData.ascent;
+    if (postData.ascents.length > 0) {
+      postDataToSave.ascents = postData.ascents;
     }
 
     log('Saving post data:', postDataToSave);
@@ -9101,7 +9167,7 @@ function renderPostCard(post, container) {
     </div>
   `;
 
-  card.innerHTML = headerHTML + mediaHTML + contentHTML + kxAscentCardHTML(post.ascent) + actionsHTML;
+  card.innerHTML = headerHTML + mediaHTML + contentHTML + kxAscentListHTML(kxPostAscents(post)) + actionsHTML;
 
   // La entrada animada va por CSS (@keyframes feedCardFadeIn). Sin transform inline: un transform
   // persistente atraparía las hojas inferiores (position: fixed) dentro de la tarjeta.
@@ -11373,7 +11439,7 @@ function renderPostInModal(post, container) {
     </div>
   `;
 
-  container.innerHTML = headerHTML + contentHTML + kxAscentCardHTML(post.ascent) + actionsHTML;
+  container.innerHTML = headerHTML + contentHTML + kxAscentListHTML(kxPostAscents(post)) + actionsHTML;
 
   // Las fotos de la publicación ampliada se abren en el visor con zoom
   const modalPhotos = [...container.querySelectorAll('.feed-media-modal .feed-image')];

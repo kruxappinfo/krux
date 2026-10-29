@@ -26559,11 +26559,18 @@ body.kx-sheet-open #feed-view .feed-container {
   font-weight: 600;
 }
 
+.kx-ascent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 16px 12px;
+}
+
 .kx-ascent-card {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 4px 16px 12px;
+  margin: 0;
   padding: 10px 12px;
   border-radius: var(--kx-radius-md);
   background: var(--kx-sage-soft);
@@ -26600,6 +26607,89 @@ body.kx-sheet-open #feed-view .feed-container {
 }
 
 /* En el feed y la publicación abierta la tarjeta alinea con el texto (la tarjeta ya aporta su relleno) */
-:is(#feed-view, #view-post-modal) .kx-ascent-card {
+:is(#feed-view, #view-post-modal) .kx-ascent-list {
   margin: 4px 2px 8px;
+}
+
+#create-post-modal .kx-ascent-list {
+  margin: 0;
+}
+
+/* Varias ascensiones: las primeras a la vista y el resto plegado */
+.kx-ascent-more {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kx-ascent-more > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--kx-forest);
+  font-size: var(--kx-fs-meta);
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.kx-ascent-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.kx-ascent-more[open] > summary {
+  display: none;
+}
+
+/* Selección múltiple en el selector */
+.cp-ascent-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(32, 41, 35, 0.25);
+  border-radius: 50%;
+  color: transparent;
+}
+
+.cp-ascent-row.is-selected .cp-ascent-check {
+  border-color: var(--kx-forest);
+  background: var(--kx-forest);
+  color: #fff;
+}
+
+.cp-picker-footer {
+  padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--kx-line);
+  background: var(--kx-surface);
+}
+
+.cp-picker-done {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-forest);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cp-picker-done:hover:not(:disabled) {
+  background: var(--kx-primary-hover);
+}
+
+.cp-picker-done:disabled {
+  background: var(--kx-sage);
+  color: var(--kx-ink-3);
+  cursor: default;
+}
+
+.cp-picker-done:focus-visible {
+  outline: 2px solid var(--kx-forest);
+  outline-offset: 2px;
 }
