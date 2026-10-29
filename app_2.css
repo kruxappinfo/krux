@@ -22463,15 +22463,20 @@ body.plan-editor-open { overflow: hidden; }
 :is(#feed-view, #view-post-modal) .feed-post-menu-wrapper {
   position: relative;
   flex-shrink: 0;
-  margin: -5px -8px 0 0;
+  margin: -5px -11px 0 0; /* el icono (22 px dentro de 44) queda alineado con el borde del contenido */
 }
 
 :is(#feed-view, #view-post-modal) .feed-post-menu-btn {
   display: flex;
+  flex: 0 0 44px; /* sin esto la fila de la cabecera lo encogía y el icono se salía de la tarjeta */
   align-items: center;
   justify-content: center;
   width: 44px;
   height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  max-width: none; /* la regla base lo limita a 16 px */
+  max-height: none;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -22751,7 +22756,7 @@ body.plan-editor-open { overflow: hidden; }
   display: flex;
   align-items: center;
   gap: 2px;
-  margin: 0 -8px;
+  margin: 0 -10px; /* cancela el relleno de los botones: el primer icono queda alineado con el contenido */
   padding: 0 0 4px;
   border: 0;
 }
@@ -22759,11 +22764,11 @@ body.plan-editor-open { overflow: hidden; }
 :is(#feed-view, #view-post-modal) .feed-action-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 6px;
   min-width: 44px;
   height: 44px;
-  padding: 0 10px;
+  padding: 0 10px !important; /* la regla base .feed-action-btn lo deja en 0 con !important */
   border: 0;
   border-radius: 22px;
   background: transparent;
