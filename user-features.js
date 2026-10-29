@@ -1,42 +1,173 @@
 // User Features Module
 // Handles favorites and climbing log functionality
 
-// Toast notification system with smooth animations
-function showToast(message, type = 'info') {
+// ============================================
+// TOASTS (aviso breve, un único componente para toda la app)
+// ============================================
+// showToast(mensaje, tipo, opciones)
+//   tipo: 'success' | 'error' | 'info' | 'warning'. Sin tipo se deduce del texto: lo que empieza por
+//   «Error» o «No se pudo/ha» es un error; el resto, información.
+//   mensaje: la primera línea es el título; las siguientes (o opciones.detail) la indicación útil.
+//   opciones: { detail, duration } en ms. Un toast sustituye al anterior (nunca se apilan).
+const KX_TOAST_ICONS = {
+    success: '<path d="M6 12.5l4 4 8-9" />',
+    error: '<path d="M12 7v6" /><path d="M12 16.6v.1" />',
+    info: '<path d="M12 11v5.5" /><path d="M12 7.6v.1" />',
+    warning: '<path d="M12 8v5" /><path d="M12 16.4v.1" />'
+};
+const KX_TOAST_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>';
+let kxToastCurrent = null;
+
+function kxToastType(type, message) {
+    if (type === 'warn') return 'warning';
+    if (KX_TOAST_ICONS[type]) return type;
+    return /^\s*(error|no se (pudo|ha|han|puede)|fall)/i.test(message) ? 'error' : 'info';
+}
+
+// Hueco libre sobre la navegación inferior (si la hay y está a la vista) o sobre el área segura
+function kxToastBottom() {
+    const base = 16;
+    try {
+        const nav = document.querySelector('.bottom-nav');
+        if (!nav || getComputedStyle(nav).display === 'none') return null;
+        const r = nav.getBoundingClientRect();
+        if (r.height < 10 || r.top >= window.innerHeight || r.bottom <= 0) return null;
+        // Si un panel o modal tapa la navegación, el aviso no necesita subir
+        const top = document.elementFromPoint(window.innerWidth / 2, r.top + r.height / 2);
+        if (!top || !nav.contains(top)) return null;
+        return Math.round(window.innerHeight - r.top + base - 4);
+    } catch (_) {
+        return null;
+    }
+}
+
+// Indicación útil en español para un error de Firebase o de red (texto vacío si no hay nada que aconsejar)
+function kxFriendlyError(err) {
+    const code = String((err && err.code) || '');
+    if (/network|unavailable|deadline|timeout|retry/i.test(code) || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        return 'Revisa tu conexión e inténtalo de nuevo.';
+    }
+    if (/wrong-password|invalid-credential|user-not-found|invalid-login/i.test(code)) return 'El email o la contraseña no son correctos.';
+    if (/email-already-in-use/i.test(code)) return 'Ya existe una cuenta con ese email.';
+    if (/weak-password/i.test(code)) return 'La contraseña es demasiado débil.';
+    if (/invalid-email/i.test(code)) return 'El email no es válido.';
+    if (/too-many-requests/i.test(code)) return 'Demasiados intentos. Espera un momento.';
+    if (/requires-recent-login/i.test(code)) return 'Vuelve a iniciar sesión e inténtalo otra vez.';
+    if (/permission-denied|unauthorized|unauthenticated/i.test(code)) return 'No tienes permiso para hacerlo.';
+    if (/quota|resource-exhausted/i.test(code)) return 'Hay demasiadas peticiones. Inténtalo en un rato.';
+    if (/not-found|object-not-found/i.test(code)) return 'Ya no existe. Recarga e inténtalo de nuevo.';
+    if (/canceled|cancelled/i.test(code)) return 'Se canceló antes de terminar.';
+    return 'Inténtalo de nuevo.';
+}
+
+function kxDismissToast(toast, instant) {
+    if (!toast || toast._kxClosing) return;
+    toast._kxClosing = true;
+    clearTimeout(toast._kxTimer);
+    if (kxToastCurrent === toast) kxToastCurrent = null;
+    if (instant) { toast.remove(); return; }
+    toast.classList.remove('is-in');
+    toast.classList.add('is-out');
+    setTimeout(() => toast.remove(), 220);
+}
+
+function showToast(message, type, opts) {
     const container = document.getElementById('toast-container');
     if (!container) return;
+    const options = opts || {};
+    const raw = String(message == null ? '' : message).trim();
+    if (!raw) return;
+    const kind = kxToastType(type, raw);
+    const lines = raw.split('\n');
+    const title = lines[0];
+    const detail = (options.detail || lines.slice(1).join(' ')).trim();
+    const duration = options.duration || (detail || kind === 'error' ? 4500 : 3000);
 
-    const icons = {
-        success: '✓',
-        error: '×',
-        info: 'ℹ'
-    };
+    // Mismo aviso repetido: se reinicia el tiempo en vez de duplicarlo
+    if (kxToastCurrent && !kxToastCurrent._kxClosing && kxToastCurrent._kxKey === kind + '|' + raw) {
+        kxToastCurrent._kxStart(duration);
+        return;
+    }
+    if (kxToastCurrent) kxDismissToast(kxToastCurrent, true);
+
+    if (!container.hasAttribute('role')) {
+        container.setAttribute('role', 'region');
+        container.setAttribute('aria-label', 'Avisos');
+    }
 
     const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `
-        <span class="toast-icon">${icons[type]}</span>
-        <span class="toast-message">${message}</span>
-    `;
+    toast.className = `kx-toast kx-toast-${kind}`;
+    toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    toast._kxKey = kind + '|' + raw;
 
-    // Start hidden for smooth entry
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(100px)';
+    const icon = document.createElement('span');
+    icon.className = 'kx-toast-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${KX_TOAST_ICONS[kind]}</svg>`;
+
+    const body = document.createElement('span');
+    body.className = 'kx-toast-body';
+    const t = document.createElement('span');
+    t.className = 'kx-toast-title';
+    t.textContent = title;
+    body.appendChild(t);
+    if (detail) {
+        const d = document.createElement('span');
+        d.className = 'kx-toast-detail';
+        d.textContent = detail;
+        body.appendChild(d);
+    }
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'kx-toast-close';
+    close.setAttribute('aria-label', 'Cerrar aviso');
+    close.innerHTML = KX_TOAST_CLOSE;
+    close.addEventListener('click', () => kxDismissToast(toast));
+
+    toast.append(icon, body, close);
+
+    // Se coloca sobre la navegación inferior cuando está a la vista
+    const bottom = kxToastBottom();
+    container.style.bottom = bottom == null ? '' : bottom + 'px';
     container.appendChild(toast);
+    kxToastCurrent = toast;
+    requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('is-in')));
 
-    // Smooth entry animation
-    requestAnimationFrame(() => {
-        toast.style.transition = 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
-        toast.style.opacity = '1';
-        toast.style.transform = 'translateX(0)';
-    });
+    // Desaparece solo; se detiene mientras se mantiene el dedo o el cursor encima
+    let paused = false;
+    toast._kxStart = (ms) => {
+        clearTimeout(toast._kxTimer);
+        toast._kxTimer = setTimeout(() => { if (!paused) kxDismissToast(toast); }, ms);
+        toast._kxMs = ms;
+    };
+    toast._kxStart(duration);
+    const hold = () => { paused = true; clearTimeout(toast._kxTimer); };
+    const release = () => { paused = false; toast._kxStart(1800); };
+    toast.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') hold(); });
+    toast.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') release(); });
 
-    // Smooth exit and remove
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateX(100px)';
-        setTimeout(() => toast.remove(), 300);
-    }, 2700);
+    // Deslizar hacia abajo lo cierra
+    let y0 = null, dy = 0;
+    toast.addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; dy = 0; hold(); }, { passive: true });
+    toast.addEventListener('touchmove', (e) => {
+        if (y0 == null) return;
+        dy = Math.max(0, e.touches[0].clientY - y0);
+        toast.style.transition = 'none';
+        toast.style.transform = `translateY(${dy}px)`;
+        toast.style.opacity = String(Math.max(0.3, 1 - dy / 120));
+    }, { passive: true });
+    const endTouch = () => {
+        if (y0 == null) return;
+        y0 = null;
+        toast.style.transition = '';
+        if (dy > 36) { kxDismissToast(toast); return; }
+        toast.style.transform = '';
+        toast.style.opacity = '';
+        release();
+    };
+    toast.addEventListener('touchend', endTouch);
+    toast.addEventListener('touchcancel', endTouch);
 }
 
 // Custom confirmation dialog
@@ -277,7 +408,7 @@ async function toggleFavorite(type, id, name = '') {
                 addedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             userFavorites.set(key, new Date());
-            showToast('Añadido a favoritos ❤️', 'success');
+            showToast('Añadido a favoritos', 'success');
             return true;
         }
     } catch (error) {
@@ -361,7 +492,7 @@ async function logAscent(ascentData) {
         return true;
     } catch (error) {
         console.error('Error logging ascent:', error);
-        showToast('Error al registrar ascensión: ' + error.message, 'error');
+        showToast('Error al registrar ascensión', 'error', { detail: kxFriendlyError(error) });
         return false;
     }
 }
@@ -427,7 +558,7 @@ async function toggleProject(id, name, grade = '') {
                 notes: ''
             });
             userProjects.set(key, { id, name, grade, addedAt: new Date(), notes: '' });
-            showToast('Añadido a proyectos 📁', 'success');
+            showToast('Añadido a proyectos', 'success');
             return true;
         }
     } catch (error) {
@@ -510,7 +641,7 @@ async function deleteAscent(ascentId, schoolId, routeId) {
             await removeAscentFromCache(schoolId, routeId);
         }
 
-        showToast('Ascenso eliminado correctamente', 'success');
+        showToast('Ascenso eliminado', 'success');
         return true;
     } catch (error) {
         console.error('Error deleting ascent:', error);
@@ -996,7 +1127,7 @@ async function followUser(targetUserId) {
         return true;
     } catch (error) {
         console.error('Error following user:', error);
-        showToast('Error al seguir usuario: ' + error.message, 'error');
+        showToast('Error al seguir usuario', 'error', { detail: kxFriendlyError(error) });
         return false;
     }
 }
@@ -1037,7 +1168,7 @@ async function unfollowUser(targetUserId) {
         return true;
     } catch (error) {
         console.error('Error unfollowing user:', error);
-        showToast('Error al dejar de seguir: ' + error.message, 'error');
+        showToast('Error al dejar de seguir', 'error', { detail: kxFriendlyError(error) });
         return false;
     }
 }
@@ -2322,14 +2453,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Update existing ascent
                     await updateAscent(ascentId, ascentData);
                     closeAscentModal();
-                    showToast('¡Ascenso actualizado correctamente!', 'success');
+                    showToast('Ascenso actualizado', 'success');
                     // Reload and reopen My Routes list
                     showMyRoutes();
                 } else {
                     // Create new ascent
                     await logAscent(ascentData);
                     closeAscentModal();
-                    showToast('¡Ascenso registrado correctamente!', 'success');
+                    showToast('Ascenso registrado', 'success');
                     if (typeof loadActivityData === 'function') loadActivityData();
                 }
 
@@ -2963,7 +3094,7 @@ async function handleSpotterSubmission(e) {
 
         // Close modal and show success
         closeSpotterModalFn();
-        showToast('Solicitud enviada correctamente', 'success');
+        showToast('Solicitud enviada', 'success');
 
     } catch (error) {
         console.error('Error submitting spotter request:', error);

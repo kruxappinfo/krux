@@ -3004,66 +3004,101 @@ button.secondary:hover {
   background: #ffc0c0;
 }
 
-/* Toast Notifications */
+/* Toasts: avisos breves y discretos (los crea showToast en user-features.js) */
 #toast-container {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
+  left: 16px;
+  right: 16px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   z-index: 3000;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  justify-content: center;
   pointer-events: none;
 }
 
-.toast {
-  background: white;
-  color: #333;
-  padding: 16px 20px;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+.kx-toast {
+  --kx-toast-accent: #5B6BE6;
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 280px;
-  max-width: 400px;
-  pointer-events: auto;
-  animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s;
-  font-size: 14px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 440px;
+  min-height: 52px;
+  padding: 10px 8px 10px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(21, 62, 53, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--kx-toast-accent) 5%, rgba(255, 255, 255, 0.9));
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: 0 1px 2px rgba(32, 41, 35, 0.06), 0 10px 28px rgba(32, 41, 35, 0.12);
+  color: var(--kx-ink, #202923);
+  font-size: 0.9375rem;
   font-weight: 500;
+  line-height: 1.3;
+  pointer-events: auto;
+  touch-action: pan-x;
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.22s ease, transform 0.32s var(--kx-ease, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.toast.success {
-  border-left: 4px solid #4caf50;
+.kx-toast.is-in { opacity: 1; transform: translateY(0); }
+.kx-toast.is-out { opacity: 0; transform: none; transition: opacity 0.2s ease; }
+
+.kx-toast-success { --kx-toast-accent: #2E9A5E; }
+.kx-toast-error { --kx-toast-accent: #D64545; }
+.kx-toast-info { --kx-toast-accent: #5B6BE6; }
+.kx-toast-warning { --kx-toast-accent: #CC8100; }
+
+.kx-toast-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--kx-toast-accent);
+  color: #fff;
+}
+.kx-toast-icon svg { width: 18px; height: 18px; }
+
+.kx-toast-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.kx-toast-title { overflow-wrap: anywhere; }
+.kx-toast-detail { font-size: 0.8125rem; font-weight: 400; color: #5A665F; overflow-wrap: anywhere; }
+
+.kx-toast .kx-toast-close {
+  position: relative;
+  min-width: 32px;
+  min-height: 32px;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #5A665F;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.kx-toast .kx-toast-close::after { content: ''; position: absolute; inset: -6px; }
+.kx-toast .kx-toast-close svg { width: 16px; height: 16px; }
+.kx-toast .kx-toast-close:hover { background: rgba(32, 41, 35, 0.06); }
+.kx-toast .kx-toast-close:focus-visible { outline: 2px solid var(--kx-primary, #153E35); outline-offset: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kx-toast, .kx-toast.is-in { transform: none; transition: opacity 0.15s linear; }
 }
 
-.toast.error {
-  border-left: 4px solid #f44336;
-}
-
-.toast.info {
-  border-left: 4px solid #2196f3;
-}
-
-.toast-icon {
-  font-size: 20px;
-  flex-shrink: 0;
-}
-
-.toast-message {
-  flex: 1;
-}
-
-@keyframes slideInRight {
-  from {
-    transform: translateX(400px);
-    opacity: 0;
-  }
-
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
+@media (min-width: 1025px) {
+  #toast-container { bottom: 24px; }
 }
 
 @keyframes fadeOut {
@@ -15099,66 +15134,6 @@ body.pwa-standalone .feed-header {
 }
 
 /* Dev Toast */
-.dev-toast {
-  position: fixed;
-  bottom: 100px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 14px 24px;
-  background: #333;
-  color: white;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  z-index: 20000;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  animation: toastSlideUp 0.3s ease;
-  max-width: 90%;
-  text-align: center;
-}
-
-.dev-toast-info {
-  background: #3b82f6;
-}
-
-.dev-toast-success {
-  background: #10b981;
-}
-
-.dev-toast-warning {
-  background: #f59e0b;
-}
-
-.dev-toast-error {
-  background: #ef4444;
-}
-
-.dev-toast-hide {
-  animation: toastSlideDown 0.3s ease forwards;
-}
-
-@keyframes toastSlideUp {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
-}
-
-@keyframes toastSlideDown {
-  from {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(-50%) translateY(20px);
-  }
-}
-
 /* Botón Spotter solo visible en el mapa */
 #btn-dev-editor {
   display: none !important;
@@ -15188,27 +15163,6 @@ body.map-active #btn-dev-editor {
   .dev-form-row {
     grid-template-columns: 1fr;
     gap: 0;
-  }
-
-  .dev-toast {
-    bottom: 80px;
-    left: 16px;
-    right: 16px;
-    transform: none;
-    max-width: none;
-  }
-
-  .dev-toast-hide {
-    animation: toastFadeOut 0.3s ease forwards;
-  }
-
-  @keyframes toastFadeOut {
-    from {
-      opacity: 1;
-    }
-    to {
-      opacity: 0;
-    }
   }
 }
 
@@ -15951,44 +15905,6 @@ body.map-active #btn-dev-editor {
 }
 
 /* Sector Toast */
-.sector-toast {
-  position: fixed;
-  bottom: 100px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 14px 24px;
-  background: #333;
-  color: white;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  z-index: 20000;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  animation: toastSlideUp 0.3s ease;
-  max-width: 90%;
-  text-align: center;
-}
-
-.sector-toast-info {
-  background: #3b82f6;
-}
-
-.sector-toast-success {
-  background: #10b981;
-}
-
-.sector-toast-warning {
-  background: #f59e0b;
-}
-
-.sector-toast-error {
-  background: #ef4444;
-}
-
-.sector-toast-hide {
-  animation: toastSlideDown 0.3s ease forwards;
-}
-
 /* ========================================
    SECTOR DELETE BUTTON (in viewer header)
    ======================================== */
@@ -16201,14 +16117,6 @@ body.map-active #btn-dev-editor {
 
   .sector-upload-dropzone {
     padding: 30px 16px;
-  }
-
-  .sector-toast {
-    bottom: 80px;
-    left: 16px;
-    right: 16px;
-    transform: none;
-    max-width: none;
   }
 }
 

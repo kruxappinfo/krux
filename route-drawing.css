@@ -660,68 +660,6 @@
 /* ============================================
    TOAST NOTIFICATIONS
    ============================================ */
-
-.rd-toast {
-  position: fixed;
-  bottom: 80px;
-  bottom: calc(80px + env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  background: #1f2937;
-  color: #ffffff;
-  padding: 14px 24px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-  z-index: 20000;
-  max-width: 90%;
-  text-align: center;
-  animation: rd-toast-in 0.3s ease-out;
-}
-
-@keyframes rd-toast-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 20px);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-}
-
-.rd-toast.rd-toast-hide {
-  animation: rd-toast-out 0.3s ease-out forwards;
-}
-
-@keyframes rd-toast-out {
-  to {
-    opacity: 0;
-    transform: translate(-50%, 20px);
-  }
-}
-
-.rd-toast.rd-toast-success {
-  background: #065f46;
-  border: 1px solid #10b981;
-}
-
-.rd-toast.rd-toast-error {
-  background: #991b1b;
-  border: 1px solid #ef4444;
-}
-
-.rd-toast.rd-toast-warning {
-  background: #92400e;
-  border: 1px solid #f59e0b;
-}
-
-.rd-toast.rd-toast-info {
-  background: #1e40af;
-  border: 1px solid #3b82f6;
-}
-
 /* ============================================
    SECTOR VIEWER - BOTÓN DE DIBUJO
    ============================================ */

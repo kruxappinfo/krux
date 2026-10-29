@@ -780,7 +780,7 @@ document.addEventListener('click', async (e) => {
     } else {
       // Fallback
       navigator.clipboard.writeText(window.location.href);
-      showToast('Enlace copiado al portapapeles', 'success');
+      showToast('Enlace copiado al portapapeles', 'info');
     }
     return;
   }
@@ -806,7 +806,7 @@ document.addEventListener('click', async (e) => {
       try {
         if (typeof uploadRoutePhoto === 'function') {
           await uploadRoutePhoto(schoolId, uploadRouteId, routeName, file);
-          showToast('Foto subida correctamente', 'success');
+          showToast('Foto subida', 'success');
 
           // Refresh the popup to show new photo
           // Trigger click on the same feature again
@@ -887,7 +887,7 @@ document.addEventListener('click', async (e) => {
     try {
       if (typeof deleteRoutePhoto === 'function') {
         await deleteRoutePhoto(photoId, uploaderUid);
-        showToast('Foto eliminada correctamente', 'success');
+        showToast('Foto eliminada', 'success');
 
         // Refresh popup
         if (routeInfoWindow) routeInfoWindow.close();
@@ -3897,7 +3897,7 @@ function initNotifications() {
             notificationItem.classList.remove('is-deleting');
           }
           deletingNotificationIds.delete(notificationId);
-          alert('Error al borrar la notificación');
+          showToast('No se ha podido borrar la notificación', 'error', { detail: kxFriendlyError(error) });
         }
       }, 500); // Match CSS transition duration
     }
@@ -4066,11 +4066,7 @@ window.deleteNotificationById = async function (notificationId) {
   } catch (error) {
     console.error('Error deleting notification:', error);
     // Try to show toast, but fallback to alert if showToast is not available
-    if (typeof showToast === 'function') {
-      showToast('Error al borrar la notificación', 'error');
-    } else {
-      alert('Error al borrar la notificación');
-    }
+    showToast('No se ha podido borrar la notificación', 'error', { detail: kxFriendlyError(error) });
     throw error; // Re-throw to let caller handle it
   }
 };
@@ -6223,7 +6219,7 @@ function initEditProfile() {
       }
     } catch (error) {
       console.error('Error updating profile:', error);
-      showToast('Error al guardar: ' + error.message, 'error');
+      showToast('Error al guardar', 'error', { detail: kxFriendlyError(error) });
     }
 
     submitBtn.textContent = originalText;
@@ -8458,7 +8454,7 @@ function initCreatePost() {
       const tooBig = files.filter(f => f.size > KX_VIDEO_MAX_BYTES);
       const accepted = files.filter(f => f.size <= KX_VIDEO_MAX_BYTES).slice(0, Math.max(room, 0));
       if (tooBig.length) showToast(`Los vídeos no pueden pesar más de ${Math.round(KX_VIDEO_MAX_BYTES / 1048576)} MB`, 'error');
-      else if (files.length > room) showToast(`Máximo ${KX_MAX_POST_VIDEOS} vídeos por publicación`, 'info');
+      else if (files.length > room) showToast(`Máximo ${KX_MAX_POST_VIDEOS} vídeos por publicación`, 'warning');
       if (accepted.length) {
         postData.media.push(...accepted.map(file => ({ id: ++cpMediaSeq, kind: 'video', file })));
         updatePreview();
@@ -9013,7 +9009,7 @@ function toggleAscentSelection(id) {
     cpPickerSel.splice(i, 1);
   } else {
     if (cpPickerSel.length >= KX_MAX_POST_ASCENTS) {
-      showToast(`Máximo ${KX_MAX_POST_ASCENTS} ascensiones por publicación`, 'info');
+      showToast(`Máximo ${KX_MAX_POST_ASCENTS} ascensiones por publicación`, 'warning');
       return;
     }
     cpPickerSel.push(id);
@@ -10370,7 +10366,7 @@ async function submitPost() {
       sendMentionNotifications(postDataToSave.mentions, { type: 'post', postId: docRef.id });
     }
 
-    showToast('Publicación creada exitosamente', 'success');
+    showToast('Publicación creada', 'success');
     closeCreatePostModal();
 
     // Reload feed and profile grid after a short delay to ensure data is indexed
@@ -12291,7 +12287,7 @@ async function handleUpdateComment(postId, commentId, container) {
     } else if (error.code === 'not-found') {
       showToast('El comentario no existe', 'error');
     } else {
-      showToast('Error al actualizar comentario: ' + (error.message || 'Error desconocido'), 'error');
+      showToast('Error al actualizar comentario', 'error', { detail: kxFriendlyError(error) });
     }
   }
 }
@@ -12369,7 +12365,7 @@ async function deleteInlineComment(postId, commentId, container, commentAuthorId
     } else if (error.code === 'not-found') {
       showToast('El comentario no existe', 'error');
     } else {
-      showToast('Error al eliminar comentario: ' + (error.message || 'Error desconocido'), 'error');
+      showToast('Error al eliminar comentario', 'error', { detail: kxFriendlyError(error) });
     }
   }
 }
@@ -12502,7 +12498,7 @@ async function handleUpdatePost(postId, container) {
     } else if (error.code === 'not-found') {
       showToast('La publicación no existe', 'error');
     } else {
-      showToast('Error al actualizar publicación: ' + (error.message || 'Error desconocido'), 'error');
+      showToast('Error al actualizar publicación', 'error', { detail: kxFriendlyError(error) });
     }
   }
 }
@@ -12571,7 +12567,7 @@ async function handleDeletePost(postId, container) {
     } else if (error.code === 'not-found') {
       showToast('La publicación no existe', 'error');
     } else {
-      showToast('Error al eliminar publicación: ' + (error.message || 'Error desconocido'), 'error');
+      showToast('Error al eliminar publicación', 'error', { detail: kxFriendlyError(error) });
     }
   }
 }
@@ -12691,13 +12687,11 @@ async function handleFeedBookmark(postId, button) {
       await userRef.update({
         savedPosts: firebase.firestore.FieldValue.arrayRemove(postId)
       });
-      showToast('Eliminado de guardados', 'info');
     } else {
       // Add to saved
       await userRef.update({
         savedPosts: firebase.firestore.FieldValue.arrayUnion(postId)
       });
-      showToast('Guardado', 'success');
     }
   } catch (error) {
     console.error('Error toggling bookmark:', error);
@@ -12712,7 +12706,7 @@ async function handleFeedBookmark(postId, button) {
         svg.setAttribute('stroke', 'currentColor');
       }
     }
-    showToast('Error al guardar', 'error');
+    showToast('No se ha podido guardar la publicación', 'error', { detail: kxFriendlyError(error) });
   }
 }
 
@@ -12751,7 +12745,7 @@ async function handleFeedShare(postId) {
     // Fallback: Copy URL to clipboard (desktop)
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(shareUrl);
-      showToast('Enlace copiado al portapapeles', 'success');
+      showToast('Enlace copiado al portapapeles', 'info');
     } else {
       // Legacy fallback for older browsers
       const textArea = document.createElement('textarea');
@@ -12762,7 +12756,7 @@ async function handleFeedShare(postId) {
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      showToast('Enlace copiado al portapapeles', 'success');
+      showToast('Enlace copiado al portapapeles', 'info');
     }
   } catch (error) {
     console.error('Error sharing post:', error);
@@ -13649,7 +13643,7 @@ async function deletePost(postId, post) {
     // Delete post from Firestore
     await db.collection('posts').doc(postId).delete();
 
-    showToast('Publicación eliminada exitosamente', 'success');
+    showToast('Publicación eliminada', 'success');
 
     // Close modal
     const viewModal = document.getElementById('view-post-modal');
@@ -13673,7 +13667,7 @@ async function deletePost(postId, post) {
 
   } catch (error) {
     console.error('Error deleting post:', error);
-    showToast('Error al eliminar la publicación: ' + error.message, 'error');
+    showToast('Error al eliminar la publicación', 'error', { detail: kxFriendlyError(error) });
   }
 }
 
@@ -13990,7 +13984,7 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, videos, 
 
     await db.collection('posts').doc(postId).update(updateData);
 
-    showToast('Publicación actualizada exitosamente', 'success');
+    showToast('Publicación actualizada', 'success');
 
     // Reload post in modal
     await openPostModal(postId);
@@ -14007,7 +14001,7 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, videos, 
 
   } catch (error) {
     console.error('Error updating post:', error);
-    showToast('Error al actualizar la publicaciÃ³n: ' + error.message, 'error');
+    showToast('Error al actualizar la publicación', 'error', { detail: kxFriendlyError(error) });
   } finally {
     saveBtn.disabled = false;
     saveBtn.textContent = 'Guardar cambios';
@@ -16533,7 +16527,7 @@ function _gthOpenConfigure() {
       close();
     } catch (e) {
       console.error('[TestHeader] save config failed', e);
-      alert('Error guardando: ' + e.message);
+      showToast('No se ha podido guardar', 'error', { detail: kxFriendlyError(e) });
     }
   };
 }
@@ -16547,7 +16541,7 @@ function _gthOpenRecord(preselectedTestId) {
 
   const pinned = _gthDefs.filter(d => d.pinned).sort((a, b) => (a.order || 0) - (b.order || 0));
   if (pinned.length === 0) {
-    alert('Primero configura algún test desde "Configurar tests"');
+    showToast('Primero configura algún test desde «Configurar tests»', 'warning');
     return;
   }
   const selectedId = preselectedTestId && pinned.find(d => d.id === preselectedTestId)
@@ -16656,7 +16650,7 @@ function _gthOpenRecord(preselectedTestId) {
       close();
     } catch (e) {
       console.error('[TestHeader] save measurement failed', e);
-      alert('Error guardando: ' + e.message);
+      showToast('No se ha podido guardar', 'error', { detail: kxFriendlyError(e) });
     }
   };
 }
