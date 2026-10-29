@@ -28069,3 +28069,7 @@ body.kx-sheet-open #feed-view .feed-container {
 .kx-trim-playhead[hidden] {
   display: none;
 }
+
+.kx-trim-tabs[hidden] {
+  display: none;
+}

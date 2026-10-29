@@ -8881,11 +8881,14 @@ function kxTrimTime(seconds) {
   return `${m}:${sec < 10 ? '0' : ''}${sec.toFixed(1)}`;
 }
 
-function openVideoTrimmer(mediaId, opener) {
-  const item = postData.media.find(m => m.id === mediaId);
+// `opts.remote` = { url, poster, onSave(file|null) }: cambia solo la portada de un vídeo ya publicado
+// (sin recorte). `onSave` recibe la imagen nueva o null para volver al primer fotograma.
+function openVideoTrimmer(mediaId, opener, opts = {}) {
+  const remote = opts.remote || null;
+  const item = remote ? { kind: 'video', cover: remote.poster ? { time: -1 } : null } : postData.media.find(m => m.id === mediaId);
   if (!item || item.kind !== 'video' || kxTrimmerEl) return;
-  const source = item.orig || item.file; // siempre se recorta desde el original
-  const url = URL.createObjectURL(source);
+  const source = remote ? null : (item.orig || item.file); // siempre se recorta desde el original
+  const url = remote ? remote.url : URL.createObjectURL(source);
 
   const el = document.createElement('div');
   el.className = 'kx-trim';
@@ -8896,10 +8899,10 @@ function openVideoTrimmer(mediaId, opener) {
   el.innerHTML = `
     <div class="kx-trim-head">
       <button type="button" class="kx-trim-cancel" data-trim-cancel>Cancelar</button>
-      <h2>Editar vídeo</h2>
+      <h2>${remote ? 'Portada del vídeo' : 'Editar vídeo'}</h2>
       <button type="button" class="kx-trim-apply" data-trim-apply disabled>Aplicar</button>
     </div>
-    <div class="kx-trim-tabs" role="tablist" aria-label="Qué quieres cambiar">
+    <div class="kx-trim-tabs" role="tablist" aria-label="Qué quieres cambiar" ${remote ? 'hidden' : ''}>
       <button type="button" role="tab" data-tab="trim" aria-selected="true">Recortar</button>
       <button type="button" role="tab" data-tab="cover" aria-selected="false">Portada</button>
     </div>
@@ -8946,10 +8949,17 @@ function openVideoTrimmer(mediaId, opener) {
   const handles = { start: q('[data-handle="start"]'), end: q('[data-handle="end"]') };
   let D = 0, s = 0, e = 0;
   let mode = 'trim';
-  let coverTime = item.cover ? item.cover.time : null; // null = primer fotograma
+  // null = primer fotograma. En un vídeo ya publicado la portada actual no tiene tiempo conocido (time -1)
+  let coverTime = item.cover && item.cover.time >= 0 ? item.cover.time : null;
+  let coverTouched = false;
+  const prevCover = item.cover ? item.cover.time : null;
+  // La portada solo vale si cae dentro del tramo; si el recorte la deja fuera se usa el primer fotograma del tramo
+  const coverInRange = () => (coverTime !== null && coverTime >= s - 0.01 && coverTime <= e + 0.01 ? coverTime : null);
+  const coverIsChanged = () => (prevCover !== null && prevCover < 0 ? coverTouched : coverInRange() !== prevCover);
   let raf = 0;
   let abort = null;
   const app = document.getElementById('create-post-modal');
+  if (remote) video.crossOrigin = 'anonymous'; // hace falta para copiar un fotograma a un lienzo
   video.src = url;
 
   const pct = (t) => (D ? (t / D) * 100 : 0);
@@ -8971,7 +8981,8 @@ function openVideoTrimmer(mediaId, opener) {
     const tooLong = changed && e - s > KX_VIDEO_MAX_COMPRESS_SECONDS;
     if (tooLong) q('[data-t-len]').textContent += ` · máx. ${KX_VIDEO_MAX_COMPRESS_SECONDS / 60} min`;
     // Portada: dentro del tramo elegido
-    const ct = coverTime === null ? null : Math.min(Math.max(coverTime, s), e);
+    const ct = coverInRange();
+    const lost = coverTime !== null && ct === null;
     const thumb = q('[data-cover-thumb]');
     thumb.hidden = ct === null && mode !== 'cover';
     thumb.style.left = `${pct(ct === null ? s : ct)}%`;
@@ -8981,9 +8992,13 @@ function openVideoTrimmer(mediaId, opener) {
     if (mode === 'cover') {
       q('[data-t-len]').textContent = ct === null ? 'Primer fotograma' : `Portada en ${kxTrimTime(ct)}`;
     }
-    q('[data-cover-reset]').hidden = mode !== 'cover' || coverTime === null;
-    const coverChanged = ct !== (item.cover ? item.cover.time : null);
-    applyBtn.disabled = !D || tooLong || !(changed || item.orig || coverChanged);
+    q('[data-cover-reset]').hidden = mode !== 'cover' || (coverTime === null && !(prevCover !== null && prevCover < 0 && !coverTouched));
+    q('[data-hint]').textContent = lost
+      ? 'La portada elegida queda fuera del recorte: se usará el primer fotograma del tramo.'
+      : (mode === 'cover'
+        ? 'Toca o arrastra por la línea de tiempo para elegir la imagen de la portada.'
+        : 'Arrastra los extremos para elegir el trozo que se publica.');
+    applyBtn.disabled = !D || tooLong || !(changed || item.orig || coverIsChanged());
   };
   const paintHead = () => {
     q('[data-playhead]').hidden = mode === 'cover';
@@ -9045,16 +9060,14 @@ function openVideoTrimmer(mediaId, opener) {
     el.dataset.mode = next;
     pause();
     el.querySelectorAll('[data-tab]').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === next)));
-    q('[data-hint]').textContent = next === 'cover'
-      ? 'Toca o arrastra por la línea de tiempo para elegir la imagen de la portada.'
-      : 'Arrastra los extremos para elegir el trozo que se publica.';
-    if (next === 'cover' && D) { try { video.currentTime = coverTime === null ? s : Math.min(Math.max(coverTime, s), e); } catch (_) { /* sin metadatos */ } }
+    if (next === 'cover' && D) { try { const ct = coverInRange(); video.currentTime = ct === null ? s : ct; } catch (_) { /* sin metadatos */ } }
     paint();
     paintHead();
   };
   el.querySelectorAll('[data-tab]').forEach(t => t.addEventListener('click', () => setMode(t.dataset.tab)));
 
   const moveCover = (t) => {
+    coverTouched = true;
     coverTime = Math.min(Math.max(t, s), e);
     pause();
     try { video.currentTime = coverTime; } catch (_) { /* sin metadatos */ }
@@ -9079,11 +9092,12 @@ function openVideoTrimmer(mediaId, opener) {
   });
   q('[data-cover-thumb]').addEventListener('keydown', (ev) => {
     const step = ev.shiftKey ? 1 : 0.1;
-    const cur = coverTime === null ? s : coverTime;
+    const cur = coverInRange() === null ? s : coverTime;
     if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') { ev.preventDefault(); moveCover(cur - step); }
     else if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') { ev.preventDefault(); moveCover(cur + step); }
   });
   q('[data-cover-reset]').addEventListener('click', () => {
+    coverTouched = true;
     coverTime = null;
     try { video.currentTime = s; } catch (_) { /* sin metadatos */ }
     paint();
@@ -9113,6 +9127,7 @@ function openVideoTrimmer(mediaId, opener) {
       const thumbs = document.createElement('video');
       thumbs.muted = true;
       thumbs.preload = 'auto';
+      if (remote) thumbs.crossOrigin = 'anonymous';
       thumbs.src = url;
       await new Promise((resolve, reject) => { thumbs.onloadeddata = resolve; thumbs.onerror = reject; setTimeout(reject, 8000); });
       const strip = q('[data-strip]');
@@ -9159,7 +9174,7 @@ function openVideoTrimmer(mediaId, opener) {
     try { video.pause(); } catch (_) { /* ya detenido */ }
     video.removeAttribute('src');
     video.load();
-    URL.revokeObjectURL(url);
+    if (!remote) URL.revokeObjectURL(url);
     el.remove();
     kxTrimmerEl = null;
     app?.removeAttribute('inert');
@@ -9180,8 +9195,8 @@ function openVideoTrimmer(mediaId, opener) {
   applyBtn.addEventListener('click', async () => {
     pause();
     const full = s <= 0.05 && e >= D - 0.05;
-    const coverNow = coverTime === null ? null : Math.min(Math.max(coverTime, s), e);
-    const coverChanged = coverNow !== (item.cover ? item.cover.time : null);
+    const coverNow = coverInRange();
+    const coverChanged = coverIsChanged();
     const busy = q('[data-busy]');
     const busyText = q('[data-busy-text]');
     busy.hidden = false;
@@ -9209,8 +9224,12 @@ function openVideoTrimmer(mediaId, opener) {
         if (coverFile) item.cover = { file: coverFile, time: coverNow };
         else delete item.cover;
       }
-      updatePreview();
-      updateSubmitButton();
+      if (remote) {
+        await remote.onSave(coverFile);
+      } else {
+        updatePreview();
+        updateSubmitButton();
+      }
       close();
     } catch (err) {
       if (!kxTrimmerEl) return;
@@ -9229,6 +9248,7 @@ function openVideoTrimmer(mediaId, opener) {
   app?.setAttribute('inert', '');
   document.body.appendChild(el);
   kxTrimmerEl = el;
+  if (remote) setMode('cover');
   q('[data-trim-cancel]').focus({ preventScroll: true });
 }
 
@@ -13301,6 +13321,7 @@ function enablePostEditMode(post, container) {
   const originalContent = post.content || '';
   const originalPhotos = post.photos || [];
   const originalVideos = kxPostVideos(post);
+  const videoPosters = new Map(kxPostMedia(post).filter(m => m.type === 'video' && m.poster).map(m => [m.url, m.poster]));
 
   // Create edit form
   const editFormHTML = `
@@ -13334,8 +13355,9 @@ function enablePostEditMode(post, container) {
           <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #111827;">Vídeos</label>
           ${originalVideos.map((url, index) => `
             <div class="edit-video-item" data-index="${index}" style="position: relative; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 8px;">
-              <video src="${url}" controls style="width: 100%; max-height: 300px; display: block;"></video>
+              <video src="${url}" ${videoPosters.get(url) ? `poster="${videoPosters.get(url)}"` : ''} controls style="width: 100%; max-height: 300px; display: block;"></video>
               <button type="button" class="remove-video-btn" data-url="${url}" style="position: absolute; top: 8px; right: 8px; padding: 6px 12px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;">Eliminar vídeo</button>
+              <button type="button" class="edit-cover-btn" data-url="${url}" style="position: absolute; top: 8px; left: 8px; padding: 6px 12px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;">Cambiar portada</button>
             </div>
           `).join('')}
         </div>
@@ -13367,10 +13389,10 @@ function enablePostEditMode(post, container) {
   if (footer) footer.style.display = 'none';
 
   // Setup edit form handlers
-  setupEditFormHandlers(postId, originalContent, originalPhotos, originalVideos);
+  setupEditFormHandlers(postId, originalContent, originalPhotos, originalVideos, videoPosters);
 }
 
-function setupEditFormHandlers(postId, originalContent, originalPhotos, originalVideos) {
+function setupEditFormHandlers(postId, originalContent, originalPhotos, originalVideos, videoPosters = new Map()) {
   const contentTextarea = document.getElementById('edit-post-content');
   const charCount = document.getElementById('edit-char-count');
   const cancelBtn = document.getElementById('cancel-edit-btn');
@@ -13381,6 +13403,8 @@ function setupEditFormHandlers(postId, originalContent, originalPhotos, original
   let currentPhotos = [...originalPhotos];
   let currentVideos = [...originalVideos];
   let newPhotos = [];
+  // Portadas cambiadas: url del vídeo → { file } nueva, o null para volver al primer fotograma. Se aplican al guardar
+  const coverChanges = new Map();
 
   // Character counter
   contentTextarea?.addEventListener('input', (e) => {
@@ -13418,6 +13442,27 @@ function setupEditFormHandlers(postId, originalContent, originalPhotos, original
       const index = parseInt(btn.dataset.index);
       currentPhotos.splice(index, 1);
       updatePhotosPreview();
+    });
+  });
+
+  // Cambiar la portada de un vídeo ya publicado
+  document.querySelectorAll('.edit-cover-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const url = btn.dataset.url;
+      const hasPoster = coverChanges.has(url) ? !!coverChanges.get(url) : videoPosters.has(url);
+      openVideoTrimmer(null, btn, {
+        remote: {
+          url,
+          poster: hasPoster ? 'current' : '',
+          onSave: (file) => {
+            coverChanges.set(url, file ? { file } : null);
+            const player = btn.closest('.edit-video-item')?.querySelector('video');
+            if (!player) return;
+            if (file) player.poster = URL.createObjectURL(file);
+            else player.removeAttribute('poster');
+          }
+        }
+      });
     });
   });
 
@@ -13478,11 +13523,11 @@ function setupEditFormHandlers(postId, originalContent, originalPhotos, original
 
   // Save button
   saveBtn?.addEventListener('click', async () => {
-    await savePostEdit(postId, contentTextarea?.value || '', currentPhotos, newPhotos, currentVideos);
+    await savePostEdit(postId, contentTextarea?.value || '', currentPhotos, newPhotos, currentVideos, coverChanges);
   });
 }
 
-async function savePostEdit(postId, content, existingPhotos, newPhotos, videos) {
+async function savePostEdit(postId, content, existingPhotos, newPhotos, videos, coverChanges = new Map()) {
   if (!currentUser) {
     showToast('Debes iniciar sesión para editar', 'error');
     return;
@@ -13522,6 +13567,33 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, videos) 
     existingPhotos.forEach(url => { if (!listed.has(url)) mediaList.push({ type: 'photo', url }); });
     videos.forEach(url => { if (!listed.has(url)) mediaList.push({ type: 'video', url }); });
     photoUrls.filter(url => !keptUrls.has(url)).forEach(url => mediaList.push({ type: 'photo', url }));
+
+    // Portadas de vídeo: las cambiadas se suben y las de vídeos o portadas sustituidas se borran
+    const deletePoster = async (posterUrl) => {
+      try {
+        const parts = posterUrl.split('/');
+        const path = decodeURIComponent(parts.slice(parts.indexOf('posts')).join('/').split('?')[0]);
+        await storage.ref(path).delete();
+      } catch (error) {
+        console.warn('Error deleting video cover from storage:', error);
+      }
+    };
+    for (const [url, change] of coverChanges) {
+      const entry = mediaList.find(m => m.type === 'video' && m.url === url);
+      if (!entry) continue;
+      const oldPoster = entry.poster;
+      if (change) {
+        const posterRef = storage.ref(`posts/${currentUser.uid}/${Date.now()}_portada_${change.file.name}`);
+        await kxStoragePut(posterRef, change.file);
+        entry.poster = await posterRef.getDownloadURL();
+      } else {
+        delete entry.poster;
+      }
+      if (oldPoster) await deletePoster(oldPoster);
+    }
+    for (const m of previous) {
+      if (m.type === 'video' && m.poster && !keptUrls.has(m.url)) await deletePoster(m.poster);
+    }
 
     // Determine post type
     let postType = 'text';
