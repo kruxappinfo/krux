@@ -114,6 +114,14 @@ service cloud.firestore {
           && request.resource.data.get('tags', []).size() <= 10;
       }
 
+      // ───────── Entrena: ejercicios favoritos (solo la referencia, nunca la ficha) ─────────
+      match /exercise_favorites/{exerciseId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && exerciseId.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
+          && request.resource.data.exerciseId == exerciseId;
+      }
+
       // ───────── Test Definitions ─────────
       match /test_definitions/{testId} {
         allow read: if isOwner(userId);
@@ -242,6 +250,37 @@ service cloud.firestore {
                     (isAuthenticated() && request.auth.token.email == 'krux.app.info@gmail.com');
       // Permitir escribir solo al super admin
       allow write: if isAuthenticated() && request.auth.token.email == 'krux.app.info@gmail.com';
+    }
+
+    // ───────── Entrena: catálogo global de ejercicios ─────────
+    // Cualquier usuario con sesión lee las fichas publicadas; solo admin y super-admin las crean,
+    // editan o publican. Las colecciones de categorías y material son de solo lectura para usuarios.
+    match /exercises/{exerciseId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.status == 'published' || isAdmin() || isSuperAdmin());
+      allow create, update: if isAuthenticated() && (isAdmin() || isSuperAdmin())
+        && exerciseId.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
+        && request.resource.data.id == exerciseId
+        && isString(request.resource.data.name, 100)
+        && request.resource.data.status in ['draft', 'published', 'archived']
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.contentVersion is int
+        && request.resource.data.contentVersion >= 1
+        && isString(request.resource.data.primaryCategoryId, 40)
+        && request.resource.data.review.status in ['pending', 'reviewed']
+        && request.resource.data.instructions.executionSteps is list
+        && request.resource.data.prescriptionSchema is list;
+      allow delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    match /exercise_categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    match /equipment/{equipmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdmin() || isSuperAdmin());
     }
 
     // Spotter requests collection
