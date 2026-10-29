@@ -28048,3 +28048,28 @@ body.kx-sheet-open #feed-view .feed-container {
 .kx-trim-tabs[hidden] {
   display: none;
 }
+
+
+/* Tirar para recargar el feed */
+.kx-ptr {
+  position: absolute;
+  left: 50%;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--kx-surface, #fff);
+  color: var(--kx-primary, #153e35);
+  box-shadow: 0 2px 10px rgba(21, 62, 53, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -52px);
+}
+.kx-ptr svg { width: 22px; height: 22px; }
+.kx-ptr.is-ready { background: var(--kx-primary, #153e35); color: #fff; }
+.kx-ptr.is-spinning svg { animation: kxPtrSpin .8s linear infinite; }
+@keyframes kxPtrSpin { to { transform: rotate(360deg); } }
+@media (min-width: 1025px) { .kx-ptr { display: none; } }

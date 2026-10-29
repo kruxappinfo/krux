@@ -4970,9 +4970,94 @@ function initImageLightbox() {
   });
 }
 
+// Tirar hacia abajo desde arriba del todo recarga el feed (solo táctil)
+function initFeedPullToRefresh() {
+  const container = document.getElementById('feed-container');
+  const view = document.getElementById('feed-view');
+  if (!container || !view || container._kxPtr) return;
+  container._kxPtr = true;
+
+  if (getComputedStyle(view).position === 'static') view.style.position = 'relative';
+
+  const indicator = document.createElement('div');
+  indicator.className = 'kx-ptr';
+  indicator.setAttribute('aria-hidden', 'true');
+  indicator.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>';
+  view.appendChild(indicator);
+
+  const THRESHOLD = 70, MAX = 110;
+  let startY = 0, startX = 0, pull = 0, tracking = false, refreshing = false;
+
+  const place = (y, animate) => {
+    indicator.style.transition = animate ? 'transform .25s ease, opacity .2s ease' : 'none';
+    indicator.style.top = container.offsetTop + 'px';
+    indicator.style.transform = `translate(-50%, ${y - 52}px)`;
+    indicator.style.opacity = y > 4 ? String(Math.min(1, y / 40)) : '0';
+  };
+  const setContent = (y, animate) => {
+    container.style.transition = animate ? 'transform .25s ease' : 'none';
+    container.style.transform = y ? `translateY(${y}px)` : '';
+  };
+  const reset = () => {
+    pull = 0;
+    indicator.classList.remove('is-ready', 'is-spinning');
+    indicator.firstElementChild.style.transform = '';
+    setContent(0, true);
+    place(0, true);
+  };
+
+  container.addEventListener('touchstart', (e) => {
+    if (refreshing || e.touches.length !== 1 || container.scrollTop > 0 ||
+        document.body.classList.contains('kx-sheet-open')) { tracking = false; return; }
+    startY = e.touches[0].clientY;
+    startX = e.touches[0].clientX;
+    tracking = true;
+    pull = 0;
+  }, { passive: true });
+
+  container.addEventListener('touchmove', (e) => {
+    if (!tracking) return;
+    const dy = e.touches[0].clientY - startY;
+    const dx = e.touches[0].clientX - startX;
+    if (container.scrollTop > 0 || Math.abs(dx) > Math.abs(dy)) {
+      if (pull) reset();
+      tracking = false;
+      return;
+    }
+    if (dy <= 0) { if (pull) reset(); return; }
+    if (e.cancelable) e.preventDefault();
+    pull = Math.min(MAX, dy * 0.5);
+    setContent(pull, false);
+    place(pull, false);
+    indicator.classList.toggle('is-ready', pull >= THRESHOLD);
+    indicator.firstElementChild.style.transform = `rotate(${pull * 3}deg)`;
+  }, { passive: false });
+
+  const end = async () => {
+    if (!tracking) return;
+    tracking = false;
+    if (pull < THRESHOLD) { reset(); return; }
+    refreshing = true;
+    indicator.classList.add('is-spinning');
+    indicator.firstElementChild.style.transform = '';
+    setContent(56, true);
+    place(56, true);
+    try {
+      await Promise.all([loadFeed({ silent: true }), new Promise(r => setTimeout(r, 600))]);
+    } catch (_) {
+      if (typeof showToast === 'function') showToast('No se pudo actualizar', 'error');
+    }
+    refreshing = false;
+    reset();
+  };
+  container.addEventListener('touchend', end);
+  container.addEventListener('touchcancel', end);
+}
+
 function initFeed() {
   // Load feed from Firebase (will fallback to mock if empty)
   loadFeed();
+  initFeedPullToRefresh();
 
   // Initialize feed tabs
   initFeedTabs();
@@ -10369,12 +10454,14 @@ function showEmptyFeedState(container) {
 }
 
 // Load feed from Firebase - Timeline de seguidos
-async function loadFeed() {
+async function loadFeed(opts) {
   const container = document.getElementById('feed-container');
   if (!container) return;
+  // silent: recarga por gesto; la lista sigue visible hasta que llegan las publicaciones nuevas
+  const silent = !!(opts && opts.silent);
 
   try {
-    container.innerHTML = '<div class="loading-spinner">Cargando publicaciones...</div>';
+    if (!silent) container.innerHTML = '<div class="loading-spinner">Cargando publicaciones...</div>';
 
     // Get the list of users the current user follows
     let followingIds = [];
@@ -10393,7 +10480,7 @@ async function loadFeed() {
       followingIds.push(currentUser.uid);
     }
 
-    container.innerHTML = '';
+    if (!silent) container.innerHTML = '';
 
     // Vista previa local sin sesión: publicaciones de demostración (ver isLocalDevPreview en auth.js)
     if (!currentUser && typeof isLocalDevPreview === 'function' && isLocalDevPreview()) {
@@ -10480,6 +10567,7 @@ async function loadFeed() {
       return;
     }
 
+    if (silent) container.innerHTML = '';
     allPosts.forEach(post => {
       renderPostCard(post, container);
     });
@@ -10489,6 +10577,7 @@ async function loadFeed() {
 
   } catch (error) {
     console.error('Error loading feed:', error);
+    if (silent) throw error;
 
     container.innerHTML = `
         <div class="feed-state feed-state-error">
