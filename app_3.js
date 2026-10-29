@@ -8861,6 +8861,276 @@ function confirmAscentSelection() {
   updateSubmitButton();
 }
 
+// ================== RECORTAR VÍDEO ==================
+// Se graba el tramo elegido reproduciéndolo (igual que la compresión): hace falta MediaRecorder con MP4.
+// El archivo recortado sustituye al del editor y se guarda el original en `orig` para poder reajustar el recorte.
+const KX_TRIM_MIN_SECONDS = 1;
+const KX_TRIM_FRAMES = 8;
+let kxTrimmerEl = null;
+
+function kxCanTrimVideo() {
+  return !!kxVideoRecorderMime() && !!(window.AudioContext || window.webkitAudioContext);
+}
+
+function kxTrimTime(seconds) {
+  const t = Math.max(0, seconds);
+  const m = Math.floor(t / 60);
+  const sec = t - m * 60;
+  return `${m}:${sec < 10 ? '0' : ''}${sec.toFixed(1)}`;
+}
+
+function openVideoTrimmer(mediaId, opener) {
+  const item = postData.media.find(m => m.id === mediaId);
+  if (!item || item.kind !== 'video' || kxTrimmerEl) return;
+  const source = item.orig || item.file; // siempre se recorta desde el original
+  const url = URL.createObjectURL(source);
+
+  const el = document.createElement('div');
+  el.className = 'kx-trim';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', 'Recortar vídeo');
+  el.innerHTML = `
+    <div class="kx-trim-head">
+      <button type="button" class="kx-trim-cancel" data-trim-cancel>Cancelar</button>
+      <h2>Recortar vídeo</h2>
+      <button type="button" class="kx-trim-apply" data-trim-apply disabled>Aplicar</button>
+    </div>
+    <div class="kx-trim-stage">
+      <video playsinline preload="auto" aria-label="Vista previa del vídeo"></video>
+      <button type="button" class="kx-trim-play" aria-label="Reproducir">
+        <svg class="kx-trim-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+        <svg class="kx-trim-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>
+      </button>
+    </div>
+    <div class="kx-trim-panel">
+      <div class="kx-trim-times" aria-live="polite">
+        <span data-t-start>0:00.0</span>
+        <strong data-t-len>Cargando…</strong>
+        <span data-t-end>0:00.0</span>
+      </div>
+      <div class="kx-trim-track" data-track>
+        <div class="kx-trim-strip" data-strip></div>
+        <div class="kx-trim-shade is-before" data-shade-a></div>
+        <div class="kx-trim-shade is-after" data-shade-b></div>
+        <div class="kx-trim-window" data-window></div>
+        <div class="kx-trim-playhead" data-playhead></div>
+        <button type="button" class="kx-trim-handle is-start" data-handle="start" role="slider" aria-label="Inicio del vídeo"
+          aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><span></span></button>
+        <button type="button" class="kx-trim-handle is-end" data-handle="end" role="slider" aria-label="Final del vídeo"
+          aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><span></span></button>
+      </div>
+      <p class="kx-trim-hint">Arrastra los extremos para elegir el trozo que se publica.</p>
+    </div>
+    <div class="kx-trim-busy" data-busy hidden>
+      <div class="kx-trim-spinner" aria-hidden="true"></div>
+      <p data-busy-text role="status">Recortando…</p>
+      <button type="button" class="kx-trim-cancel" data-busy-cancel>Cancelar</button>
+    </div>`;
+
+  const q = (sel) => el.querySelector(sel);
+  const video = q('video');
+  const track = q('[data-track]');
+  const applyBtn = q('[data-trim-apply]');
+  const playBtn = q('.kx-trim-play');
+  const handles = { start: q('[data-handle="start"]'), end: q('[data-handle="end"]') };
+  let D = 0, s = 0, e = 0;
+  let raf = 0;
+  let abort = null;
+  const app = document.getElementById('create-post-modal');
+  video.src = url;
+
+  const pct = (t) => (D ? (t / D) * 100 : 0);
+  const paint = () => {
+    q('[data-t-start]').textContent = kxTrimTime(s);
+    q('[data-t-end]').textContent = kxTrimTime(e);
+    q('[data-t-len]').textContent = `${kxTrimTime(e - s)} s`;
+    q('[data-window]').style.cssText = `left:${pct(s)}%;width:${pct(e - s)}%`;
+    q('[data-shade-a]').style.width = `${pct(s)}%`;
+    q('[data-shade-b]').style.width = `${100 - pct(e)}%`;
+    handles.start.style.left = `${pct(s)}%`;
+    handles.end.style.left = `${pct(e)}%`;
+    [['start', s], ['end', e]].forEach(([k, v]) => {
+      handles[k].setAttribute('aria-valuemax', String(Math.round(D * 10) / 10));
+      handles[k].setAttribute('aria-valuenow', String(Math.round(v * 10) / 10));
+      handles[k].setAttribute('aria-valuetext', kxTrimTime(v));
+    });
+    const changed = s > 0.05 || e < D - 0.05;
+    const tooLong = changed && e - s > KX_VIDEO_MAX_COMPRESS_SECONDS;
+    if (tooLong) q('[data-t-len]').textContent += ` · máx. ${KX_VIDEO_MAX_COMPRESS_SECONDS / 60} min`;
+    applyBtn.disabled = !D || tooLong || !(changed || item.orig);
+  };
+  const paintHead = () => {
+    q('[data-playhead]').style.left = `${pct(Math.min(Math.max(video.currentTime, s), e))}%`;
+  };
+  const setPlaying = (on) => {
+    el.classList.toggle('is-playing', on);
+    playBtn.setAttribute('aria-label', on ? 'Pausar' : 'Reproducir');
+  };
+  const tick = () => {
+    if (video.currentTime >= e - 0.02) { video.pause(); video.currentTime = s; setPlaying(false); paintHead(); return; }
+    paintHead();
+    raf = requestAnimationFrame(tick);
+  };
+  const play = () => {
+    if (video.currentTime < s || video.currentTime >= e - 0.05) video.currentTime = s;
+    video.play().then(() => { setPlaying(true); cancelAnimationFrame(raf); raf = requestAnimationFrame(tick); }).catch(() => {});
+  };
+  const pause = () => { video.pause(); cancelAnimationFrame(raf); setPlaying(false); };
+  playBtn.addEventListener('click', () => (video.paused ? play() : pause()));
+  q('.kx-trim-stage').addEventListener('click', (ev) => { if (!ev.target.closest('.kx-trim-play')) (video.paused ? play() : pause()); });
+
+  // Arrastre de los extremos
+  const move = (which, t) => {
+    if (which === 'start') s = Math.min(Math.max(0, t), Math.max(0, e - KX_TRIM_MIN_SECONDS));
+    else e = Math.max(Math.min(D, t), Math.min(D, s + KX_TRIM_MIN_SECONDS));
+    pause();
+    try { video.currentTime = which === 'start' ? s : Math.max(s, e - 0.05); } catch (_) { /* sin metadatos aún */ }
+    paint();
+    paintHead();
+  };
+  Object.entries(handles).forEach(([which, h]) => {
+    h.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      try { h.setPointerCapture(ev.pointerId); } catch (_) { /* puntero ya liberado */ }
+      h.classList.add('is-dragging');
+      const rect = track.getBoundingClientRect();
+      const onMove = (m) => move(which, ((m.clientX - rect.left) / rect.width) * D);
+      const onUp = () => {
+        h.classList.remove('is-dragging');
+        h.removeEventListener('pointermove', onMove);
+        h.removeEventListener('pointerup', onUp);
+        h.removeEventListener('pointercancel', onUp);
+      };
+      h.addEventListener('pointermove', onMove);
+      h.addEventListener('pointerup', onUp);
+      h.addEventListener('pointercancel', onUp);
+    });
+    h.addEventListener('keydown', (ev) => {
+      const step = ev.shiftKey ? 1 : 0.1;
+      if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') { ev.preventDefault(); move(which, (which === 'start' ? s : e) - step); }
+      else if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') { ev.preventDefault(); move(which, (which === 'start' ? s : e) + step); }
+    });
+  });
+
+  // Miniaturas a lo largo de la línea de tiempo (si falla, la barra queda lisa)
+  const buildStrip = async () => {
+    try {
+      const thumbs = document.createElement('video');
+      thumbs.muted = true;
+      thumbs.preload = 'auto';
+      thumbs.src = url;
+      await new Promise((resolve, reject) => { thumbs.onloadeddata = resolve; thumbs.onerror = reject; setTimeout(reject, 8000); });
+      const strip = q('[data-strip]');
+      const ratio = thumbs.videoWidth / thumbs.videoHeight || 1;
+      const th = 96;
+      const canvas = document.createElement('canvas');
+      canvas.height = th;
+      canvas.width = Math.round(th * ratio);
+      const g = canvas.getContext('2d');
+      for (let i = 0; i < KX_TRIM_FRAMES; i++) {
+        if (!kxTrimmerEl) return;
+        await new Promise((resolve) => {
+          thumbs.onseeked = resolve;
+          thumbs.currentTime = Math.min(D - 0.05, (D * (i + 0.5)) / KX_TRIM_FRAMES);
+          setTimeout(resolve, 1500);
+        });
+        g.drawImage(thumbs, 0, 0, canvas.width, th);
+        const tile = document.createElement('span');
+        tile.style.backgroundImage = `url(${canvas.toDataURL('image/jpeg', 0.6)})`;
+        strip.appendChild(tile);
+      }
+      thumbs.removeAttribute('src');
+      thumbs.load();
+    } catch (_) { /* sin miniaturas */ }
+  };
+
+  video.addEventListener('loadedmetadata', () => {
+    D = video.duration;
+    if (!Number.isFinite(D) || D <= 0) return;
+    // Un recorte previo se muestra sobre el original: se reabre con ese tramo
+    s = item.trim ? item.trim.start : 0;
+    e = item.trim ? Math.min(item.trim.end, D) : D;
+    paint();
+    paintHead();
+    buildStrip();
+  });
+  video.addEventListener('error', () => { q('[data-t-len]').textContent = 'No se pudo leer el vídeo'; });
+  video.addEventListener('ended', () => { video.currentTime = s; setPlaying(false); });
+
+  const close = () => {
+    cancelAnimationFrame(raf);
+    abort?.abort();
+    document.removeEventListener('keydown', onKey, true);
+    try { video.pause(); } catch (_) { /* ya detenido */ }
+    video.removeAttribute('src');
+    video.load();
+    URL.revokeObjectURL(url);
+    el.remove();
+    kxTrimmerEl = null;
+    app?.removeAttribute('inert');
+    if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+  };
+  const onKey = (ev) => {
+    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); if (abort) abort.abort(); else close(); return; }
+    if (ev.key === 'Tab') {
+      const focusables = [...el.querySelectorAll('button:not([disabled])')].filter(b => b.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
+  };
+
+  q('[data-trim-cancel]').addEventListener('click', close);
+  applyBtn.addEventListener('click', async () => {
+    pause();
+    const full = s <= 0.05 && e >= D - 0.05;
+    if (full) {
+      // Recorte completo = volver al original
+      if (item.orig) { item.file = item.orig; delete item.orig; delete item.trim; updatePreview(); updateSubmitButton(); }
+      close();
+      return;
+    }
+    const busy = q('[data-busy]');
+    const busyText = q('[data-busy-text]');
+    busy.hidden = false;
+    busyText.textContent = 'Recortando… 0%';
+    abort = new AbortController();
+    q('[data-busy-cancel]').focus({ preventScroll: true });
+    // El audio solo arranca si el contexto se crea y se activa dentro del toque (iOS lo exige): se hace aquí, antes de esperar nada
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AC();
+    audioCtx.resume().catch(() => {});
+    try {
+      const trimmed = await kxPrepareVideoForUpload(source, (p) => { busyText.textContent = `Recortando… ${p}%`; }, { trim: { start: s, end: e }, signal: abort.signal, audioCtx });
+      if (!kxTrimmerEl) return;
+      item.orig = source;
+      item.trim = { start: s, end: e };
+      item.file = trimmed;
+      updatePreview();
+      updateSubmitButton();
+      close();
+    } catch (err) {
+      if (!kxTrimmerEl) return;
+      abort = null;
+      busy.hidden = true;
+      if (err?.name !== 'AbortError') {
+        console.error('Error recortando el vídeo:', err);
+        showToast('No se pudo recortar el vídeo. Inténtalo de nuevo', 'error');
+      }
+      applyBtn.focus({ preventScroll: true });
+    }
+  });
+  q('[data-busy-cancel]').addEventListener('click', () => abort?.abort());
+
+  document.addEventListener('keydown', onKey, true);
+  app?.setAttribute('inert', '');
+  document.body.appendChild(el);
+  kxTrimmerEl = el;
+  q('[data-trim-cancel]').focus({ preventScroll: true });
+}
+
 // ---- Sugerencia de ascensión al añadir fotos o vídeos ----
 // Si la publicación lleva fotos o vídeos y ninguna ascensión, se proponen las de los últimos días
 // para añadirlas con un toque (la foto suele ser de lo que acabas de escalar).
@@ -9040,7 +9310,7 @@ function cpInitMediaReorder(grid) {
 
   grid.addEventListener('keydown', (e) => {
     const tile = e.target.closest('.cp-media-tile');
-    if (!tile || e.target.closest('.remove-preview-btn')) return;
+    if (!tile || e.target.closest('.remove-preview-btn, .cp-media-trim')) return;
     const index = tiles().indexOf(tile);
     const n = postData.media.length;
     const m = postData.media[index];
@@ -9082,7 +9352,7 @@ function cpInitMediaReorder(grid) {
 
   grid.addEventListener('pointerdown', (e) => {
     const tile = e.target.closest('.cp-media-tile');
-    if (!tile || e.target.closest('.remove-preview-btn')) return;
+    if (!tile || e.target.closest('.remove-preview-btn, .cp-media-trim')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (postData.media.length < 2) return;
     drag = { tile, x: e.clientX, y: e.clientY, active: false, touch: e.pointerType !== 'mouse', timer: null, ghost: null, dx: 0, dy: 0 };
@@ -9180,6 +9450,7 @@ function cpInitMediaReorder(grid) {
   }
 }
 
+const CP_TRIM_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>';
 const CP_REMOVE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
 
 function updatePreview() {
@@ -9207,6 +9478,7 @@ function updatePreview() {
                <span class="cp-media-duration" hidden></span>`
             : `<img src="${url}" alt="" draggable="false">`}
           <button type="button" class="remove-preview-btn" data-type="media" data-index="${index}" aria-label="Quitar ${name.toLowerCase()} ${index + 1}">${CP_REMOVE_ICON}</button>
+          ${m.kind === 'video' && kxCanTrimVideo() ? `<button type="button" class="cp-media-trim${m.orig ? ' is-trimmed' : ''}" data-trim-id="${m.id}" aria-label="Recortar vídeo ${index + 1}${m.orig ? ' (ya recortado)' : ''}">${CP_TRIM_ICON}<span>${m.orig ? 'Recortado' : 'Recortar'}</span></button>` : ''}
         </div>`;
     });
     const plus = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
@@ -9260,6 +9532,10 @@ function updatePreview() {
     preview.querySelector('[data-suggest-dismiss]')?.addEventListener('click', () => {
       postData.suggestDismissed = true;
       updatePreview();
+    });
+
+    preview.querySelectorAll('[data-trim-id]').forEach(btn => {
+      btn.addEventListener('click', () => openVideoTrimmer(Number(btn.dataset.trimId), btn));
     });
 
     preview.querySelector('[data-add="photos"]')?.addEventListener('click', () => {
@@ -11911,9 +12187,14 @@ function kxVideoRecorderMime() {
 
 // Reduce el vídeo a como máximo 720p/1280 px y ~2,5 Mbps. Se graba reproduciéndolo, así que dura
 // lo que dura el vídeo. Ante cualquier fallo, límite o poco ahorro devuelve el archivo original.
-async function kxPrepareVideoForUpload(file, onProgress) {
+// Con `opts.trim` ({ start, end } en segundos) graba solo ese tramo y no devuelve nunca el original:
+// si no puede recortar lanza un error (publicar el vídeo entero sería peor que avisar).
+// `opts.signal` permite cancelar.
+async function kxPrepareVideoForUpload(file, onProgress, opts = {}) {
+  const trim = opts.trim || null;
   const mime = kxVideoRecorderMime();
-  if (!file || !mime || file.size < KX_VIDEO_MIN_COMPRESS_BYTES) return file;
+  if (trim && (!file || !mime)) throw new Error('Este navegador no puede recortar vídeos');
+  if (!file || !mime || (!trim && file.size < KX_VIDEO_MIN_COMPRESS_BYTES)) return file;
   const url = URL.createObjectURL(file);
   const video = document.createElement('video');
   let audioCtx = null;
@@ -11937,14 +12218,18 @@ async function kxPrepareVideoForUpload(file, onProgress) {
       video.onerror = () => reject(new Error('No se pudo leer el vídeo'));
       setTimeout(() => reject(new Error('Tiempo agotado leyendo el vídeo')), 10000);
     });
-    const duration = video.duration;
-    if (!Number.isFinite(duration) || duration <= 0 || duration > KX_VIDEO_MAX_COMPRESS_SECONDS) return file;
+    const total = video.duration;
+    const from = trim ? Math.max(0, trim.start) : 0;
+    const to = trim ? Math.min(trim.end, total) : total;
+    const duration = to - from; // lo que se graba
+    const bail = (reason) => { if (trim) throw new Error(reason); return file; };
+    if (!Number.isFinite(total) || !(duration > 0) || duration > KX_VIDEO_MAX_COMPRESS_SECONDS) return bail('Tramo no válido');
     const w = video.videoWidth;
     const h = video.videoHeight;
-    if (!w || !h) return file;
+    if (!w || !h) return bail('No se pudo leer el vídeo');
     const scale = Math.min(1, KX_VIDEO_MAX_SIDE / Math.max(w, h));
     const bitrate = (file.size * 8) / duration;
-    if (scale === 1 && bitrate < KX_VIDEO_BITRATE * 1.4) return file; // ya es ligero
+    if (!trim && scale === 1 && bitrate < KX_VIDEO_BITRATE * 1.4) return file; // ya es ligero
     const cw = Math.max(2, Math.round((w * scale) / 2) * 2);
     const ch = Math.max(2, Math.round((h * scale) / 2) * 2);
     const canvas = document.createElement('canvas');
@@ -11955,38 +12240,50 @@ async function kxPrepareVideoForUpload(file, onProgress) {
     // El audio pasa por WebAudio: funciona también donde video.captureStream no existe (Safari)
     const AC = window.AudioContext || window.webkitAudioContext;
     if (AC) {
-      audioCtx = new AC();
+      audioCtx = opts.audioCtx || new AC(); // con recorte llega ya creado y activado dentro del toque del usuario
       const dest = audioCtx.createMediaStreamDestination();
       audioCtx.createMediaElementSource(video).connect(dest);
       dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
       // Sin gesto del usuario el navegador deja el audio en pausa y el vídeo saldría mudo: se sube el original
       if (audioCtx.state !== 'running') {
         await Promise.race([audioCtx.resume().catch(() => {}), new Promise(r => setTimeout(r, 600))]);
-        if (audioCtx.state !== 'running') return file;
+        if (audioCtx.state !== 'running') return bail('Audio no disponible');
       }
     }
     recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: KX_VIDEO_BITRATE, audioBitsPerSecond: 128000 });
     const chunks = [];
     recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    const stopRecording = () => { try { recorder.stop(); } catch (_) { /* ya detenido */ } };
     const finished = new Promise((resolve, reject) => {
       recorder.onstop = resolve;
       recorder.onerror = () => reject(new Error('Error al grabar el vídeo'));
-      video.onended = () => { try { recorder.stop(); } catch (_) { resolve(); } };
+      video.onended = stopRecording;
       // Red de seguridad: si la pestaña se pausa o el vídeo se atasca, se sube el original
       setTimeout(() => reject(new Error('Tiempo agotado optimizando el vídeo')), duration * 1500 + 15000);
+      opts.signal?.addEventListener('abort', () => reject(new DOMException('Cancelado', 'AbortError')));
     });
+    if (trim && from > 0) {
+      // Se coloca el vídeo al inicio del tramo antes de grabar
+      await new Promise((resolve) => {
+        video.addEventListener('seeked', resolve, { once: true });
+        video.currentTime = from;
+        setTimeout(resolve, 3000);
+      });
+    }
     recorder.start(1000);
     await video.play();
     timer = setInterval(() => {
       ctx.drawImage(video, 0, 0, cw, ch);
-      if (onProgress) onProgress(Math.min(99, Math.round((video.currentTime / duration) * 100)));
+      if (onProgress) onProgress(Math.min(99, Math.round(((video.currentTime - from) / duration) * 100)));
+      if (trim && video.currentTime >= to - 0.03) stopRecording();
     }, 1000 / 30);
     await finished;
     clearInterval(timer);
     const blob = new Blob(chunks, { type: 'video/mp4' });
-    if (blob.size === 0 || blob.size > file.size * 0.75) return file;
+    if (blob.size === 0 || (!trim && blob.size > file.size * 0.75)) return bail('No se pudo grabar el tramo');
     return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.mp4', { type: 'video/mp4' });
   } catch (e) {
+    if (trim) throw e;
     console.warn('No se pudo optimizar el vídeo, se sube el original:', e);
     return file;
   } finally {

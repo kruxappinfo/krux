@@ -27479,3 +27479,319 @@ body.kx-sheet-open #feed-view .feed-container {
   outline: 2px solid var(--kx-primary);
   outline-offset: 2px;
 }
+
+/* ================== RECORTAR VÍDEO ================== */
+.cp-media-trim {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 11px 0 9px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: rgba(32, 41, 35, 0.78);
+  color: #fff;
+  font-family: inherit;
+  font-size: var(--kx-fs-caption);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cp-media-trim.is-trimmed {
+  background: var(--kx-primary);
+}
+
+.cp-media-trim:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.kx-trim {
+  position: fixed;
+  inset: 0;
+  z-index: 10100;
+  display: flex;
+  flex-direction: column;
+  background: rgba(14, 20, 17, 0.98);
+  color: #fff;
+  animation: kxFade 0.2s ease-out;
+}
+
+.kx-trim-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+}
+
+.kx-trim-head h2 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+.kx-trim-cancel,
+.kx-trim-apply {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.kx-trim-cancel {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.kx-trim-apply {
+  background: #fff;
+  color: var(--kx-primary);
+}
+
+.kx-trim-apply:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.kx-trim-stage {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+.kx-trim-stage video {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.kx-trim-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 50%;
+  background: rgba(21, 32, 27, 0.55);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.2s var(--kx-ease);
+}
+
+.kx-trim-play svg {
+  width: 26px;
+  height: 26px;
+}
+
+.kx-trim-icon-play { margin-left: 3px; }
+.kx-trim-icon-pause,
+.kx-trim.is-playing .kx-trim-icon-play { display: none; }
+.kx-trim.is-playing .kx-trim-icon-pause { display: block; }
+.kx-trim.is-playing .kx-trim-play { opacity: 0; }
+.kx-trim.is-playing .kx-trim-stage:hover .kx-trim-play,
+.kx-trim.is-playing .kx-trim-play:focus-visible { opacity: 1; }
+
+.kx-trim-panel {
+  padding: 8px 0 calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+.kx-trim-times {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 22px 10px;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.kx-trim-times strong {
+  color: #fff;
+  font-size: 0.9375rem;
+}
+
+/* Línea de tiempo: miniaturas, tramo elegido y dos extremos de 44 px de zona táctil */
+.kx-trim-track {
+  position: relative;
+  height: 56px;
+  margin: 0 22px;
+  touch-action: none;
+}
+
+.kx-trim-strip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.kx-trim-strip span {
+  flex: 1 1 0;
+  background-position: center;
+  background-size: cover;
+}
+
+.kx-trim-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(14, 20, 17, 0.72);
+  pointer-events: none;
+}
+
+.kx-trim-shade.is-before { left: 0; border-radius: 10px 0 0 10px; }
+.kx-trim-shade.is-after { right: 0; border-radius: 0 10px 10px 0; }
+
+.kx-trim-window {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  border-top: 3px solid #fff;
+  border-bottom: 3px solid #fff;
+  pointer-events: none;
+}
+
+.kx-trim-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(14, 20, 17, 0.5);
+  pointer-events: none;
+}
+
+.kx-trim-handle {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 44px;
+  margin: 0 0 0 -22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.kx-trim-handle span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  background: #fff;
+}
+
+.kx-trim-handle.is-start span { right: 22px; border-radius: 8px 0 0 8px; }
+.kx-trim-handle.is-end span { left: 22px; border-radius: 0 8px 8px 0; }
+
+.kx-trim-handle span::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 20px;
+  margin: -10px 0 0 -1.5px;
+  border-radius: 2px;
+  background: var(--kx-primary);
+}
+
+.kx-trim-handle.is-dragging span { background: var(--kx-sage); }
+
+.kx-trim-handle:focus-visible {
+  outline: none;
+}
+
+.kx-trim-handle:focus-visible span {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.kx-trim-hint {
+  margin: 12px 22px 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+.kx-trim-busy {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: rgba(14, 20, 17, 0.88);
+}
+
+.kx-trim-busy[hidden] {
+  display: none;
+}
+
+.kx-trim-busy p {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.kx-trim-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: kxSpin 0.8s linear infinite;
+}
+
+.kx-trim button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+@media (min-width: 700px) {
+  .kx-trim-track,
+  .kx-trim-times,
+  .kx-trim-hint {
+    width: 100%;
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .kx-trim-times { padding-left: 0; padding-right: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kx-trim,
+  .kx-trim-spinner { animation-duration: 0.01ms; }
+}
