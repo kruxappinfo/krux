@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=56" />
+  <link rel="stylesheet" href="./app_2.css?v=57" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -97,7 +97,7 @@
 
   <script defer src="./maplibre-map.js?v=14"></script>
 
-  <script defer src="./app_3.js?v=56"></script>
+  <script defer src="./app_3.js?v=57"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -2332,7 +2332,7 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
           </button>
-          <h3 id="ascent-picker-title">Elegir ascensión</h3>
+          <h3 id="ascent-picker-title">Elegir ascensiones</h3>
           <span class="cp-picker-spacer" aria-hidden="true"></span>
         </div>
         <div class="cp-picker-tools">
@@ -2344,6 +2344,9 @@
           </label>
         </div>
         <div class="cp-picker-list" id="ascent-picker-list" aria-live="polite"></div>
+        <div class="cp-picker-footer">
+          <button type="button" class="cp-picker-done" id="ascent-picker-done" disabled>Elige una o varias</button>
+        </div>
       </div>
     </div>
   </div>
