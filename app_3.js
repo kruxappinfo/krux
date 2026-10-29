@@ -17382,6 +17382,14 @@ const KRUX_TRAIN_DEMO = window.kruxTrainData;
 // Sesiones realizadas (se cargan de la cuenta al iniciar sesión)
 window.kruxTrainLog = window.kruxTrainLog || [];
 
+// Interruptor de la arquitectura de múltiples planes. Desactivado por defecto: hasta que se desplieguen
+// las reglas y se autorice la migración, Entrena sigue usando users/{uid}/training_plan/active.
+// Para probar en local o en el emulador: ?multiplan=1 en la URL o localStorage 'krux.multiplan' = '1'.
+window.KRUX_MULTIPLAN = (() => {
+  try { return new URLSearchParams(location.search).get('multiplan') === '1' || localStorage.getItem('krux.multiplan') === '1'; }
+  catch (_) { return false; }
+})();
+
 // ============================================
 // PERSISTENCIA DE ENTRENA (Firestore)
 // ============================================
@@ -17467,9 +17475,286 @@ const KruxTrainStore = (() => {
     }
   }
 
+
+  // ══════════════════════════════════════════════════════════════════
+  // MÚLTIPLES PLANES  (solo con window.KRUX_MULTIPLAN)
+  //   training_plans/{planId}        un documento por plan (modelo: train-plans.js)
+  //   training_state/current         { activePlanId } → el plan activo es un puntero
+  // Todo cambio que afecta a varios documentos va en una transacción: nunca queda un plan archivado
+  // apuntado como activo, ni dos activos. Ninguna operación escribe en training_plan/active.
+  // ══════════════════════════════════════════════════════════════════
+  const MULTI = () => !!window.KRUX_MULTIPLAN && !!window.KruxPlans;
+  const PL = () => window.KruxPlans;
+  const plansCol = () => userRef().collection('training_plans');
+  const stateRef = () => userRef().collection('training_state').doc('current');
+  const legacyRef = () => userRef().collection('training_plan').doc('active');
+  const stamp = () => firebase.firestore.FieldValue.serverTimestamp();
+  const kxError = (code, message) => Object.assign(new Error(message || code), { code });
+  const fromDoc = d => ({ id: d.id, ...d.data() });
+
+  function publish(plans, state) {
+    window.kruxPlans = plans;
+    window.kruxPlanState = state || { activePlanId: null };
+    // Vista del plan activo: el resto de Entrena sigue leyendo window.kruxActivePlan
+    window.kruxActivePlan = PL().resolveActive(plans, window.kruxPlanState);
+  }
+
+  function clearPlans() {
+    window.kruxPlans = [];
+    window.kruxPlanState = { activePlanId: null };
+    window.kruxPlanNotice = null;
+  }
+
+  // Cambiar de plan o destruir datos no se puede hacer a mitad de un entrenamiento
+  function sessionBlocks() {
+    if (window.KruxTrainSession && window.KruxTrainSession.isRunning()) {
+      if (typeof showToast === 'function') showToast('Hay un entrenamiento en curso', 'info', { detail: 'Termínalo o abandónalo antes de cambiar de plan.' });
+      return true;
+    }
+    return false;
+  }
+
+  const stateFor = (prev, activePlanId) => ({
+    activePlanId,
+    migratedAt: (prev && prev.migratedAt) || stamp(),
+    migratedFrom: prev && prev.migratedFrom !== undefined ? prev.migratedFrom : null,
+    updatedAt: stamp()
+  });
+
+  // Migración perezosa del documento antiguo. Idempotente: id fijo + transacción; nunca sobrescribe
+  // un plan existente ni toca training_plan/active. Devuelve 'migrated' | 'already' | 'nothing' | 'completed'.
+  async function migrate() {
+    return ack(db.runTransaction(async tx => {
+      const planRef = plansCol().doc(PL().LEGACY_PLAN_ID);
+      const [st, legacy, existing] = await Promise.all([tx.get(stateRef()), tx.get(legacyRef()), tx.get(planRef)]);
+      const prev = st.exists ? st.data() : null;
+      if (prev && prev.migratedAt) return 'already';
+      if (!legacy.exists) return 'nothing';
+      if (existing.exists) {
+        // Un intento anterior creó el plan pero no el marcador: solo se completa el marcador
+        if (existing.data().migratedFrom !== 'training_plan/active') throw kxError('kx/migration-conflict', 'Ya existe un plan con el identificador de la migración y no procede de ella.');
+        tx.set(stateRef(), { ...stateFor({ migratedFrom: 'training_plan/active' }, prev && prev.activePlanId ? prev.activePlanId : PL().LEGACY_PLAN_ID) });
+        return 'completed';
+      }
+      tx.set(planRef, PL().fromLegacy(legacy.data(), stamp()));
+      tx.set(stateRef(), stateFor({ migratedFrom: 'training_plan/active' }, prev && prev.activePlanId ? prev.activePlanId : PL().LEGACY_PLAN_ID));
+      return 'migrated';
+    }));
+  }
+
+  // ¿Hay cambios en el documento antiguo hechos después de migrar (con una versión antigua de la app)?
+  async function detectLegacyDrift(state) {
+    try {
+      if (!state || !state.migratedAt || state.migratedFrom !== 'training_plan/active') return false;
+      const doc = await legacyRef().get();
+      const t = doc.exists && doc.data().updatedAt;
+      return !!(t && t.seconds != null && t.seconds > state.migratedAt.seconds + 1);
+    } catch (_) { return false; }
+  }
+
+  async function refreshPlans() {
+    const [stateDoc, snap] = await Promise.all([stateRef().get(), plansCol().get()]);
+    const state = stateDoc.exists ? stateDoc.data() : null;
+    publish(snap.docs.map(fromDoc), state);
+    return state;
+  }
+
+  async function loadPlans() {
+    planTouched = false;
+    window.kruxPlanNotice = null;
+    try {
+      await q.migrate();
+    } catch (error) {
+      // Conflicto o fallo: no se elige una versión en silencio; se avisa y se puede reintentar
+      window.kruxPlanNotice = { type: 'migration-error', code: error.code || '' };
+      reportError('No se han podido preparar tus planes', error);
+    }
+    const state = await refreshPlans();
+    if (!window.kruxPlanNotice && await detectLegacyDrift(state)) window.kruxPlanNotice = { type: 'legacy-drift' };
+  }
+
+  async function createPlan(content, opts) {
+    if (!uid()) return null;
+    const activate = !!(opts && opts.activate);
+    const ref = plansCol().doc();
+    try {
+      await ack(db.runTransaction(async tx => {
+        const st = await tx.get(stateRef());
+        const prev = st.exists ? st.data() : null;
+        tx.set(ref, PL().createPlan(content, stamp(), (opts && opts.extra) || {}));
+        // El puntero solo se escribe si se activa el plan nuevo o si todavía no existía el documento de estado
+        if (activate || !prev) tx.set(stateRef(), stateFor(prev, activate ? ref.id : null));
+      }));
+      await refreshPlans();
+      return ref.id;
+    } catch (error) {
+      reportError('No se ha podido crear el plan', error);
+      return null;
+    }
+  }
+
+  // Guardado con control de revisión: si otro dispositivo cambió el plan, no se pisa
+  async function updatePlanContent(planId, content, loadedRevision) {
+    if (!uid()) return null;
+    const ref = plansCol().doc(planId);
+    try {
+      const next = await ack(db.runTransaction(async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) throw kxError('kx/plan-missing');
+        const cur = snap.data();
+        if (cur.status === 'trashed') throw kxError('kx/plan-trashed');
+        if (!PL().checkRevision(loadedRevision, cur.revision)) throw kxError('kx/conflict');
+        const norm = PL().normalizeContent(content);
+        const doc = { ...cur, ...norm, revision: cur.revision + 1, updatedAt: stamp() };
+        ['goal', 'level', 'equipment', 'minutes'].forEach(k => { if (!(k in norm)) delete doc[k]; });
+        tx.set(ref, doc);
+        return { revision: doc.revision, sessions: norm.sessions };
+      }));
+      return next;
+    } catch (error) {
+      window.kruxLastPlanError = error.code || '';
+      reportError('No se ha podido guardar el plan', error);
+      return null;
+    }
+  }
+
+  async function setPlanStatus(planId, action) {
+    if (!uid()) return false;
+    if (action !== 'restore' && sessionBlocks()) return false;
+    const ref = plansCol().doc(planId);
+    try {
+      await ack(db.runTransaction(async tx => {
+        const [snap, st] = await Promise.all([tx.get(ref), tx.get(stateRef())]);
+        if (!snap.exists) throw kxError('kx/plan-missing');
+        const cur = snap.data();
+        if (!PL().canDo(cur, action) || action === 'purge') throw kxError('kx/not-allowed');
+        const patch = PL().transition(cur, action, stamp());
+        tx.set(ref, { ...cur, ...patch, revision: cur.revision + 1, updatedAt: stamp() });
+        // El plan activo que se archiva o se envía a la papelera deja Entrena sin plan activo, en la misma escritura
+        if (st.exists && st.data().activePlanId === planId && patch.status !== 'ready') tx.set(stateRef(), stateFor(st.data(), null));
+      }));
+      await refreshPlans();
+      return true;
+    } catch (error) {
+      reportError('No se ha podido cambiar el plan', error);
+      return false;
+    }
+  }
+
+  async function activatePlan(planId) {
+    if (!uid() || sessionBlocks()) return false;
+    try {
+      await ack(db.runTransaction(async tx => {
+        const [snap, st] = await Promise.all([tx.get(plansCol().doc(planId)), tx.get(stateRef())]);
+        if (!snap.exists) throw kxError('kx/plan-missing');
+        if (!PL().canActivate(snap.data())) throw kxError('kx/not-allowed');
+        tx.set(stateRef(), stateFor(st.exists ? st.data() : null, planId));
+      }));
+      await refreshPlans();
+      return true;
+    } catch (error) {
+      reportError('No se ha podido activar el plan', error);
+      return false;
+    }
+  }
+
+  async function duplicatePlan(planId, name) {
+    if (!uid()) return null;
+    const target = plansCol().doc();
+    try {
+      await ack(db.runTransaction(async tx => {
+        const snap = await tx.get(plansCol().doc(planId));
+        if (!snap.exists) throw kxError('kx/plan-missing');
+        tx.set(target, PL().duplicatePlan(snap.data(), planId, stamp(), name));
+      }));
+      await refreshPlans();
+      return target.id;
+    } catch (error) {
+      reportError('No se ha podido duplicar el plan', error);
+      return null;
+    }
+  }
+
+  // Borrado definitivo (solo desde la papelera). El historial no se toca: guarda planId y planName.
+  async function purgePlan(planId) {
+    if (!uid() || sessionBlocks()) return false;
+    try {
+      await ack(db.runTransaction(async tx => {
+        const ref = plansCol().doc(planId);
+        const [snap, st] = await Promise.all([tx.get(ref), tx.get(stateRef())]);
+        if (!snap.exists) return;
+        if (!PL().canDo(snap.data(), 'purge')) throw kxError('kx/not-allowed');
+        if (st.exists && st.data().activePlanId === planId) throw kxError('kx/not-allowed');
+        tx.delete(ref);
+      }));
+      await refreshPlans();
+      return true;
+    } catch (error) {
+      reportError('No se ha podido eliminar el plan', error);
+      return false;
+    }
+  }
+
+  // Importa el documento antiguo como plan NUEVO (nunca sustituye nada). Para cambios hechos con una app antigua.
+  async function importLegacyAsNew() {
+    if (!uid()) return null;
+    try {
+      const doc = await legacyRef().get();
+      if (!doc.exists) return null;
+      const plan = PL().fromLegacy(doc.data(), stamp());
+      plan.sessions.forEach(s => { s.id = PL().newSessionId(); });
+      plan.name = `${plan.name} (importado)`.slice(0, 80);
+      const ref = plansCol().doc();
+      await ack(ref.set(plan));
+      window.kruxPlanNotice = null;
+      await refreshPlans();
+      return ref.id;
+    } catch (error) {
+      reportError('No se ha podido importar el plan', error);
+      return null;
+    }
+  }
+
+  // Las operaciones sobre planes se ejecutan de una en una (cola): evita transacciones solapadas del
+  // mismo cliente (pulsaciones repetidas, guardar mientras se migra) y estados intermedios en pantalla.
+  let planQueue = Promise.resolve();
+  const serial = fn => { const run = planQueue.then(fn, fn); planQueue = run.catch(() => {}); return run; };
+  const q = {
+    migrate: () => serial(migrate),
+    create: (c, o) => serial(() => createPlan(c, o)),
+    update: (id, c, r) => serial(() => updatePlanContent(id, c, r)),
+    setStatus: (id, a) => serial(() => setPlanStatus(id, a)),
+    activate: id => serial(() => activatePlan(id)),
+    duplicate: (id, n) => serial(() => duplicatePlan(id, n)),
+    purge: id => serial(() => purgePlan(id)),
+    importLegacy: () => serial(importLegacyAsNew)
+  };
+
+  // Traspasa lo guardado a la vista en memoria (ids de sesión y revisión nuevos)
+  function adopt(plan, saved) {
+    plan.revision = saved.revision;
+    saved.sessions.forEach((s, i) => { if (plan.sessions[i]) plan.sessions[i].id = s.id; });
+  }
+
+  // Guardar el plan en memoria. Con planes múltiples escribe el documento de ese plan (con control de
+  // revisión); sin él, el documento antiguo de siempre.
   async function savePlan(plan) {
     if (!uid() || !plan) return false;
     planTouched = true;
+    if (MULTI()) {
+      if (plan.id) {
+        const saved = await q.update(plan.id, plan, plan.revision);
+        if (!saved) return false;
+        adopt(plan, saved);
+        return true;
+      }
+      // Plan nuevo sin identificador: se crea (y se activa) sin tocar los planes existentes
+      const id = await q.create(plan, { activate: true });
+      if (!id) return false;
+      const created = (window.kruxPlans || []).find(p => p.id === id);
+      if (created) { plan.id = id; plan.revision = created.revision; created.sessions.forEach((s, i) => { if (plan.sessions[i]) plan.sessions[i].id = s.id; }); window.kruxActivePlan = plan; }
+      return true;
+    }
     try {
       await ack(userRef().collection('training_plan').doc('active').set({
         ...planPayload(plan),
@@ -17530,11 +17815,12 @@ const KruxTrainStore = (() => {
     from.setDate(from.getDate() - SESSION_WEEKS * 7);
     const fromKey = trDateKey(from);
     try {
+      if (MULTI()) await loadPlans();
       const [planDoc, sessSnap] = await Promise.all([
-        userRef().collection('training_plan').doc('active').get(),
+        MULTI() ? Promise.resolve({ exists: false }) : userRef().collection('training_plan').doc('active').get(),
         userRef().collection('training_sessions').where('dateKey', '>=', fromKey).orderBy('dateKey').get()
       ]);
-      if (!planTouched) {
+      if (!planTouched && !MULTI()) {
         const data = planDoc.exists ? planDoc.data() : null;
         window.kruxActivePlan = data && Array.isArray(data.sessions)
           ? {
@@ -17548,20 +17834,42 @@ const KruxTrainStore = (() => {
       const loaded = sessSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       // Conserva lo registrado en esta apertura que aún no tenga id
       window.kruxTrainLog = [...loaded, ...window.kruxTrainLog.filter(e => !e.id)];
+      reloadTry = 0;
     } catch (error) {
       console.error('Error cargando Entrena:', error);
+      // Con planes múltiples un fallo de carga no debe parecer «no tengo planes»: se avisa y se reintenta
+      if (MULTI()) { window.kruxPlanNotice = { type: 'load-error' }; scheduleReload(); }
     }
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
   }
+
+  // Reintentos automáticos de la carga (3 s, 8 s, 20 s) y al volver la conexión
+  let reloadTimer = null;
+  let reloadTry = 0;
+  function scheduleReload() {
+    clearTimeout(reloadTimer);
+    const wait = [3000, 8000, 20000][reloadTry++];
+    const who = uid();
+    if (wait == null || !who) return;
+    reloadTimer = setTimeout(() => { if (uid() === who) load(); }, wait);
+  }
+  window.addEventListener('online', () => {
+    if (uid() && window.kruxPlanNotice && window.kruxPlanNotice.type === 'load-error') { reloadTry = 0; load(); }
+  });
 
   firebase.auth().onAuthStateChanged(user => {
     if (user) { load(); return; }
     window.kruxActivePlan = null;
     window.kruxTrainLog = [];
+    clearPlans();
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
   });
 
-  return { savePlan, saveSession, updateSession, isSignedIn: () => !!uid(), currentUid: uid };
+  return {
+    savePlan, saveSession, updateSession, isSignedIn: () => !!uid(), currentUid: uid,
+    // Planes múltiples (requieren window.KRUX_MULTIPLAN)
+    plans: { enabled: MULTI, reload: refreshPlans, retryLoad: () => { reloadTry = 0; return load(); }, ...q }
+  };
 })();
 window.KruxTrainStore = KruxTrainStore;
 

@@ -1,0 +1,485 @@
+<style>#landing-page,.mobile-onboarding,.mobile-login-modal{display:none!important}.bottom-nav{display:flex!important}</style>
+<script>
+window.addEventListener('error', e => { console.log('ERR', e.message); });
+(async function () {
+  const q = new URLSearchParams(location.search);
+  const state = q.get('state') || 'train';
+  await new Promise(r => setTimeout(r, 3000));
+  currentUser = { uid: 'me', displayName: 'Jaime', photoURL: './_mock/av1.jpg' };
+  document.querySelector('.bottom-nav').style.display = 'flex';
+  if (q.get('plan') === '1') {
+    window.kruxActivePlan = { name: 'Fuerza máx.', weeks: 4, activeDays: [1,0,1,1,1,0,0].map(Boolean), sessions: ['L','X','J','V'].map((d,i)=>({day:d,name:['Fuerza dedos','Potencia','Fuerza en media llave','Resistencia'][i],exercises:[
+      { name: 'Max hang · 20mm', sets: 4, workSec: 10, reps: 0, weight: 20, restSec: 180, rpeTarget: 8 },
+      { name: 'Campus board · 1-5-9', sets: 3, workSec: 0, reps: 5, weight: 0, restSec: 120, rpeTarget: 7 },
+      { name: 'Pullover isométrico con un nombre bastante largo', sets: 3, workSec: 7, reps: 0, weight: 0, restSec: 120, rpeTarget: 6 },
+      { name: 'Manguito rotador', sets: 2, workSec: 0, reps: 15, weight: 0, restSec: 60, rpeTarget: 0 }]})) };
+  }
+  switchView('train-view');
+  await new Promise(r => setTimeout(r, 600));
+  if (state.startsWith('session')) {
+    window.__s = 1;
+    openActiveSession();
+    await new Promise(r => setTimeout(r, 700));
+    if (state === 'session-run') { document.getElementById('session-btn-main').click(); await new Promise(r => setTimeout(r, 3300)); }
+    const click = async (id, ms = 250) => { document.getElementById(id)?.click(); await new Promise(r => setTimeout(r, ms)); };
+    if (state === 'session-rest') { await click('session-btn-set', 400); await click('session-rpe-btn'); }
+    if (state === 'session-between' || state === 'session-confirm' || state === 'session-summary' || state === 'session-saved' || state === 'session-second') {
+      await click('session-load-plus'); await click('session-load-plus');
+      for (let i = 0; i < 4; i++) { await click('session-btn-set', 300); document.querySelector('#session-rpe-dots [data-rpe="' + (7 + (i % 3)) + '"]')?.click(); }
+      if (state === 'session-second') { await click('session-btn-main', 500); }
+      if (state !== 'session-between' && state !== 'session-second') { await click('session-finish-btn', 400); }
+      if (state === 'session-summary' || state === 'session-saved') { await click('confirm-ok', 500); }
+      if (state === 'session-saved') {
+        document.querySelector('[data-feel="great"]').click(); document.querySelector('#plog-rpe-row [data-rpe="8"]').click();
+        document.getElementById('plog-notes').value = 'Buenas sensaciones en la regleta.'; await click('plog-save-btn', 400);
+      }
+    }
+    if (state === 'train-after') {
+      openActiveSession(); await new Promise(r => setTimeout(r, 400));
+      for (let i = 0; i < 4; i++) { document.getElementById('session-btn-set').click(); document.querySelector('#session-rpe-dots [data-rpe="8"]')?.click(); await new Promise(r => setTimeout(r, 200)); }
+      document.getElementById('session-finish-btn').click(); await new Promise(r => setTimeout(r, 300));
+      document.getElementById('confirm-ok').click(); await new Promise(r => setTimeout(r, 300));
+      document.getElementById('plog-skip').click(); await new Promise(r => setTimeout(r, 600));
+    }
+  }
+  if (state === 'test') {
+    const R = {}; const $ = id => document.getElementById(id); const w = ms => new Promise(r => setTimeout(r, ms));
+    try {
+      R.cta = $('train-start-label').textContent;
+      $('train-start-btn').click(); await w(500);
+      R.open = !$('session-modal').classList.contains('hidden');
+      R.ex = $('session-ex-name').textContent;
+      R.idleTime = $('session-ring-time').textContent + '|' + $('session-ring-lbl').textContent;
+      $('session-btn-main').click(); await w(2300);
+      R.workTime = $('session-ring-time').textContent; R.workLbl = $('session-timer-label').textContent; R.btn = $('session-btn-label').textContent;
+      $('session-btn-main').click(); const t1 = $('session-ring-time').textContent; await w(1500);
+      R.paused = $('session-btn-label').textContent + '|' + (t1 === $('session-ring-time').textContent);
+      $('session-btn-main').click(); await w(9500);
+      R.afterWork = $('session-timer-label').textContent + '|' + $('session-set-chip').textContent + '|' + $('session-ring-time').textContent;
+      R.hist1 = document.querySelector('#session-history li.is-done')?.innerText.replace(/\s+/g, ' ');
+      R.rpeOpen = !$('session-rpe-section').classList.contains('hidden');
+      document.querySelector('#session-rpe-dots [data-rpe="8"]').click();
+      R.rpeVal = $('session-rpe-val').textContent + '|' + document.querySelector('#session-history li.is-done').innerText.includes('RPE 8');
+      $('session-btn-main').click(); await w(200); // saltar descanso
+      R.afterSkip = $('session-timer-label').textContent + '|' + $('session-btn-label').textContent;
+      $('session-load-plus').click(); R.load = $('session-load-val').textContent + '|' + $('session-ex-detail').textContent;
+      for (let i = 0; i < 3; i++) { $('session-btn-set').click(); await w(100); }
+      await w(1200);
+      const arc = $('session-ring-arc');
+      R.between = $('session-timer-label').textContent + '|' + $('session-btn-label').textContent + '|offset=' + getComputedStyle(arc).strokeDashoffset + '|' + arc.className.baseVal;
+      $('session-btn-main').click(); await w(200);
+      R.second = $('session-ex-name').textContent + '|' + $('session-ex-counter').textContent + '|' + $('session-ring-time').textContent + ' ' + $('session-ring-lbl').textContent + '|' + $('session-btn-label').textContent;
+      R.steps = [...document.querySelectorAll('#session-steps li')].map(l => l.className || '-').join(',');
+      $('session-close-btn').click(); await w(200);
+      R.closeConfirm = !$('confirm-modal').classList.contains('hidden') + '|' + $('confirm-title').textContent + '|' + $('confirm-ok').textContent;
+      $('confirm-cancel').click(); await w(150);
+      R.okRestored = $('confirm-ok').textContent;
+      $('session-finish-btn').click(); await w(150);
+      R.finishTxt = $('confirm-message').textContent + '|' + $('confirm-ok').textContent;
+      $('confirm-ok').click(); await w(300);
+      R.summary = document.querySelector('.plog-stats-grid')?.innerText.replace(/\s+/g, ' ');
+      R.log = window.kruxTrainLog.length + '|' + window.kruxTrainLog[0].exercises[0].sets.map(s => s.workSec + 's/' + s.weight + 'kg/rpe' + s.rpe).join(',');
+      $('plog-skip').click(); await w(400);
+      R.closed = $('session-modal').classList.contains('hidden');
+      R.heroAfter = $('train-hero-title').textContent + '|' + $('train-hero-note').textContent;
+      R.dayDone = !!document.querySelector('.train-day.is-today.is-done');
+      R.exStates = [...document.querySelectorAll('.train-ex-row')].map(r => r.className.replace('train-ex-row', '').trim() || '-').join(',');
+      R.sugg = $('train-suggestion').classList.contains('hidden') ? 'hidden' : $('train-suggestion').innerText.replace(/\s+/g, ' ');
+      R.cta2 = $('train-start-label').textContent;
+      // reabrir: plantilla restaurada sin recargar
+      $('train-start-btn').click(); await w(400);
+      R.reopen = !!document.querySelector('#session-screen .session-hero') + '|' + $('session-ex-name').textContent + '|' + $('session-elapsed').textContent;
+      $('session-close-btn').click(); await w(200);
+      // día de descanso y navegación
+      document.querySelector('.train-day[data-idx="5"]').click(); await w(100);
+      R.rest = $('train-session-name').textContent + '|' + $('train-start-label').textContent + '|' + $('train-start-btn').disabled + '|' + $('train-exercise-list').innerText.replace(/\s+/g, ' ');
+      document.querySelector('[data-goto]')?.click(); await w(100);
+      R.goto = $('train-week-title').textContent + '|' + $('train-session-name').textContent + '|' + $('train-session-badge').textContent;
+      // editor de ejercicio
+      document.querySelector('.train-ex-row').click(); await w(400);
+      $('ex-field-weight').value = '25'; $('ex-editor-save').click(); await w(300);
+      R.edited = document.querySelector('.train-ex-spec').textContent;
+      // XSS en nombres
+      window.kruxActivePlan.sessions[0].exercises[0].name = '<img src=x onerror=alert(1)>';
+      refreshTrainView(); R.esc = document.querySelector('.train-ex-name')?.innerHTML;
+    } catch (e) { R.err = e.message + ' ' + e.stack; }
+    document.title = 'T|' + JSON.stringify(R);
+  }
+
+  if (state.startsWith('pe')) {
+    const $ = id => document.getElementById(id); const w = ms => new Promise(r => setTimeout(r, ms));
+    window.openPlanEditor(); await w(500);
+    if (state === 'pe-scroll') { $('pe-scroll').scrollTop = 99999; await w(200); }
+    if (state === 'pe-mid') { $('pe-scroll').scrollTop = 520; await w(200); }
+    if (state === 'pe-edit') { $('pe-sess-gear').click(); await w(100); document.querySelector('.pe-session-del').click(); await w(100); $('pe-scroll').scrollTop = 560; await w(200); }
+    if (state === 'pe-lib') { document.querySelector('.pe-add-ex-btn').click(); await w(500); }
+    if (state === 'pe-empty') { document.querySelectorAll('.pe-tpl-card')[4].click(); await w(150); $('pe-scroll').scrollTop = 99999; await w(200); }
+    if (state === 'pe-saved') { $('pe-save-top').click(); await w(700); }
+    if (state === 'pe-test') {
+      const R = {};
+      try {
+        R.name = $('pe-name-input').value; R.clearVisible = !$('pe-name-clear').hidden;
+        $('pe-name-clear').click(); R.afterClear = $('pe-name-input').value + '|' + $('pe-name-clear').hidden;
+        const inp = $('pe-name-input'); inp.value = '<b>X</b> plan'; inp.dispatchEvent(new Event('input'));
+        document.querySelectorAll('.pe-tpl-card')[1].click(); R.tpl = document.querySelector('.pe-tpl-card.is-active .pe-tpl-name').textContent + '|' + $('pe-name-input').value + '|' + $('pe-step-num').textContent;
+        document.querySelectorAll('.pe-tpl-card')[0].click();
+        for (let i = 0; i < 20; i++) $('pe-step-plus').click(); R.maxW = $('pe-step-num').textContent + '|' + $('pe-step-plus').disabled;
+        for (let i = 0; i < 20; i++) $('pe-step-minus').click(); R.minW = $('pe-step-num').textContent + '|' + $('pe-step-unit').textContent;
+        document.querySelectorAll('.pe-day-pill')[1].click(); R.days = $('pe-days-count').textContent + '|' + [...document.querySelectorAll('.pe-session-badge')].map(b=>b.textContent).join('');
+        document.querySelectorAll('.pe-day-pill')[0].click(); R.days2 = [...document.querySelectorAll('.pe-session-badge')].map(b=>b.textContent).join('');
+        document.querySelectorAll('.pe-day-pill')[0].click(); document.querySelectorAll('.pe-day-pill')[1].click();
+        document.querySelectorAll('.pe-session-toggle')[1].click(); R.exp = document.querySelectorAll('.pe-session-card.is-open').length;
+        const before = document.querySelectorAll('.pe-ex-row').length; document.querySelector('.pe-ex-del').click(); R.del = before + '>' + document.querySelectorAll('.pe-ex-row').length;
+        document.querySelector('.pe-add-ex-btn').click(); await w(600); document.querySelector('[data-add=plancha]').click(); await w(200); $('xl-done').click(); await w(500); R.lib = document.querySelectorAll('.pe-ex-row').length + '|' + $('ex-library-modal').classList.contains('hidden');
+        $('pe-sess-gear').click(); R.gear = $('pe-sess-gear').textContent;
+        document.querySelector('.pe-session-edit').click(); const ni = document.querySelector('.pe-session-name-input'); ni.value = 'Renombrada <i>'; ni.dispatchEvent(new Event('blur')); await w(50);
+        R.rename = document.querySelector('.pe-session-name').textContent + '|' + document.querySelectorAll('.pe-session-name i').length;
+        document.querySelectorAll('.pe-session-del')[1].click(); R.pending = !!document.querySelector('.pe-del-confirm');
+        document.querySelector('.pe-del-cancel').click(); R.cancel = !document.querySelector('.pe-del-confirm') + '|' + document.querySelectorAll('.pe-session-card').length;
+        document.querySelectorAll('.pe-session-del')[1].click(); document.querySelector('.pe-del-yes').click(); R.deleted = document.querySelectorAll('.pe-session-card').length + '|' + $('pe-sess-count').textContent;
+        for (let i = 0; i < 10; i++) $('pe-add-session-btn').click(); R.cap = document.querySelectorAll('.pe-session-card').length + '|' + $('pe-add-session-btn').disabled + '|' + !$('pe-sess-limit').hidden + '|' + document.querySelectorAll('.pe-session-badge.orphan').length;
+        $('pe-save-top').click(); await w(300); R.blockedOrphans = !document.querySelector('.pe-saved-title');
+        document.querySelectorAll('.pe-day-pill').forEach(b => { if (b.getAttribute('aria-pressed') === 'false') b.click(); }); await w(100);
+        $('pe-save-top').click(); await w(600);
+        R.saved = document.querySelector('.pe-saved-title')?.textContent + '|' + document.querySelector('.pe-saved-note')?.textContent;
+        R.plan = window.kruxActivePlan.name + '|' + window.kruxActivePlan.sessions.length;
+        $('pe-saved-done').click(); await w(400);
+        R.closed = $('plan-editor-modal').classList.contains('hidden');
+        R.hero = document.getElementById('train-hero-title')?.textContent;
+        R.overflowX = document.documentElement.scrollWidth > innerWidth;
+      } catch (e) { R.err = e.message + ' ' + e.stack.split('\n')[1]; }
+      document.title = 'T|' + JSON.stringify(R);
+    }
+  }
+
+  if (state.startsWith('xl')) {
+    const $ = id => document.getElementById(id); const w = ms => new Promise(r => setTimeout(r, ms));
+    const L = window.KruxLibrary;
+    if (state === 'xl-lib' || state === 'xl-search' || state === 'xl-filter' || state === 'xl-detail' || state === 'xl-detail2' || state === 'xl-rel' || state === 'xl-empty') {
+      L.open({ mode: 'browse' }); await w(500);
+      if (state === 'xl-search') { $('xl-search').value = 'colgarse'; $('xl-search').dispatchEvent(new Event('input')); await w(400); }
+      if (state === 'xl-empty') { $('xl-search').value = 'zzzz'; $('xl-search').dispatchEvent(new Event('input')); await w(400); }
+      if (state === 'xl-filter') { $('xl-filter-btn').click(); await w(400); document.querySelector('[data-fk=abilities][data-fv=potencia]').click(); document.querySelector('[data-fk=equipment][data-fv=rocodromo]').click(); await w(300); }
+      if (state === 'xl-detail' || state === 'xl-detail2' || state === 'xl-rel') { document.querySelector('[data-open=max-hang]').click(); await w(600); }
+      if (state === 'xl-detail2') { $('xl-add-plan').click(); await w(500); }
+      if (state === 'xl-rel') { document.querySelector('.xl-detail-scroll').scrollTop = 1700; await w(300); }
+    }
+    if (state === 'xl-pick') {
+      window.openPlanEditor(); await w(500);
+      document.querySelector('.pe-add-ex-btn').click(); await w(600);
+      document.querySelector('[data-add=plancha]').click(); await w(200);
+    }
+
+    if (state === 'xl-wtest') {
+      const R = {};
+      try {
+        window.KruxWizard.open(); await w(400);
+        R.s1 = document.querySelector('.xl-wz-title').textContent + '|' + document.querySelector('#wz-next').disabled;
+        document.querySelector('[data-goal=fuerza]').click(); await w(100);
+        R.afterGoal = document.querySelector('#wz-next').disabled + '|' + document.querySelectorAll('.xl-opt.is-on').length;
+        document.querySelector('#wz-next').click(); await w(200);
+        R.s2 = document.querySelector('.xl-wz-title').textContent + '|' + document.querySelector('#wz-next').disabled;
+        document.querySelector('[data-level="2"]').click(); await w(100);
+        R.afterLevel = document.querySelector('#wz-next').disabled + '|' + document.querySelectorAll('.xl-opt.is-on').length;
+        document.querySelector('#wz-next').click(); await w(200);
+        R.s3 = document.querySelector('.xl-wz-title').textContent;
+      } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+      document.title = 'T|' + JSON.stringify(R);
+    }
+
+    if (state === 'xl-menu') {
+      const R = {};
+      try {
+        $('train-new-plan-btn').click(); await w(150);
+        R.items = [...document.querySelectorAll('.train-gear-item')].map(b => b.textContent.trim()).join('|');
+        $('train-gear-edit').click(); await w(300);
+        R.noPlanEdit = $('plan-editor-modal').classList.contains('hidden') + '|' + (document.querySelector('.kx-toast, #toast-container .toast, #toast-container > *') ? 'toast' : 'sin-toast');
+        $('train-new-plan-btn').click(); $('train-gear-library').click(); await w(500);
+        R.lib = !$('ex-library-modal').classList.contains('hidden');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await w(500);
+        $('train-lib-link').click(); await w(500);
+        R.link = !$('ex-library-modal').classList.contains('hidden') + '|' + document.querySelectorAll('.xl-card').length;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await w(500);
+        $('train-new-plan-btn').click(); $('train-gear-wizard').click(); await w(500);
+        R.wizard = !$('plan-wizard-modal').classList.contains('hidden');
+      } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+      document.title = 'T|' + JSON.stringify(R);
+    }
+
+    if (state === 'xl-exarc' || state === 'xl-exdom') {
+      window.openPlanEditor({ edit: true }); await w(600);
+      window.kruxActivePlan.sessions[0].exercises.push({ name: state === 'xl-exarc' ? 'ARC · panel 45°' : 'Dominadas asistidas', sets: 2, workSec: state === 'xl-exarc' ? 1200 : 0, reps: state === 'xl-exarc' ? 0 : 6, weight: 0, restSec: 120, rpeTarget: 6 });
+      window.closePlanEditorForTest && 0; 
+      $('pe-back-btn').click(); await w(400);
+      window.openPlanEditor({ edit: true }); await w(600);
+      const rows = document.querySelectorAll('.pe-session-card.is-open .pe-ex-open'); rows[rows.length - 1].click(); await w(600);
+    }
+    if (state === 'xl-w1' || state === 'xl-w2' || state === 'xl-w3' || state === 'xl-w4' || state === 'xl-wp') {
+      window.KruxWizard.open(); await w(500);
+      const clickQ = s => document.querySelector(s).click();
+      if (state !== 'xl-w1') { clickQ('[data-goal=fuerza]'); await w(100); clickQ('#wz-next'); await w(200); }
+      if (state === 'xl-w3' || state === 'xl-w4' || state === 'xl-wp') { clickQ('[data-level="2"]'); await w(100); clickQ('#wz-next'); await w(200); }
+      if (state === 'xl-w4' || state === 'xl-wp') { clickQ('[data-days="4"]'); await w(100); clickQ('#wz-next'); await w(200); }
+      if (state === 'xl-wp') { clickQ('[data-eq=multipresa]'); clickQ('[data-eq=barra]'); clickQ('[data-eq=gomas]'); await w(100); clickQ('#wz-next'); await w(300); document.querySelector('.xl-week-session').open = true; }
+    }
+    if (state === 'xl-draft' || state === 'xl-edit' || state === 'xl-editmode' || state === 'xl-exed') {
+      if (state === 'xl-draft') {
+        window.KruxWizard.open(); await w(400);
+        document.querySelector('[data-goal=fuerza]').click(); await w(100); document.querySelector('#wz-next').click(); await w(150);
+        document.querySelector('[data-level="2"]').click(); await w(100); document.querySelector('#wz-next').click(); await w(150);
+        document.querySelector('#wz-next').click(); await w(150);
+        document.querySelector('[data-eq=multipresa]').click(); document.querySelector('[data-eq=barra]').click(); await w(100); document.querySelector('#wz-next').click(); await w(300);
+        document.querySelector('#wz-go').click(); await w(800);
+      } else {
+        window.openPlanEditor({ edit: true }); await w(600);
+        if (state === 'xl-editmode') { $('pe-sess-gear').click(); await w(200); $('pe-scroll').scrollTop = 480; await w(200); }
+        if (state === 'xl-exed') { document.querySelector('.pe-ex-open').click(); await w(600); }
+      }
+    }
+    if (state === 'xl-test') {
+      const R = {};
+      try {
+        R.catalog = L.catalog().exercises.length;
+        L.open({ mode: 'browse' }); await w(500);
+        R.cards = document.querySelectorAll('.xl-card').length + '|' + $('xl-count').textContent;
+        $('xl-search').value = 'dominada'; $('xl-search').dispatchEvent(new Event('input')); await w(400);
+        R.search = [...document.querySelectorAll('.xl-card-name')].map(n => n.textContent).join(',');
+        $('xl-search-clear').click(); await w(300);
+        document.querySelector('[data-cat=core]').click(); await w(200);
+        R.core = [...document.querySelectorAll('.xl-card')].every(c => L.catalog().byId.get(c.dataset.id).categoryIds.includes('core')) + '|' + document.querySelectorAll('.xl-card').length;
+        $('xl-filter-btn').click(); await w(400);
+        document.querySelector('[data-fk=technicalLevel][data-fv="2"]').click(); await w(200);
+        R.badge = $('xl-badge').textContent + '|' + $('xl-fapply-label').textContent;
+        document.querySelector('[data-fk=technicalLevel][data-fv="2"]').click(); document.querySelector('[data-fk=durations][data-fv=corto]').click(); document.querySelector('[data-fk=durations][data-fv=largo]').click(); await w(200);
+        R.dur = [...document.querySelectorAll('.xl-card')].every(c => { const m = L.catalog().byId.get(c.dataset.id).durationMin; return m <= 10 || m > 20; });
+        $('xl-fclear').click(); $('xl-fapply').click(); await w(400);
+        document.querySelector('[data-cat=all]').click(); await w(200);
+        document.querySelector('[data-open=plancha]').click(); await w(500);
+        R.detail = $('xl-detail-title').textContent + '|' + document.querySelectorAll('.xl-steps li').length + '|' + !!document.querySelector('.xl-alert') + '|' + document.querySelector('.xl-review').textContent.slice(0, 20);
+        R.noEmptySections = [...document.querySelectorAll('.xl-sec')].every(s => s.querySelector('p,ul,ol,div,dl'));
+        document.querySelector('[data-rel=hollow-body]').click(); await w(500);
+        R.relNav = $('xl-detail-title').textContent;
+        $('xl-detail-back').click(); await w(400); R.relBack = $('xl-detail-title').textContent;
+        $('xl-detail-back').click(); await w(400); R.listBack = $('xl-detail').classList.contains('hidden');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await w(500);
+        R.closed = $('ex-library-modal').classList.contains('hidden');
+
+        // Editor: abrir el plan activo, reordenar, sustituir, parámetros
+        window.openPlanEditor({ edit: true }); await w(600);
+        R.editTitle = $('pe-title').textContent + '|' + !!$('pe-tpl-row') + '|' + $('pe-name-input').value;
+        const names = () => [...document.querySelectorAll('.pe-session-name')].map(n => n.textContent).join('>');
+        R.sess0 = names();
+        $('pe-sess-gear').click(); await w(150);
+        document.querySelectorAll('.pe-session-down')[0].click(); await w(150);
+        R.sess1 = names() + '|' + [...document.querySelectorAll('.pe-session-badge')].map(b => b.textContent).join('');
+        document.querySelectorAll('.pe-session-up')[1].click(); await w(150);
+        R.sess2 = names();
+        const exNames = () => [...document.querySelectorAll('.pe-session-card.is-open .pe-ex-name')].map(n => n.textContent).join('>');
+        R.ex0 = exNames();
+        document.querySelector('.pe-ex-down').click(); await w(150);
+        R.ex1 = exNames();
+        $('pe-sess-gear').click(); await w(150);
+        // parámetros del ejercicio
+        document.querySelectorAll('.pe-ex-open')[0].click(); await w(500);
+        R.exEditor = !$('ex-editor-sheet').classList.contains('hidden') + '|' + $('ex-field-name').value + '|' + [...document.querySelectorAll('#ex-links .ex-link-btn')].map(b => b.textContent).join(',');
+        $('ex-field-sets').value = 6; $('ex-field-sets').dispatchEvent(new Event('input'));
+        $('ex-field-notes').value = 'regleta <b>20</b>';
+        $('ex-editor-save').click(); await w(300);
+        R.sets = window.kruxActivePlan.sessions.length + '|' + document.querySelector('.pe-session-card.is-open .pe-ex-detail').textContent;
+        R.notesSaved = (document.querySelector('.pe-session-card.is-open').innerHTML.indexOf('<b>20</b>') < 0);
+        // añadir con biblioteca en modo selección
+        document.querySelector('.pe-add-ex-btn').click(); await w(600);
+        const before = document.querySelectorAll('.pe-session-card.is-open .pe-ex-row').length;
+        document.querySelector('[data-add=plancha]').click(); await w(200);
+        document.querySelector('[data-add=hollow-body]').click(); await w(200);
+        R.pickLabel = $('xl-done-label').textContent;
+        $('xl-done').click(); await w(500);
+        R.added = before + '>' + document.querySelectorAll('.pe-session-card.is-open .pe-ex-row').length;
+        // sustituir
+        document.querySelectorAll('.pe-ex-open')[0].click(); await w(500);
+        document.querySelector('[data-act=replace]').click(); await w(700);
+        R.replaceCat = document.querySelector('.xl-chip.is-on')?.textContent;
+        document.querySelector('[data-add=dominada-explosiva]')?.click(); await w(500);
+        R.replaced = exNames();
+        R.libClosed = $('ex-library-modal').classList.contains('hidden');
+        // guardar
+        $('pe-save-top').click(); await w(600);
+        const ex0 = window.kruxActivePlan.sessions[0].exercises;
+        R.planItem = JSON.stringify(ex0[0]).slice(0, 160);
+        R.linked = window.kruxActivePlan.sessions.flatMap(s => s.exercises).filter(e => e.exerciseId).length + '/' + window.kruxActivePlan.sessions.flatMap(s => s.exercises).length;
+        R.savedScreen = document.querySelector('.pe-saved-title')?.textContent;
+        $('pe-saved-done').click(); await w(400);
+        // sin plan activo → editar da aviso
+        R.overflowX = document.documentElement.scrollWidth > innerWidth;
+      } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+      document.title = 'T|' + JSON.stringify(R);
+    }
+  }
+
+  if (state === 'ui-audit') {
+    const R = {}; const w = ms => new Promise(r => setTimeout(r, ms)); const $ = id => document.getElementById(id);
+    const small = new Map(); const overflow = [];
+    const scan = (label, root) => {
+      const r0 = root || document;
+      r0.querySelectorAll('button, input, a[href], [role=button]').forEach(el => {
+        if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return;
+        const b = el.getBoundingClientRect();
+        if (b.width === 0 || b.height === 0) return;
+        if ((b.right > innerWidth + 1 || b.left < -1) && !el.closest('.xl-chips, .pe-tpl-row')) overflow.push(`${label}: ${el.className.toString().slice(0, 30) || el.tagName} fuera de pantalla (${Math.round(b.left)}..${Math.round(b.right)})`);
+        if ((b.width < 44 || b.height < 44) && !el.closest('.train-week-nav, .train-header')) {
+          const k = label + ' ' + (el.className.toString().split(' ')[0] || el.tagName) + ' ' + Math.round(b.width) + 'x' + Math.round(b.height);
+          small.set(k, (small.get(k) || 0) + 1);
+        }
+      });
+      const m = document.querySelector('.plan-editor-modal.pe-open'); 
+      if (document.documentElement.scrollWidth > innerWidth + 1) overflow.push(label + ': documento con scroll horizontal ' + document.documentElement.scrollWidth);
+      document.querySelectorAll('.pe-open *, .xl-detail.is-open *').forEach(n => { if (n.scrollWidth > n.clientWidth + 2 && getComputedStyle(n).overflowX === 'visible' && n.clientWidth > 0 && !/^(svg|path|circle|rect|line|polyline|g)$/i.test(n.tagName) && n.children.length === 0 && getComputedStyle(n).whiteSpace !== 'nowrap') overflow.push(label + ': texto desbordado en ' + n.className.toString().slice(0, 30)); });
+    };
+    const L = window.KruxLibrary;
+    L.open({ mode: 'browse' }); await w(600); scan('biblioteca');
+    $('xl-filter-btn').click(); await w(500); scan('filtros'); $('xl-fapply').click(); await w(400);
+    document.querySelector('[data-open=max-hang]').click(); await w(600); scan('ficha');
+    document.querySelector('.xl-detail-scroll').scrollTop = 99999; await w(200); scan('ficha-final');
+    L.close(); await w(400);
+    window.KruxWizard.open(); await w(500); scan('asistente-1');
+    document.querySelector('[data-goal=fuerza]').click(); await w(150); $('wz-next').click(); await w(250); scan('asistente-2');
+    document.querySelector('[data-level="2"]').click(); await w(150); $('wz-next').click(); await w(250); scan('asistente-3');
+    $('wz-next').click(); await w(250); scan('asistente-4');
+    ['multipresa', 'barra', 'gomas', 'pesas', 'campus', 'rocodromo', 'maquinas'].forEach(e => document.querySelector('[data-eq=' + e + ']').click());
+    await w(150); $('wz-next').click(); await w(300); scan('propuesta');
+    document.querySelectorAll('.xl-week-session').forEach(d => d.open = true); await w(150); scan('propuesta-abierta');
+    $('wz-go').click(); await w(900); scan('editor-borrador');
+    $('pe-sess-gear').click(); await w(200); document.querySelectorAll('.pe-session-toggle')[0].click(); await w(150); scan('editor-edicion');
+    document.querySelectorAll('.pe-ex-open')[0]?.click(); await w(500); scan('editor-ejercicio');
+    R.small = [...small.entries()].map(([k, n]) => k + ' ×' + n); R.overflow = overflow.slice(0, 20); R.vw = innerWidth;
+    (window.parent || window).document.title = 'T|' + JSON.stringify(R);
+  }
+
+  if (state === 'guide-test' || state === 'guide-ui') {
+    const R = {}; const w = ms => new Promise(r => setTimeout(r, ms)); const $ = id => document.getElementById(id);
+    const out = () => { (state === 'guide-ui' ? window.parent : window).document.title = 'T|' + JSON.stringify(R); };
+    try {
+      const G = window.KruxGuide, L = window.KruxLibrary, K = window.KruxExercises;
+      if (state === 'guide-test') {
+        // a) filas de Entrena
+        const items = [...document.querySelectorAll('.train-ex-item')];
+        R.rows = items.length + '|guía=' + document.querySelectorAll('.train-ex-item .xg-btn').length + '|sinFicha=' + items.filter(i => !i.querySelector('.xg-btn')).map(i => i.querySelector('.train-ex-name').textContent.slice(0, 20)).join(',');
+        R.rowBtn = [...document.querySelectorAll('.train-ex-item .xg-btn')].map(b => { const r = b.getBoundingClientRect(); return Math.round(r.width) + 'x' + Math.round(r.height); }).join(',') + '|texto=' + document.querySelector('.train-ex-item .xg-btn').textContent.trim();
+        // b) entrenamiento: estado antes y después de abrir la guía
+        openActiveSession(); await w(700);
+        const snap = () => ({ ring: $('session-ring-time').textContent, label: $('session-timer-label').textContent, chip: $('session-set-chip').textContent, load: $('session-load-val').textContent, hist: $('session-history').innerHTML, dots: $('session-sets-row').innerHTML, name: $('session-ex-name').textContent, elapsed: $('session-elapsed').textContent, rpe: $('session-rpe-val').textContent, steps: $('session-steps').innerHTML });
+        const nodes = ['session-ring-time', 'session-history', 'session-sets-row', 'session-btn-main', 'session-load-plus', 'session-rpe-btn'].map(i => $(i));
+        $('session-load-plus').click(); await w(100);
+        $('session-btn-main').click(); await w(2200);     // trabajo en marcha
+        R.guideBtnSession = !$('session-guide-btn').hidden + '|' + $('session-guide-btn').dataset.guide + '|alto=' + Math.round($('session-guide-btn').getBoundingClientRect().height);
+        const before = snap();
+        const scroller = document.querySelector('.session-main') || $('session-screen');
+        const stBefore = scroller.scrollTop;
+        $('session-guide-btn').focus();
+        $('session-guide-btn').click(); await w(2600);   // 2,6 s con la guía abierta
+        const during = snap();
+        R.guideOpen = G.isOpen() + '|' + !$('ex-guide-sheet').classList.contains('hidden') + '|título=' + $('xg-title').textContent + '|pie=' + $('xg-done').textContent.trim() + '|fichaCompleta=' + !$('xg-full').hidden;
+        R.timerRunsBehind = before.ring + '→' + during.ring;
+        // Escape cierra solo la guía
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await w(500);
+        R.escape = 'guía=' + G.isOpen() + '|confirmación=' + !$('confirm-modal').classList.contains('hidden') + '|sesión=' + !$('session-modal').classList.contains('hidden');
+        const after = snap();
+        R.sameState = ['label', 'chip', 'load', 'hist', 'dots', 'name', 'rpe', 'steps'].every(k => before[k] === after[k]) ? 'igual' : ['label', 'chip', 'load', 'hist', 'dots', 'name', 'rpe', 'steps'].filter(k => before[k] !== after[k]).join(',');
+        R.timerContinued = (parseInt(after.ring) < parseInt(before.ring)) + '(' + before.ring + '→' + after.ring + ')';
+        R.sameNodes = nodes.every((n, i) => n === $(['session-ring-time', 'session-history', 'session-sets-row', 'session-btn-main', 'session-load-plus', 'session-rpe-btn'][i]));
+        R.focusBack = document.activeElement && document.activeElement.id;
+        R.scrollSame = scroller.scrollTop === stBefore;
+        R.bodyLock = document.body.classList.contains('xg-open');
+        // c) descanso + RPE abierto
+        $('session-btn-set').click(); await w(300);
+        document.querySelector('#session-rpe-dots [data-rpe="8"]')?.click(); await w(200);
+        const r1 = snap();
+        $('session-guide-btn').click(); await w(1800);
+        $('xg-done').click(); await w(500);
+        const r2 = snap();
+        R.restState = r1.label + '→' + r2.label + '|rpe ' + r1.rpe + '→' + r2.rpe + '|descanso ' + r1.ring + '→' + r2.ring + '|hist igual=' + (r1.hist === r2.hist);
+        // siguiente ejercicio: la guía cambia de ejercicio
+        // d) fichas sin material
+        $('session-close-btn').click(); await w(300); $('confirm-ok').click(); await w(400);
+        // e) editor de planes: texto escrito + foco
+        window.openPlanEditor({ edit: true }); await w(700);
+        const inp = $('pe-name-input'); inp.focus(); inp.value = 'Nombre escrito a medias'; inp.dispatchEvent(new Event('input'));
+        const gbtn = document.querySelector('.pe-ex-guide .xg-btn');
+        R.editorBtn = !!gbtn + '|' + (gbtn ? Math.round(gbtn.getBoundingClientRect().height) : 0);
+        gbtn.click(); await w(500);
+        R.editorGuide = $('xg-title').textContent + '|pie=' + $('xg-done').textContent.trim() + '|ficha=' + !$('xg-full').hidden;
+        $('xg-done').click(); await w(500);
+        R.editorKept = $('pe-name-input').value + '|foco=' + (document.activeElement === gbtn) + '|nombrePlan=' + window.kruxActivePlan.name;
+        $('pe-back-btn').click(); await w(500);
+        // f) multimedia
+        const ex = L.catalog().byId.get('max-hang');
+        ex.media.items.push(
+          { id: 'm1', type: 'image', externalUrl: 'https://invalid.invalid/x.jpg', reviewStatus: 'verified', attribution: 'Autor de prueba', caption: 'Posición', order: 1 },
+          { id: 'm2', type: 'image', externalUrl: 'https://invalid.invalid/y.jpg', reviewStatus: 'pending', attribution: 'Autor', order: 2 },
+          { id: 'm3', type: 'video', externalUrl: 'http://inseguro.test/v.mp4', reviewStatus: 'verified', attribution: 'Autor', order: 3 },
+          { id: 'm4', type: 'image', externalUrl: 'https://invalid.invalid/z.jpg', reviewStatus: 'verified', attribution: '', order: 4 },
+          { id: 'm5', type: 'image', storagePath: 'exercises/no-existe.jpg', reviewStatus: 'verified', attribution: 'Autor', order: 5 }
+        );
+        G.open('max-hang', {}); 
+        R.mediaAtOpen = $('xg-body').querySelectorAll('figure').length;
+        await w(2500);
+        R.mediaAfterErrors = $('xg-body').querySelectorAll('figure').length + '|texto=' + $('xg-body').querySelectorAll('.xl-steps li').length + '|seguridad=' + !!$('xg-body').querySelector('.xl-alert');
+        G.close(); await w(400);
+        L.open({ mode: 'browse' }); await w(500);
+        document.querySelector('[data-open=max-hang]').click(); await w(2500);
+        R.fichaMedia = document.querySelectorAll('.xl-detail-scroll figure').length + '|héroe=' + !!document.querySelector('.xl-detail-scroll .xl-hero');
+        L.close(); await w(400);
+        ex.media.items.length = 0;
+        // g) sin ficha: id inexistente
+        R.unknown = G.open('no-existe', {}) + '|abierta=' + G.isOpen();
+        // h) la guía y la ficha dicen lo mismo, para las 58 fichas
+        const tx = html => { const d = new DOMParser().parseFromString('<body>' + html + '</body>', 'text/html'); const grab = sel => [...d.querySelectorAll(sel)].map(n => n.textContent.replace(/\s+/g, ' ').trim()); return { steps: grab('.xl-steps li'), cues: grab('.xl-bullets li'), mistakes: grab('.xl-mistakes li'), alert: grab('.xl-alert')[0] || '', lead: grab('.xl-lead')[0] }; };
+        const diff = [];
+        L.catalog().exercises.forEach(e => {
+          const a = tx(L.html.detail(e)), b = tx(L.html.guide(e));
+          if (JSON.stringify(a.steps) !== JSON.stringify(b.steps)) diff.push(e.id + ':pasos');
+          if (JSON.stringify(a.mistakes) !== JSON.stringify(b.mistakes)) diff.push(e.id + ':errores');
+          if (a.alert !== b.alert) diff.push(e.id + ':seguridad');
+          if (a.lead !== b.lead) diff.push(e.id + ':lead');
+          b.cues.forEach(c => { if (!a.cues.includes(c)) diff.push(e.id + ':clave'); });
+          if (!b.steps.length) diff.push(e.id + ':sin pasos');
+        });
+        R.sameContent = diff.length ? diff.slice(0, 8).join(',') : 'idéntico en las ' + L.catalog().exercises.length;
+      } else {
+        // guía en distintas anchuras: sin desbordes, objetivos táctiles y pie visible con teclado abierto
+        openActiveSession(); await w(700);
+        const issues = [];
+        const check = (label) => {
+          const panel = document.querySelector('.xg-panel'); const pr = panel.getBoundingClientRect();
+          document.querySelectorAll('#ex-guide-sheet *').forEach(n => { const r = n.getBoundingClientRect(); if (r.width && (r.right > innerWidth + 1 || r.left < -1) && n.closest('.xg-panel') && !n.closest('.xg-media')) issues.push(label + ': ' + (n.className.toString().slice(0, 25) || n.tagName) + ' fuera (' + Math.round(r.left) + '..' + Math.round(r.right) + ')'); });
+          document.querySelectorAll('#ex-guide-sheet button:not([hidden])').forEach(b => { const r = b.getBoundingClientRect(); if (r.height < 43.5 || r.width < 43.5) issues.push(label + ': botón pequeño ' + (b.className.slice(0, 20)) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height)); });
+          const body = $('xg-body'); const foot = document.querySelector('.xg-foot').getBoundingClientRect();
+          if (foot.bottom > innerHeight + 1) issues.push(label + ': pie fuera de pantalla ' + Math.round(foot.bottom) + '>' + innerHeight);
+          if (pr.top < -1) issues.push(label + ': panel por encima de la pantalla ' + Math.round(pr.top));
+          if (body.scrollWidth > body.clientWidth + 1) issues.push(label + ': desborde horizontal del cuerpo ' + body.scrollWidth + '>' + body.clientWidth);
+          if (document.documentElement.scrollWidth > innerWidth + 1) issues.push(label + ': el documento se desplaza en horizontal');
+          return Math.round(pr.height) + 'px';
+        };
+        for (const id of ['max-hang', 'campus-board', 'dominada-asistida', 'toes-to-bar']) {
+          G.open(id, {}); await w(450);
+          R['h_' + id] = check(id);
+          $('xg-body').scrollTop = 99999; await w(100);
+          G.close(); await w(350);
+        }
+        G.open('campus-board', {}); await w(450);
+        G._fit(Math.round(innerHeight * 0.52)); await w(200);       // teclado abierto: queda la mitad de la pantalla
+        R.keyboard = check('teclado') + '|visible=' + Math.round(innerHeight * 0.52) + '|cuerpoScroll=' + ($('xg-body').scrollHeight > $('xg-body').clientHeight);
+        R.vw = innerWidth; R.issues = issues;
+      }
+    } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+    out();
+  }
+
+  if (state === 'g-shot-entrena' || state === 'g-shot-session' || state === 'g-shot-guide' || state === 'g-shot-editor') {
+    const w = ms => new Promise(r => setTimeout(r, ms)); const $ = id => document.getElementById(id);
+    if (state === 'g-shot-session' || state === 'g-shot-guide') { openActiveSession(); await w(700); if (state === 'g-shot-guide') { $('session-btn-main').click(); await w(1200); $('session-guide-btn').click(); await w(700); } }
+    if (state === 'g-shot-editor') { window.openPlanEditor({ edit: true }); await w(700); $('pe-scroll').scrollTop = 520; await w(200); }
+  }
+  window.__done = 1;
+})();
+</script>

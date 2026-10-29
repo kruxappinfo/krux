@@ -1,0 +1,702 @@
+<style>#landing-page,.mobile-onboarding,.mobile-login-modal{display:none!important}.bottom-nav{display:flex!important}</style>
+<script>
+window.addEventListener('error', e => { console.log('ERR', e.message); });
+(async function () {
+  const q = new URLSearchParams(location.search);
+  const state = q.get('state');
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const $ = id => document.getElementById(id);
+  const R = {};
+  const done = () => { document.title = 'T|' + JSON.stringify(R); };
+  const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r('__TIMEOUT__'), ms))]);
+  await w(3500);
+
+
+
+
+
+  if (state === 'racepage') {
+    try {
+      const email = q.get('email'); const at = parseInt(q.get('at'), 10);
+      while (Date.now() < at) await w(5);
+      const t0 = Date.now();
+      await firebase.auth().signInWithEmailAndPassword(email, 'password123');
+      await w(5000);
+      R.plans = (window.kruxPlans || []).map(p => p.id).join();
+      R.active = window.kruxPlanState && window.kruxPlanState.activePlanId;
+      R.notice = window.kruxPlanNotice ? window.kruxPlanNotice.type : null;
+      R.msSignIn = Date.now() - t0;
+    } catch (er) { R.err = er.message; }
+    done(); return;
+  }
+  if (state === 'multi-dbg') {
+    try {
+      const ST = KruxTrainStore.plans;
+      const e = 'd' + Date.now() + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1500);
+      const t0 = Date.now();
+      R.nothing = await ST.migrate().catch(x => 'ERR:' + x.code + ':' + x.message); R.ms1 = Date.now() - t0;
+      const t1 = Date.now();
+      R.nothing2 = await ST.migrate().catch(x => 'ERR:' + x.code); R.ms2 = Date.now() - t1;
+      R.reload = JSON.stringify(await ST.reload().then(x => x).catch(x => 'ERR' + x.message)); 
+    } catch (er) { R.err = er.message; }
+    done(); return;
+  }
+  if (state === 'racepage') {
+    try {
+      const email = q.get('email'); const at = parseInt(q.get('at'), 10);
+      while (Date.now() < at) await w(5);
+      const t0 = Date.now();
+      await firebase.auth().signInWithEmailAndPassword(email, 'password123');
+      await w(5000);
+      R.plans = (window.kruxPlans || []).map(p => p.id).join();
+      R.active = window.kruxPlanState && window.kruxPlanState.activePlanId;
+      R.notice = window.kruxPlanNotice ? window.kruxPlanNotice.type : null;
+      R.msSignIn = Date.now() - t0;
+    } catch (er) { R.err = er.message; }
+    done(); return;
+  }
+  if (state === 'multi-dbg') {
+    try {
+      const ST = KruxTrainStore.plans; const FV = firebase.firestore.FieldValue;
+      const e = 'd' + Date.now() + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1500);
+      const ud = db.collection('users').doc(c.user.uid);
+      await ud.collection('training_plan').doc('active').set({ name: 'L', weeks: 4, activeDays: [true,false,false,false,false,false,false], sessions: [], updatedAt: FV.serverTimestamp() });
+      const cyc = async () => { await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(e, 'password123'); await w(2200); };
+      const count = async () => { try { const s = await ud.collection('training_plans').get(); return s.size + (s.metadata.fromCache ? '(caché)' : ''); } catch (er) { return 'ERR ' + er.message.slice(0, 40); } };
+      const upto = parseInt(q.get('upto') || '9', 10);
+      await cyc(); R.c1 = await count(); if (upto < 2) { done(); return; }
+      const many = await Promise.all([1, 2, 3, 4, 5].map(() => ST.migrate().catch(x => 'ERR:' + x.code))); R.many = many.join();
+      R.trasMigrar = await count(); if (upto < 3) { done(); return; }
+      await cyc(); R.c2 = await count(); if (upto < 4) { done(); return; }
+      await cyc(); R.c3 = await count();
+    } catch (er) { R.err = er.message; }
+    done(); return;
+  }
+
+  if (state === 'plansui') {
+    const T = {}; const note = (k, ok, extra) => { T[k] = !!ok; if (!ok || extra) R[k] = extra === undefined ? 'FALLA' : extra; };
+    try {
+      const ST = KruxTrainStore.plans; const FV = firebase.firestore.FieldValue;
+      const e = 'ui' + Date.now() + '@t.dev'; const cr = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1500);
+      const ud = db.collection('users').doc(cr.user.uid);
+      const ex = (name, o) => Object.assign({ name, sets: 3, workSec: 0, reps: 8, weight: 0, restSec: 90, rpeTarget: 7 }, o || {});
+      const content = (name, extra) => Object.assign({ name, weeks: 4, activeDays: [true, true, true, true, true, true, true], goal: 'fuerza', level: 2, equipment: ['barra', 'gomas'],
+        sessions: [{ day: 'L', name: 'A ' + name, exercises: [ex('Plancha', { workSec: 30, reps: 0 })] }, { day: 'M', name: 'B', exercises: [ex('Dominadas asistidas', { assistanceKg: 10 })] }] }, extra || {});
+      const idA = await ST.create(content('Plan A'), { activate: true });
+      const idB = await ST.create(content('Plan B'), { activate: false });
+      const idC = await ST.create(content('Plan C'), { activate: false });
+      await ST.setStatus(idC, 'archive');
+      switchView('train-view'); await w(600);
+      const click = async (sel, ms) => { const el = typeof sel === 'string' ? document.querySelector(sel) : sel; if (!el) throw new Error('no existe ' + sel); el.click(); await w(ms || 350); };
+      const cards = () => [...document.querySelectorAll('#my-plans-modal .mp-card')].map(c => ({ id: c.dataset.plan, name: c.querySelector('.xl-card-name').textContent.replace(/Activo|Archivado|En la papelera/, '').trim(), badge: (c.querySelector('.mp-badge') || {}).textContent || '', active: c.classList.contains('is-active') }));
+      const toasts = () => [...document.querySelectorAll('#toast-container *')].map(n => n.textContent).join(' ');
+      const confirmOk = async () => { await click('#confirm-ok', 900); };
+
+      // abrir desde el menú
+      await click('#train-new-plan-btn', 200);
+      note('ui_menuTieneMisPlanes', !document.getElementById('train-gear-plans').hidden);
+      await click('#train-gear-plans', 700);
+      note('ui_abre', document.getElementById('my-plans-modal').classList.contains('pe-open'));
+      let cs = cards();
+      note('ui_planesListados', cs.length === 2 && cs[0].id === idA && cs[0].badge === 'Activo' && cs.filter(c => c.active).length === 1, JSON.stringify(cs));
+      note('ui_unSoloActivo', cs.filter(c => c.badge === 'Activo').length === 1);
+      note('ui_pestañas', [...document.querySelectorAll('.mp-tabs .xl-chip')].map(b => b.textContent).join('|') === 'Planes · 2|Archivados · 1|Papelera', [...document.querySelectorAll('.mp-tabs .xl-chip')].map(b => b.textContent).join('|'));
+
+      // activar B desde el menú de acciones
+      await click(`[data-act-menu="${idB}"].mp-more`, 500);
+      note('ui_accionesPlanInactivo', [...document.querySelectorAll('.mp-action b')].map(b => b.textContent).join('|') === 'Activar|Editar|Duplicar|Archivar|Enviar a la papelera', [...document.querySelectorAll('.mp-action b')].map(b => b.textContent).join('|'));
+      await click('[data-do="activate"]', 1500);
+      cs = cards();
+      note('ui_activado', window.kruxPlanState.activePlanId === idB && cs[0].id === idB && cs[0].badge === 'Activo' && cs.filter(c => c.active).length === 1 && window.kruxActivePlan.id === idB, JSON.stringify(cs.map(c => [c.name, c.badge])));
+      note('ui_activarNoTocaA', (await ud.collection('training_plans').doc(idA).get()).data().status === 'ready');
+      note('ui_entrenaMuestraB', document.getElementById('train-hero-sub').textContent.includes('Plan B'), document.getElementById('train-hero-sub').textContent);
+
+      // duplicar A
+      await click(`[data-act-menu="${idA}"].mp-more`, 400); await click('[data-do="duplicate"]', 1500);
+      cs = cards();
+      note('ui_duplicado', cs.length === 3 && cs.some(c => c.name === 'Copia de Plan A'), JSON.stringify(cs.map(c => c.name)));
+      const copyId = cs.find(c => c.name === 'Copia de Plan A').id;
+
+      // editar la copia: renombrar y guardar → vuelve a Mis planes
+      await click(`[data-act-menu="${copyId}"].mp-more`, 400); await click('[data-do="edit"]', 900);
+      note('ui_editorAbierto', document.getElementById('plan-editor-modal').classList.contains('pe-open') && document.getElementById('pe-title').textContent === 'Editar plan' && !document.getElementById('pe-tpl-row') && document.getElementById('pe-name-input').value === 'Copia de Plan A');
+      const nameInput = document.getElementById('pe-name-input'); nameInput.value = 'Copia renombrada'; nameInput.dispatchEvent(new Event('input'));
+      await click('#pe-save-top', 2000);
+      note('ui_editadoGuardado', !!document.querySelector('.pe-saved-title') && document.querySelector('.pe-saved-note').textContent === 'Cambios guardados.', document.querySelector('.pe-saved-note') && document.querySelector('.pe-saved-note').textContent);
+      const stored = (await ud.collection('training_plans').doc(copyId).get()).data();
+      note('ui_editadoEnServidor', stored.name === 'Copia renombrada' && stored.revision === 2);
+      note('ui_noTocaElActivo', window.kruxPlanState.activePlanId === idB);
+      await click('#pe-saved-done', 800);
+      note('ui_vuelveAMisPlanes', document.getElementById('my-plans-modal').classList.contains('pe-open') && cards().some(c => c.name === 'Copia renombrada'));
+
+      // nuevo plan: la pregunta de activación aparece SIEMPRE
+      await click('#mp-new', 900);
+      document.getElementById('pe-name-input').value = 'Plan nuevo UI'; document.getElementById('pe-name-input').dispatchEvent(new Event('input'));
+      await click('#pe-save-top', 600);
+      note('ui_preguntaActivar', !!document.getElementById('mp-ask') && document.getElementById('mp-ask').textContent.includes('Plan B'), document.getElementById('mp-ask') ? '' : 'no apareció');
+      await click('[data-ask="cancel"]', 400);
+      note('ui_cancelarNoGuarda', (await ud.collection('training_plans').get()).docs.filter(d => d.data().name === 'Plan nuevo UI').length === 0 && !document.querySelector('.pe-saved-title'));
+      await click('#pe-save-top', 600); await click('[data-ask="no"]', 1800);
+      let nuevo = (await ud.collection('training_plans').get()).docs.find(d => d.data().name === 'Plan nuevo UI');
+      note('ui_guardarSinActivar', !!nuevo && window.kruxPlanState.activePlanId === idB && document.querySelector('.pe-saved-note').textContent.startsWith('Guardado sin activar'));
+      await click('#pe-saved-done', 800);
+      await click('#mp-new', 900);
+      document.getElementById('pe-name-input').value = 'Plan activado UI'; document.getElementById('pe-name-input').dispatchEvent(new Event('input'));
+      await click('#pe-save-top', 600); await click('[data-ask="yes"]', 1800);
+      const act2 = (await ud.collection('training_plans').get()).docs.find(d => d.data().name === 'Plan activado UI');
+      note('ui_guardarYActivar', !!act2 && window.kruxPlanState.activePlanId === act2.id && window.kruxActivePlan.name === 'Plan activado UI');
+      await click('#pe-saved-done', 800);
+
+      // archivar el plan activo: confirmación y Entrena sin plan activo
+      await click(`[data-act-menu="${act2.id}"].mp-more`, 400); await click('[data-do="archive"]', 500);
+      note('ui_confirmaArchivarActivo', !document.getElementById('confirm-modal').classList.contains('hidden') && document.getElementById('confirm-message').textContent.includes('sin plan activo'), document.getElementById('confirm-message').textContent);
+      await confirmOk();
+      note('ui_archivadoSinActivo', window.kruxPlanState.activePlanId === null && window.kruxActivePlan === null && !cards().some(c => c.id === act2.id));
+      window.refreshTrainView(); await w(300);
+      const hero = document.getElementById('train-hero-title').textContent + '|' + document.getElementById('train-hero-cta').textContent + '|' + document.getElementById('train-hero-cta').classList.contains('hidden');
+      note('ui_heroSinPlanActivo', hero === 'Sin plan activo|Mis planes|false', hero);
+
+      // pestaña archivados → recuperar
+      await click('[data-tab="archived"]', 400);
+      note('ui_archivados', cards().length === 2 && cards().every(c => c.badge === 'Archivado'), JSON.stringify(cards().map(c => c.name)));
+      await click(`[data-act-menu="${act2.id}"].mp-more`, 400);
+      note('ui_accionesArchivado', [...document.querySelectorAll('.mp-action b')].map(b => b.textContent).join('|') === 'Recuperar|Editar|Duplicar|Enviar a la papelera');
+      await click('[data-do="restore"]', 1500);
+      note('ui_recuperadoSinActivar', window.kruxPlanState.activePlanId === null && window.kruxPlans.find(p => p.id === act2.id).status === 'ready');
+
+      // papelera: confirmar, restaurar, eliminar definitivamente
+      await click('[data-tab="ready"]', 300);
+      await click(`[data-act-menu="${act2.id}"].mp-more`, 400); await click('[data-do="trash"]', 500);
+      note('ui_confirmaPapelera', document.getElementById('confirm-message').textContent.includes('restaurarlo'), document.getElementById('confirm-message').textContent);
+      await confirmOk();
+      await click('[data-tab="trashed"]', 400);
+      note('ui_papelera', cards().length === 1 && cards()[0].badge === 'En la papelera' && cards()[0].id === act2.id);
+      await click(`[data-act-menu="${act2.id}"].mp-more`, 400);
+      note('ui_accionesPapelera', [...document.querySelectorAll('.mp-action b')].map(b => b.textContent).join('|') === 'Restaurar|Eliminar definitivamente');
+      await click('[data-do="purge"]', 500);
+      note('ui_confirmaBorradoDefinitivo', document.getElementById('confirm-message').textContent.includes('para siempre') && document.getElementById('confirm-ok').classList.contains('btn-danger'), document.getElementById('confirm-message').textContent);
+      await click('#confirm-cancel', 500);
+      note('ui_cancelarBorradoNoBorra', !!(await ud.collection('training_plans').doc(act2.id).get()).exists);
+      await click(`[data-act-menu="${act2.id}"].mp-more`, 400); await click('[data-do="purge"]', 500); await confirmOk();
+      note('ui_borradoDefinitivo', !(await ud.collection('training_plans').doc(act2.id).get()).exists && cards().length === 0);
+
+      // entrenamiento en curso: los cambios de plan se bloquean con un mensaje
+      await click('[data-tab="ready"]', 300);
+      await ST.activate(idA); await w(300);
+      document.getElementById('my-plans-modal').classList.remove('pe-open'); document.getElementById('my-plans-modal').classList.add('hidden');
+      const todayLetter = ['D', 'L', 'M', 'X', 'J', 'V', 'S'][new Date().getDay()];
+      window.kruxActivePlan.sessions[0].day = todayLetter; window.kruxActivePlan.sessions[1].day = '?';
+      window.refreshTrainView(); await w(300);
+      window.__s = 1; openActiveSession(); await w(600);
+      note('ui_sesionEnCurso', window.KruxTrainSession.isRunning());
+      window.KruxPlansUI.open(); await w(800);
+      await click(`[data-act-menu="${idB}"].mp-more`, 400); await click('[data-do="activate"]', 800);
+      note('ui_bloqueaActivar', window.kruxPlanState.activePlanId === idA && toasts().includes('entrenamiento en curso'), toasts().slice(0, 80));
+      await click(`[data-act-menu="${idA}"].mp-more`, 400); await click('[data-do="archive"]', 500); await confirmOk();
+      note('ui_bloqueaArchivarActivo', window.kruxPlanState.activePlanId === idA && window.kruxPlans.find(p => p.id === idA).status === 'ready');
+      document.getElementById('my-plans-modal').classList.remove('pe-open'); document.getElementById('my-plans-modal').classList.add('hidden');
+      await click('#session-close-btn', 300); const okb = document.getElementById('confirm-ok'); if (!document.getElementById('confirm-modal').classList.contains('hidden')) await confirmOk(); await w(300);
+      if (window.KruxTrainSession.isRunning()) { window.closeActiveSession(); await w(300); }
+      note('ui_sesionCerrada', !window.KruxTrainSession.isRunning());
+
+      // conflicto: otro dispositivo cambia el plan mientras se edita
+      window.KruxPlansUI.open(); await w(800);
+      await click(`[data-act-menu="${idB}"].mp-more`, 400); await click('[data-do="edit"]', 900);
+      const rev = window.kruxPlans.find(p => p.id === idB).revision;
+      await ud.collection('training_plans').doc(idB).update({ revision: rev + 1, updatedAt: FV.serverTimestamp(), name: 'Cambiado fuera' });
+      const ni = document.getElementById('pe-name-input'); ni.value = 'Mi edición'; ni.dispatchEvent(new Event('input'));
+      await click('#pe-save-top', 2200);
+      note('ui_conflictoAvisa', !!document.getElementById('pe-conflict') && !document.querySelector('.pe-saved-title') && document.getElementById('pe-save-top').disabled === false);
+      note('ui_conflictoNoPisa', (await ud.collection('training_plans').doc(idB).get()).data().name === 'Cambiado fuera');
+      await click('#pe-conflict-reload', 1500);
+      note('ui_conflictoRecarga', document.getElementById('pe-name-input').value === 'Cambiado fuera' && !document.getElementById('pe-conflict'), document.getElementById('pe-name-input') && document.getElementById('pe-name-input').value);
+      const ni2 = document.getElementById('pe-name-input'); ni2.value = 'Resuelto'; ni2.dispatchEvent(new Event('input')); await click('#pe-save-top', 2000);
+      note('ui_conflictoResuelto', (await ud.collection('training_plans').doc(idB).get()).data().name === 'Resuelto');
+    } catch (er) { R.err = er.message + ' ' + (er.stack || '').split('\n')[1]; }
+    R.fallos = Object.entries(T).filter(([k, v]) => !v).map(([k]) => k);
+    R.resumen = Object.values(T).filter(Boolean).length + '/' + Object.keys(T).length;
+    done(); return;
+  }
+  if (state === 'multi') {
+    const T = {};          // resultados que deben ser true
+    const note = (k, ok, extra) => { T[k] = !!ok; if (!ok || extra) R[k] = extra === undefined ? 'FALLA' : extra; document.title = 'P|' + Object.keys(T).length + '|ultimo=' + k + '|fallos=' + Object.entries(T).filter(([a, b]) => !b).map(([a]) => a).join(',') + '|step=' + (R.step || ''); };
+    try {
+      const P = window.KruxPlans, ST = KruxTrainStore.plans;
+      const FV = firebase.firestore.FieldValue;
+      const mk = async () => { const e = 'm' + Date.now() + Math.floor(Math.random() * 9999) + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1500); return { email: e, uid: c.user.uid }; };
+      const ud = u => db.collection('users').doc(u.uid);
+      const cycle = async u => { await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(u.email, 'password123'); await w(2200); };
+      R.trace = []; const chk = async (label) => { try { const sn = await ud(u1).collection('training_plans').get(); R.trace.push(label + ':' + sn.size + (sn.metadata.fromCache ? 'C' : '')); } catch (er) { R.trace.push(label + ':ERR'); } };
+      const snapOf = async ref => { const d = await ref.get(); return d.exists ? JSON.stringify(d.data(), (k, v) => (v && v.seconds !== undefined && v.nanoseconds !== undefined ? 'TS:' + v.seconds + '.' + v.nanoseconds : v)) : null; };
+      const ex = (name, o) => Object.assign({ name, sets: 3, workSec: 0, reps: 8, weight: 0, restSec: 90, rpeTarget: 7 }, o || {});
+      const legacyDoc = name => ({ name, weeks: 6, activeDays: [true, false, true, false, true, false, false], goal: 'fuerza', level: 2, equipment: ['barra'],
+        sessions: [{ day: 'L', name: 'Fuerza dedos', exercises: [ex('Max hang · 20mm', { sets: 4, workSec: 10, reps: 0, weight: 20, restSec: 180, rpeTarget: 8 }), ex('Mi ejercicio')] }, { day: 'X', name: 'Potencia', exercises: [ex('Dynos a dedo', { reps: 3 })] }, { day: 'V', name: 'Piernas', exercises: [] }] });
+      const seedLegacy = async (u, name) => { await ud(u).collection('training_plan').doc('active').set(Object.assign(legacyDoc(name), { updatedAt: FV.serverTimestamp() })); };
+      const seedSession = (u, id, name) => ud(u).collection('training_sessions').doc(id).set({ dateKey: '2026-10-20', sessionName: name, durationSec: 600, startedAt: 1, exercises: [{ name: 'Max hang · 20mm', target: { sets: 4 }, sets: [{ n: 1, workSec: 10, reps: 0, weight: 20, rpe: 8, time: '10:00' }] }], createdAt: FV.serverTimestamp() });
+      const stateDoc = async u => (await ud(u).collection('training_state').doc('current').get());
+      const planDoc = (u, id) => ud(u).collection('training_plans').doc(id);
+      const content = (name, extra) => Object.assign({ name, weeks: 4, activeDays: [true, false, true, false, true, false, false], sessions: [{ day: 'L', name: 'A', exercises: [ex('Plancha', { workSec: 30, reps: 0 })] }, { day: 'X', name: 'B', exercises: [ex('Dominadas asistidas', { assistanceKg: 10 })] }] }, extra || {});
+
+      // ═══ U1: migración de un plan antiguo ═══
+      const u1 = await mk();
+      await seedLegacy(u1, 'Plan antiguo'); await seedSession(u1, 'old1', 'Sesión antigua 1'); await seedSession(u1, 'old2', 'Sesión antigua 2');
+      const legacyBefore = await snapOf(ud(u1).collection('training_plan').doc('active'));
+      const sessBefore = [await snapOf(ud(u1).collection('training_sessions').doc('old1')), await snapOf(ud(u1).collection('training_sessions').doc('old2'))];
+      await cycle(u1);
+      await chk('trasU1cycle'); note('u1_unPlan', window.kruxPlans.length === 1 && window.kruxPlans[0].id === 'legacy-active', window.kruxPlans.map(p => p.id).join());
+      const m = window.kruxPlans[0] || {};
+      note('u1_metadatos', m.status === 'ready' && m.revision === 1 && m.schemaVersion === 2 && m.migratedFrom === 'training_plan/active', JSON.stringify([m.status, m.revision, m.migratedFrom]));
+      note('u1_puntero', window.kruxPlanState.activePlanId === 'legacy-active' && window.kruxActivePlan && window.kruxActivePlan.id === 'legacy-active');
+      const L = legacyDoc('Plan antiguo');
+      const a = window.kruxActivePlan;
+      note('u1_contenido', a.name === L.name && a.weeks === 6 && JSON.stringify(a.activeDays) === JSON.stringify(L.activeDays) && JSON.stringify(a.sessions.map(s => ({ day: s.day, name: s.name, exercises: s.exercises }))) === JSON.stringify(L.sessions.map(s => ({ day: s.day, name: s.name, exercises: s.exercises }))) && a.goal === 'fuerza' && a.level === 2, '');
+      note('u1_idsSesion', a.sessions.map(s => s.id).join() === 's_legacy1,s_legacy2,s_legacy3', a.sessions.map(s => s.id).join());
+      note('u1_antiguoIntacto', (await snapOf(ud(u1).collection('training_plan').doc('active'))) === legacyBefore);
+      note('u1_historialIntacto', sessBefore.every(async x => true) && (await snapOf(ud(u1).collection('training_sessions').doc('old1'))) === sessBefore[0] && (await snapOf(ud(u1).collection('training_sessions').doc('old2'))) === sessBefore[1]);
+      note('u1_historialCargado', window.kruxTrainLog.length === 2, window.kruxTrainLog.length);
+
+      // ═══ U2: idempotencia ═══
+      await chk('antesMany'); const planSnap = await snapOf(planDoc(u1, 'legacy-active'));
+      const many = await Promise.all([1, 2, 3, 4, 5].map(() => ST.migrate().catch(e => 'ERR:' + e.code)));
+      note('u2_concurrentes', many.every(x => x === 'already'), JSON.stringify(many));
+      await chk('trasMany'); R.step = 'u2 antes de ciclos'; await cycle(u1); await chk('trasCiclo1'); R.step = 'u2 ciclo 1'; await cycle(u1); R.step = 'u2 ciclo 2';
+      const snapPlans = await ud(u1).collection('training_plans').get(); const sz = snapPlans.docs.map(d => d.id); note('u2_sinDuplicados', sz.length === 1, sz.join() + '|caché=' + snapPlans.metadata.fromCache + '|uidActual=' + (firebase.auth().currentUser && firebase.auth().currentUser.uid === u1.uid));
+      note('u2_planSinReescribir', (await snapOf(planDoc(u1, 'legacy-active'))) === planSnap);
+      const st1 = await stateDoc(u1); note('u2_marcador', !!st1.data().migratedAt && st1.data().migratedFrom === 'training_plan/active');
+
+      // ═══ U3: carrera real de dos migraciones sobre un usuario sin migrar ═══
+      const u3 = await mk(); await seedLegacy(u3, 'Plan carrera');
+      const race = await Promise.all([ST.migrate().catch(e => 'ERR:' + e.code), ST.migrate().catch(e => 'ERR:' + e.code), ST.migrate().catch(e => 'ERR:' + e.code)]);
+      note('u3_unSoloGanador', race.filter(x => x === 'migrated').length === 1 && race.every(x => x === 'migrated' || x === 'already'), JSON.stringify(race));
+      note('u3_unPlan', (await ud(u3).collection('training_plans').get()).size === 1);
+
+      // ═══ U4: usuario sin ningún plan ═══
+      R.step = 'u4 mk'; const u4 = await mk(); R.step = 'u4 cycle'; await cycle(u4); R.step = 'u4 comprobaciones';
+      note('u4_sinPlan', window.kruxPlans.length === 0 && window.kruxActivePlan === null);
+      note('u4_sinEscrituras', !(await stateDoc(u4)).exists && (await ud(u4).collection('training_plans').get()).empty);
+      R.step = 'u4 migrate'; note('u4_migrarNada', (await ST.migrate()) === 'nothing'); R.step = 'u5';
+
+      // ═══ U5: conflicto: ya existe un plan con el id de la migración y no procede de ella ═══
+      const u5 = await mk(); await seedLegacy(u5, 'Plan con conflicto');
+      await planDoc(u5, 'legacy-active').set(P.createPlan(content('Plan ajeno'), FV.serverTimestamp()));
+      const foreign = await snapOf(planDoc(u5, 'legacy-active'));
+      await cycle(u5);
+      note('u5_avisa', window.kruxPlanNotice && window.kruxPlanNotice.type === 'migration-error', JSON.stringify(window.kruxPlanNotice));
+      note('u5_nadaSobrescrito', (await snapOf(planDoc(u5, 'legacy-active'))) === foreign && !(await stateDoc(u5)).exists);
+      note('u5_sinPlanActivo', window.kruxActivePlan === null);
+
+      // ═══ U6: migración interrumpida (plan creado, sin marcador) ═══
+      const u6 = await mk(); await seedLegacy(u6, 'Plan interrumpido');
+      await planDoc(u6, 'legacy-active').set(P.fromLegacy(legacyDoc('Plan interrumpido'), FV.serverTimestamp()));
+      const half = await snapOf(planDoc(u6, 'legacy-active'));
+      note('u6_completa', (await ST.migrate()) === 'completed');
+      note('u6_planIntacto', (await snapOf(planDoc(u6, 'legacy-active'))) === half && (await stateDoc(u6)).data().activePlanId === 'legacy-active');
+
+      // ═══ U7: cambios hechos con una versión antigua tras migrar ═══
+      await cycle(u1); await new Promise(r => setTimeout(r, 2500));
+      await ud(u1).collection('training_plan').doc('active').update({ name: 'Editado con la app antigua', updatedAt: FV.serverTimestamp() });
+      await cycle(u1);
+      note('u7_detecta', window.kruxPlanNotice && window.kruxPlanNotice.type === 'legacy-drift', JSON.stringify(window.kruxPlanNotice));
+      note('u7_noSincroniza', window.kruxActivePlan.name === 'Plan antiguo');
+      const driftLegacy = await snapOf(ud(u1).collection('training_plan').doc('active'));
+      const idImp = await ST.importLegacy();
+      note('u7_importaComoNuevo', !!idImp && idImp !== 'legacy-active' && window.kruxPlans.length === 2 && window.kruxPlans.find(p => p.id === idImp).name === 'Editado con la app antigua (importado)');
+      note('u7_originalIntacto', (await snapOf(planDoc(u1, 'legacy-active'))) === planSnap && (await snapOf(ud(u1).collection('training_plan').doc('active'))) === driftLegacy && window.kruxPlanState.activePlanId === 'legacy-active');
+
+      // ═══ U8: crear, editar, duplicar, activar, archivar, recuperar, papelera, borrado ═══
+      const idB = await ST.create(content('Plan B'), { activate: false });
+      note('u8_crearNoActiva', !!idB && window.kruxPlanState.activePlanId === 'legacy-active' && window.kruxPlans.find(p => p.id === idB).status === 'ready');
+      const aBefore = await snapOf(planDoc(u1, 'legacy-active'));
+      note('u8_activar', (await ST.activate(idB)) === true && window.kruxPlanState.activePlanId === idB && window.kruxActivePlan.id === idB);
+      note('u8_activarNoTocaOtros', (await snapOf(planDoc(u1, 'legacy-active'))) === aBefore);
+      const idC = await ST.duplicate(idB, 'Copia independiente');
+      const bBefore = await snapOf(planDoc(u1, idB));
+      const savedC = await ST.update(idC, Object.assign(content('Copia editada'), { sessions: [{ day: 'L', name: 'Solo esta', exercises: [] }] }), 1);
+      note('u8_duplicadoIndependiente', !!savedC && savedC.revision === 2 && (await snapOf(planDoc(u1, idB))) === bBefore);
+      const cDoc = (await planDoc(u1, idC).get()).data();
+      note('u8_duplicado', cDoc.sourcePlanId === idB && cDoc.status === 'ready' && cDoc.sessions.length === 1);
+      const bSessIds = window.kruxPlans.find(p => p.id === idB).sessions.map(s => s.id);
+      const cOrig = (await ST.duplicate(idB)); const cOrigSess = (await planDoc(u1, cOrig).get()).data().sessions.map(s => s.id);
+      note('u8_idsDeSesionNuevos', cOrigSess.every(id => !bSessIds.includes(id)));
+      const stale = await ST.update(idB, content('Desfasado'), 99);
+      note('u8_conflictoDeRevision', stale === null && (await snapOf(planDoc(u1, idB))) === bBefore);
+      const okEdit = await ST.update(idB, content('Plan B v2'), 1);
+      note('u8_editarRevision', !!okEdit && okEdit.revision === 2);
+      const again = await ST.update(idB, content('Plan B v3'), 1);
+      note('u8_dosDispositivos', again === null);
+      note('u8_archivarActivo', (await ST.setStatus(idB, 'archive')) === true && window.kruxPlanState.activePlanId === null && window.kruxActivePlan === null && window.kruxPlans.find(p => p.id === idB).status === 'archived');
+      note('u8_archivadoNoSeActiva', (await ST.activate(idB)) === false);
+      note('u8_recuperar', (await ST.setStatus(idB, 'restore')) === true && window.kruxPlans.find(p => p.id === idB).status === 'ready' && window.kruxPlanState.activePlanId === null);
+      note('u8_papelera', (await ST.setStatus(idC, 'trash')) === true && window.kruxPlans.find(p => p.id === idC).status === 'trashed');
+      note('u8_noBorraLoQueNoEstaEnPapelera', (await ST.purge(idB)) === false && !!(await planDoc(u1, idB).get()).exists);
+      note('u8_restauraDePapelera', (await ST.setStatus(idC, 'restore')) === true);
+      await ST.setStatus(idC, 'trash');
+      note('u8_borradoDefinitivo', (await ST.purge(idC)) === true && !(await planDoc(u1, idC).get()).exists);
+      note('u8_noEditaPapelera', (async () => true)() && (await ST.update(idC, content('x'), 1)) === null);
+      await ST.activate(idB);
+
+      // ═══ U9: historial al editar, archivar y borrar planes + bloqueo con entrenamiento en curso ═══
+      const sessIdsB = window.kruxPlans.find(p => p.id === idB).sessions.map(s => s.id);
+      switchView('train-view'); await w(500);
+      // hoy tiene que tocar sesión: se asigna el día de hoy a la primera sesión
+      const todayLetter = ['D', 'L', 'M', 'X', 'J', 'V', 'S'][new Date().getDay()];
+      const cur = window.kruxActivePlan;
+      cur.sessions[0].day = todayLetter; cur.activeDays = ['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => d === todayLetter);
+      cur.sessions.slice(1).forEach(s => { s.day = '?'; });
+      window.kruxActivePlan.sessions = [cur.sessions[0]];
+      note('u9_guardaPlanParaHoy', (await KruxTrainStore.savePlan(cur)) === true, '');
+      window.refreshTrainView(); await w(400);
+      window.__s = 1; openActiveSession(); await w(700);
+      note('u9_bloqueos', [await ST.activate('legacy-active'), await ST.setStatus(idB, 'archive'), await ST.setStatus(idB, 'trash'), await ST.purge('legacy-active')].every(x => x === false) && window.KruxTrainSession.isRunning(), '');
+      note('u9_restaurarSigue', (await ST.setStatus(idC, 'restore')) === false);   // el plan ya no existe: error, no excepción
+      const act = async (id, ms) => { const el = $(id); if (el && !el.disabled && el.offsetParent !== null) { el.click(); await w(ms || 250); return true; } return false; };
+      for (let i = 0; i < 12; i++) { if (await act('session-btn-set', 300)) { document.querySelector('#session-rpe-dots [data-rpe="7"]')?.click(); await w(150); continue; } if (await act('session-btn-main', 400)) continue; break; }
+      await act('session-finish-btn', 300); await act('confirm-ok', 400);
+      document.querySelector('[data-feel="ok"]')?.click(); document.querySelector('#plog-rpe-row [data-rpe="6"]')?.click(); await w(100);
+      $('plog-save-btn')?.click(); await w(2000);
+      $('plog-close-done')?.click(); await w(400);
+      const sdocs = (await ud(u1).collection('training_sessions').get()).docs.filter(d => d.id !== 'old1' && d.id !== 'old2');
+      const sd = sdocs[0] && sdocs[0].data();
+      note('u9_sesionConPlan', !!sd && sd.planId === idB && sd.planName === window.kruxActivePlan.name && sd.planSessionId === sessIdsB[0] && sd.planRevision === window.kruxActivePlan.revision, sd ? JSON.stringify([sd.planId === idB, sd.planName, sd.planSessionId, sd.planRevision, window.kruxActivePlan.revision]) : 'sin sesión');
+      const histSnap = await snapOf(sdocs[0].ref);
+      // editar, archivar, papelera y borrar el plan: el historial no cambia
+      await ST.update(idB, Object.assign(content('Plan B reescrito'), { sessions: [{ day: 'L', name: 'Otra', exercises: [] }] }), window.kruxActivePlan.revision);
+      await ST.setStatus(idB, 'archive'); await ST.setStatus(idB, 'trash');
+      note('u9_historialTrasEditar', (await snapOf(sdocs[0].ref)) === histSnap);
+      note('u9_borrarPlanConservaHistorial', (await ST.purge(idB)) === true && !(await planDoc(u1, idB).get()).exists && (await snapOf(sdocs[0].ref)) === histSnap);
+      await cycle(u1);
+      const rec = window.kruxTrainLog.find(r => r.planId === idB);
+      note('u9_registroLegibleSinPlan', !!rec && rec.planName.length > 0 && !window.kruxPlans.some(p => p.id === idB) && rec.exercises.length > 0, rec ? rec.planName : 'sin registro');
+
+      // ═══ U10: guardar el plan activo desde Entrena (ejercicio editado) ═══
+      await ST.activate('legacy-active');
+      const legacyAfter = await snapOf(ud(u1).collection('training_plan').doc('active'));
+      const ap = window.kruxActivePlan; const rev0 = ap.revision;
+      ap.sessions[0].exercises[0].weight = 25;
+      note('u10_guardaConRevision', (await KruxTrainStore.savePlan(ap)) === true && ap.revision === rev0 + 1);
+      ap.sessions[0].exercises[0].weight = 27;
+      note('u10_guardaDeNuevo', (await KruxTrainStore.savePlan(ap)) === true && ap.revision === rev0 + 2);
+      const stored = (await planDoc(u1, 'legacy-active').get()).data();
+      note('u10_documento', stored.revision === rev0 + 2 && stored.sessions[0].exercises[0].weight === 27 && stored.sessions.map(s => s.id).join() === 's_legacy1,s_legacy2,s_legacy3');
+      note('u10_noEscribeElAntiguo', (await snapOf(ud(u1).collection('training_plan').doc('active'))) === legacyAfter);
+      // otro dispositivo cambia el plan: este se entera al guardar
+      await planDoc(u1, 'legacy-active').update({ revision: stored.revision + 1, updatedAt: FV.serverTimestamp(), name: 'Cambiado en otro dispositivo' });
+      ap.sessions[0].exercises[0].weight = 30;
+      note('u10_conflictoVisible', (await KruxTrainStore.savePlan(ap)) === false && (await planDoc(u1, 'legacy-active').get()).data().name === 'Cambiado en otro dispositivo' && (await planDoc(u1, 'legacy-active').get()).data().sessions[0].exercises[0].weight === 27);
+
+      // ═══ U11: otro usuario no ve nada de los planes de u1 ═══
+      const u11 = await mk();
+      let denied = 0;
+      try { await db.collection('users').doc(u1.uid).collection('training_plans').get(); } catch (e) { denied++; }
+      try { await db.collection('users').doc(u1.uid).collection('training_state').doc('current').get(); } catch (e) { denied++; }
+      try { await db.collection('users').doc(u1.uid).collection('training_plans').doc('legacy-active').update({ name: 'hack', revision: 99 }); } catch (e) { denied++; }
+      note('u11_aislamiento', denied === 3, denied);
+    } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+    R.fallos = Object.entries(T).filter(([k, v]) => !v).map(([k]) => k);
+    R.resumen = Object.values(T).filter(Boolean).length + '/' + Object.keys(T).length;
+    done(); return;
+  }
+  if (state === 'phase0') {
+    try {
+      const mk = async () => { const e = 'z' + Date.now() + Math.floor(Math.random() * 999) + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); return { email: e, uid: c.user.uid }; };
+      const A = await mk(); await w(1500);
+      const DAYS7 = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+      const ex = (n, o) => Object.assign({ name: n, sets: 2, workSec: 0, reps: 8, weight: 0, restSec: 60, rpeTarget: 7 }, o || {});
+      const plan = { name: 'Plan P0', weeks: 4, activeDays: DAYS7.map(() => true), sessions: DAYS7.map(d => ({ day: d, name: 'Sesión ' + d, exercises: [ex('Max hang · 20mm', { sets: 3, workSec: 10, reps: 0, weight: 20, restSec: 180, rpeTarget: 8 }), ex('Dominadas asistidas', { assistanceKg: 15 }), ex('Plancha', { sets: 2, workSec: 20, reps: 0 })] })) };
+      const userDoc = () => db.collection('users').doc(A.uid);
+      await userDoc().collection('training_plan').doc('active').set(plan);
+      await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(A.email, 'password123'); await w(2000);
+      switchView('train-view'); await w(500);
+      const act = async (id, ms) => { const el = $(id); if (el && !el.disabled && el.offsetParent !== null) { el.click(); await w(ms || 250); return true; } return false; };
+      const clone = o => JSON.parse(JSON.stringify(o));
+
+      R.runningBefore = window.KruxTrainSession.isRunning();
+      window.__s = 1; openActiveSession(); await w(700);
+      R.runningDuring = window.KruxTrainSession.isRunning();
+      const todayPlanEx = () => window.kruxActivePlan.sessions.flatMap(s => s.exercises);
+      const planBefore = clone(window.kruxActivePlan);
+      R.first = $('session-ex-name').textContent;
+
+      // 1. refrescar Entrena, editar el plan en memoria, sustituir kruxTrainData y el plan activo: la sesión no cambia
+      todayPlanEx().forEach(e => { e.name = 'EDITADO ' + e.name; e.sets = 9; e.weight = 99; });
+      window.kruxTrainData = { name: 'OTRA', exercises: [ex('OTRO EJERCICIO', { sets: 1 })], demo: false };
+      window.kruxActivePlan = { name: 'Otro plan', weeks: 1, activeDays: DAYS7.map(() => true), sessions: DAYS7.map(d => ({ day: d, name: 'X', exercises: [ex('NUEVO')] })) };
+      window.refreshTrainView(); await w(300);
+      R.afterRefresh = $('session-ex-name').textContent + '|' + $('session-set-chip').textContent;
+
+      // 2. ejecutar: ajustar carga en el primero, completar series con RPE
+      await act('session-btn-main', 400);                    // inicia el temporizador de trabajo
+      await w(1200);
+      await act('session-load-plus'); await act('session-load-plus');
+      R.loadShown = $('session-load-val').textContent;
+      for (let i = 0; i < 3; i++) { if (!(await act('session-btn-set', 300))) break; document.querySelector('#session-rpe-dots [data-rpe="8"]')?.click(); await w(150); if (i === 2) break; }
+      R.mid = $('session-timer-label').textContent;
+      await act('session-btn-main', 400);                    // siguiente ejercicio
+      R.second = $('session-ex-name').textContent;
+      for (let i = 0; i < 2; i++) { await act('session-btn-set', 300); document.querySelector('#session-rpe-dots [data-rpe="7"]')?.click(); await w(150); }
+      await act('session-btn-main', 400);
+      R.third = $('session-ex-name').textContent;
+      R.counter = $('session-ex-counter').textContent;
+      await act('session-btn-set', 300); await act('session-btn-set', 300);
+      await act('session-btn-main', 400);                    // terminar
+      await act('session-finish-btn', 400); await act('confirm-ok', 500);
+      R.summaryShown = !!$('plog-save-btn');
+      document.querySelector('[data-feel="great"]').click(); document.querySelector('#plog-rpe-row [data-rpe="8"]').click(); await w(100);
+      $('plog-save-btn').click(); await w(2000);
+      R.hint = $('plog-done-hint').textContent + '|retryHidden=' + $('plog-retry').hidden;
+
+      // 3. lo guardado: objetivo original + valores realizados
+      const docs = await userDoc().collection('training_sessions').get();
+      R.docs = docs.size;
+      const d = docs.docs[0].data();
+      R.target = JSON.stringify(d.exercises[0].target);
+      R.realSets = d.exercises[0].sets.map(s => s.weight + 'kg/rpe' + s.rpe).join(',');
+      R.second_ex = d.exercises[1].name + '|assist target ' + d.exercises[1].target.assistanceKg + '|set ' + (d.exercises[1].sets[0] || {}).assistanceKg;
+      R.names = d.exercises.map(e => e.name).join(' ; ');
+      R.fields = Object.keys(d).sort().join(',');
+      // el plan guardado no se ha tocado (la carga ajustada no se escribe)
+      const planDoc = (await userDoc().collection('training_plan').doc('active').get()).data();
+      R.planDocWeight = planDoc.sessions[0].exercises[0].weight + '|' + planDoc.sessions[0].exercises[0].name;
+
+      // 4. reintentos: no duplican
+      const rec = window.kruxTrainLog[window.kruxTrainLog.length - 1];
+      const again = await Promise.all([KruxTrainStore.saveSession(rec), KruxTrainStore.saveSession(rec)]);
+      const fresh = { dateKey: '2026-01-01', sessionName: 'Reintento', durationSec: 60, exercises: [{ name: 'x', target: { sets: 1 }, sets: [] }] };
+      const dbl = await Promise.all([KruxTrainStore.saveSession(fresh), KruxTrainStore.saveSession(fresh)]);
+      const third = await KruxTrainStore.saveSession(fresh);
+      R.retries = JSON.stringify([again, dbl, third]) + '|docs=' + (await userDoc().collection('training_sessions').get()).size;
+      $('plog-close-done').click(); await w(500);
+      R.runningAfter = window.KruxTrainSession.isRunning();
+
+      // 5. cambio de cuenta durante una sesión: no se guarda en la cuenta nueva
+      switchView('train-view'); await w(300);
+      window.kruxTrainData = { name: 'De A', exercises: [ex('Plancha', { sets: 1, workSec: 0, reps: 5, restSec: 0 })], demo: false };
+      openActiveSession(); await w(600);
+      const B = await mk(); await w(1500);                     // inicia sesión otra cuenta (la sesión sigue abierta)
+      R.sameScreen = $('session-ex-name').textContent;
+      await act('session-btn-set', 300); await act('session-btn-main', 400); await act('session-finish-btn', 300); await act('confirm-ok', 400);
+      R.summary2 = !!$('plog-save-btn');
+      document.querySelector('[data-feel="ok"]').click(); document.querySelector('#plog-rpe-row [data-rpe="6"]').click(); await w(100);
+      $('plog-save-btn').click(); await w(1800);
+      R.otherAccount = $('plog-done-hint').textContent;
+      R.bDocs = (await db.collection('users').doc(B.uid).collection('training_sessions').get()).size;
+    } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+    done(); return;
+  }
+  if (state === 'favs' || state === 'offline' || state === 'denied') {
+    try {
+      const email = 'f' + Date.now() + Math.floor(Math.random() * 1000) + '@t.dev';
+      const cred = await firebase.auth().createUserWithEmailAndPassword(email, 'password123');
+      const uid = cred.user.uid; await w(1500);
+      const favDocs = () => db.collection('users').doc(uid).collection('exercise_favorites').get().then(s => s.docs.map(d => d.id).sort().join(','));
+      const L = window.KruxLibrary;
+      switchView('train-view'); await w(300);
+      L.open({ mode: 'browse' }); await w(900);
+      document.querySelector('[data-open=plancha]').click(); await w(500);
+      const heart = $('xl-fav');
+      if (state === 'favs') {
+        heart.click(); await w(1200);
+        R.favOn = heart.getAttribute('aria-pressed') + '|' + (await favDocs());
+        document.querySelector('[data-rel=hollow-body]').click(); await w(400);
+        $('xl-fav').click(); await w(1200);
+        R.fav2 = await favDocs();
+        // recarga: salir y entrar de nuevo, la biblioteca vuelve a leer los favoritos
+        L.close(); await w(400);
+        await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(email, 'password123'); await w(1500);
+        L.open({ mode: 'browse' }); await w(1200);
+        R.chip = [...document.querySelectorAll('.xl-chip')].find(c => /Favoritos/.test(c.textContent))?.textContent;
+        document.querySelector('[data-cat=fav]').click(); await w(300);
+        R.favList = [...document.querySelectorAll('.xl-card-name')].map(n => n.textContent).join(',');
+        // quitar
+        document.querySelector('[data-open=plancha]').click(); await w(400);
+        $('xl-fav').click(); await w(1200);
+        R.fav3 = await favDocs();
+        // sin sesión: avisa
+        await firebase.auth().signOut(); await w(500);
+        $('xl-fav').click(); await w(400);
+        R.signedOutToast = [...document.querySelectorAll('#toast-container *')].map(n => n.textContent).join(' ').slice(0, 80);
+      }
+      if (state === 'offline') {
+        await db.disableNetwork();
+        const t0 = Date.now();
+        heart.click();
+        await w(5000);
+        R.favOfflineAfter5s = heart.getAttribute('aria-pressed') + '|' + document.querySelector('#toast-container')?.textContent.slice(0, 60);
+        // guardar un plan sin red
+        window.openPlanEditor(); await w(700);
+        const btn = $('pe-save-top'); btn.click(); await w(6000);
+        R.saveOfflineAfter6s = btn.textContent.trim() + '|disabled=' + btn.disabled + '|pantallaGuardado=' + !!document.querySelector('.pe-saved-title');
+        await w(11000);
+        R.toastTxt = [...document.querySelectorAll('#toast-container *')].map(n => n.textContent).join(' ').slice(0, 120);
+        R.saveOfflineAfter17s = btn.textContent.trim() + '|disabled=' + btn.disabled + '|pantallaGuardado=' + !!document.querySelector('.pe-saved-title');
+        await db.enableNetwork(); await w(2500);
+        R.afterReconnect = (await favDocs()) + '|' + !!document.querySelector('.pe-saved-title') + '|planDoc=' + (await db.collection('users').doc(uid).collection('training_plan').doc('active').get()).exists;
+      }
+      if (state === 'denied') {
+        heart.click(); await w(1500);
+        R.favDenied = heart.getAttribute('aria-pressed') + '|' + (await favDocs()) + '|' + [...document.querySelectorAll('#toast-container *')].map(n => n.textContent).join(' ').slice(0, 120);
+        window.openPlanEditor(); await w(700);
+        const btn = $('pe-save-top'); btn.click(); await w(2000);
+        R.saveDenied = btn.textContent.trim() + '|disabled=' + btn.disabled + '|pantallaGuardado=' + !!document.querySelector('.pe-saved-title') + '|' + [...document.querySelectorAll('#toast-container *')].map(n => n.textContent).join(' ').slice(0, 140);
+        btn.click(); await w(1500);
+        R.retryOk = btn.textContent.trim();
+        // «añadir a mi plan» desde la ficha con el plan en memoria
+        window.kruxActivePlan = { name: 'P', weeks: 4, activeDays: [true, false, true, false, false, false, false], sessions: [{ day: 'L', name: 'S1', exercises: [] }] };
+        L.open({ mode: 'browse' }); await w(900);
+        document.querySelector('[data-open=plancha]').click(); await w(500); $('xl-add-plan').click(); await w(400);
+        document.querySelector('[data-sess="0"]').click(); await w(1500);
+        R.addDenied = window.kruxActivePlan.sessions[0].exercises.length + '|' + [...document.querySelectorAll('#toast-container *')].map(n => n.textContent).join(' ').slice(0, 100);
+      }
+    } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+    done(); return;
+  }
+
+  if (state === 'remote') {
+    try {
+      const mk = async (e) => (await firebase.auth().createUserWithEmailAndPassword(e, 'password123')).user;
+      // La librería se abre primero sin sesión: no debe quedarse marcada como cargada
+      await firebase.auth().signOut(); await w(500);
+      window.KruxLibrary.open({ mode: 'browse' }); await w(800);
+      R.antes = window.KruxLibrary.catalog().exercises.length;
+      window.KruxLibrary.close(); await w(400);
+      // super-admin (solo en el emulador) publica fichas
+      await firebase.auth().signInWithEmailAndPassword('krux.app.info@gmail.com', 'password123').catch(() => firebase.auth().createUserWithEmailAndPassword('krux.app.info@gmail.com', 'password123')); await w(800);
+      const base = JSON.parse(JSON.stringify(window.KRUX_CATALOG_DATA.exercises.find(e => e.id === 'plancha')));
+      const nueva = Object.assign({}, base, { id: 'plancha-lateral', slug: 'plancha-lateral', name: 'Plancha lateral', aliases: ['side plank'], contentVersion: 1 });
+      const actualizada = Object.assign({}, base, { name: 'Plancha (versión 2)', contentVersion: 2 });
+      const vieja = Object.assign({}, base, { id: 'hollow-body', slug: 'hollow-body', name: 'NO DEBE APARECER', contentVersion: 1 });
+      const invalida = Object.assign({}, base, { id: 'ficha-rota', slug: 'ficha-rota', name: 'Ficha rota', relations: Object.assign({}, base.relations, { alternatives: [{ exerciseId: 'no-existe', reason: 'x', order: 1 }] }) });
+      const borrador = Object.assign({}, base, { id: 'borrador-x', slug: 'borrador-x', name: 'Borrador', status: 'draft' });
+      for (const f of [nueva, actualizada, vieja, invalida, borrador]) await db.collection('exercises').doc(f.id).set(f);
+      await firebase.auth().signOut(); await w(300);
+      await mk('u' + Date.now() + '@t.dev'); await w(800);
+      window.KruxLibrary.open({ mode: 'browse' }); await w(2500);
+      const cat = window.KruxLibrary.catalog();
+      R.despues = cat.exercises.length;
+      R.nueva = !!cat.byId.get('plancha-lateral');
+      R.actualizada = cat.byId.get('plancha').name;
+      R.viejaIgnorada = cat.byId.get('hollow-body').name;
+      R.invalidaRechazada = !cat.byId.get('ficha-rota');
+      R.borradorOculto = !cat.byId.get('borrador-x');
+      $('xl-search').value = 'side plank'; $('xl-search').dispatchEvent(new Event('input')); await w(400);
+      R.busqueda = [...document.querySelectorAll('.xl-card-name')].map(n => n.textContent).join(',');
+    } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+    done(); return;
+  }
+  try {
+    const email = 'p' + Date.now() + Math.floor(Math.random() * 1000) + '@t.dev';
+    const cred = await firebase.auth().createUserWithEmailAndPassword(email, 'password123');
+    const uid = cred.user.uid;
+    const userDoc = () => db.collection('users').doc(uid);
+    const signCycle = async () => { await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(email, 'password123'); await w(1800); };
+    await w(1500);
+    R.emptyLoad = window.kruxActivePlan === null || window.kruxActivePlan === undefined;
+
+    const legacyEx = (name, o) => Object.assign({ name, sets: 3, workSec: 0, reps: 8, weight: 0, restSec: 120, rpeTarget: 7 }, o || {});
+    const legacy = {
+      name: 'Plan antiguo', weeks: 6, goal: 'fuerza', level: 2, equipment: ['barra'], activeDays: [true, false, true, true, true, false, false],
+      sessions: [
+        { day: 'L', name: 'Fuerza dedos', exercises: [legacyEx('Max hang · 20mm', { sets: 4, workSec: 10, reps: 0, weight: 20, restSec: 180, rpeTarget: 8 }), legacyEx('Campus board · 1-5-9', { reps: 5 }), legacyEx('Pullover isométrico con un nombre bastante largo', { workSec: 7, reps: 0 }), legacyEx('Manguito rotador', { sets: 2, reps: 15, restSec: 60, rpeTarget: 0 }), legacyEx('Ejercicio inventado por mí', { sets: 5 })] },
+        { day: 'X', name: 'Potencia', exercises: [legacyEx('Dynos a dedo', { sets: 5, reps: 3, restSec: 180, rpeTarget: 8 })] },
+        { day: 'J', name: 'Resistencia', exercises: [legacyEx('ARC · panel 45°', { sets: 2, workSec: 1200, reps: 0, restSec: 300, rpeTarget: 6 }), legacyEx('4×4 bloque', { sets: 4, reps: 4, restSec: 240 })] },
+        { day: 'V', name: 'Piernas', exercises: [] }
+      ]
+    };
+    await userDoc().collection('training_plan').doc('active').set(Object.assign({}, legacy, { updatedAt: firebase.firestore.FieldValue.serverTimestamp() }));
+    const today = new Date(); const key = d => trDateKey(new Date(today.getTime() - d * 86400000));
+    const legacySess = (d, n) => ({ dateKey: key(d), sessionName: n, startedAt: Date.now() - d * 86400000, durationSec: 900, exercises: [{ name: 'Max hang · 20mm', target: { name: 'Max hang · 20mm', sets: 4, workSec: 10, reps: 0, weight: 20, restSec: 180, rpeTarget: 8 }, sets: [{ n: 1, workSec: 10, reps: 0, weight: 20, rpe: 8, time: '10:01' }] }], createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    await userDoc().collection('training_sessions').doc('old1').set(legacySess(3, 'Fuerza antigua'));
+    await userDoc().collection('training_sessions').doc('old2').set(legacySess(10, 'Otra antigua'));
+    await signCycle();
+
+    // ── Lectura del plan antiguo
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const p = window.kruxActivePlan;
+    R.loadedPlan = !!p && p.name === legacy.name && p.weeks === legacy.weeks && same(p.activeDays, legacy.activeDays) && same(p.sessions, legacy.sessions) && p.goal === 'fuerza';
+    R.logLen = (window.kruxTrainLog || []).length;
+    switchView('train-view'); await w(600);
+    R.hero = $('train-hero-title').textContent + '|' + $('train-hero-sub').textContent;
+    R.todaySession = $('train-session-name').textContent + '|' + $('train-session-meta').textContent;
+
+    // ── Ejecutar una sesión antigua (jueves → «Resistencia»)
+    const histBefore = await userDoc().collection('training_sessions').get().then(s => s.docs.map(d => [d.id, JSON.stringify(d.data(), (k, v) => (v && v.seconds !== undefined ? 'TS' : v))]).sort());
+    window.__s = 1; openActiveSession(); await w(700);
+    R.sessionOpen = $('session-ex-name').textContent;
+    const act = async (id, ms) => { const el = $(id); if (el && !el.disabled && el.offsetParent !== null) { el.click(); await w(ms || 250); return true; } return false; };
+    const trace = [];
+    for (let i = 0; i < 30; i++) {
+      const mode = document.getElementById('session-screen')?.dataset.mode || '';
+      if (await act('session-btn-set', 300)) { document.querySelector('#session-rpe-dots [data-rpe="8"]')?.click(); await w(200); trace.push('set'); continue; }
+      if (await act('session-btn-main', 400)) { trace.push('main:' + ($('session-btn-label')?.textContent || '')); if (trace.filter(t => t.startsWith('main')).length > 8) break; continue; }
+      break;
+    }
+    R.trace = trace.join(',').slice(0, 200);
+    await act('session-finish-btn', 400); await act('confirm-ok', 500);
+    R.screen = document.querySelector('#session-screen')?.className + '|' + (!!$('plog-save-btn'));
+    document.querySelector('[data-feel="great"]')?.click(); await w(100);
+    R.hint = $('plog-done-hint')?.textContent;
+    $('plog-save-btn')?.click(); await w(1500);
+    const sessions = await userDoc().collection('training_sessions').get();
+    R.sessionDocs = sessions.size;
+    const newDoc = sessions.docs.find(d => d.id !== 'old1' && d.id !== 'old2');
+    const nd = newDoc && newDoc.data();
+    R.newSession = nd ? { name: nd.sessionName, ex: nd.exercises.map(e => e.name + '|' + (e.exerciseId || '-') + '|sets' + e.target.sets + '|hechas' + e.sets.length), keys: Object.keys(nd.exercises[0]).join(','), load: nd.exercises[0].target.weight } : null;
+    R.newSessionPlanLoadChanged = window.kruxActivePlan.sessions[2].exercises[0].weight;
+
+    // ── Editar el plan antiguo y guardar
+    window.openPlanEditor({ edit: true }); await w(700);
+    R.editorOpened = $('pe-title').textContent + '|' + document.querySelectorAll('.pe-session-card').length;
+    // sesión 3 (Resistencia) → editar «ARC» (primer ejercicio) a 3 series
+    document.querySelectorAll('.pe-session-toggle')[2].click(); await w(150);
+    const arcBtn = [...document.querySelectorAll('.pe-ex-open')].find(b => /ARC/.test(b.textContent));
+    arcBtn.click(); await w(500);
+    R.arcFields = [...document.querySelectorAll('#ex-editor-sheet .ex-field')].filter(f => f.offsetParent !== null).map(f => f.querySelector('label')?.textContent).join(',');
+    $('ex-field-sets').value = 3; $('ex-field-sets').dispatchEvent(new Event('input')); $('ex-editor-save').click(); await w(300);
+    // añadir un ejercicio de la biblioteca a «Piernas»
+    document.querySelectorAll('.pe-session-toggle')[3].click(); await w(150);
+    R.addBtns = document.querySelectorAll('.pe-add-ex-btn').length + '|' + document.querySelectorAll('.pe-session-toggle').length + '|' + !$('ex-editor-sheet').classList.contains('hidden');
+    const addBtns = document.querySelectorAll('.pe-add-ex-btn'); addBtns[addBtns.length - 1].click(); await w(900);
+    $('xl-search').value = 'zancada'; $('xl-search').dispatchEvent(new Event('input')); await w(400);
+    document.querySelector('[data-add=zancadas]').click(); await w(200); $('xl-done').click(); await w(500);
+    $('pe-save-top').click(); await w(1800);
+    R.savedScreen = !!document.querySelector('.pe-saved-title') + '|' + document.querySelector('.pe-saved-note')?.textContent;
+    $('pe-saved-done')?.click(); await w(400);
+
+    const after = (await userDoc().collection('training_plan').doc('active').get()).data();
+    R.fieldsKept = after.sessions.map((s, si) => s.exercises.every((e, ei) => {
+      const o = legacy.sessions[si] && legacy.sessions[si].exercises[ei];
+      if (!o) return true;                               // ejercicio nuevo
+      return ['name', 'sets', 'workSec', 'reps', 'weight', 'restSec', 'rpeTarget'].every(k => (si === 2 && ei === 0 && k === 'sets') || e[k] === o[k] || (si === 2 && k === 'weight'));
+    })).join(',');
+    R.links = after.sessions.flatMap(s => s.exercises).map(e => e.name.slice(0, 18) + '=' + (e.exerciseId || '-')).join(' ; ');
+    R.arcSets = after.sessions[2].exercises[0].sets + '|' + after.sessions[2].exercises[0].workSec;
+    R.newEx = JSON.stringify(after.sessions[3].exercises);
+    R.noUndefinedKeys = !JSON.stringify(after).includes('undefined');
+
+    // ── El historial no cambia al editar el plan
+    await signCycle();
+    const histAfter = await userDoc().collection('training_sessions').get().then(s => s.docs.map(d => [d.id, JSON.stringify(d.data(), (k, v) => (v && v.seconds !== undefined ? 'TS' : v))]).sort());
+    const beforeMap = new Map(histBefore); R.historyUnchanged = histBefore.every(([id, js]) => histAfter.some(([i2, j2]) => i2 === id && j2 === js));
+    const rec = (window.kruxTrainLog || []).find(r => r.id === (newDoc && newDoc.id));
+    R.recordAfterEdit = rec ? rec.exercises[0].target.sets + '|' + rec.exercises[0].name : 'sin registro';
+    R.planAfterReload = window.kruxActivePlan.sessions[2].exercises[0].sets;
+    // ── Sesión con ejercicios ya enlazados: el historial guarda exerciseId y versión
+    switchView('train-view'); await w(500);
+    window.__s = 1; openActiveSession(); await w(700);
+    const act2 = async (id, ms) => { const el = $(id); if (el && !el.disabled && el.offsetParent !== null) { el.click(); await w(ms || 250); return true; } return false; };
+    for (let i = 0; i < 20; i++) {
+      if (await act2('session-btn-set', 300)) { document.querySelector('#session-rpe-dots [data-rpe="7"]')?.click(); await w(200); continue; }
+      if (await act2('session-btn-main', 400)) continue;
+      break;
+    }
+    await act2('session-finish-btn', 400); await act2('confirm-ok', 500);
+    document.querySelector('[data-feel="ok"]')?.click(); await w(100);
+    $('plog-save-btn')?.click(); await w(1500);
+    const all2 = await userDoc().collection('training_sessions').get();
+    const linkedDoc = all2.docs.filter(d => d.id !== 'old1' && d.id !== 'old2' && d.id !== (newDoc && newDoc.id))[0];
+    R.linkedSession = linkedDoc ? linkedDoc.data().exercises.map(e => e.name.slice(0, 12) + '|' + e.exerciseId + '|v' + e.exerciseContentVersion + '|sets' + e.target.sets).join(' ; ') + ' || ' + (linkedDoc.data().feel || '-') : 'sin documento';
+    R.metaKept = JSON.stringify([window.kruxActivePlan.goal, window.kruxActivePlan.level, window.kruxActivePlan.equipment]) + '|doc=' + JSON.stringify([after.goal, after.level, after.equipment]);
+  } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+  done();
+})();
+</script>

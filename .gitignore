@@ -56,3 +56,9 @@ resources/icon/
 resources/splash/
 resources/android/
 00_APP1.zip
+
+# Pruebas de integración (generados)
+tests/integration/.generated/
+tests/integration/.emulator.log
+tests/integration/.firebase.emu.json
+_harness-*.html
