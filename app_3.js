@@ -7700,7 +7700,7 @@ window.MentionAutocomplete = MentionAutocomplete;
 let postData = {
   text: '',
   photos: [],
-  video: null,
+  videos: [],
   ascents: [],
   location: null
 };
@@ -7797,13 +7797,8 @@ function initCreatePost() {
   photoInput?.addEventListener('change', (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
-      // Se añaden a las ya elegidas («Añadir más fotos»). Foto y vídeo son excluyentes: un vídeo
-      // junto a fotos se subiría pero nunca se vería (la tarjeta del feed solo muestra las fotos)
+      // Se añaden a las ya elegidas («Añadir más fotos»); las fotos y los vídeos conviven en la publicación
       postData.photos = [...postData.photos, ...files];
-      if (postData.video) {
-        postData.video = null;
-        if (videoInput) videoInput.value = '';
-      }
       updatePreview();
       updateSubmitButton();
     }
@@ -7816,12 +7811,18 @@ function initCreatePost() {
   });
 
   videoInput?.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      postData.video = file;
-      postData.photos = []; // Clear photos if video is added
-      updatePreview();
-      updateSubmitButton();
+    const files = Array.from(e.target.files).filter(f => !f.type || f.type.startsWith('video/'));
+    if (files.length > 0) {
+      const room = KX_MAX_POST_VIDEOS - postData.videos.length;
+      const tooBig = files.filter(f => f.size > KX_VIDEO_MAX_BYTES);
+      const accepted = files.filter(f => f.size <= KX_VIDEO_MAX_BYTES).slice(0, Math.max(room, 0));
+      if (tooBig.length) showToast(`Los vídeos no pueden pesar más de ${Math.round(KX_VIDEO_MAX_BYTES / 1048576)} MB`, 'error');
+      else if (files.length > room) showToast(`Máximo ${KX_MAX_POST_VIDEOS} vídeos por publicación`, 'info');
+      if (accepted.length) {
+        postData.videos = [...postData.videos, ...accepted];
+        updatePreview();
+        updateSubmitButton();
+      }
     }
     e.target.value = '';
   });
@@ -8138,7 +8139,7 @@ function resetPostData() {
   postData = {
     text: '',
     photos: [],
-    video: null,
+    videos: [],
     ascents: [],
     location: null
   };
@@ -8398,7 +8399,7 @@ function updateActionStates() {
     btn.setAttribute('aria-pressed', String(!!on));
   };
   set('add-photo-btn', postData.photos.length > 0);
-  set('add-video-btn', !!postData.video);
+  set('add-video-btn', postData.videos.length > 0);
   set('add-location-btn', !!postData.location);
   set('add-ascent-btn', postData.ascents.length > 0);
 }
@@ -8442,7 +8443,7 @@ function updateUserInfo() {
 
 function updateSubmitButton() {
   const submitBtn = document.getElementById('submit-create-post');
-  const hasContent = postData.text.trim().length > 0 || postData.photos.length > 0 || postData.video || postData.ascents.length > 0;
+  const hasContent = postData.text.trim().length > 0 || postData.photos.length > 0 || postData.videos.length > 0 || postData.ascents.length > 0;
 
   if (submitBtn && !submitBtn.classList.contains('is-loading')) {
     submitBtn.disabled = !hasContent;
@@ -8456,7 +8457,7 @@ function createPostPreviewUrl(file) {
   return createPostPreviewUrls.get(file);
 }
 function releaseCreatePostPreviewUrls() {
-  const keep = new Set([...postData.photos, postData.video].filter(Boolean));
+  const keep = new Set([...postData.photos, ...postData.videos]);
   createPostPreviewUrls.forEach((url, file) => {
     if (!keep.has(file)) {
       URL.revokeObjectURL(url);
@@ -8496,17 +8497,24 @@ function updatePreview() {
   }
 
   // Vídeo: vista previa real; la duración solo si el navegador la lee de los metadatos
-  if (postData.video) {
+  postData.videos.forEach((file, index) => {
     previewHTML += `
       <div class="create-post-preview-video">
-        <video src="${createPostPreviewUrl(postData.video)}" preload="metadata" playsinline muted></video>
+        <video src="${createPostPreviewUrl(file)}" preload="metadata" playsinline muted></video>
         <button type="button" class="create-post-video-play" aria-label="Reproducir vista previa">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="7 4 20 12 7 20 7 4"></polygon></svg>
         </button>
         <span class="create-post-video-duration" hidden></span>
-        <button type="button" class="remove-preview-btn" data-type="video" aria-label="Quitar vídeo">${CP_REMOVE_ICON}</button>
+        <button type="button" class="remove-preview-btn" data-type="video" data-index="${index}" aria-label="Quitar vídeo ${index + 1}">${CP_REMOVE_ICON}</button>
       </div>
     `;
+  });
+  if (postData.videos.length > 0 && postData.videos.length < KX_MAX_POST_VIDEOS) {
+    previewHTML += `
+      <button type="button" class="create-post-add-more create-post-add-video" data-add="videos" aria-label="Añadir más vídeos">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        <span>Añadir más vídeos</span>
+      </button>`;
   }
 
   // Ubicación: etiqueta compacta
@@ -8543,13 +8551,18 @@ function updatePreview() {
       document.getElementById('create-post-photo-input')?.click();
     });
 
-    const video = preview.querySelector('.create-post-preview-video video');
-    const playBtn = preview.querySelector('.create-post-video-play');
-    if (video && playBtn) {
+    preview.querySelector('[data-add="videos"]')?.addEventListener('click', () => {
+      document.getElementById('create-post-video-input')?.click();
+    });
+
+    preview.querySelectorAll('.create-post-preview-video').forEach(item => {
+      const video = item.querySelector('video');
+      const playBtn = item.querySelector('.create-post-video-play');
+      if (!video || !playBtn) return;
       video.addEventListener('loadedmetadata', () => {
         if (Number.isFinite(video.duration) && video.duration > 0) {
           const total = Math.round(video.duration);
-          const label = preview.querySelector('.create-post-video-duration');
+          const label = item.querySelector('.create-post-video-duration');
           label.textContent = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
           label.hidden = false;
         }
@@ -8561,7 +8574,7 @@ function updatePreview() {
       video.addEventListener('click', toggle);
       video.addEventListener('play', () => { playBtn.classList.add('is-playing'); playBtn.setAttribute('aria-label', 'Pausar vista previa'); });
       video.addEventListener('pause', () => { playBtn.classList.remove('is-playing'); playBtn.setAttribute('aria-label', 'Reproducir vista previa'); });
-    }
+    });
 
     // Add remove buttons listeners
     preview.querySelectorAll('.remove-preview-btn').forEach(btn => {
@@ -8570,7 +8583,7 @@ function updatePreview() {
         const type = btn.dataset.type;
 
         if (type === 'video') {
-          postData.video = null;
+          postData.videos.splice(parseInt(index), 1);
           document.getElementById('create-post-video-input').value = '';
         } else if (type === 'ascent') {
           postData.ascents.splice(parseInt(index), 1);
@@ -8606,7 +8619,7 @@ async function submitPost() {
   }
 
   // Validate that there's at least some content
-  if (!postData.text.trim() && postData.photos.length === 0 && !postData.video && postData.ascents.length === 0) {
+  if (!postData.text.trim() && postData.photos.length === 0 && postData.videos.length === 0 && postData.ascents.length === 0) {
     showToast('Añade texto, una foto, un vídeo o una ascensión para publicar', 'error');
     return;
   }
@@ -8619,7 +8632,7 @@ async function submitPost() {
   try {
     // Upload photos/video if any
     let photoUrls = [];
-    let videoUrl = null;
+    let videoUrls = [];
 
     if (postData.photos.length > 0) {
       showToast('Subiendo fotos...', 'info');
@@ -8636,21 +8649,26 @@ async function submitPost() {
       }
     }
 
-    if (postData.video) {
-      showToast('Subiendo video...', 'info');
-      const timestamp = Date.now();
-      const filename = `${timestamp}_${postData.video.name}`;
+    for (let i = 0; i < postData.videos.length; i++) {
+      const label = postData.videos.length > 1 ? ` ${i + 1}/${postData.videos.length}` : '';
+      // Reduce el peso antes de subir; si no se puede, se sube el original
+      const video = await kxPrepareVideoForUpload(postData.videos[i], (pct) => {
+        submitBtn.textContent = `Optimizando vídeo${label}… ${pct}%`;
+      });
+      submitBtn.textContent = `Subiendo vídeo${label}…`;
+      const filename = `${Date.now()}_${i}_${video.name}`;
       const storageRef = storage.ref(`posts/${currentUser.uid}/${filename}`);
 
-      await storageRef.put(postData.video, { contentType: postData.video.type || undefined, cacheControl: KX_IMAGE_CACHE_CONTROL });
-      videoUrl = await storageRef.getDownloadURL();
+      await storageRef.put(video, { contentType: video.type || undefined, cacheControl: KX_IMAGE_CACHE_CONTROL });
+      videoUrls.push(await storageRef.getDownloadURL());
     }
+    submitBtn.textContent = 'Publicando…';
 
     // Determine post type
     let postType = 'text';
     if (photoUrls.length > 0) {
       postType = 'photo';
-    } else if (videoUrl) {
+    } else if (videoUrls.length > 0) {
       postType = 'video';
     }
 
@@ -8683,8 +8701,9 @@ async function submitPost() {
     if (photoUrls.length > 0) {
       postDataToSave.photos = photoUrls;
     }
-    if (videoUrl) {
-      postDataToSave.video = videoUrl;
+    if (videoUrls.length > 0) {
+      postDataToSave.videos = videoUrls;
+      postDataToSave.video = videoUrls[0]; // lo leen versiones anteriores de la app
     }
     if (postData.location) {
       postDataToSave.location = postData.location;
@@ -9054,7 +9073,8 @@ function renderPostCard(post, container) {
   }
 
   // Contenido multimedia (va antes que el texto)
-  if (post.type === 'photo' || post.photos || post.image) {
+  const postVideos = kxPostVideos(post);
+  if (post.type === 'photo' || post.photos || post.image || postVideos.length > 0) {
     const images = post.photos || (post.image ? [post.image] : []);
     // Etiqueta de cristal sobre la foto (decorativa: la ubicación ya está en la cabecera)
     const photoTag = locationName ? `<span class="feed-photo-tag" aria-hidden="true">${FEED_ICON_PIN}<span>${locationName}</span></span>` : '';
@@ -9080,12 +9100,7 @@ function renderPostCard(post, container) {
       `;
     }
     card._lightboxImages = images; // el visor recibe todas las fotos, no solo las 4 de la cuadrícula
-  } else if (post.type === 'video' || post.video) {
-    mediaHTML += `
-      <div class="feed-video-container">
-        <video src="${post.video}" controls class="feed-video"></video>
-      </div>
-    `;
+    mediaHTML += kxVideosHTML(postVideos);
   } else if (post.type === 'ascensions' && post.ascensions) {
     const ascensionsList = post.ascensions.map(a => `
       <div class="feed-ascension-item">
@@ -11120,6 +11135,118 @@ function kxStoragePut(ref, file) {
   return ref.put(file, { contentType: file.type || undefined, cacheControl: KX_IMAGE_CACHE_CONTROL });
 }
 
+// ================== VÍDEOS EN PUBLICACIONES ==================
+const KX_MAX_POST_VIDEOS = 3;
+const KX_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
+const KX_VIDEO_MIN_COMPRESS_BYTES = 8 * 1024 * 1024; // por debajo no merece la pena recodificar
+const KX_VIDEO_MAX_COMPRESS_SECONDS = 180;           // se recodifica en tiempo real: más largo se sube tal cual
+const KX_VIDEO_MAX_SIDE = 1280;
+const KX_VIDEO_BITRATE = 2500000;
+
+// Vídeos de una publicación: `videos` (varios) o `video` (publicaciones con uno solo)
+function kxPostVideos(post) {
+  const list = Array.isArray(post?.videos) ? post.videos : (post?.video ? [post.video] : []);
+  return list.filter(Boolean);
+}
+
+function kxVideosHTML(urls) {
+  return (urls || []).map(url =>
+    `<div class="feed-video-container"><video src="${escapeHtmlMention(url)}" controls class="feed-video" preload="metadata" playsinline></video></div>`
+  ).join('');
+}
+
+// MP4 con H.264: es lo que reproducen todos los dispositivos. Sin soporte, no se recodifica
+function kxVideoRecorderMime() {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return null;
+  const candidates = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1'];
+  return candidates.find(t => MediaRecorder.isTypeSupported(t)) || null;
+}
+
+// Reduce el vídeo a como máximo 720p/1280 px y ~2,5 Mbps. Se graba reproduciéndolo, así que dura
+// lo que dura el vídeo. Ante cualquier fallo, límite o poco ahorro devuelve el archivo original.
+async function kxPrepareVideoForUpload(file, onProgress) {
+  const mime = kxVideoRecorderMime();
+  if (!file || !mime || file.size < KX_VIDEO_MIN_COMPRESS_BYTES) return file;
+  const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  let audioCtx = null;
+  let recorder = null;
+  let timer = null;
+  const cleanup = () => {
+    clearInterval(timer);
+    try { video.pause(); } catch (_) { /* ya detenido */ }
+    try { recorder?.stream?.getTracks().forEach(t => t.stop()); } catch (_) { /* sin pistas */ }
+    try { audioCtx?.close(); } catch (_) { /* ya cerrado */ }
+    video.removeAttribute('src');
+    video.load();
+    URL.revokeObjectURL(url);
+  };
+  try {
+    video.src = url;
+    video.playsInline = true;
+    video.preload = 'auto';
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = () => reject(new Error('No se pudo leer el vídeo'));
+      setTimeout(() => reject(new Error('Tiempo agotado leyendo el vídeo')), 10000);
+    });
+    const duration = video.duration;
+    if (!Number.isFinite(duration) || duration <= 0 || duration > KX_VIDEO_MAX_COMPRESS_SECONDS) return file;
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) return file;
+    const scale = Math.min(1, KX_VIDEO_MAX_SIDE / Math.max(w, h));
+    const bitrate = (file.size * 8) / duration;
+    if (scale === 1 && bitrate < KX_VIDEO_BITRATE * 1.4) return file; // ya es ligero
+    const cw = Math.max(2, Math.round((w * scale) / 2) * 2);
+    const ch = Math.max(2, Math.round((h * scale) / 2) * 2);
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    const stream = canvas.captureStream(30);
+    // El audio pasa por WebAudio: funciona también donde video.captureStream no existe (Safari)
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) {
+      audioCtx = new AC();
+      const dest = audioCtx.createMediaStreamDestination();
+      audioCtx.createMediaElementSource(video).connect(dest);
+      dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+      // Sin gesto del usuario el navegador deja el audio en pausa y el vídeo saldría mudo: se sube el original
+      if (audioCtx.state !== 'running') {
+        await Promise.race([audioCtx.resume().catch(() => {}), new Promise(r => setTimeout(r, 600))]);
+        if (audioCtx.state !== 'running') return file;
+      }
+    }
+    recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: KX_VIDEO_BITRATE, audioBitsPerSecond: 128000 });
+    const chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    const finished = new Promise((resolve, reject) => {
+      recorder.onstop = resolve;
+      recorder.onerror = () => reject(new Error('Error al grabar el vídeo'));
+      video.onended = () => { try { recorder.stop(); } catch (_) { resolve(); } };
+      // Red de seguridad: si la pestaña se pausa o el vídeo se atasca, se sube el original
+      setTimeout(() => reject(new Error('Tiempo agotado optimizando el vídeo')), duration * 1500 + 15000);
+    });
+    recorder.start(1000);
+    await video.play();
+    timer = setInterval(() => {
+      ctx.drawImage(video, 0, 0, cw, ch);
+      if (onProgress) onProgress(Math.min(99, Math.round((video.currentTime / duration) * 100)));
+    }, 1000 / 30);
+    await finished;
+    clearInterval(timer);
+    const blob = new Blob(chunks, { type: 'video/mp4' });
+    if (blob.size === 0 || blob.size > file.size * 0.75) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.mp4', { type: 'video/mp4' });
+  } catch (e) {
+    console.warn('No se pudo optimizar el vídeo, se sube el original:', e);
+    return file;
+  } finally {
+    cleanup();
+  }
+}
+
 // ================== AVATAR HELPER FUNCTIONS ==================
 // Generate fallback avatar URL based on name
 function generateAvatarFallback(name, size = 200) {
@@ -11354,6 +11481,7 @@ function renderPostInModal(post, container) {
   // Content based on type
   let contentHTML = '';
 
+  const modalVideos = kxPostVideos(post);
   if (post.type === 'photo' || (post.photos && post.photos.length > 0)) {
     const images = post.photos || (post.image ? [post.image] : []);
     const modalPhotoTag = locationName ? `<span class="feed-photo-tag" aria-hidden="true">${FEED_ICON_PIN}<span>${locationName}</span></span>` : '';
@@ -11376,6 +11504,7 @@ function renderPostInModal(post, container) {
         </div>
       `;
     }
+    contentHTML += kxVideosHTML(modalVideos);
     // Add text content if exists
     if (post.content) {
       contentHTML += `
@@ -11384,12 +11513,8 @@ function renderPostInModal(post, container) {
         </div>
       `;
     }
-  } else if (post.type === 'video' || post.video) {
-    contentHTML = `
-      <div class="feed-video-container">
-        <video src="${post.video}" controls class="feed-video"></video>
-      </div>
-    `;
+  } else if (post.type === 'video' || modalVideos.length > 0) {
+    contentHTML = kxVideosHTML(modalVideos);
     // Add text content if exists
     if (post.content) {
       contentHTML += `
@@ -11667,10 +11792,10 @@ async function deletePost(postId, post) {
       }
     }
 
-    // Delete video from Storage if it exists
-    if (post.video) {
+    // Delete videos from Storage if they exist
+    for (const videoUrl of kxPostVideos(post)) {
       try {
-        const urlParts = post.video.split('/');
+        const urlParts = videoUrl.split('/');
         const encodedPath = urlParts.slice(urlParts.indexOf('posts')).join('/');
         const decodedPath = decodeURIComponent(encodedPath.split('?')[0]);
         const storageRef = storage.ref(decodedPath);
@@ -11719,7 +11844,7 @@ function enablePostEditMode(post, container) {
   // Store original content
   const originalContent = post.content || '';
   const originalPhotos = post.photos || [];
-  const originalVideo = post.video || null;
+  const originalVideos = kxPostVideos(post);
 
   // Create edit form
   const editFormHTML = `
@@ -11748,13 +11873,15 @@ function enablePostEditMode(post, container) {
         </div>
       ` : ''}
       
-      ${originalVideo ? `
-        <div style="margin-bottom: 16px;">
-          <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #111827;">Video</label>
-          <div style="position: relative; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 8px;">
-            <video src="${originalVideo}" controls style="width: 100%; max-height: 300px; display: block;"></video>
-            <button type="button" id="remove-video-btn" style="position: absolute; top: 8px; right: 8px; padding: 6px 12px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;">Eliminar video</button>
-          </div>
+      ${originalVideos.length > 0 ? `
+        <div id="edit-videos-section" style="margin-bottom: 16px;">
+          <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #111827;">Vídeos</label>
+          ${originalVideos.map((url, index) => `
+            <div class="edit-video-item" data-index="${index}" style="position: relative; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 8px;">
+              <video src="${url}" controls style="width: 100%; max-height: 300px; display: block;"></video>
+              <button type="button" class="remove-video-btn" data-url="${url}" style="position: absolute; top: 8px; right: 8px; padding: 6px 12px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;">Eliminar vídeo</button>
+            </div>
+          `).join('')}
         </div>
       ` : ''}
       
@@ -11784,20 +11911,19 @@ function enablePostEditMode(post, container) {
   if (footer) footer.style.display = 'none';
 
   // Setup edit form handlers
-  setupEditFormHandlers(postId, originalContent, originalPhotos, originalVideo);
+  setupEditFormHandlers(postId, originalContent, originalPhotos, originalVideos);
 }
 
-function setupEditFormHandlers(postId, originalContent, originalPhotos, originalVideo) {
+function setupEditFormHandlers(postId, originalContent, originalPhotos, originalVideos) {
   const contentTextarea = document.getElementById('edit-post-content');
   const charCount = document.getElementById('edit-char-count');
   const cancelBtn = document.getElementById('cancel-edit-btn');
   const saveBtn = document.getElementById('save-edit-btn');
   const addPhotosBtn = document.getElementById('add-more-photos-btn');
   const photosInput = document.getElementById('edit-post-photos-input');
-  const removeVideoBtn = document.getElementById('remove-video-btn');
 
   let currentPhotos = [...originalPhotos];
-  let currentVideo = originalVideo;
+  let currentVideos = [...originalVideos];
   let newPhotos = [];
 
   // Character counter
@@ -11840,10 +11966,11 @@ function setupEditFormHandlers(postId, originalContent, originalPhotos, original
   });
 
   // Remove video
-  removeVideoBtn?.addEventListener('click', () => {
-    currentVideo = null;
-    const videoSection = removeVideoBtn.closest('div[style*="margin-bottom"]');
-    if (videoSection) videoSection.remove();
+  document.querySelectorAll('.remove-video-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentVideos = currentVideos.filter(url => url !== btn.dataset.url);
+      btn.closest('.edit-video-item')?.remove();
+    });
   });
 
   function updatePhotosPreview() {
@@ -11895,11 +12022,11 @@ function setupEditFormHandlers(postId, originalContent, originalPhotos, original
 
   // Save button
   saveBtn?.addEventListener('click', async () => {
-    await savePostEdit(postId, contentTextarea?.value || '', currentPhotos, newPhotos, currentVideo);
+    await savePostEdit(postId, contentTextarea?.value || '', currentPhotos, newPhotos, currentVideos);
   });
 }
 
-async function savePostEdit(postId, content, existingPhotos, newPhotos, video) {
+async function savePostEdit(postId, content, existingPhotos, newPhotos, videos) {
   if (!currentUser) {
     showToast('Debes iniciar sesión para editar', 'error');
     return;
@@ -11931,7 +12058,7 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, video) {
     let postType = 'text';
     if (photoUrls.length > 0) {
       postType = 'photo';
-    } else if (video) {
+    } else if (videos.length > 0) {
       postType = 'video';
     }
 
@@ -11940,7 +12067,8 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, video) {
       type: postType,
       content: content.trim() || null,
       photos: photoUrls.length > 0 ? photoUrls : null,
-      video: video || null,
+      videos: videos.length > 0 ? videos : null,
+      video: videos[0] || null,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
