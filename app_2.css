@@ -27019,19 +27019,19 @@ body.kx-sheet-open #feed-view .feed-container {
 #train-view,
 #session-modal,
 #ex-editor-sheet {
-  --tr-bg: #F7F7F2;
+  --tr-bg: var(--kx-chalk, #F7F6F0);
   --tr-surface: #FFFFFF;
   --tr-fill: #F0F1EC;
-  --tr-ink: #202B27;
+  --tr-ink: var(--kx-granite, #202923);
   --tr-ink-2: #4E5954;
   --tr-ink-3: #67716C;
   --tr-line: rgba(32, 43, 39, 0.08);
-  --tr-green: #168F6D;          /* progreso, anillos, indicadores */
-  --tr-green-btn: #12805F;      /* fondo de botones con texto blanco (4.9:1) */
-  --tr-green-press: #0E6B4F;
-  --tr-green-ink: #0E6B4F;      /* texto verde sobre claro */
-  --tr-green-soft: #E0F0E7;
-  --tr-green-wash: #EFF7F2;
+  --tr-green: var(--kx-forest, #153E35);   /* progreso, anillos, indicadores */
+  --tr-green-btn: var(--kx-forest, #153E35); /* botones (blanco encima: 11:1) */
+  --tr-green-press: var(--kx-primary-pressed, #0F2F28);
+  --tr-green-ink: var(--kx-forest, #153E35); /* texto verde sobre claro */
+  --tr-green-soft: var(--kx-sage, #DCE9DF);
+  --tr-green-wash: var(--kx-sage-soft, #EBF2EC);
   --tr-amber-bg: #FBF0DC;
   --tr-amber-ink: #85570A;
   --tr-red: #C2362B;
@@ -27043,7 +27043,7 @@ body.kx-sheet-open #feed-view .feed-container {
   color: var(--tr-ink);
 }
 
-:is(#train-view, #session-modal) ::selection { background: rgba(22, 143, 109, 0.18); color: var(--tr-ink); }
+:is(#train-view, #session-modal) ::selection { background: rgba(21, 62, 53, 0.18); color: var(--tr-ink); }
 
 :is(#train-view, #session-modal, #ex-editor-sheet) button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
 
@@ -27213,7 +27213,7 @@ body.kx-sheet-open #feed-view .feed-container {
   flex: 1;
   height: 6px;
   border-radius: 3px;
-  background: rgba(22, 143, 109, 0.16);
+  background: rgba(21, 62, 53, 0.16);
   transition: background 0.4s var(--tr-ease);
 }
 .train-hero-meter span.is-done { background: var(--tr-green); }
@@ -27530,7 +27530,7 @@ body.kx-sheet-open #feed-view .feed-container {
 .train-footer {
   flex-shrink: 0;
   padding: 10px 16px 14px;
-  background: linear-gradient(to top, var(--tr-bg) 72%, rgba(247, 247, 242, 0));
+  background: linear-gradient(to top, var(--tr-bg) 72%, rgba(247, 246, 240, 0));
 }
 
 .train-start-btn {
@@ -27547,7 +27547,7 @@ body.kx-sheet-open #feed-view .feed-container {
   color: #fff;
   font-size: 1.0625rem;
   font-weight: 700;
-  box-shadow: 0 8px 20px rgba(18, 128, 95, 0.22);
+  box-shadow: 0 8px 20px rgba(21, 62, 53, 0.22);
   cursor: pointer;
   transition: background 0.2s var(--tr-ease), transform 0.2s var(--tr-ease);
 }
@@ -27618,8 +27618,8 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 20px 42px;
   color: #fff;
   background:
-    linear-gradient(180deg, rgba(13, 21, 18, 0.62) 0%, rgba(13, 21, 18, 0.86) 100%),
-    #1B2522 url('assets/train/sesion-roca.jpg') center 35% / cover no-repeat;
+    linear-gradient(180deg, rgba(15, 47, 40, 0.66) 0%, rgba(15, 47, 40, 0.9) 100%),
+    #153E35 url('assets/train/sesion-roca.jpg') center 35% / cover no-repeat;
 }
 
 .session-hero-bar {
@@ -27818,7 +27818,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
   margin: 4px auto 10px;
 }
 .session-ring-wrap svg { display: block; width: 100%; height: 100%; }
-.session-ring-track { stroke: rgba(22, 143, 109, 0.13); }
+.session-ring-track { stroke: rgba(21, 62, 53, 0.13); }
 
 #session-ring-arc {
   stroke: var(--tr-green);
@@ -27911,7 +27911,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
   font-size: 1rem;
   font-weight: 800;
   white-space: nowrap;
-  box-shadow: 0 8px 18px rgba(18, 128, 95, 0.24);
+  box-shadow: 0 8px 18px rgba(21, 62, 53, 0.24);
   cursor: pointer;
   transition: background 0.2s var(--tr-ease), transform 0.15s var(--tr-ease);
 }
@@ -27919,7 +27919,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 .session-main-btn.is-quiet {
   background: var(--tr-surface);
   color: var(--tr-green-ink);
-  box-shadow: inset 0 0 0 1.5px rgba(18, 128, 95, 0.4);
+  box-shadow: inset 0 0 0 1.5px rgba(21, 62, 53, 0.4);
 }
 .session-btn-icon { display: inline-flex; }
 #session-btn-label { overflow: hidden; text-overflow: ellipsis; }
@@ -28267,7 +28267,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
   color: var(--tr-ink-2);
   cursor: pointer;
 }
-.plog-tag.is-selected { background: var(--tr-green-soft); color: var(--tr-green-ink); box-shadow: 0 0 0 1.5px rgba(18, 128, 95, 0.35); }
+.plog-tag.is-selected { background: var(--tr-green-soft); color: var(--tr-green-ink); box-shadow: 0 0 0 1.5px rgba(21, 62, 53, 0.35); }
 
 .plog-footer {
   flex-shrink: 0;
@@ -28283,7 +28283,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
   color: #fff;
   font-size: 1.0625rem;
   font-weight: 700;
-  box-shadow: 0 8px 20px rgba(18, 128, 95, 0.22);
+  box-shadow: 0 8px 20px rgba(21, 62, 53, 0.22);
   cursor: pointer;
 }
 .plog-save-btn:active { background: var(--tr-green-press); }
@@ -28403,9 +28403,9 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 .plog-save-btn:not(:disabled):hover,
 #ex-editor-sheet .ex-editor-save:hover { background: var(--tr-green-btn); }
 .train-start-btn:not(:disabled):hover,
-.plog-save-btn:not(:disabled):hover { box-shadow: 0 8px 20px rgba(18, 128, 95, 0.22); }
-.session-main-btn:not(.is-quiet):hover { box-shadow: 0 8px 18px rgba(18, 128, 95, 0.24); }
-.session-main-btn.is-quiet:hover { background: var(--tr-surface); box-shadow: inset 0 0 0 1.5px rgba(18, 128, 95, 0.4); }
+.plog-save-btn:not(:disabled):hover { box-shadow: 0 8px 20px rgba(21, 62, 53, 0.22); }
+.session-main-btn:not(.is-quiet):hover { box-shadow: 0 8px 18px rgba(21, 62, 53, 0.24); }
+.session-main-btn.is-quiet:hover { background: var(--tr-surface); box-shadow: inset 0 0 0 1.5px rgba(21, 62, 53, 0.4); }
 .train-start-btn:disabled:hover,
 .plog-save-btn:disabled:hover { background: #DFE3DF; }
 .train-empty-btn:hover { background: var(--tr-green-soft); }
@@ -28432,7 +28432,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
   min-height: 48px;
   border: 0;
   border-radius: 999px;
-  background: #12805F;
+  background: var(--kx-forest, #153E35);
   color: #fff;
   font-family: inherit;
   font-size: 1rem;
@@ -28441,5 +28441,5 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
   transform: none;
   cursor: pointer;
 }
-#confirm-modal .kx-confirm-primary:active { background: #0E6B4F; transform: scale(0.98); }
+#confirm-modal .kx-confirm-primary:active { background: var(--kx-primary-pressed, #0F2F28); transform: scale(0.98); }
 .plog-done-title:focus { outline: none; }
