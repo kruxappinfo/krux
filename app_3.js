@@ -1555,6 +1555,26 @@ function initGlobalSearch() {
     openOnMap(target);
   }
 
+  // Desde fuera del buscador (p. ej. el grado de una ascensión publicada): localiza la vía y la abre en el mapa
+  window.kxOpenAscentOnMap = async function (ascent) {
+    let index;
+    try {
+      index = await loadPlacesIndex();
+    } catch (err) {
+      console.error('Error cargando la cartografía:', err);
+      showToast('No se pudo cargar la cartografía. Revisa tu conexión.', 'error');
+      return;
+    }
+    const key = norm(ascent.routeName || '');
+    const sameName = index.routes.filter(r => r.key === key && (!ascent.schoolId || r.schoolId === ascent.schoolId));
+    const target = sameName.find(r => ascent.sector && norm(r.sector) === norm(ascent.sector)) || sameName[0];
+    if (!target) {
+      showToast('Esa vía ya no está en el mapa', 'info');
+      return;
+    }
+    openOnMap(target);
+  };
+
   // ---------- Eventos ----------
   function setCategory(type) {
     currentType = type;
@@ -8858,9 +8878,13 @@ function kxAscentCardHTML(ascent, { removable = false, index = 0 } = {}) {
   const place = [ascent.schoolName, ascent.sector].filter(Boolean).map(escapeHtmlMention).join(' · ');
   const sub = [style, kxAscentDateLabel(ascent)].filter(Boolean).map(escapeHtmlMention).join(' · ');
   const attempt = ascent.style === 'project' ? ' is-attempt' : '';
+  // Publicada: el grado lleva a la vía en el mapa
+  const grade = removable
+    ? kxGradeChipHTML(ascent.grade)
+    : `<button type="button" class="kx-ascent-grade-link" data-ascent-map data-route-name="${escapeHtmlMention(ascent.routeName)}" data-school-id="${escapeHtmlMention(ascent.schoolId || '')}" data-sector="${escapeHtmlMention(ascent.sector || '')}" aria-label="Ver ${escapeHtmlMention(ascent.routeName)} en el mapa">${kxGradeChipHTML(ascent.grade)}</button>`;
   return `
     <div class="kx-ascent-card${attempt}${removable ? ' is-removable' : ''}"${removable ? ' role="button" tabindex="0" data-change-ascent aria-label="Editar ascensiones"' : ''}>
-      ${kxGradeChipHTML(ascent.grade)}
+      ${grade}
       <div class="kx-ascent-info">
         <span class="kx-ascent-name">${escapeHtmlMention(ascent.routeName)}</span>
         ${place ? `<span class="kx-ascent-meta">${place}</span>` : ''}
@@ -8869,6 +8893,20 @@ function kxAscentCardHTML(ascent, { removable = false, index = 0 } = {}) {
       ${removable ? `<button type="button" class="remove-preview-btn" data-type="ascent" data-index="${index}" aria-label="Quitar ${escapeHtmlMention(ascent.routeName)}">${CP_REMOVE_ICON}</button>` : ''}
     </div>`;
 }
+
+// El grado de una ascensión publicada abre la vía en el mapa (captura: no abre además la publicación)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('[data-ascent-map]');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (typeof window.kxOpenAscentOnMap !== 'function') return;
+  window.kxOpenAscentOnMap({
+    routeName: btn.dataset.routeName,
+    schoolId: btn.dataset.schoolId,
+    sector: btn.dataset.sector
+  });
+}, true);
 
 function kxNormalizeText(t) {
   return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
