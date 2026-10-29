@@ -28073,3 +28073,14 @@ body.kx-sheet-open #feed-view .feed-container {
 .kx-ptr.is-spinning svg { animation: kxPtrSpin .8s linear infinite; }
 @keyframes kxPtrSpin { to { transform: rotate(360deg); } }
 @media (min-width: 1025px) { .kx-ptr { display: none; } }
+
+
+/* Pulsar el logo: sube el feed y el logo da un pequeño salto */
+.feed-wordmark { cursor: pointer; -webkit-tap-highlight-color: transparent; display: inline-block; }
+.feed-wordmark.is-tapped { animation: kxLogoHop .5s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes kxLogoHop {
+  0% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-5px) scale(1.06); }
+  100% { transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) { .feed-wordmark.is-tapped { animation: none; } }

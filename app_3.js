@@ -5054,10 +5054,35 @@ function initFeedPullToRefresh() {
   container.addEventListener('touchcancel', end);
 }
 
+// Pulsar el logo sube el feed hasta arriba del todo
+function initFeedScrollTop() {
+  const logo = document.getElementById('feed-wordmark');
+  const container = document.getElementById('feed-container');
+  if (!logo || !container || logo._kxTop) return;
+  logo._kxTop = true;
+
+  const goTop = () => {
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    logo.classList.remove('is-tapped');
+    void logo.offsetWidth;
+    if (!reduce) logo.classList.add('is-tapped');
+    // En escritorio es la propia vista la que se desplaza
+    [container, document.getElementById('feed-view')].forEach(el => {
+      if (el && el.scrollTop > 0) el.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+    });
+  };
+  logo.addEventListener('click', goTop);
+  logo.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTop(); }
+  });
+  logo.addEventListener('animationend', () => logo.classList.remove('is-tapped'));
+}
+
 function initFeed() {
   // Load feed from Firebase (will fallback to mock if empty)
   loadFeed();
   initFeedPullToRefresh();
+  initFeedScrollTop();
 
   // Initialize feed tabs
   initFeedTabs();
