@@ -60,9 +60,11 @@
     const eq = equipmentNames(plan);
     const badge = isActive ? '<span class="mp-badge is-active">Activo</span>'
       : plan.status === 'archived' ? '<span class="mp-badge">Archivado</span>'
-      : plan.status === 'trashed' ? '<span class="mp-badge is-trash">En la papelera</span>' : '';
+      : plan.status === 'trashed' ? '<span class="mp-badge is-trash">En la papelera</span>'
+      : plan.status === 'ready' && P.isDateKey(plan.startDate) ? '<span class="mp-badge is-scheduled">Programado</span>' : '';
     const extra = plan.status === 'trashed' && plan.trashedAt ? `Eliminado el ${dateText(plan.trashedAt)} · se puede restaurar`
-      : plan.status === 'archived' && plan.archivedAt ? `Archivado el ${dateText(plan.archivedAt)}` : '';
+      : plan.status === 'archived' && plan.archivedAt ? `Archivado el ${dateText(plan.archivedAt)}`
+      : plan.status === 'ready' && !isActive && P.isDateKey(plan.startDate) ? `Empieza el ${new Date(plan.startDate + 'T00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}` : '';
     return `
       <article class="xl-card mp-card${isActive ? ' is-active' : ''}${plan.status !== 'ready' ? ' is-' + plan.status : ''}" data-plan="${esc(plan.id)}">
         <button type="button" class="xl-card-main mp-main" data-act-menu="${esc(plan.id)}" aria-label="${esc(plan.name)}${isActive ? ', plan activo' : ''}. Abrir acciones">

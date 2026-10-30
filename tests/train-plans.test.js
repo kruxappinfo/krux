@@ -227,3 +227,66 @@ describe('concurrencia y ids', () => {
     [...ids].forEach(id => expect(id).toMatch(/^s_[a-z0-9]{8}$/));
   });
 });
+
+describe('inicio programado', () => {
+  const rd = (id, startDate, extra) => ({ id, status: 'ready', startDate, ...(extra || {}) });
+  it('valida el formato de la fecha y que exista en el calendario', () => {
+    expect(P.isDateKey('2026-11-02')).toBe(true);
+    ['2026-02-30', '2/11/2026', '2026-1-2', '', null, 20261102].forEach(v => expect(P.isDateKey(v)).toBe(false));
+  });
+  it('normalizeContent conserva una fecha válida y descarta una inválida', () => {
+    const base = { name: 'X', weeks: 4, activeDays: [true, false, false, false, false, false, false], sessions: [] };
+    expect(P.normalizeContent({ ...base, startDate: '2026-11-02' }).startDate).toBe('2026-11-02');
+    expect('startDate' in P.normalizeContent({ ...base, startDate: 'mañana' })).toBe(false);
+    expect('startDate' in P.normalizeContent({ ...base, startDate: null })).toBe(false);
+  });
+  it('un duplicado no hereda la programación', () => {
+    const src = { ...P.createPlan({ name: 'X', weeks: 4, activeDays: [true, false, false, false, false, false, false], sessions: [], startDate: '2026-11-02' }, 1) };
+    expect(src.startDate).toBe('2026-11-02');
+    expect('startDate' in P.duplicatePlan(src, 'src', 2)).toBe(false);
+  });
+  it('archivar o enviar a la papelera un plan programado quita la programación', () => {
+    const NOW = 123, plain = { status: 'ready' };
+    const scheduledPlan = { ...plain, startDate: '2026-11-02' };
+    expect(P.transition(scheduledPlan, 'archive', NOW).startDate).toBeNull();
+    expect(P.transition(scheduledPlan, 'trash', NOW).startDate).toBeNull();
+    expect('startDate' in P.transition(plain, 'archive', NOW)).toBe(false);
+  });
+  it('validatePlan rechaza una fecha mal formada', () => {
+    const ok = P.createPlan({ name: 'X', weeks: 4, activeDays: [true, false, false, false, false, false, false], sessions: [] }, 1);
+    expect(P.validatePlan({ ...ok, startDate: '2026-11-02' })).toEqual([]);
+    expect(P.validatePlan({ ...ok, startDate: null })).toEqual([]);
+    expect(P.validatePlan({ ...ok, startDate: '02-11-2026' }).length).toBe(1);
+  });
+  it('dueSchedule: antes de la fecha no hace nada; el día de inicio activa el plan', () => {
+    const plans = [rd('a', undefined), rd('b', '2026-11-02')];
+    expect(P.dueSchedule(plans, { activePlanId: 'a' }, '2026-11-01')).toEqual({ apply: null, clear: [] });
+    const r = P.dueSchedule(plans, { activePlanId: 'a' }, '2026-11-02');
+    expect(r.apply.id).toBe('b'); expect(r.clear).toEqual([]);
+  });
+  it('dueSchedule: pasadas varias fechas gana la más reciente y consume las demás', () => {
+    const plans = [rd('a', undefined), rd('b', '2026-11-02'), rd('c', '2026-11-09'), rd('d', '2026-12-01')];
+    const r = P.dueSchedule(plans, { activePlanId: 'a' }, '2026-11-20');
+    expect(r.apply.id).toBe('c'); expect(r.clear.map(p => p.id)).toEqual(['b']);
+  });
+  it('dueSchedule: si el plan ya es el activo solo se consume la programación', () => {
+    const plans = [rd('a', '2026-11-02'), rd('b', undefined)];
+    const r = P.dueSchedule(plans, { activePlanId: 'a' }, '2026-11-05');
+    expect(r.apply).toBeNull(); expect(r.clear.map(p => p.id)).toEqual(['a']);
+  });
+  it('dueSchedule: si el activo tiene una fecha posterior a la del otro, no se cambia de plan', () => {
+    const plans = [rd('a', '2026-11-09'), rd('b', '2026-11-02')];
+    const r = P.dueSchedule(plans, { activePlanId: 'a' }, '2026-11-20');
+    expect(r.apply).toBeNull(); expect(r.clear.map(p => p.id).sort()).toEqual(['a', 'b']);
+  });
+  it('dueSchedule ignora planes archivados o en la papelera', () => {
+    const plans = [rd('a', undefined), rd('b', '2026-11-02', { status: 'archived' }), rd('c', '2026-11-02', { status: 'trashed' })];
+    expect(P.dueSchedule(plans, { activePlanId: 'a' }, '2026-11-05')).toEqual({ apply: null, clear: [] });
+  });
+  it('planOnDate: rige el programado cuya fecha de inicio ya habrá llegado', () => {
+    const plans = [rd('a', undefined), rd('b', '2026-11-02'), rd('c', '2026-12-01')];
+    expect(P.planOnDate(plans, '2026-11-01')).toBeNull();
+    expect(P.planOnDate(plans, '2026-11-02').id).toBe('b');
+    expect(P.planOnDate(plans, '2026-12-15').id).toBe('c');
+  });
+});

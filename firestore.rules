@@ -105,7 +105,7 @@ service cloud.firestore {
         function validPlan(d) {
           return d.keys().hasOnly(['schemaVersion', 'name', 'status', 'weeks', 'activeDays', 'sessions', 'goal', 'level',
                                    'equipment', 'minutes', 'revision', 'sourcePlanId', 'migratedFrom', 'createdAt',
-                                   'updatedAt', 'archivedAt', 'trashedAt', 'trashedFrom'])
+                                   'updatedAt', 'archivedAt', 'trashedAt', 'trashedFrom', 'startDate'])
             && d.keys().hasAll(['schemaVersion', 'name', 'status', 'weeks', 'activeDays', 'sessions', 'revision', 'createdAt', 'updatedAt'])
             && d.schemaVersion == 2
             && isString(d.name, 80) && d.name.size() > 0
@@ -115,7 +115,10 @@ service cloud.firestore {
             && d.status in ['ready', 'archived', 'trashed']
             && d.revision is int && d.revision >= 1
             && d.get('equipment', []) is list && d.get('equipment', []).size() <= 10
-            && (!('level' in d) || (d.level is int && d.level >= 1 && d.level <= 3));
+            && (!('level' in d) || (d.level is int && d.level >= 1 && d.level <= 3))
+            // Inicio programado: «AAAA-MM-DD» o null
+            && (!('startDate' in d) || d.startDate == null
+                || (d.startDate is string && d.startDate.size() == 10 && d.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')));
         }
 
         // Un plan que deja de estar «ready» no puede seguir siendo el activo tras la escritura (se

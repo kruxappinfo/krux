@@ -46,6 +46,10 @@ const expectOp = async (label, fn, shouldPass) => {
   await expectOp('plan: crear con 7 sesiones', () => col(A).doc().set(doc({ sessions: Array(7).fill({ id: 'x', day: 'L', name: 's', exercises: [] }) })), true);
   await expectOp('plan: crear con nombre de 81 caracteres', () => col(A).doc().set(doc({ name: 'x'.repeat(81) })), false);
   await expectOp('plan: crear con nombre vacío', () => col(A).doc().set(doc({ name: '' })), false);
+  await expectOp('plan: crear con inicio programado válido', () => col(A).doc().set(doc({ startDate: '2026-11-02' })), true);
+  await expectOp('plan: crear con inicio programado null', () => col(A).doc().set(doc({ startDate: null })), true);
+  await expectOp('plan: inicio programado con formato inválido', () => col(A).doc().set(doc({ startDate: '2/11/2026' })), false);
+  await expectOp('plan: inicio programado que no es texto', () => col(A).doc().set(doc({ startDate: 20261102 })), false);
   await expectOp('plan: crear con nivel 5', () => col(A).doc().set(doc({ level: 5 })), false);
   await expectOp('plan: crear con nivel 2, objetivo y material', () => col(A).doc().set(doc({ level: 2, goal: 'fuerza', equipment: ['barra'], minutes: 60 })), true);
   await expectOp('plan: crear con 11 materiales', () => col(A).doc().set(doc({ equipment: Array(11).fill('x') })), false);

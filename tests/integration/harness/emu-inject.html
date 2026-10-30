@@ -264,6 +264,107 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
     } catch (er) { R.err = er.message + ' ' + (er.stack || '').split('\n')[1]; }
     fin(); return;
   }
+  if (state === 'sched') {      // ── inicio programado de planes
+    const T = {}; const note = (k, ok, extra) => { T[k] = !!ok; if (!ok || extra) R[k] = extra === undefined ? 'FALLA' : extra; document.title = 'P|' + Object.keys(T).length + '|' + k; };
+    try {
+      const ST = KruxTrainStore.plans; const FV = firebase.firestore.FieldValue; const P = window.KruxPlans;
+      const e = 'sc' + Date.now() + '@t.dev'; const cr = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1500);
+      const ud = db.collection('users').doc(cr.user.uid);
+      const key = off => { const d = new Date(); d.setDate(d.getDate() + off); return trDateKey(d); };
+      const ex = (name, o) => Object.assign({ name, sets: 3, workSec: 0, reps: 8, weight: 0, restSec: 90, rpeTarget: 7 }, o || {});
+      const content = (name, extra) => Object.assign({ name, weeks: 4, activeDays: [true, true, true, true, true, true, true],
+        sessions: [{ day: 'L', name: 'A ' + name, exercises: [ex('Plancha', { workSec: 30, reps: 0 })] }, { day: 'M', name: 'B', exercises: [ex('Dominadas')] }] }, extra || {});
+      const pdoc = id => ud.collection('training_plans').doc(id);
+      const srv = async id => (await pdoc(id).get({ source: 'server' })).data();
+      const stSrv = async () => (await ud.collection('training_state').doc('current').get({ source: 'server' })).data();
+      const click = async (sel, ms) => { const el = typeof sel === 'string' ? document.querySelector(sel) : sel; if (!el) throw new Error('no existe ' + sel); el.click(); await w(ms || 350); };
+      await ud.collection('training_plan').doc('active').set({ name: 'Plan A', weeks: 4, activeDays: [true, true, true, true, true, true, true], sessions: [{ day: 'L', name: 'A A', exercises: [ex('Plancha', { workSec: 30, reps: 0 })] }], updatedAt: FV.serverTimestamp() });
+      const legacyBefore = JSON.stringify((await ud.collection('training_plan').doc('active').get()).data(), (k, v) => (v && v.seconds !== undefined ? 'TS' : v));
+      await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(e, 'password123'); await w(3500);
+      const idA = window.kruxActivePlan && window.kruxActivePlan.id;
+      note('s_activoInicial', idA === 'legacy-active', idA);
+
+      // 1. programado para mañana: no cambia nada hoy
+      const idB = await ST.create(content('Plan B', { startDate: key(1) }), { activate: false });
+      note('s_creaProgramado', (await srv(idB)).startDate === key(1) && (await srv(idB)).status === 'ready');
+      note('s_hoyNoActiva', (await ST.applySchedule()) === null && (await stSrv()).activePlanId === idA && window.kruxActivePlan.id === idA);
+      note('s_calendarioFuturo', P.planOnDate(window.kruxPlans, key(2)).id === idB && P.planOnDate(window.kruxPlans, key(0)) === null);
+
+      // 2. llega la fecha: se activa y se consume la programación en una sola operación
+      const revB = (await srv(idB)).revision;
+      await ST.update(idB, content('Plan B', { startDate: key(0) }), revB); await ST.reload();
+      const res = await ST.applySchedule();
+      note('s_llegaFecha', res && res.applied && res.applied.id === idB, JSON.stringify(res));
+      const sB = await srv(idB);
+      note('s_activoServidor', (await stSrv()).activePlanId === idB && window.kruxActivePlan.id === idB);
+      note('s_consumida', sB.startDate === null && sB.revision === revB + 2 && sB.status === 'ready', JSON.stringify([sB.startDate, sB.revision, revB]));
+      note('s_anteriorIntacto', (await srv('legacy-active')).status === 'ready');
+      note('s_antiguoIntacto', JSON.stringify((await ud.collection('training_plan').doc('active').get()).data(), (k, v) => (v && v.seconds !== undefined ? 'TS' : v)) === legacyBefore);
+      note('s_idempotente', (await ST.applySchedule()) === null);
+
+      // 3. elegir otro plan a mano no lo revierte
+      await ST.activate('legacy-active');
+      await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(e, 'password123'); await w(3500);
+      note('s_noSeRevierte', window.kruxActivePlan && window.kruxActivePlan.id === 'legacy-active' && (await stSrv()).activePlanId === 'legacy-active');
+
+      // 4. tres aplicaciones simultáneas: una sola activación, una sola subida de revisión
+      const idC = await ST.create(content('Plan C', { startDate: key(0) }), { activate: false });
+      const revC = (await srv(idC)).revision;
+      const par = await Promise.all([ST.applySchedule(), ST.applySchedule(), ST.applySchedule()]);
+      note('s_simultaneas', par.filter(Boolean).length === 1 && (await srv(idC)).revision === revC + 1 && (await stSrv()).activePlanId === idC, JSON.stringify(par.map(x => !!x)));
+
+      // 5. varias fechas vencidas: gana la más reciente y se consumen las demás
+      const idD = await ST.create(content('Plan D', { startDate: key(-1) }), { activate: false });
+      const idE = await ST.create(content('Plan E', { startDate: key(-5) }), { activate: false });
+      const r5 = await ST.applySchedule();
+      note('s_ganaLaMasReciente', r5 && r5.applied.id === idD && (await srv(idD)).startDate === null && (await srv(idE)).startDate === null && (await stSrv()).activePlanId === idD, JSON.stringify(r5 && r5.consumed));
+
+      // 6. activar a mano consume la programación; archivar también
+      const idF = await ST.create(content('Plan F', { startDate: key(10) }), { activate: false });
+      await ST.activate(idF);
+      note('s_manualConsume', (await srv(idF)).startDate === null && (await stSrv()).activePlanId === idF);
+      const idG = await ST.create(content('Plan G', { startDate: key(10) }), { activate: false });
+      await ST.setStatus(idG, 'archive');
+      const g = await srv(idG);
+      note('s_archivarQuita', g.status === 'archived' && g.startDate === null);
+      const idH = await ST.create(content('Plan H', { startDate: key(10) }), { activate: false });
+      const dup = await ST.duplicate(idH);
+      note('s_duplicadoSinFecha', !('startDate' in (await srv(dup))) || (await srv(dup)).startDate == null);
+
+      // 7. editor: el campo aparece en un plan inactivo, no en el activo, y se guarda
+      await ST.activate(idF); await w(300);
+      switchView('train-view'); await w(500);
+      window.openPlanEditor({ planId: idH }); await w(800);
+      const inp = document.getElementById('pe-start-input');
+      note('s_campoEnInactivo', !!inp && inp.value === key(10) && inp.min === key(0), inp && inp.value);
+      note('s_pistaFutura', document.getElementById('pe-start-hint').textContent.includes('seguirás con'), document.getElementById('pe-start-hint').textContent);
+      inp.value = key(20); inp.dispatchEvent(new Event('change')); await w(200);
+      await click('#pe-save-top', 2200);
+      note('s_editorGuarda', (await srv(idH)).startDate === key(20), (await srv(idH)).startDate);
+      await click('#pe-saved-done', 600).catch(() => {});
+      window.openPlanEditor({ planId: idH }); await w(800);
+      await click('#pe-start-clear', 300);
+      note('s_quitarFecha', document.getElementById('pe-start-input').value === '' && document.getElementById('pe-start-clear').hidden === true);
+      await click('#pe-save-top', 2200);
+      note('s_quitarGuarda', !(await srv(idH)).startDate, String((await srv(idH)).startDate));
+      await click('#pe-saved-done', 600).catch(() => {});
+      window.openPlanEditor({ planId: idF }); await w(800);
+      note('s_noEnActivo', !document.getElementById('pe-start-input'));
+      await click('#pe-back-btn', 500).catch(() => {});
+
+      // 8. plan nuevo con fecha de hoy: se crea ya activo, sin preguntar
+      window.openPlanEditor(); await w(800);
+      const i2 = document.getElementById('pe-start-input'); i2.value = key(0); i2.dispatchEvent(new Event('change')); await w(200);
+      const nm = document.getElementById('pe-name-input'); nm.value = 'Plan hoy'; nm.dispatchEvent(new Event('input'));
+      await click('#pe-save-top', 2800);
+      const act = (await stSrv()).activePlanId;
+      note('s_nuevoHoyActivo', !!act && (await srv(act)).name === 'Plan hoy' && !document.getElementById('kx-confirm') , String(act));
+    } catch (er) { R.err = er.message + ' ' + (er.stack || '').split('\n')[1]; }
+    R.fallos = Object.entries(T).filter(([k, v]) => !v).map(([k]) => k);
+    R.resumen = Object.values(T).filter(Boolean).length + '/' + Object.keys(T).length;
+    done(); return;
+  }
+
   if (state === 'plansui') {
     const T = {}; const note = (k, ok, extra) => { T[k] = !!ok; if (!ok || extra) R[k] = extra === undefined ? 'FALLA' : extra; };
     try {

@@ -17613,6 +17613,11 @@ const KruxTrainStore = (() => {
     }
     const state = await refreshPlans();
     if (!window.kruxPlanNotice && await detectLegacyDrift(state)) window.kruxPlanNotice = { type: 'legacy-drift' };
+    await announceSchedule(await q.applySchedule());
+  }
+
+  function announceSchedule(res) {
+    if (res && res.applied && typeof showToast === 'function') showToast(`Hoy empieza «${res.applied.name}»`, 'success', { detail: 'Ya es tu plan activo.' });
   }
 
   async function createPlan(content, opts) {
@@ -17651,7 +17656,7 @@ const KruxTrainStore = (() => {
         if (!PL().checkRevision(loadedRevision, cur.revision)) throw kxError('kx/conflict');
         const norm = PL().normalizeContent(content);
         const doc = { ...cur, ...norm, revision: cur.revision + 1, updatedAt: stamp() };
-        ['goal', 'level', 'equipment', 'minutes'].forEach(k => { if (!(k in norm)) delete doc[k]; });
+        ['goal', 'level', 'equipment', 'minutes', 'startDate'].forEach(k => { if (!(k in norm)) delete doc[k]; });
         tx.set(ref, doc);
         return { revision: doc.revision, sessions: norm.sessions };
       });
@@ -17700,12 +17705,55 @@ const KruxTrainStore = (() => {
         if (!snap.exists) throw kxError('kx/plan-missing');
         if (!PL().canActivate(snap.data())) throw kxError('kx/not-allowed');
         tx.set(stateRef(), stateFor(st.exists ? st.data() : null, planId));
+        // Si estaba programado, activarlo a mano consume la programación
+        if (snap.data().startDate) tx.set(plansCol().doc(planId), { ...snap.data(), startDate: null, revision: snap.data().revision + 1, updatedAt: stamp() });
       });
-      await settle((plans, state) => { state.activePlanId = planId; });
+      await settle((plans, state) => {
+        state.activePlanId = planId;
+        const p = plans.find(x => x.id === planId);
+        if (p && p.startDate) { p.startDate = null; p.revision = (p.revision || 1) + 1; }
+      });
       return true;
     } catch (error) {
       reportError('No se ha podido activar el plan', error);
       return false;
+    }
+  }
+
+  // Inicio programado: cuando llega la fecha de inicio de un plan, pasa a ser el activo. Es una sola
+  // transacción: puntero + consumo de la programación (el plan queda sin fecha, así que no se vuelve a aplicar
+  // si más tarde eliges otro plan). Sin conexión o con un entrenamiento abierto no se hace nada: se reintenta al volver.
+  async function applySchedule() {
+    if (!uid() || !MULTI() || navigator.onLine === false) return null;
+    if (window.KruxTrainSession && window.KruxTrainSession.isRunning()) return null;
+    const today = trDateKey(new Date());
+    const first = PL().dueSchedule(window.kruxPlans || [], window.kruxPlanState, today);
+    if (!first.apply && !first.clear.length) return null;
+    const ids = [first.apply, ...first.clear].filter(Boolean).map(p => p.id);
+    try {
+      const result = await txRun(async tx => {
+        const [st, ...snaps] = await Promise.all([tx.get(stateRef()), ...ids.map(id => tx.get(plansCol().doc(id)))]);
+        const cur = snaps.filter(x => x.exists).map(fromDoc);
+        const prev = st.exists ? st.data() : null;
+        // Se vuelve a decidir con lo que hay ahora en el servidor
+        const now = PL().dueSchedule(cur, prev, today);
+        if (!now.apply && !now.clear.length) return null;
+        if (now.apply) tx.set(stateRef(), stateFor(prev, now.apply.id));
+        [now.apply, ...now.clear].filter(Boolean).forEach(p => {
+          const { id, ...rest } = p;
+          tx.set(plansCol().doc(id), { ...rest, startDate: null, revision: p.revision + 1, updatedAt: stamp() });
+        });
+        return { applied: now.apply ? { id: now.apply.id, name: now.apply.name } : null, consumed: [now.apply, ...now.clear].filter(Boolean).map(p => p.id) };
+      });
+      if (!result) return null;
+      await settle((plans, state) => {
+        plans.forEach(p => { if (result.consumed.includes(p.id)) { p.startDate = null; p.revision = (p.revision || 1) + 1; } });
+        if (result.applied) state.activePlanId = result.applied.id;
+      });
+      return result;
+    } catch (error) {
+      // Silencioso: la programación sigue en el plan y se reintenta en la próxima carga
+      return null;
     }
   }
 
@@ -17781,7 +17829,8 @@ const KruxTrainStore = (() => {
     activate: id => serial(() => activatePlan(id)),
     duplicate: (id, n) => serial(() => duplicatePlan(id, n)),
     purge: id => serial(() => purgePlan(id)),
-    importLegacy: () => serial(importLegacyAsNew)
+    importLegacy: () => serial(importLegacyAsNew),
+    applySchedule: () => serial(applySchedule)
   };
 
   // Traspasa lo guardado a la vista en memoria (ids de sesión y revisión nuevos)
@@ -17947,7 +17996,12 @@ const KruxTrainStore = (() => {
   }
 
   window.addEventListener('online', () => { flush(); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') flush(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    flush();
+    // Si la app llevaba abierta desde ayer, puede haber llegado la fecha de inicio de un plan
+    if (MULTI()) q.applySchedule().then(res => { if (res && res.applied) { announceSchedule(res); if (typeof window.refreshTrainView === 'function') window.refreshTrainView(); } }).catch(() => {});
+  });
   setInterval(() => { if (OFFLINE() && uid() && queueOf(uid()).some(e => e.state === 'pending')) flush(); }, 60000);
 
   // Guardar el plan en memoria. Con planes múltiples escribe el documento de ese plan (con control de
@@ -18207,8 +18261,17 @@ function initTrainView() {
     return d;
   }
 
-  function planSessionFor(label) {
-    const plan = window.kruxActivePlan;
+  // Plan que rige en una fecha: el activo; en fechas futuras, el programado cuya fecha de inicio ya habrá llegado
+  function planAt(date) {
+    const active = window.kruxActivePlan;
+    if (!date || !multiPlans() || !window.KruxPlans) return active;
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    if (date <= t) return active;
+    return window.KruxPlans.planOnDate(window.kruxPlans || [], trDateKey(date)) || active;
+  }
+
+  function planSessionFor(label, date) {
+    const plan = planAt(date);
     if (!plan || !plan.sessions) return null;
     return plan.sessions.find(s => s.day === label) || null;
   }
@@ -18324,12 +18387,12 @@ function initTrainView() {
       : `${monday.getDate()} ${MONTHS[monday.getMonth()]} – ${sunday.getDate()} ${MONTHS[sunday.getMonth()]}`;
     weekTitle.textContent = weekOffset === 0 ? `Esta semana · ${range}` : range;
 
-    const hasPlan = !!window.kruxActivePlan;
     daysRow.innerHTML = DAY_LABELS.map((label, i) => {
       const d = dateAt(weekOffset, i);
+      const hasPlan = !!planAt(d);
       const isToday = weekOffset === 0 && i === todayIdx();
       const past = multiPlans() && isPastDate(d);
-      const sess = hasPlan && !past ? planSessionFor(label) : null;
+      const sess = hasPlan && !past ? planSessionFor(label, d) : null;
       const isDone = !!logFor(trDateKey(d));
       const isSelected = i === selectedIdx;
       const cls = ['train-day', isToday && 'is-today', (sess || (past && isDone)) && 'has-session', isDone && 'is-done', isSelected && 'is-selected']
@@ -18346,8 +18409,8 @@ function initTrainView() {
 
   // ── Sesión del día seleccionado ─────────────────────────────────────
   function selectedState() {
-    const plan = window.kruxActivePlan;
     const date = dateAt(weekOffset, selectedIdx);
+    const plan = planAt(date);
     if (multiPlans()) {
       if (isPastDate(date)) {
         const entries = entriesOn(trDateKey(date));
@@ -18356,8 +18419,8 @@ function initTrainView() {
       if (!plan && hasAnyReadyPlan()) return { kind: 'noplan', date };
     }
     if (!plan) return { kind: 'demo', date };
-    const sess = planSessionFor(DAY_LABELS[selectedIdx]);
-    return sess ? { kind: 'session', date, sess } : { kind: 'rest', date };
+    const sess = planSessionFor(DAY_LABELS[selectedIdx], date);
+    return sess ? { kind: 'session', date, sess, plan } : { kind: 'rest', date };
   }
 
   function loadSelectedSession() {
@@ -18372,7 +18435,7 @@ function initTrainView() {
       badgeEl.className = 'train-session-badge is-demo';
     } else if (st.kind === 'session') {
       // Misma referencia que el plan: las ediciones del ejercicio se quedan en el plan
-      const plan = window.kruxActivePlan || {};
+      const plan = st.plan || window.kruxActivePlan || {};
       window.kruxTrainData = {
         name: st.sess.name, exercises: st.sess.exercises, demo: false,
         planId: plan.id || null, planName: plan.name || '', planRevision: plan.revision || null, planSessionId: st.sess.id || null
@@ -18413,6 +18476,8 @@ function initTrainView() {
     } else {
       const n = data.exercises.length;
       metaEl.textContent = n ? `${n} ${n === 1 ? 'ejercicio' : 'ejercicios'} · ≈ ${trEstimateMinutes(data.exercises)} min` : 'Sin ejercicios';
+      // Fecha futura que ya pertenece a un plan programado: se indica de qué plan es
+      if (st.kind === 'session' && st.plan && window.kruxActivePlan && st.plan.id !== window.kruxActivePlan.id) metaEl.textContent += ` · Plan «${st.plan.name}»`;
     }
     renderExercises();
     renderSuggestion();
@@ -20037,6 +20102,32 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
+  // La fecha de inicio solo tiene sentido con varios planes y para un plan que todavía no es el activo
+  function canSchedule() {
+    if (!window.KRUX_MULTIPLAN || !firebase.auth().currentUser) return false;
+    const active = window.kruxPlanState && window.kruxPlanState.activePlanId;
+    return !(mode === 'edit' && editId && active === editId);
+  }
+
+  function renderStart() {
+    const input = document.getElementById('pe-start-input');
+    if (!input) return;
+    const hint = document.getElementById('pe-start-hint');
+    const clear = document.getElementById('pe-start-clear');
+    const v = window.KruxPlans && window.KruxPlans.isDateKey(planData.startDate) ? planData.startDate : '';
+    input.value = v;
+    clear.hidden = !v;
+    const active = window.kruxActivePlan;
+    if (!v) hint.textContent = 'Opcional. Ese día este plan pasará a ser tu plan activo automáticamente' + (active ? ' y sustituirá a «' + active.name + '».' : '.');
+    else {
+      const d = new Date(v + 'T00:00');
+      const label = `${d.getDate()} de ${['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][d.getMonth()]}`;
+      hint.textContent = v <= trDateKey(new Date())
+        ? 'Empezará en cuanto lo guardes: será tu plan activo.'
+        : `Hasta el ${label} seguirás con ${active ? '«' + active.name + '»' : 'tu plan actual'}; ese día empieza este automáticamente.`;
+    }
+  }
+
   const catalog = () => (window.KruxLibrary ? window.KruxLibrary.catalog() : null);
 
   // Enlaza (en memoria) los ejercicios con su ficha cuando el nombre coincide exactamente
@@ -20182,6 +20273,16 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
             <div class="pe-days-grid" id="pe-days-grid" role="group" aria-labelledby="pe-days-label"></div>
             <p class="pe-hint">Las sesiones se asignan a los días activos en orden. Para cambiar el día de una sesión, actívalo aquí o súbela o bájala desde «Editar».</p>
             <div class="pe-assign" id="pe-assign" aria-live="polite"></div>
+            ${canSchedule() ? `
+            <div class="pe-divider" aria-hidden="true"></div>
+            <div class="pe-row-head">
+              <h3 class="pe-label" id="pe-start-label">Empezar este plan el</h3>
+            </div>
+            <div class="pe-start" id="pe-start">
+              <input type="date" class="pe-start-input" id="pe-start-input" aria-labelledby="pe-start-label" min="${trDateKey(new Date())}">
+              <button type="button" class="pe-start-clear" id="pe-start-clear" aria-label="Quitar la fecha de inicio" hidden>${SVG.close || '×'}</button>
+            </div>
+            <p class="pe-hint" id="pe-start-hint"></p>` : ''}
           </section>
 
           <section class="pe-sessions" aria-labelledby="pe-sess-label">
@@ -20211,11 +20312,20 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
       nameInput.focus();
     };
 
+    const startInput = document.getElementById('pe-start-input');
+    if (startInput) {
+      startInput.onchange = () => { planData.startDate = startInput.value || null; renderStart(); };
+      document.getElementById('pe-start-clear').onclick = () => { planData.startDate = null; renderStart(); };
+      renderStart();
+    }
+
     const tplRow = document.getElementById('pe-tpl-row');
     if (tplRow) tplRow.onclick = e => {
       const card = e.target.closest('.pe-tpl-card');
       if (!card) return;
+      const keepStart = planData.startDate || null;
       loadTemplate(parseInt(card.dataset.tidx));
+      if (keepStart) planData.startDate = keepStart;
       nameInput.value = planData.name;
       pendingDeleteSi = -1;
       updateNameClear();
@@ -20580,7 +20690,8 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     const content = {
       name, sessions: planData.sessions, activeDays: planData.activeDays, weeks: planData.weeks,
       ...(planData.goal ? { goal: planData.goal, level: planData.level, equipment: planData.equipment } : {}),
-      ...(planData.minutes ? { minutes: planData.minutes } : {})
+      ...(planData.minutes ? { minutes: planData.minutes } : {}),
+      ...(window.KruxPlans && window.KruxPlans.isDateKey(planData.startDate) && canSchedule() ? { startDate: planData.startDate } : {})
     };
     const signedIn = !!(firebase.auth().currentUser);
     const multi = !!window.KRUX_MULTIPLAN && signedIn;
@@ -20589,7 +20700,8 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     if (multi) {
       // Varios planes: cada plan es un documento. Si es nuevo se pregunta, siempre, si se activa.
       let activate = false;
-      if (mode !== 'edit') {
+      // Con fecha de inicio no se pregunta: el plan se activa solo ese día (o ahora, si la fecha es hoy)
+      if (mode !== 'edit' && !content.startDate) {
         activate = window.KruxPlansUI ? await window.KruxPlansUI.askActivate(name) : false;
         if (activate === null) return;     // canceló: no se guarda nada
       }
@@ -20614,7 +20726,12 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
         if (window.kruxLastPlanError === 'kx/conflict' || window.kruxLastPlanError === 'kx/plan-missing') showConflictBanner();
         return;
       }
-      savedNote = mode === 'edit' ? 'Cambios guardados.' : activate ? 'Guardado y activado.' : 'Guardado sin activar. Puedes activarlo desde «Mis planes».';
+      let started = null;
+      if (content.startDate && content.startDate <= trDateKey(new Date())) started = await KruxTrainStore.plans.applySchedule();
+      const when = content.startDate && !started ? new Date(content.startDate + 'T00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }) : '';
+      savedNote = started ? 'Guardado y activado.'
+        : when ? (mode === 'edit' ? 'Cambios guardados.' : 'Guardado.') + ` Empezará el ${when}.`
+        : mode === 'edit' ? 'Cambios guardados.' : activate ? 'Guardado y activado.' : 'Guardado sin activar. Puedes activarlo desde «Mis planes».';
       if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
     } else {
     // Plan activo en memoria (Entrena lo usa aunque no haya sesión iniciada)

@@ -104,3 +104,19 @@ No se activa la persistencia global de Firestore: la solución está acotada a E
   no frente a alguien con acceso al dispositivo desbloqueado.
 - Si se desinstala la app o se borran los datos del sitio antes de sincronizar, las sesiones pendientes se pierden.
 - No se ha probado en dispositivos reales ni en las WebViews de Capacitor (iOS/Android): solo en Chrome contra el emulador.
+
+## 7. Inicio programado de un plan
+
+En el editor de un plan que **no es el activo** hay un campo «Empezar este plan el». Se guarda en el propio plan
+como `startDate` (`AAAA-MM-DD`, día local; opcional o `null`).
+
+- Al guardar con fecha futura no se pregunta si se activa: el plan sigue en «Listo» y se muestra «Programado» en «Mis planes».
+- **Aplicación:** al cargar Entrena y al volver la app a primer plano, si hay un plan listo con `startDate` ≤ hoy pasa a ser el activo.
+  Es **una sola transacción**: puntero `training_state/current` + consumo de la programación (`startDate: null`, revisión +1).
+  Por eso, si después eliges otro plan a mano, el programado no vuelve a imponerse.
+- Varias fechas vencidas: gana la más reciente; las demás se consumen. Si el plan ya era el activo, solo se consume.
+- Activar a mano un plan programado, archivarlo o enviarlo a la papelera quita su programación. Un duplicado no la hereda.
+- **Calendario:** los días futuros a partir de la fecha de inicio muestran las sesiones del plan programado; el pasado sigue mostrando solo lo realizado.
+- Sin conexión, o con un entrenamiento abierto, no se aplica nada: se reintenta en la siguiente carga.
+- **Reglas:** `startDate` está permitido (`keys().hasOnly`) con formato `AAAA-MM-DD` o `null`. Hay que desplegar `firestore.rules` **antes** de publicar esta versión.
+- Reversión: quitar la fecha en el editor (o poner `startDate: null`). No hay migración de datos.

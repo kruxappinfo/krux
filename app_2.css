@@ -29022,3 +29022,21 @@ body.xg-open { overflow: hidden; }
 
 .train-ex-row--static { cursor: default; }
 .train-hist-title { margin: 10px 8px 2px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tr-ink-3); }
+
+/* ── Inicio programado de un plan ── */
+.mp-badge.is-scheduled { background: var(--kx-sage, #DCE9DF); color: var(--kx-forest, #153E35); }
+.pe-start { display: flex; align-items: center; gap: 8px; }
+.pe-start-input {
+  flex: 1; min-width: 0; min-height: 48px; padding: 0 14px;
+  border: 1px solid var(--tr-line); border-radius: 14px;
+  background: var(--tr-fill); color: var(--tr-ink);
+  font: inherit; font-size: 1rem; font-weight: 600;
+  -webkit-appearance: none; appearance: none;
+}
+.pe-start-input:focus-visible { outline: 2px solid var(--kx-forest, #153E35); outline-offset: 2px; }
+.pe-start-clear {
+  flex: none; width: 48px; height: 48px; display: grid; place-items: center;
+  border-radius: 14px; background: var(--tr-fill); color: var(--tr-ink-2);
+}
+.pe-start-clear[hidden] { display: none; }
+.pe-start-clear svg { width: 18px; height: 18px; }
