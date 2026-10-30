@@ -58,3 +58,5 @@ forma rara, `verificacionRegistro` fallan a veces en la preparación. Diagnósti
   (4 de 8 con *long polling* forzado, 5 de 8 sin él), así que no es un problema del transporte concreto.
 - Reiniciar el emulador no cambia la tasa. Los mismos fallos aparecen con el código y las reglas anteriores.
 `cycle` deja marcas en el título (`ciclo:signOut|signIn|waitServer|fin`) para ver dónde se queda cada cuelgue.
+
+- `registro-final*.sh`: algún escenario puede fallar de forma aislada (`a_*` o `c_colaVacia`) y pasar al repetirlo. `c_colaVacia` en modo clásico se reproduce también sin los cambios de la fase 2 (comprobado con A/B).

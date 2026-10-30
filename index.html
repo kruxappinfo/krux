@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=97" />
+  <link rel="stylesheet" href="./app_2.css?v=98" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -99,12 +99,14 @@
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
-  <script defer src="./train-plans.js?v=3"></script>
-  <script defer src="./app_3.js?v=95"></script>
+  <script defer src="./train-plans.js?v=4"></script>
+  <script defer src="./app_3.js?v=96"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
   <script defer src="./train-profile.js?v=1"></script>
   <script defer src="./train-coach-ui.js?v=2"></script>
+  <script defer src="./train-mental-data.js?v=1"></script>
+  <script defer src="./train-mental-ui.js?v=1"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -1294,6 +1296,10 @@
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
                   Biblioteca de ejercicios
                 </button>
+                <button class="train-gear-item" id="train-gear-mental" role="menuitem" hidden>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/><path d="M9 21h6"/></svg>
+                  Biblioteca mental
+                </button>
               </div>
             </div>
           </header>
@@ -1348,12 +1354,20 @@
                 <span class="train-session-badge" id="train-session-badge">Hoy</span>
               </div>
               <div class="train-exercise-list" id="train-exercise-list" role="list"></div>
+              <div class="mx-session hidden" id="train-mental-session"></div>
             </section>
 
             <!-- Acceso a la biblioteca -->
             <button type="button" class="train-lib-link" id="train-lib-link">
               <span class="train-lib-link-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
               <span class="train-lib-link-text"><strong>Biblioteca de ejercicios</strong><small>Busca, filtra y añade ejercicios a tu plan</small></span>
+              <svg class="train-lib-link-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+
+            <!-- Biblioteca mental (solo con KRUX_COACH) -->
+            <button type="button" class="train-lib-link" id="train-mental-link" hidden>
+              <span class="train-lib-link-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/><path d="M9 21h6"/></svg></span>
+              <span class="train-lib-link-text"><strong>Biblioteca mental</strong><small>Lecciones y ejercicios guiados</small></span>
               <svg class="train-lib-link-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
             </button>
 
@@ -4035,6 +4049,7 @@
   <div id="ex-library-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Ejercicios"></div>
   <div id="plan-wizard-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Asistente de planes"></div>
   <div id="coach-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Perfil del escalador"></div>
+  <div id="mental-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Biblioteca mental"></div>
   <div id="my-plans-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Mis planes"></div>
 
   <!-- Gym Picker Sheet -->

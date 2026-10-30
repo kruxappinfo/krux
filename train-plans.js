@@ -23,7 +23,7 @@
 
   const SCHEMA_VERSION = 2;
   const STATUS = { READY: 'ready', ARCHIVED: 'archived', TRASHED: 'trashed' };
-  const LIMITS = { name: 80, weeks: [1, 16], days: 7, sessions: 7, exercises: 30, notes: 300, equipment: 10 };
+  const LIMITS = { name: 80, weeks: [1, 16], days: 7, sessions: 7, exercises: 30, notes: 300, equipment: 10, mental: 5 };
   const LEGACY_PLAN_ID = 'legacy-active';       // id fijo: la migración nunca duplica
   const DAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
   const TEMPO_RE = /^\d{1,2}(-\d{1,2}){1,3}$/;
@@ -74,6 +74,21 @@
     return !isNaN(d) && d.toISOString().slice(0, 10) === v;
   }
 
+  // Ejercicios mentales de una sesión (sessions[].mental[]): solo la referencia a la ficha del catálogo mental y la
+  // versión de contenido con la que se añadió. Va aparte de exercises[] y es opcional (las sesiones antiguas no lo tienen).
+  const MENTAL_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
+  function normalizeMental(list) {
+    const seen = new Set();
+    const out = [];
+    (Array.isArray(list) ? list : []).forEach(m => {
+      const id = m && typeof m.id === 'string' ? m.id : '';
+      if (!MENTAL_ID_RE.test(id) || seen.has(id)) return;
+      seen.add(id);
+      out.push({ id, contentVersion: Math.max(1, int(m.contentVersion) || 1) });
+    });
+    return out.slice(0, LIMITS.mental);
+  }
+
   // Normaliza el contenido editable de un plan (no toca estado, revisión ni fechas)
   function normalizeContent(plan) {
     const used = new Set();
@@ -81,7 +96,10 @@
       let id = typeof s.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(s.id) && !used.has(s.id) ? s.id : newSessionId();
       while (used.has(id)) id = newSessionId();
       used.add(id);
-      return { id, day: str(s.day, 2), name: str(s.name, LIMITS.name), exercises: (s.exercises || []).slice(0, LIMITS.exercises).map(normalizeExercise) };
+      const out = { id, day: str(s.day, 2), name: str(s.name, LIMITS.name), exercises: (s.exercises || []).slice(0, LIMITS.exercises).map(normalizeExercise) };
+      const mental = normalizeMental(s.mental);
+      if (mental.length) out.mental = mental;
+      return out;
     });
     const out = {
       name: str(plan.name || 'Mi plan', LIMITS.name).trim() || 'Mi plan',
@@ -113,6 +131,7 @@
         ids.add(s.id);
         if (!Array.isArray(s.exercises) || s.exercises.length > LIMITS.exercises) err(`sesión ${i + 1}: máximo 30 ejercicios`);
         if (s.day !== '?' && s.day !== '' && !DAYS.includes(s.day)) err(`sesión ${i + 1}: día inválido`);
+        if (s.mental != null && (!Array.isArray(s.mental) || s.mental.length > LIMITS.mental)) err(`sesión ${i + 1}: máximo ${LIMITS.mental} ejercicios mentales`);
       });
     }
     if (plan.startDate != null && !isDateKey(plan.startDate)) err('fecha de inicio inválida');
@@ -233,7 +252,7 @@
   return {
     isDateKey, dueSchedule, planOnDate,
     SCHEMA_VERSION, STATUS, LIMITS, LEGACY_PLAN_ID, DAYS, TRANSITIONS,
-    randomId, newSessionId, normalizeExercise, normalizeContent, validatePlan,
+    randomId, newSessionId, normalizeExercise, normalizeMental, normalizeContent, validatePlan,
     createPlan, duplicatePlan, fromLegacy, canDo, canActivate, transition,
     summarize, resolveActive, groupPlans, checkRevision
   };

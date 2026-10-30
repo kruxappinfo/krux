@@ -100,3 +100,13 @@ en la web (no hay botón; en la app nativa es prácticamente inalcanzable).
 - **Incidencia técnica abierta (no resuelta):** bloqueos intermitentes de 55–60 s en los canales de Firestore durante las pruebas
   de `multi` (`u7_detecta`, `u9_registroLegibleSinPlan`, «client is offline»), con causa de fondo sin identificar. Sin
   evidencia de que ocurra en producción. Diagnóstico y descartes en `tests/integration/README.md`. Se trata aparte de este cierre.
+
+## 9. Fase 2 — biblioteca mental (en `dev`, solo con `KRUX_COACH`)
+
+- `train-mental-ui.js`: categorías, fichas de lecciones y ejercicios, ejercicio guiado paso a paso y bloque «Entrenamiento mental»
+  en la sesión del día. Acceso desde el menú de Entrena y desde un enlace bajo la sesión. Catálogo: 10 lecciones y 17 ejercicios.
+- `sessions[].mental[]` (`{ id, contentVersion }`, máximo 5, opcional) va aparte de `exercises[]`; las sesiones antiguas no lo tienen.
+  Se guarda con el guardado de planes de siempre (`KruxTrainStore.savePlan`, con control de revisión), en multi y en clásico.
+  Las reglas ya publicadas y las preparadas no validan el contenido de cada sesión: no hace falta cambiarlas.
+- Lo completado se guarda **solo en este dispositivo** (`krux.mental.v1.{uid}`); su sincronización queda para la fase 4.
+- El aviso «orientativo, pendiente de revisión profesional» aparece en la biblioteca y en cada ficha.

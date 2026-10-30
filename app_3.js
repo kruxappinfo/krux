@@ -17462,11 +17462,12 @@ const KruxTrainStore = (() => {
       name: str(plan.name || 'Mi plan', 80),
       weeks: Math.min(16, Math.max(1, int(plan.weeks) || 4)),
       activeDays: Array.from({ length: 7 }, (_, i) => !!(plan.activeDays || [])[i]),
-      sessions: (plan.sessions || []).slice(0, 7).map(sess => ({
-        day: str(sess.day, 2),
-        name: str(sess.name, 80),
-        exercises: (sess.exercises || []).slice(0, 30).map(exercisePayload)
-      }))
+      sessions: (plan.sessions || []).slice(0, 7).map(sess => {
+        const o = { day: str(sess.day, 2), name: str(sess.name, 80), exercises: (sess.exercises || []).slice(0, 30).map(exercisePayload) };
+        const mental = PL().normalizeMental(sess.mental);
+        if (mental.length) o.mental = mental;
+        return o;
+      })
     };
     // Respuestas del asistente (opcionales): permiten reabrir el plan con su contexto
     if (plan.goal) out.goal = str(plan.goal, 20);
@@ -18475,6 +18476,7 @@ function initTrainView() {
     const metaEl = document.getElementById('train-session-meta');
     const badgeEl = document.getElementById('train-session-badge');
     const st = selectedState();
+    if (window.KruxMentalUI) window.KruxMentalUI.renderSession(st.kind === 'session' ? { sess: st.sess, plan: st.plan || window.kruxActivePlan } : null);
 
     if (st.kind === 'demo') {
       window.kruxTrainData = KRUX_TRAIN_DEMO;

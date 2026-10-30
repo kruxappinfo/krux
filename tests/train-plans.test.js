@@ -290,3 +290,25 @@ describe('inicio programado', () => {
     expect(P.planOnDate(plans, '2026-12-15').id).toBe('c');
   });
 });
+
+
+describe('sessions[].mental[] (fase 2)', () => {
+  const base = { name: 'P', weeks: 4, activeDays: [true, false, false, false, false, false, false], sessions: [{ id: 's_a', day: 'L', name: 'A', exercises: [] }] };
+  it('una sesión antigua sin mental sigue igual y no gana el campo', () => {
+    const out = P.normalizeContent(base);
+    expect('mental' in out.sessions[0]).toBe(false);
+    expect(P.validatePlan(P.createPlan(base, 0))).toEqual([]);
+  });
+  it('conserva mental aparte de exercises, sin duplicados ni ids inválidos, máximo 5', () => {
+    const mental = [{ id: 'm05-x', contentVersion: 2 }, { id: 'm05-x' }, { id: 'a b' }, null, ...['c1', 'c2', 'c3', 'c4', 'c5', 'c6'].map(id => ({ id }))];
+    const out = P.normalizeContent({ ...base, sessions: [{ ...base.sessions[0], mental }] });
+    expect(out.sessions[0].mental.map(m => m.id)).toEqual(['m05-x', 'c1', 'c2', 'c3', 'c4']);
+    expect(out.sessions[0].mental[0].contentVersion).toBe(2);
+    expect(out.sessions[0].exercises).toEqual([]);
+  });
+  it('la validación rechaza más de 5 ejercicios mentales', () => {
+    const plan = P.createPlan(base, 0);
+    plan.sessions[0].mental = Array.from({ length: 6 }, (_, i) => ({ id: 'x' + i, contentVersion: 1 }));
+    expect(P.validatePlan(plan).join()).toMatch(/mentales/);
+  });
+});
