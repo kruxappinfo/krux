@@ -17384,10 +17384,15 @@ window.kruxTrainLog = window.kruxTrainLog || [];
 
 // Interruptor de la arquitectura de múltiples planes. Desactivado por defecto: hasta que se desplieguen
 // las reglas y se autorice la migración, Entrena sigue usando users/{uid}/training_plan/active.
-// Para probar en local o en el emulador: ?multiplan=1 en la URL o localStorage 'krux.multiplan' = '1'.
+// Para probar: ?multiplan=1 en la URL (se recuerda en este navegador; ?multiplan=0 lo desactiva) o localStorage "krux.multiplan" = "1".
 window.KRUX_MULTIPLAN = (() => {
-  try { return new URLSearchParams(location.search).get('multiplan') === '1' || localStorage.getItem('krux.multiplan') === '1'; }
-  catch (_) { return false; }
+  // ?multiplan=1 se recuerda en este navegador (el inicio de sesión puede recargar la página sin el parámetro); ?multiplan=0 lo quita
+  try {
+    const q = new URLSearchParams(location.search).get('multiplan');
+    if (q === '1') localStorage.setItem('krux.multiplan', '1');
+    else if (q === '0') localStorage.removeItem('krux.multiplan');
+    return q === '1' || (q !== '0' && localStorage.getItem('krux.multiplan') === '1');
+  } catch (_) { return new URLSearchParams(location.search).get('multiplan') === '1'; }
 })();
 
 // ============================================
