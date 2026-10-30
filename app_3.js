@@ -17406,12 +17406,35 @@ const KruxTrainStore = (() => {
   // los 15 s para poder avisar. La escritura puede aplicarse luego; reintentar es seguro porque
   // el plan es un único documento y cada sesión conserva su propio id.
   const ACK_MS = 15000;
-  const ack = promise => Promise.race([
+  const ack = (promise, ms) => Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('Sin respuesta del servidor'), { code: 'kx/timeout' })), ACK_MS))
+    new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('Sin respuesta del servidor'), { code: 'kx/timeout' })), ms || ACK_MS))
   ]);
   const int = v => Math.max(0, Math.round(Number(v) || 0));
   const str = (v, max) => String(v ?? '').slice(0, max);
+
+  // Transacción con límite de tiempo que NO se aplica más tarde: si falla o se agota el tiempo (sin red), se
+  // marca como cancelada. El SDK puede reintentarla o reanudar sus lecturas al volver la conexión, y entonces
+  // cualquier lectura o escritura aborta en vez de ejecutar una acción (archivar, borrar, activar…) de la que
+  // ya se avisó que había fallado. Cada intento tiene además un plazo propio.
+  function txRun(run) {
+    if (navigator.onLine === false) return Promise.reject(Object.assign(new Error('Sin conexión'), { code: 'kx/offline' }));
+    let cancelled = false;
+    const deadline = Date.now() + 12000;
+    const dead = () => cancelled || Date.now() > deadline;
+    const stop = () => Object.assign(new Error('Cancelada'), { code: 'kx/cancelled' });
+    const p = db.runTransaction(async tx => {
+      if (dead()) throw stop();
+      const safe = {
+        get: async (...a) => { const r = await tx.get(...a); if (dead()) throw stop(); return r; },
+        set: (...a) => { if (dead()) throw stop(); return tx.set(...a); },
+        update: (...a) => { if (dead()) throw stop(); return tx.update(...a); },
+        delete: (...a) => { if (dead()) throw stop(); return tx.delete(...a); }
+      };
+      return run(safe);
+    });
+    return ack(p).then(r => r, error => { cancelled = true; throw error; });
+  }
 
   // Prescripción plana (compatible con planes e historial anteriores) + referencia opcional a la ficha.
   // La ficha nunca se copia: solo exerciseId y la versión de contenido con la que se añadió.
@@ -17524,7 +17547,7 @@ const KruxTrainStore = (() => {
   // Migración perezosa del documento antiguo. Idempotente: id fijo + transacción; nunca sobrescribe
   // un plan existente ni toca training_plan/active. Devuelve 'migrated' | 'already' | 'nothing' | 'completed'.
   async function migrate() {
-    return ack(db.runTransaction(async tx => {
+    return txRun(async tx => {
       const planRef = plansCol().doc(PL().LEGACY_PLAN_ID);
       const [st, legacy, existing] = await Promise.all([tx.get(stateRef()), tx.get(legacyRef()), tx.get(planRef)]);
       const prev = st.exists ? st.data() : null;
@@ -17539,7 +17562,7 @@ const KruxTrainStore = (() => {
       tx.set(planRef, PL().fromLegacy(legacy.data(), stamp()));
       tx.set(stateRef(), stateFor({ migratedFrom: 'training_plan/active' }, prev && prev.activePlanId ? prev.activePlanId : PL().LEGACY_PLAN_ID));
       return 'migrated';
-    }));
+    });
   }
 
   // ¿Hay cambios en el documento antiguo hechos después de migrar (con una versión antigua de la app)?
@@ -17552,10 +17575,24 @@ const KruxTrainStore = (() => {
     } catch (_) { return false; }
   }
 
+  // Tras una escritura que YA se confirmó en el servidor, recargar la vista no puede convertirla en un error:
+  // si falla la lectura (p. ej. se perdió la conexión justo después), se aplica el cambio en memoria.
+  const nowTs = () => ({ seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 });
+  async function settle(patch) {
+    try { await refreshPlans(); }
+    catch (_) {
+      const plans = (window.kruxPlans || []).map(p => ({ ...p }));
+      const state = { ...(window.kruxPlanState || { activePlanId: null }) };
+      patch(plans, state);
+      publish(plans, state);
+    }
+  }
+
   async function refreshPlans() {
     const [stateDoc, snap] = await Promise.all([stateRef().get(), plansCol().get()]);
     const state = stateDoc.exists ? stateDoc.data() : null;
     publish(snap.docs.map(fromDoc), state);
+    writeCache();
     return state;
   }
 
@@ -17578,14 +17615,17 @@ const KruxTrainStore = (() => {
     const activate = !!(opts && opts.activate);
     const ref = plansCol().doc();
     try {
-      await ack(db.runTransaction(async tx => {
+      await txRun(async tx => {
         const st = await tx.get(stateRef());
         const prev = st.exists ? st.data() : null;
         tx.set(ref, PL().createPlan(content, stamp(), (opts && opts.extra) || {}));
         // El puntero solo se escribe si se activa el plan nuevo o si todavía no existía el documento de estado
         if (activate || !prev) tx.set(stateRef(), stateFor(prev, activate ? ref.id : null));
-      }));
-      await refreshPlans();
+      });
+      await settle((plans, state) => {
+        plans.push({ id: ref.id, ...PL().createPlan(content, nowTs(), (opts && opts.extra) || {}) });
+        if (activate) state.activePlanId = ref.id;
+      });
       return ref.id;
     } catch (error) {
       reportError('No se ha podido crear el plan', error);
@@ -17598,7 +17638,7 @@ const KruxTrainStore = (() => {
     if (!uid()) return null;
     const ref = plansCol().doc(planId);
     try {
-      const next = await ack(db.runTransaction(async tx => {
+      const next = await txRun(async tx => {
         const snap = await tx.get(ref);
         if (!snap.exists) throw kxError('kx/plan-missing');
         const cur = snap.data();
@@ -17609,7 +17649,7 @@ const KruxTrainStore = (() => {
         ['goal', 'level', 'equipment', 'minutes'].forEach(k => { if (!(k in norm)) delete doc[k]; });
         tx.set(ref, doc);
         return { revision: doc.revision, sessions: norm.sessions };
-      }));
+      });
       return next;
     } catch (error) {
       window.kruxLastPlanError = error.code || '';
@@ -17623,7 +17663,7 @@ const KruxTrainStore = (() => {
     if (action !== 'restore' && sessionBlocks()) return false;
     const ref = plansCol().doc(planId);
     try {
-      await ack(db.runTransaction(async tx => {
+      await txRun(async tx => {
         const [snap, st] = await Promise.all([tx.get(ref), tx.get(stateRef())]);
         if (!snap.exists) throw kxError('kx/plan-missing');
         const cur = snap.data();
@@ -17632,8 +17672,14 @@ const KruxTrainStore = (() => {
         tx.set(ref, { ...cur, ...patch, revision: cur.revision + 1, updatedAt: stamp() });
         // El plan activo que se archiva o se envía a la papelera deja Entrena sin plan activo, en la misma escritura
         if (st.exists && st.data().activePlanId === planId && patch.status !== 'ready') tx.set(stateRef(), stateFor(st.data(), null));
-      }));
-      await refreshPlans();
+      });
+      await settle((plans, state) => {
+        const p = plans.find(x => x.id === planId);
+        if (p) {
+          Object.assign(p, PL().transition(p, action, nowTs()), { revision: (p.revision || 1) + 1 });
+          if (state.activePlanId === planId && p.status !== 'ready') state.activePlanId = null;
+        }
+      });
       return true;
     } catch (error) {
       reportError('No se ha podido cambiar el plan', error);
@@ -17644,13 +17690,13 @@ const KruxTrainStore = (() => {
   async function activatePlan(planId) {
     if (!uid() || sessionBlocks()) return false;
     try {
-      await ack(db.runTransaction(async tx => {
+      await txRun(async tx => {
         const [snap, st] = await Promise.all([tx.get(plansCol().doc(planId)), tx.get(stateRef())]);
         if (!snap.exists) throw kxError('kx/plan-missing');
         if (!PL().canActivate(snap.data())) throw kxError('kx/not-allowed');
         tx.set(stateRef(), stateFor(st.exists ? st.data() : null, planId));
-      }));
-      await refreshPlans();
+      });
+      await settle((plans, state) => { state.activePlanId = planId; });
       return true;
     } catch (error) {
       reportError('No se ha podido activar el plan', error);
@@ -17662,12 +17708,15 @@ const KruxTrainStore = (() => {
     if (!uid()) return null;
     const target = plansCol().doc();
     try {
-      await ack(db.runTransaction(async tx => {
+      await txRun(async tx => {
         const snap = await tx.get(plansCol().doc(planId));
         if (!snap.exists) throw kxError('kx/plan-missing');
         tx.set(target, PL().duplicatePlan(snap.data(), planId, stamp(), name));
-      }));
-      await refreshPlans();
+      });
+      await settle(plans => {
+        const src = plans.find(x => x.id === planId);
+        if (src) plans.push({ id: target.id, ...PL().duplicatePlan(src, planId, nowTs(), name) });
+      });
       return target.id;
     } catch (error) {
       reportError('No se ha podido duplicar el plan', error);
@@ -17679,15 +17728,15 @@ const KruxTrainStore = (() => {
   async function purgePlan(planId) {
     if (!uid() || sessionBlocks()) return false;
     try {
-      await ack(db.runTransaction(async tx => {
+      await txRun(async tx => {
         const ref = plansCol().doc(planId);
         const [snap, st] = await Promise.all([tx.get(ref), tx.get(stateRef())]);
         if (!snap.exists) return;
         if (!PL().canDo(snap.data(), 'purge')) throw kxError('kx/not-allowed');
         if (st.exists && st.data().activePlanId === planId) throw kxError('kx/not-allowed');
         tx.delete(ref);
-      }));
-      await refreshPlans();
+      });
+      await settle(plans => { const i = plans.findIndex(x => x.id === planId); if (i >= 0) plans.splice(i, 1); });
       return true;
     } catch (error) {
       reportError('No se ha podido eliminar el plan', error);
@@ -17707,7 +17756,7 @@ const KruxTrainStore = (() => {
       const ref = plansCol().doc();
       await ack(ref.set(plan));
       window.kruxPlanNotice = null;
-      await refreshPlans();
+      await settle(plans => { plans.push({ id: ref.id, ...plan, createdAt: nowTs(), updatedAt: nowTs() }); });
       return ref.id;
     } catch (error) {
       reportError('No se ha podido importar el plan', error);
@@ -17735,6 +17784,166 @@ const KruxTrainStore = (() => {
     plan.revision = saved.revision;
     saved.sessions.forEach((s, i) => { if (plan.sessions[i]) plan.sessions[i].id = s.id; });
   }
+
+
+  // ══════════════════════════════════════════════════════════════════
+  // SIN CONEXIÓN  (solo con window.KRUX_MULTIPLAN; no activa la persistencia global de Firestore)
+  //   · Copia local del plan activo y del historial reciente: Entrena arranca y se puede entrenar sin cobertura.
+  //   · Cola persistente de sesiones pendientes: cada sesión tiene un id estable, así que reintentar nunca duplica.
+  //   · Nada se da por sincronizado hasta que el servidor lo confirma. Un rechazo del servidor (no de red)
+  //     queda como «conflicto» y no se reintenta solo ni se descarta en silencio.
+  //   · Todo va por cuenta (uid): otra cuenta del mismo dispositivo no ve ni sincroniza datos ajenos.
+  //   · Editar planes sigue necesitando conexión (la revisión del servidor evita pisar a otro dispositivo).
+  // ══════════════════════════════════════════════════════════════════
+  const OFFLINE = () => MULTI();
+  const LS = 'krux.train.v1.';
+  const lsGet = (kind, u) => { try { const raw = localStorage.getItem(`${LS}${kind}.${u}`); return raw ? JSON.parse(raw) : null; } catch (_) { return null; } };
+  const lsSet = (kind, u, value) => { try { localStorage.setItem(`${LS}${kind}.${u}`, JSON.stringify(value)); return true; } catch (_) { return false; } };
+  const lsDel = (kind, u) => { try { localStorage.removeItem(`${LS}${kind}.${u}`); } catch (_) { /* sin almacenamiento */ } };
+  const memQueue = {};            // respaldo en memoria si el almacenamiento local falla (cuota, modo privado)
+  let lastUid = null;
+  const emit = () => { try { window.dispatchEvent(new Event('krux-train-sync')); } catch (_) { /* nada */ } };
+  const isNetworkError = e => /unavailable|network|timeout|deadline|offline|aborted|internal|resource-exhausted|failed to get/i.test(`${(e && e.code) || ''} ${(e && e.message) || ''}`);
+
+  function queueOf(u) { return (memQueue[u] !== undefined ? memQueue[u] : lsGet('pending', u)) || []; }
+  function saveQueue(u, list) {
+    memQueue[u] = list;
+    let ok = true;
+    if (list.length) ok = lsSet('pending', u, list); else lsDel('pending', u);
+    if (!ok && typeof showToast === 'function') {
+      showToast('No hay espacio para guardar la sesión en este dispositivo', 'error', { detail: 'Se intentará sincronizar igualmente: no cierres la app hasta que termine.' });
+    }
+    emit();
+    return ok;
+  }
+
+  // Copia del plan activo y del historial reciente (para arrancar sin red)
+  function writeCache() {
+    const u = uid();
+    if (!u || !OFFLINE()) return;
+    lsSet('cache', u, {
+      savedAt: Date.now(),
+      state: { activePlanId: (window.kruxPlanState && window.kruxPlanState.activePlanId) || null },
+      plan: window.kruxActivePlan || null,
+      log: (window.kruxTrainLog || []).filter(e => e.id && !e.demo).slice(-200)
+    });
+  }
+
+  function restoreFromCache() {
+    const u = uid();
+    const c = u && lsGet('cache', u);
+    if (!c) return false;
+    window.kruxPlans = c.plan ? [c.plan] : [];
+    window.kruxPlanState = c.state || { activePlanId: null };
+    window.kruxActivePlan = c.plan && c.plan.status === 'ready' ? c.plan : null;
+    window.kruxTrainLog = (c.log || []).concat(pendingRecords(u));
+    window.kruxPlanNotice = { type: 'offline', since: c.savedAt };
+    return true;
+  }
+
+  // Sesiones aún no confirmadas, con la forma de un registro del historial (cuentan en el calendario)
+  function pendingRecords(u) {
+    return queueOf(u).filter(e => e.kind === 'session').map(e => ({
+      ...e.payload, ...(e.log || {}), demo: false, pendingId: e.id, pendingState: e.state
+    }));
+  }
+
+  function mergePending(u, loaded) {
+    const ids = new Set(loaded.map(d => d.id));
+    return loaded.concat(pendingRecords(u).filter(r => !ids.has(r.pendingId)));
+  }
+
+  // ── Sincronización ──────────────────────────────────────────────────
+  let flushing = null;
+  let flushTimer = null;
+  function flush() {
+    if (!OFFLINE() || !uid()) return Promise.resolve();
+    if (!flushing) flushing = doFlush().catch(() => {}).then(() => { flushing = null; emit(); });
+    return flushing;
+  }
+
+  async function doFlush() {
+    const u = uid();
+    if (navigator.onLine === false) return;                  // sin red conocida: ni se intenta (la sesión ya está a salvo en la cola)
+    for (const e of queueOf(u).slice()) {
+      if (uid() !== u) return;
+      if (e.state === 'conflict') continue;                  // no se reintentan solos
+      const ref = userRef().collection('training_sessions').doc(e.id);
+      try {
+        e.attempts = (e.attempts || 0) + 1;
+        if (e.kind === 'session') {
+          // Mismo contenido y misma fecha en cada intento: si el primero ya se aplicó, el reintento es inocuo
+          await ack(ref.set({ ...e.payload, ...(e.log || {}), createdAt: firebase.firestore.Timestamp.fromMillis(e.createdAtMs) }), 8000);
+        } else {
+          await ack(ref.update(e.fields), 8000);
+        }
+        // Confirmado por el servidor: sale de la cola y el registro en memoria pasa a «guardado»
+        saveQueue(u, queueOf(u).filter(x => x.id !== e.id));
+        (window.kruxTrainLog || []).forEach(r => { if (r.pendingId === e.id) { r.id = e.id; delete r.pendingId; delete r.pendingState; } });
+        (liveRecords.get(e.id) || []).forEach(rec => { rec.id = e.id; rec.syncState = 'synced'; });
+        liveRecords.delete(e.id);
+      } catch (error) {
+        if (isNetworkError(error)) {                                                                                  // sin red: se queda pendiente
+          e.lastError = String(error.code || 'network');
+          saveQueue(u, queueOf(u));
+          // Con la red «disponible» pero sin respuesta, se reintenta pronto (5 s, 10 s, 20 s… hasta 60 s)
+          if (navigator.onLine !== false) { clearTimeout(flushTimer); flushTimer = setTimeout(flush, Math.min(60000, 5000 * 2 ** Math.min(4, (e.attempts || 1) - 1))); }
+          return;
+        }
+        e.state = 'conflict';                                                                                           // rechazo del servidor
+        e.lastError = String(error.code || error.message || 'error');
+        saveQueue(u, queueOf(u));
+        (liveRecords.get(e.id) || []).forEach(rec => { rec.syncState = 'conflict'; });
+        console.error('Sesión pendiente rechazada por el servidor:', error);
+      }
+    }
+  }
+
+  const liveRecords = new Map();     // id de la cola → registros en pantalla que esperan confirmación
+
+  function enqueueSession(rec) {
+    const u = uid();
+    if (!rec.pendingId) {
+      const id = userRef().collection('training_sessions').doc().id;
+      Object.defineProperty(rec, 'pendingId', { value: id, enumerable: false, writable: true });
+      const entry = { id, uid: u, kind: 'session', payload: JSON.parse(JSON.stringify(sessionPayload(rec))), createdAtMs: Date.now(), log: null, state: 'pending', attempts: 0, lastError: '', queuedAt: Date.now() };
+      saveQueue(u, queueOf(u).concat(entry));
+      liveRecords.set(id, [rec]);
+    }
+    Object.defineProperty(rec, 'syncState', { value: 'pending', enumerable: false, writable: true, configurable: true });
+    return rec.pendingId;
+  }
+
+  // Estado visible de lo pendiente (Entrena muestra un aviso con estas cifras)
+  function syncInfo() {
+    const u = uid();
+    const list = u ? queueOf(u) : [];
+    return {
+      pending: list.filter(e => e.state === 'pending').length,
+      conflicts: list.filter(e => e.state === 'conflict').length,
+      offline: navigator.onLine === false || !!(window.kruxPlanNotice && window.kruxPlanNotice.type === 'offline'),
+      since: window.kruxPlanNotice && window.kruxPlanNotice.since,
+      entries: list.map(e => ({ id: e.id, state: e.state, name: e.payload && e.payload.sessionName, lastError: e.lastError }))
+    };
+  }
+
+  function retryConflicts() {
+    const u = uid();
+    saveQueue(u, queueOf(u).map(e => (e.state === 'conflict' ? { ...e, state: 'pending', lastError: '' } : e)));
+    return flush();
+  }
+
+  function discardEntry(id) {
+    const u = uid();
+    saveQueue(u, queueOf(u).filter(e => e.id !== id));
+    window.kruxTrainLog = (window.kruxTrainLog || []).filter(r => r.pendingId !== id);
+    liveRecords.delete(id);
+    if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+  }
+
+  window.addEventListener('online', () => { flush(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') flush(); });
+  setInterval(() => { if (OFFLINE() && uid() && queueOf(uid()).some(e => e.state === 'pending')) flush(); }, 60000);
 
   // Guardar el plan en memoria. Con planes múltiples escribe el documento de ese plan (con control de
   // revisión); sin él, el documento antiguo de siempre.
@@ -17775,6 +17984,12 @@ const KruxTrainStore = (() => {
       return false;
     }
     if (rec.id) return true;   // ya confirmada por el servidor: reintentar no la vuelve a escribir
+    if (OFFLINE()) {
+      // Primero se guarda en este dispositivo (cola persistente) y después se intenta sincronizar
+      enqueueSession(rec);
+      await flush();
+      return rec.syncState === 'synced';
+    }
     try {
       // El id se fija una vez: si se reintenta tras un corte de red no se duplica la sesión
       if (!rec._ref) Object.defineProperty(rec, '_ref', { value: userRef().collection('training_sessions').doc(), enumerable: false, writable: true });
@@ -17793,7 +18008,27 @@ const KruxTrainStore = (() => {
   }
 
   async function updateSession(rec, fields) {
-    if (!uid() || !rec.id) return false;
+    if (!uid()) return false;
+    const log = { feel: str(fields.feel, 10), rpe: Math.min(10, int(fields.rpe)), notes: str(fields.notes, 1000), tags: (fields.tags || []).slice(0, 10).map(t => str(t, 40)) };
+    if (OFFLINE()) {
+      const u = uid();
+      const list = queueOf(u);
+      const queued = rec.pendingId && list.find(e => e.id === rec.pendingId);
+      if (queued) {                                         // aún sin confirmar: se escribe todo junto
+        queued.log = log;
+        saveQueue(u, list);
+        await flush();
+        return rec.syncState === 'synced';
+      }
+      if (!rec.id) return false;
+      try { await ack(userRef().collection('training_sessions').doc(rec.id).update(log)); return true; }
+      catch (error) {
+        if (!isNetworkError(error)) { reportError('No se ha podido guardar el registro', error); return false; }
+        saveQueue(u, list.concat({ id: rec.id, uid: u, kind: 'patch', fields: log, state: 'pending', attempts: 0, lastError: '', queuedAt: Date.now() }));
+        return false;
+      }
+    }
+    if (!rec.id) return false;
     try {
       await ack(userRef().collection('training_sessions').doc(rec.id).update({
         feel: str(fields.feel, 10),
@@ -17811,6 +18046,12 @@ const KruxTrainStore = (() => {
   async function load() {
     if (!uid()) return;
     planTouched = false;
+    // Sin conexión conocida: se arranca ya con la copia local (no se espera a que Firestore agote el tiempo)
+    if (OFFLINE() && navigator.onLine === false && restoreFromCache()) {
+      if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+      emit();
+      return;
+    }
     const from = new Date();
     from.setDate(from.getDate() - SESSION_WEEKS * 7);
     const fromKey = trDateKey(from);
@@ -17832,13 +18073,24 @@ const KruxTrainStore = (() => {
           : null;
       }
       const loaded = sessSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Conserva lo registrado en esta apertura que aún no tenga id
-      window.kruxTrainLog = [...loaded, ...window.kruxTrainLog.filter(e => !e.id)];
+      if (OFFLINE()) {
+        // Lo pendiente de sincronizar cuenta en el calendario; lo ya confirmado llega con su id del servidor
+        const u = uid();
+        window.kruxTrainLog = [...mergePending(u, loaded), ...window.kruxTrainLog.filter(e => !e.id && !e.pendingId)];
+        writeCache();
+        flush();
+      } else {
+        // Conserva lo registrado en esta apertura que aún no tenga id
+        window.kruxTrainLog = [...loaded, ...window.kruxTrainLog.filter(e => !e.id)];
+      }
       reloadTry = 0;
     } catch (error) {
       console.error('Error cargando Entrena:', error);
       // Con planes múltiples un fallo de carga no debe parecer «no tengo planes»: se avisa y se reintenta
-      if (MULTI()) { window.kruxPlanNotice = { type: 'load-error' }; scheduleReload(); }
+      if (MULTI()) {
+        if (!restoreFromCache()) window.kruxPlanNotice = { type: 'load-error' };   // sin copia: se avisa; con copia: se trabaja con ella
+        scheduleReload();
+      }
     }
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
   }
@@ -17854,11 +18106,12 @@ const KruxTrainStore = (() => {
     reloadTimer = setTimeout(() => { if (uid() === who) load(); }, wait);
   }
   window.addEventListener('online', () => {
-    if (uid() && window.kruxPlanNotice && window.kruxPlanNotice.type === 'load-error') { reloadTry = 0; load(); }
+    if (uid() && window.kruxPlanNotice && (window.kruxPlanNotice.type === 'load-error' || window.kruxPlanNotice.type === 'offline')) { reloadTry = 0; load(); }
   });
 
   firebase.auth().onAuthStateChanged(user => {
-    if (user) { load(); return; }
+    if (user) { lastUid = user.uid; load(); return; }
+    if (lastUid && OFFLINE()) lsDel('cache', lastUid);
     window.kruxActivePlan = null;
     window.kruxTrainLog = [];
     clearPlans();
@@ -17868,6 +18121,7 @@ const KruxTrainStore = (() => {
   return {
     savePlan, saveSession, updateSession, isSignedIn: () => !!uid(), currentUid: uid,
     // Planes múltiples (requieren window.KRUX_MULTIPLAN)
+    sync: { info: syncInfo, flush, retryConflicts, discard: discardEntry, offline: OFFLINE },
     plans: { enabled: MULTI, reload: refreshPlans, retryLoad: () => { reloadTry = 0; return load(); }, ...q }
   };
 })();
@@ -18287,10 +18541,35 @@ function initTrainView() {
     btn.disabled = disabled;
   }
 
+  // Aviso de sincronización: sin conexión, sesiones pendientes o rechazadas por el servidor
+  function renderSync() {
+    const box = document.getElementById('train-sync');
+    if (!box) return;
+    const sync = multiPlans() && window.KruxTrainStore && KruxTrainStore.sync;
+    const i = sync ? sync.info() : null;
+    if (!i || (!i.pending && !i.conflicts && !i.offline)) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    const n = (k, a, b) => `${k} ${k === 1 ? a : b}`;
+    const since = i.since ? new Date(i.since).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    let html = '';
+    box.classList.toggle('is-error', i.conflicts > 0);
+    if (i.conflicts) {
+      html = `<p><b>${n(i.conflicts, 'sesión no se ha podido sincronizar', 'sesiones no se han podido sincronizar')}.</b> El servidor no la ha aceptado; sigue guardada en este dispositivo.</p>
+        <div class="mp-notice-actions"><button type="button" class="mp-notice-btn" data-sync="retry">Reintentar</button><button type="button" class="mp-notice-btn is-quiet" data-sync="discard">Descartar</button></div>`;
+    } else if (i.pending) {
+      html = `<p><b>${n(i.pending, 'sesión pendiente de sincronizar', 'sesiones pendientes de sincronizar')}.</b> ${i.offline ? 'Se enviará cuando vuelva la conexión.' : 'Se está enviando…'}</p>
+        <div class="mp-notice-actions"><button type="button" class="mp-notice-btn" data-sync="flush"${i.offline ? ' disabled' : ''}>Sincronizar ahora</button></div>`;
+    } else {
+      html = `<p><b>Sin conexión.</b> Usas la copia guardada${since ? ` el ${since}` : ''}. Puedes entrenar; para cambiar tus planes necesitas conexión.</p>`;
+    }
+    box.innerHTML = html;
+    box.classList.remove('hidden');
+  }
+
   function renderAll() {
     renderHero();
     renderWeek();
     loadSelectedSession();
+    renderSync();
   }
 
   // ── Eventos ─────────────────────────────────────────────────────────
@@ -18350,6 +18629,21 @@ function initTrainView() {
 
   // Con planes guardados pero ninguno activo, el botón lleva a «Mis planes»; si no hay planes, a crearlos
   const hasReadyPlans = () => !!window.KRUX_MULTIPLAN && (window.kruxPlans || []).some(p => p.status === 'ready');
+  window.addEventListener('krux-train-sync', () => { renderSync(); renderWeek(); renderHero(); });
+  window.addEventListener('online', renderSync);
+  window.addEventListener('offline', renderSync);
+  document.getElementById('train-sync')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-sync]');
+    if (!b) return;
+    const sync = KruxTrainStore.sync;
+    if (b.dataset.sync === 'flush') sync.flush();
+    else if (b.dataset.sync === 'retry') sync.retryConflicts();
+    else if (b.dataset.sync === 'discard') {
+      const bad = sync.info().entries.filter(x => x.state === 'conflict');
+      window.kruxConfirm('¿Descartar de este dispositivo?', `Se eliminará${bad.length === 1 ? '' : 'n'} ${bad.length} ${bad.length === 1 ? 'sesión' : 'sesiones'} que el servidor no aceptó. No se podrá recuperar.`,
+        () => bad.forEach(x => sync.discard(x.id)), 'Descartar', true);
+    }
+  });
   document.getElementById('train-hero-cta')?.addEventListener('click', () => {
     if (multiPlans() && window.kruxPlanNotice && window.kruxPlanNotice.type === 'load-error') { KruxTrainStore.plans.retryLoad(); return; }
     if (hasReadyPlans() && window.KruxPlansUI) { window.KruxPlansUI.open(); return; }
@@ -19492,12 +19786,18 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
       const feelLabel = (FEELS.find(f => f[0] === logFeel) || [])[1] || '';
       Object.assign(record, { feel: logFeel, rpe: logRpe, notes, tags: [...logTags] });
       // Guardado confirmado por el servidor; si falla, se puede reintentar sin duplicar la sesión
-      const sync = pending => pending.then(ok => (ok ? KruxTrainStore.updateSession(record, record) : false)).then(ok => {
+      const sync = pending => pending.then(ok => ((ok || record.syncState === 'pending') ? KruxTrainStore.updateSession(record, record) : false)).then(ok => {
         const hint = document.getElementById('plog-done-hint');
         const retry = document.getElementById('plog-retry');
         const otherAccount = !ok && record.ownerUid && record.ownerUid !== KruxTrainStore.currentUid();
-        if (hint) hint.textContent = ok ? 'Guardada en tu cuenta.' : otherAccount ? 'Esta sesión era de otra cuenta y no se ha guardado en la actual.' : 'No se ha podido confirmar el guardado en tu cuenta. Comprueba tu conexión.';
-        if (retry) { retry.hidden = !!ok || !!otherAccount; retry.disabled = false; }
+        const queued = !ok && record.syncState === 'pending';
+        const conflict = !ok && record.syncState === 'conflict';
+        if (hint) hint.textContent = ok ? 'Guardada en tu cuenta.'
+          : otherAccount ? 'Esta sesión era de otra cuenta y no se ha guardado en la actual.'
+          : queued ? 'Guardada en este dispositivo. Se sincronizará cuando haya conexión.'
+          : conflict ? 'El servidor no ha aceptado esta sesión. Sigue guardada en este dispositivo; puedes reintentarlo desde Entrena.'
+          : 'No se ha podido confirmar el guardado en tu cuenta. Comprueba tu conexión.';
+        if (retry) { retry.hidden = !!ok || !!otherAccount || queued || conflict; retry.disabled = false; }
       });
       if (!saveHint) sync(saved);
       screen.innerHTML = `
@@ -20297,7 +20597,7 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
       if (mode === 'edit') {
         const saved = await KruxTrainStore.plans.update(editId, content, editRevision);
         ok = !!saved;
-        if (ok) { editRevision = saved.revision; await KruxTrainStore.plans.reload(); }
+        if (ok) { editRevision = saved.revision; try { await KruxTrainStore.plans.reload(); } catch (_) { /* ya guardado: se verá al recargar */ } }
       } else {
         ok = !!(await KruxTrainStore.plans.create(content, { activate }));
       }

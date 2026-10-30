@@ -1,7 +1,7 @@
 // Ejecuta varias URLs seguidas en LA MISMA instancia de Chrome (mismo perfil y almacenamiento local):
 // sirve para probar cierres y reinicios de la aplicación. Imprime el título final de cada paso.
 // uso: node cdp-seq.mjs <timeoutPorPasoMs> <url1> <url2> ...
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 const [timeoutMs, ...urls] = process.argv.slice(2);
 const port = 9340 + Math.floor(Math.random() * 500);
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -19,6 +19,7 @@ try {
   const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   await send('Page.enable'); await send('Runtime.enable');
   for (const url of urls) {
+    if (url.startsWith('!')) { console.log('$ ' + url.slice(1)); execSync(url.slice(1), { stdio: 'inherit' }); continue; }
     await send('Page.navigate', { url });
     const t0 = Date.now(); let title = '';
     while (Date.now() - t0 < Number(timeoutMs)) {

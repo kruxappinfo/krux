@@ -77,3 +77,30 @@ Mientras tanto, para probar con el emulador: `?multiplan=1` en la URL o `localSt
 - **Paso 1 (con la app nueva):** las reglas actuales del repositorio (esquema nuevo + esquema antiguo todavía escribible).
 - **Paso 2 (cuando ya no haya clientes antiguos):** en `training_plan/{planId}` sustituir
   `allow read, delete: ...; allow create, update: ...` por `allow read: if isOwner(userId);` (solo lectura).
+
+## 6. Funcionamiento sin conexión (solo con `KRUX_MULTIPLAN`)
+
+No se activa la persistencia global de Firestore: la solución está acotada a Entrena.
+
+- **Copia local** (`localStorage`, clave `krux.train.v1.cache.{uid}`): plan activo, puntero e historial reciente.
+  Se escribe tras cada carga correcta y tras cada cambio de planes. Si la app arranca sin red (o la carga falla)
+  se usa esta copia y Entrena avisa («Sin conexión · usas la copia guardada el …»).
+- **Cola de sesiones** (`krux.train.v1.pending.{uid}`): al terminar una sesión se guarda primero en el dispositivo y
+  después se intenta enviar. Cada entrada tiene un **id de documento fijo** y una fecha fija, de modo que reintentar
+  (tras un corte, un cierre o un reinicio) escribe exactamente lo mismo y nunca duplica.
+- **Sincronización**: al volver la conexión (`online`), al abrir la app, al volver a primer plano, cada minuto mientras
+  haya pendientes y a mano («Sincronizar ahora»). Una sesión solo sale de la cola cuando el servidor confirma.
+- **Estados**: *pendiente* (sin red), *conflicto* (el servidor rechazó la escritura: no se reintenta sola; se puede
+  «Reintentar» o «Descartar» con confirmación) y *sincronizada*.
+- **Cuentas**: todo va por `uid`. Otra cuenta del mismo dispositivo no ve ni envía lo de la anterior. Al cerrar sesión
+  se borra la copia del plan e historial, **pero se conservan las sesiones pendientes** de esa cuenta hasta que inicie
+  sesión de nuevo y se sincronicen.
+- **Almacenamiento**: si `localStorage` falla (cuota, modo privado) se avisa y la cola sigue en memoria mientras la app
+  esté abierta.
+
+### Límites conocidos
+- Crear, editar, archivar o borrar planes **requiere conexión** (usa transacciones con control de revisión).
+- Las sesiones pendientes están en `localStorage` **sin cifrar**: protegen el aislamiento entre cuentas de la app,
+  no frente a alguien con acceso al dispositivo desbloqueado.
+- Si se desinstala la app o se borran los datos del sitio antes de sincronizar, las sesiones pendientes se pierden.
+- No se ha probado en dispositivos reales ni en las WebViews de Capacitor (iOS/Android): solo en Chrome contra el emulador.

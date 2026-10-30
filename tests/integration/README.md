@@ -20,3 +20,11 @@ tests/integration/emulator.sh stop
 ```
 `MULTI=1` activa `window.KRUX_MULTIPLAN` en la página de pruebas (desactivado por defecto en la app).
 Cada estado imprime un JSON con `resumen` (aciertos/total) y `fallos`. Las pruebas unitarias son `npx vitest run tests`.
+
+## Modo sin conexión
+```bash
+tests/integration/harness/offline-seq.sh      # 5 páginas seguidas en el mismo Chrome (cola persistente real)
+```
+Usa `?offline=1` (Firestore sin red desde el arranque) para simular un reinicio sin cobertura, y `rules-swap.sh deny`
+para que el servidor rechace las sesiones (conflicto). La interfaz de «Mis planes» y el calendario se prueban con
+`MULTI=1 run-state.sh plansui` y `train-inject.html?state=cal-test&multiplan=1`.

@@ -101,6 +101,169 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
     done(); return;
   }
 
+
+  if (state.startsWith('off')) {
+    const T = {}; const note = (k, ok, extra) => { T[k] = !!ok; if (!ok || extra) R[k] = extra === undefined ? 'FALLA' : extra; document.title = 'P|' + Object.keys(T).length + '|' + k; };
+    const fin = () => { R.fallos = Object.entries(T).filter(([k, v]) => !v).map(([k]) => k); R.resumen = Object.values(T).filter(Boolean).length + '/' + Object.keys(T).length; done(); };
+    try {
+      const ST = KruxTrainStore; const FV = firebase.firestore.FieldValue;
+      const act = async (id, ms) => { const el = $(id); if (el && !el.disabled && el.offsetParent !== null) { el.click(); await w(ms || 250); return true; } return false; };
+      const runSession = async (feel) => {
+        window.__s = 1; openActiveSession(); await w(700);
+        for (let i = 0; i < 12; i++) { if (await act('session-btn-set', 300)) { document.querySelector('#session-rpe-dots [data-rpe="7"]')?.click(); await w(150); continue; } if (await act('session-btn-main', 400)) continue; break; }
+        await act('session-finish-btn', 300); await act('confirm-ok', 400);
+        document.querySelector('[data-feel="' + (feel || 'ok') + '"]')?.click(); document.querySelector('#plog-rpe-row [data-rpe="6"]')?.click(); await w(100);
+        $('plog-save-btn')?.click(); await w(1500);
+        const hint = $('plog-done-hint') ? $('plog-done-hint').textContent : '';
+        $('plog-close-done')?.click(); await w(400);
+        return hint;
+      };
+      const goOffline = async () => { await db.disableNetwork(); Object.defineProperty(navigator, 'onLine', { get: () => false, configurable: true }); window.dispatchEvent(new Event('offline')); };
+      const goOnline = async () => { await db.enableNetwork(); Object.defineProperty(navigator, 'onLine', { get: () => true, configurable: true }); window.dispatchEvent(new Event('online')); };
+      const today = ['D', 'L', 'M', 'X', 'J', 'V', 'S'][new Date().getDay()];
+      const ex = (name, o) => Object.assign({ name, sets: 2, workSec: 0, reps: 5, weight: 0, restSec: 0, rpeTarget: 6 }, o || {});
+      const lsKeys = () => Object.keys(localStorage).filter(k => k.startsWith('krux.train.v1.'));
+      const qlen = () => ST.sync.info().pending;
+      const uidNow = () => firebase.auth().currentUser && firebase.auth().currentUser.uid;
+
+      if (state === 'off1') {          // ── conexión: preparar cuenta y plan, luego quedarse sin red
+        const e = 'off' + Date.now() + '@t.dev'; localStorage.setItem('t.email', e);
+        const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1800);
+        const idA = await ST.plans.create({ name: 'Plan sin red', weeks: 4, activeDays: [true, true, true, true, true, true, true], sessions: ['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => ({ day: d, name: 'Sesión ' + d, exercises: [ex('Plancha', { workSec: 0, reps: 5 })] })) }, { activate: true });
+        await w(500);
+        note('o1_cacheEscrita', lsKeys().some(k => k.includes('.cache.' + c.user.uid)) && JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.cache.')))).plan.name === 'Plan sin red');
+        switchView('train-view'); await w(500);
+        await goOffline();
+        const hint = await runSession('great');
+        note('o1_mensajePendiente', hint === 'Guardada en este dispositivo. Se sincronizará cuando haya conexión.', hint);
+        const info = ST.sync.info();
+        note('o1_enCola', info.pending === 1 && info.conflicts === 0 && info.offline === true);
+        note('o1_colaPersistente', lsKeys().some(k => k.includes('.pending.')) && JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')))).length === 1);
+        const rec = window.kruxTrainLog.find(r => r.pendingId);
+        note('o1_cuentaEnElCalendario', !!rec && rec.dateKey === trDateKey(new Date()) && document.querySelector('.train-day.is-today.is-done') !== null, rec ? '' : 'sin registro');
+        note('o1_avisoVisible', !$('train-sync').classList.contains('hidden') && $('train-sync').textContent.includes('1 sesión pendiente'), $('train-sync').textContent.slice(0, 80));
+        note('o1_botonSincronizarDeshabilitado', $('train-sync').querySelector('[data-sync="flush"]').disabled === true);
+        // intento de cambiar de plan sin red: error claro, nada se pierde
+        note('o1_noEditaPlanesSinRed', (await ST.plans.setStatus(idA, 'trash')) === false && window.kruxPlanState.activePlanId === idA && window.kruxActivePlan && window.kruxActivePlan.id === idA);
+        R.nota = 'sesión guardada solo en el dispositivo';
+      }
+      if (state === 'off2') {          // ── reinicio de la app SIN conexión
+        note('o2_hayUsuario', !!uidNow() || (await new Promise(r => setTimeout(() => r(!!uidNow()), 1500))));
+        await w(1500);
+        note('o2_planDesdeCopia', window.kruxActivePlan && window.kruxActivePlan.name === 'Plan sin red' && window.kruxPlanNotice && window.kruxPlanNotice.type === 'offline', JSON.stringify(window.kruxPlanNotice));
+        note('o2_pendienteSigueAhi', ST.sync.info().pending === 1 && window.kruxTrainLog.some(r => r.pendingId));
+        note('o2_avisoSinConexion', !$('train-sync').classList.contains('hidden'));
+        switchView('train-view'); await w(400);
+        note('o2_calendarioConLoPendiente', document.querySelector('.train-day.is-today.is-done') !== null);
+        const hint = await runSession('ok');
+        note('o2_segundaSesionEnCola', ST.sync.info().pending === 2 && hint.startsWith('Guardada en este dispositivo'), hint);
+        R.ids = ST.sync.info().entries.map(e => e.id).join();
+      }
+      if (state === 'off3') {          // ── vuelve la conexión: se sincroniza sin duplicar
+        for (let i = 0; i < 30 && !uidNow(); i++) await w(300);
+        for (let i = 0; i < 40 && ST.sync.info().pending > 0; i++) await w(500);
+        const db1 = db.collection('users').doc(uidNow()).collection('training_sessions');
+        const snap = await db1.get({ source: 'server' });
+        note('o3_colaVacia', ST.sync.info().pending === 0 && !lsKeys().some(k => k.includes('.pending.')));
+        note('o3_dosSesionesEnElServidor', snap.size === 2, snap.size);
+        const ids = snap.docs.map(d => d.id);
+        const d0 = snap.docs[0].data();
+        note('o3_datosCompletos', snap.docs.every(d => d.data().exercises.length === 1 && d.data().exercises[0].sets.length === 2 && d.data().feel && d.data().rpe === 6 && d.data().planId), JSON.stringify(Object.keys(d0)));
+        await Promise.all([ST.sync.flush(), ST.sync.flush(), ST.sync.flush()]);
+        note('o3_reintentosNoDuplican', (await db1.get({ source: 'server' })).size === 2);
+        note('o3_registrosConId', window.kruxTrainLog.filter(r => !r.demo).every(r => !r.pendingId) && ids.every(id => window.kruxTrainLog.some(r => r.id === id)), window.kruxTrainLog.map(r => r.id || ('pend:' + r.pendingId)).join());
+        note('o3_avisoOculto', $('train-sync').classList.contains('hidden'));
+        note('o3_caches', lsKeys().some(k => k.includes('.cache.')));
+        note('o3_planSigueActivo', !!window.kruxActivePlan && window.kruxPlanState.activePlanId === window.kruxActivePlan.id && window.kruxActivePlan.status === 'ready');
+        R.syncedIds = ids.length;
+      }
+      if (state === 'off4') {          // ── conflicto del servidor + aislamiento entre cuentas
+        const email = localStorage.getItem('t.email');
+        for (let i = 0; i < 60 && !(uidNow() && window.kruxActivePlan && window.kruxTrainData && !window.kruxTrainData.demo && window.kruxTrainData.exercises.length); i++) await w(300);
+        R.pre = JSON.stringify({ notice: window.kruxPlanNotice, plans: (window.kruxPlans || []).length, st: window.kruxPlanState, uid: !!uidNow(), plan: !!window.kruxActivePlan, td: window.kruxTrainData && window.kruxTrainData.name, demo: window.kruxTrainData && window.kruxTrainData.demo });
+        switchView('train-view'); await w(500);
+        const uidA = uidNow();
+        await goOffline();
+        const hint = await runSession('bad');
+        R.hint = hint; R.queue = JSON.stringify(ST.sync.info()).slice(0, 200); R.tdata = (window.kruxTrainData && window.kruxTrainData.name) + '|' + (window.kruxTrainData && window.kruxTrainData.exercises.length);
+        await goOnline();
+        R.t0 = Date.now(); R.afterOnline = JSON.stringify(ST.sync.info().entries.map(e => [e.state, e.lastError]));
+        { const q = JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.'))) || '[]'); R.qAttempts = q.map(e => e.attempts); }
+        await w(3000); R.after3s = JSON.stringify(ST.sync.info().entries.map(e => [e.state, e.lastError])) + '|onLine=' + navigator.onLine;
+        const fl = await Promise.race([ST.sync.flush().then(() => 'flush-ok'), new Promise(r => setTimeout(() => r('flush-cuelga'), 12000))]); R.flushRes = fl;
+        R.afterFlush = JSON.stringify(ST.sync.info().entries.map(e => [e.state, e.lastError]));
+        // el servidor rechaza la escritura (las reglas de prueba deniegan crear sesiones)
+        for (let i = 0; i < 200 && ST.sync.info().conflicts === 0; i++) await w(500);
+        const info = ST.sync.info();
+        note('o4_conflicto', info.conflicts === 1 && info.pending === 0, JSON.stringify([info.pending, info.conflicts]));
+        note('o4_avisoConflicto', $('train-sync').classList.contains('is-error') && $('train-sync').textContent.includes('no se ha podido sincronizar'), $('train-sync').textContent.slice(0, 90));
+        note('o4_noSeReintentaSolo', (await (async () => { await ST.sync.flush(); return true; })()) && ST.sync.info().conflicts === 1);
+        note('o4_sigueGuardada', lsKeys().some(k => k.includes('.pending.' + uidA)));
+        // otra cuenta en el mismo dispositivo: no ve ni sincroniza nada de A
+        await firebase.auth().signOut(); await w(500);
+        note('o4_cierreBorraCopia', !lsKeys().some(k => k.includes('.cache.' + uidA)) && lsKeys().some(k => k.includes('.pending.' + uidA)));
+        const e2 = 'offB' + Date.now() + '@t.dev';
+        const cb = await firebase.auth().createUserWithEmailAndPassword(e2, 'password123'); await w(2500);
+        note('o4_otraCuentaNoVeNada', ST.sync.info().pending === 0 && ST.sync.info().conflicts === 0 && !window.kruxTrainLog.some(r => r.pendingId) && window.kruxActivePlan === null);
+        await ST.sync.flush(); await w(500);
+        note('o4_otraCuentaNoSincroniza', !(await db.collection('users').doc(cb.user.uid).collection('training_sessions').get()).size);
+        // vuelve A: lo suyo sigue ahí; con las reglas restauradas, reintentar lo sincroniza
+        await firebase.auth().signOut(); await w(300);
+        await firebase.auth().signInWithEmailAndPassword(email, 'password123'); await w(2500);
+        note('o4_vuelveAyLoSuyoSigue', ST.sync.info().conflicts === 1 && window.kruxTrainLog.some(r => r.pendingId));
+        R.uidA = uidA;
+      }
+
+      if (state === 'off6') {          // ── fallos de red alrededor de una acción sobre un plan
+        const e = 'off6' + Date.now() + '@t.dev'; await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1800);
+        const mkp = name => ST.plans.create({ name, weeks: 4, activeDays: [true, true, true, true, true, true, true], sessions: [{ day: today, name: 'S', exercises: [ex('Plancha')] }] }, { activate: false });
+        const idA = await mkp('Plan A'), idB = await mkp('Plan B');
+        const server = async id => (await db.collection('users').doc(uidNow()).collection('training_plans').doc(id).get({ source: 'server' })).data();
+        // 1) sin conexión conocida: responde al instante y no hace nada
+        await goOffline();
+        const t = Date.now();
+        note('o6_sinRedRespondeAlMomento', (await ST.plans.activate(idA)) === false && Date.now() - t < 1500);
+        await goOnline(); await w(1500);
+        const st0 = (await db.collection('users').doc(uidNow()).collection('training_state').doc('current').get({ source: 'server' })).data();
+        note('o6_sinRedNoAplicaNada', st0.activePlanId === null || st0.activePlanId === undefined, JSON.stringify(st0.activePlanId));
+        // 2) la escritura SÍ se confirma y justo después falla la lectura: no se informa de un error que no hubo
+        const realGet = db.collection('users').doc(uidNow()).collection('training_plans').get.bind(db.collection('users').doc(uidNow()).collection('training_plans'));
+        const origRefresh = ST.plans.reload;
+        let block = true;
+        const proto = Object.getPrototypeOf(db.collection('users').doc(uidNow()).collection('training_plans'));
+        const origGet = proto.get;
+        proto.get = function (...a) { if (block && /training_plans$/.test(this.path || '')) return Promise.reject(Object.assign(new Error('Failed to get documents because the client is offline'), { code: 'unavailable' })); return origGet.apply(this, a); };
+        const ok = await ST.plans.activate(idB);
+        block = false; proto.get = origGet;
+        note('o6_escrituraConfirmadaNoEsError', ok === true, ok);
+        note('o6_seAplicoEnElServidor', (await db.collection('users').doc(uidNow()).collection('training_state').doc('current').get({ source: 'server' })).data().activePlanId === idB);
+        note('o6_vistaEnMemoriaActualizada', window.kruxPlanState.activePlanId === idB && window.kruxActivePlan && window.kruxActivePlan.id === idB);
+        block = true; proto.get = function (...a) { if (block && /training_plans$/.test(this.path || '')) return Promise.reject(Object.assign(new Error('offline'), { code: 'unavailable' })); return origGet.apply(this, a); };
+        const ok2 = await ST.plans.setStatus(idA, 'trash');
+        block = false; proto.get = origGet;
+        note('o6_papeleraConfirmadaTambien', ok2 === true && (await server(idA)).status === 'trashed' && window.kruxPlans.find(p => p.id === idA).status === 'trashed');
+      }
+      if (state === 'off5') {          // ── reintentar el conflicto con las reglas restauradas; descartar
+        for (let i = 0; i < 60 && !(uidNow() && window.kruxActivePlan && window.kruxTrainData && !window.kruxTrainData.demo && window.kruxTrainData.exercises.length); i++) await w(300);
+        switchView('train-view'); await w(1500);
+        note('o5_conflictoPersiste', ST.sync.info().conflicts === 1);
+        await ST.sync.retryConflicts(); await w(1500);
+        { const inf = ST.sync.info(); const n = (await db.collection('users').doc(uidNow()).collection('training_sessions').get({ source: 'server' })).size;
+          note('o5_reintentoSincroniza', inf.conflicts === 0 && inf.pending === 0 && n === 3, JSON.stringify({ p: inf.pending, c: inf.conflicts, n, e: inf.entries.map(x => x.state + ':' + x.lastError) })); }
+        // cuota de almacenamiento: si el dispositivo no puede guardar, se avisa y sigue funcionando en memoria
+        const orig = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new DOMException('quota', 'QuotaExceededError'); };
+        await goOffline();
+        const hint = await runSession('ok');
+        const toast = [...document.querySelectorAll('#toast-container *')].map(n => n.textContent).join(' ');
+        note('o5_cuotaAvisa', toast.includes('No hay espacio'), toast.slice(0, 100));
+        note('o5_cuotaSigueEnMemoria', ST.sync.info().pending === 1, JSON.stringify([ST.sync.info(), hint]).slice(0, 300));
+        Storage.prototype.setItem = orig;
+        await goOnline(); for (let i = 0; i < 20 && ST.sync.info().pending > 0; i++) await w(500);
+        note('o5_cuotaSincronizaAlVolver', ST.sync.info().pending === 0 && (await db.collection('users').doc(uidNow()).collection('training_sessions').get({ source: 'server' })).size === 4);
+      }
+    } catch (er) { R.err = er.message + ' ' + (er.stack || '').split('\n')[1]; }
+    fin(); return;
+  }
   if (state === 'plansui') {
     const T = {}; const note = (k, ok, extra) => { T[k] = !!ok; if (!ok || extra) R[k] = extra === undefined ? 'FALLA' : extra; };
     try {
