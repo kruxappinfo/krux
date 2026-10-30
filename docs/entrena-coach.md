@@ -1,7 +1,8 @@
 # Entrena — perfil del escalador, entrenamiento mental y recomendaciones
 
-Estado: **fase 1 de 6 implementada en `dev`, desactivada por defecto** (`KRUX_COACH`). Las reglas de Firestore
-necesarias están en el repositorio pero **no desplegadas**.
+Estado: **fase 1 de 6 cerrada (30-oct-2026), en `dev`, desactivada por defecto** (`KRUX_COACH`). Las reglas de Firestore
+necesarias están en el repositorio pero **no desplegadas** (producción sigue con las de `bf87b96`). La fase 2 no está iniciada.
+Ver el apartado «Cierre de la fase 1» al final.
 
 ## 1. Interruptor
 
@@ -73,3 +74,29 @@ Limitación: la cola de esta fase es propia del perfil; los registros mentales p
 - Apagar `KRUX_COACH` (o no activarlo): la app vuelve a su estado anterior; no se modifica ningún dato existente.
 - Borrar los datos de un usuario: borrar `training_profile/current` y `mental_profile/current` (el propietario puede
   hacerlo desde la consola; la interfaz permite borrar la evaluación mental).
+
+## 8. Cierre de la fase 1
+
+**Incluido en la fase 1 (todo en `dev`):** perfil del escalador y onboarding, evaluación mental inicial, tarjeta «Para ti»,
+reglas del perfil y de la evaluación mental endurecidas (preparadas, sin desplegar), 27 contenidos mentales redactados
+(`train-mental-data.js`, estado de revisión `pending`, sin cargar en la app), y la protección de la cola local descrita abajo.
+
+**Funcionalidades protegidas frente a cierres, cortes de red y dos dispositivos** (probado con cierre en cada punto de la
+sincronización, reapertura con y sin conexión, y dos dispositivos; una sola sesión por id, sin pérdidas ni duplicados):
+- La sesión terminada se guarda en el dispositivo antes de cualquier operación de red, con id estable.
+- El registro final (sensación, esfuerzo, notas y etiquetas) se guarda en la cola al pulsar «Guardar», junto a la sesión
+  pendiente o como parche con el mismo id si la sesión ya estaba escrita.
+- Nada sale de la cola hasta verificarlo en el servidor; si falla la verificación se reintenta con el mismo id.
+- Sesiones antiguas sin registro final siguen siendo válidas.
+
+**Modo clásico (`?multiplan=0`):** también tiene esa protección para sesiones y registros finales. Limitaciones: no hay
+copia local del plan para arrancar sin conexión ni calendario con lo pendiente al abrir sin red. El modo solo se activa a mano
+en la web (no hay botón; en la app nativa es prácticamente inalcanzable).
+
+**Fuera de la fase 1 / pendiente:**
+- Despliegue de las reglas de Firestore (startDate, perfil, evaluación mental, endurecimiento): requiere autorización expresa.
+- Activación global de `KRUX_COACH`: sin decidir.
+- Revisión profesional de los contenidos mentales.
+- **Incidencia técnica abierta (no resuelta):** bloqueos intermitentes de 55–60 s en los canales de Firestore durante las pruebas
+  de `multi` (`u7_detecta`, `u9_registroLegibleSinPlan`, «client is offline»), con causa de fondo sin identificar. Sin
+  evidencia de que ocurra en producción. Diagnóstico y descartes en `tests/integration/README.md`. Se trata aparte de este cierre.
