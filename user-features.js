@@ -44,6 +44,8 @@ function kxToastBottom() {
 // Indicación útil en español para un error de Firebase o de red (texto vacío si no hay nada que aconsejar)
 function kxFriendlyError(err) {
     const code = String((err && err.code) || '');
+    if (code === 'kx/offline') return 'Necesitas conexión para hacer esto.';
+    if (code === 'kx/cancelled') return 'La acción se canceló porque no hubo respuesta. Inténtalo de nuevo.';
     if (code === 'kx/conflict') return 'Este plan se modificó en otro dispositivo. Ábrelo de nuevo para ver los cambios.';
     if (code === 'kx/plan-missing') return 'Este plan ya no existe.';
     if (code === 'kx/plan-trashed') return 'Este plan está en la papelera. Restáuralo para editarlo.';
