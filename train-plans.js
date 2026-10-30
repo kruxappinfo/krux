@@ -67,6 +67,13 @@
     return out;
   }
 
+  // Fecha de inicio programada: «AAAA-MM-DD» (día local) y existente en el calendario
+  function isDateKey(v) {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+    const d = new Date(v + 'T00:00:00Z');
+    return !isNaN(d) && d.toISOString().slice(0, 10) === v;
+  }
+
   // Normaliza el contenido editable de un plan (no toca estado, revisión ni fechas)
   function normalizeContent(plan) {
     const used = new Set();
@@ -86,6 +93,7 @@
     if (plan.level >= 1 && plan.level <= 3) out.level = Math.round(plan.level);
     if (Array.isArray(plan.equipment)) out.equipment = plan.equipment.slice(0, LIMITS.equipment).map(x => str(x, 20));
     if (plan.minutes >= 10 && plan.minutes <= 240) out.minutes = Math.round(plan.minutes);
+    if (isDateKey(plan.startDate)) out.startDate = plan.startDate;
     return out;
   }
 
@@ -107,6 +115,7 @@
         if (s.day !== '?' && s.day !== '' && !DAYS.includes(s.day)) err(`sesión ${i + 1}: día inválido`);
       });
     }
+    if (plan.startDate != null && !isDateKey(plan.startDate)) err('fecha de inicio inválida');
     if (!Object.values(STATUS).includes(plan.status)) err('estado inválido');
     if (!Number.isInteger(plan.revision) || plan.revision < 1) err('revisión inválida');
     if (plan.schemaVersion !== SCHEMA_VERSION) err('schemaVersion inválido');
@@ -127,6 +136,7 @@
     const base = normalizeContent(clone(plan));
     base.sessions.forEach(s => { s.id = newSessionId(); });
     base.name = str(name || `Copia de ${plan.name}`, LIMITS.name);
+    delete base.startDate;   // la copia no hereda la programación
     return Object.assign(base, {
       schemaVersion: SCHEMA_VERSION, status: STATUS.READY, revision: 1, createdAt: now, updatedAt: now, sourcePlanId: sourcePlanId || null
     });
@@ -157,6 +167,7 @@
     if (!canDo(plan, action) || action === 'purge') throw new Error(`Acción no permitida: ${action} sobre ${plan && plan.status}`);
     const next = TRANSITIONS[plan.status][action];
     const patch = { status: next, archivedAt: null, trashedAt: null, trashedFrom: null };
+    if (next !== STATUS.READY && plan.startDate) patch.startDate = null;   // un plan archivado o en la papelera no puede quedar programado
     if (next === STATUS.ARCHIVED) patch.archivedAt = now;
     if (next === STATUS.TRASHED) { patch.trashedAt = now; patch.trashedFrom = plan.status; }
     return patch;
@@ -196,7 +207,31 @@
     return Number.isInteger(loadedRevision) && loadedRevision === storedRevision;
   }
 
+  // ── Inicio programado ───────────────────────────────────────────────
+  // Planes «ready» con fecha de inicio. El activo se ignora: su programación ya no tiene efecto.
+  const scheduled = plans => plans.filter(p => p.status === STATUS.READY && isDateKey(p.startDate));
+
+  // Qué hacer hoy: `apply` es el plan que debe pasar a ser el activo (el de fecha más reciente ya vencida);
+  // `clear` son los planes vencidos cuya programación hay que consumir (ya activo, o superado por otro más reciente)
+  function dueSchedule(plans, state, todayKey) {
+    const activeId = state && state.activePlanId;
+    const due = scheduled(plans).filter(p => p.startDate <= todayKey)
+      .sort((a, b) => b.startDate.localeCompare(a.startDate) || String(a.id).localeCompare(String(b.id)));
+    const winner = due[0] || null;
+    const apply = winner && winner.id !== activeId ? winner : null;
+    return { apply, clear: due.filter(p => p !== apply) };
+  }
+
+  // Plan que rige en una fecha futura: el programado con fecha de inicio más reciente que no supere ese día
+  // (null → rige el activo)
+  function planOnDate(plans, dateKey) {
+    const list = scheduled(plans).filter(p => p.startDate <= dateKey)
+      .sort((a, b) => b.startDate.localeCompare(a.startDate) || String(a.id).localeCompare(String(b.id)));
+    return list[0] || null;
+  }
+
   return {
+    isDateKey, dueSchedule, planOnDate,
     SCHEMA_VERSION, STATUS, LIMITS, LEGACY_PLAN_ID, DAYS, TRANSITIONS,
     randomId, newSessionId, normalizeExercise, normalizeContent, validatePlan,
     createPlan, duplicatePlan, fromLegacy, canDo, canActivate, transition,
