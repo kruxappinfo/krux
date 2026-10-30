@@ -17961,7 +17961,7 @@ const KruxTrainStore = (() => {
         // Confirmado y verificado: sale de la cola y el registro en memoria pasa a «guardado»
         saveQueue(u, queueOf(u).filter(x => x.id !== e.id));
         (window.kruxTrainLog || []).forEach(r => { if (r.pendingId === e.id) { r.id = e.id; delete r.pendingId; delete r.pendingState; } });
-        (liveRecords.get(e.id) || []).forEach(rec => { rec.id = e.id; rec.syncState = 'synced'; });
+        (liveRecords.get(e.id) || []).forEach(rec => { rec.id = e.id; rec.syncState = 'synced'; if (e.log) markLogVerified(rec, e.log); });
         liveRecords.delete(e.id);
       } catch (error) {
         if (isNetworkError(error) || (error && error.code === 'kx/not-verified')) {                                    // sin red o sin verificar: se queda pendiente
@@ -18093,32 +18093,44 @@ const KruxTrainStore = (() => {
     }
   }
 
+  const normalizeLog = fields => ({ feel: str(fields.feel, 10), rpe: Math.min(10, int(fields.rpe)), notes: str(fields.notes, 1000), tags: (fields.tags || []).slice(0, 10).map(t => str(t, 40)) });
+  const markLogVerified = (rec, log) => Object.defineProperty(rec, '_logVerified', { value: JSON.stringify(normalizeLog(log)), enumerable: false, writable: true, configurable: true });
+
+  // Registro final (sensación, esfuerzo, notas y etiquetas). SIN red y de forma síncrona: se guarda en la cola en el mismo
+  // instante en que se pulsa «guardar». Si la sesión sigue pendiente, el registro viaja con ella (mismo documento, mismo id);
+  // si ya está escrita, se encola un parche con el mismo id (uno por sesión: el último gana). Nada sale de la cola sin verificarse.
+  function persistLog(rec, fields) {
+    const u = uid();
+    const log = normalizeLog(fields);
+    if (!u) return { state: 'none', log };
+    if (rec._logVerified === JSON.stringify(log)) return { state: 'verified', log };
+    const list = queueOf(u);
+    const queued = rec.pendingId && list.find(e => e.id === rec.pendingId && e.kind === 'session');
+    if (queued) { queued.log = log; saveQueue(u, list); return { state: 'embedded', log }; }
+    if (!rec.id) return { state: 'none', log };
+    const rest = list.filter(e => !(e.kind === 'patch' && e.id === rec.id));
+    saveQueue(u, rest.concat({ id: rec.id, uid: u, kind: 'patch', fields: log, state: 'pending', attempts: 0, lastError: '', queuedAt: Date.now() }));
+    return { state: 'patch', log };
+  }
+
   async function updateSession(rec, fields) {
     if (!uid()) return false;
-    const log = { feel: str(fields.feel, 10), rpe: Math.min(10, int(fields.rpe)), notes: str(fields.notes, 1000), tags: (fields.tags || []).slice(0, 10).map(t => str(t, 40)) };
     if (OFFLINE()) {
       const u = uid();
-      const list = queueOf(u);
-      const queued = rec.pendingId && list.find(e => e.id === rec.pendingId);
-      if (queued) {                                         // aún sin confirmar: se escribe todo junto
-        queued.log = log;
-        saveQueue(u, list);
-        await flush();
-        return rec.syncState === 'synced';
-      }
-      if (!rec.id) return false;
-      try {
-        const ref = userRef().collection('training_sessions').doc(rec.id);
-        await ack(ref.update(log));
-        await verifyWritten(ref, { kind: 'patch', fields: log });     // sensación, esfuerzo, notas y etiquetas: se comprueban en el servidor
-        return true;
-      } catch (error) {
-        const unverified = !!error && error.code === 'kx/not-verified';
-        if (!isNetworkError(error) && !unverified) { reportError('No se ha podido guardar el registro', error); return false; }
-        saveQueue(u, list.concat({ id: rec.id, uid: u, kind: 'patch', fields: log, state: 'pending', attempts: 0, lastError: unverified ? 'kx/not-verified' : '', queuedAt: Date.now() }));
-        if (unverified) flush();                                       // el reintento (con su propia verificación) sale ya
-        return false;
-      }
+      // 1.º se guarda en la cola, sin tocar la red: junto a la sesión si todavía está pendiente, o como parche de una sesión
+      // ya escrita. 2.º se envía y se verifica en el servidor; solo entonces sale de la cola.
+      const st = persistLog(rec, fields);
+      if (st.state === 'verified') return true;
+      if (st.state === 'none') return false;
+      const entryId = rec.pendingId || rec.id;
+      const pendingEntry = () => queueOf(u).find(x => x.id === entryId);
+      await flush();
+      // Si ya había un envío en curso cuando se encoló, el registro aún no se ha intentado: se envía ahora
+      if (pendingEntry() && !pendingEntry().attempts) await flush();
+      const done = !pendingEntry();
+      Object.defineProperty(rec, 'logPending', { value: !done, enumerable: false, writable: true, configurable: true });
+      if (done) markLogVerified(rec, st.log);
+      return done;
     }
     if (!rec.id) return false;
     try {
@@ -18211,7 +18223,7 @@ const KruxTrainStore = (() => {
   });
 
   return {
-    savePlan, saveSession, updateSession, isSignedIn: () => !!uid(), currentUid: uid,
+    savePlan, saveSession, updateSession, persistLog: (rec, f) => (OFFLINE() ? persistLog(rec, f) : null), isSignedIn: () => !!uid(), currentUid: uid,
     // Planes múltiples (requieren window.KRUX_MULTIPLAN)
     sync: { info: syncInfo, flush, retryConflicts, discard: discardEntry, offline: OFFLINE },
     plans: { enabled: MULTI, reload: refreshPlans, retryLoad: () => { reloadTry = 0; return load(); }, ...q }
@@ -19888,12 +19900,14 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
       const notes = (document.getElementById('plog-notes') || {}).value || '';
       const feelLabel = (FEELS.find(f => f[0] === logFeel) || [])[1] || '';
       Object.assign(record, { feel: logFeel, rpe: logRpe, notes, tags: [...logTags] });
+      // El registro final queda en la cola del dispositivo ya, antes de cualquier operación de red (con planes múltiples)
+      if (!record.demo && KruxTrainStore.persistLog) KruxTrainStore.persistLog(record, record);
       // Guardado confirmado por el servidor; si falla, se puede reintentar sin duplicar la sesión
       const sync = pending => pending.then(ok => ((ok || record.syncState === 'pending') ? KruxTrainStore.updateSession(record, record) : false)).then(ok => {
         const hint = document.getElementById('plog-done-hint');
         const retry = document.getElementById('plog-retry');
         const otherAccount = !ok && record.ownerUid && record.ownerUid !== KruxTrainStore.currentUid();
-        const queued = !ok && record.syncState === 'pending';
+        const queued = !ok && (record.syncState === 'pending' || record.logPending === true);
         const conflict = !ok && record.syncState === 'conflict';
         if (hint) hint.textContent = ok ? 'Guardada en tu cuenta.'
           : otherAccount ? 'Esta sesión era de otra cuenta y no se ha guardado en la actual.'

@@ -34,6 +34,7 @@ const run = (email, who, at) => new Promise(res => {
     cadaUnoConSuId: !!dA && !!dB && dA.id === ja.miId && dB.id === jb.miId,
     fechaIntegra: !!dA && !!dB && dA.data().createdAt.toMillis() === ja.miCreatedAtMs && dB.data().createdAt.toMillis() === jb.miCreatedAtMs,
     sensacionYEsfuerzo: !!dA && !!dB && dA.data().feel === 'great' && dB.data().feel === 'ok' && dA.data().rpe === 6 && dB.data().rpe === 6,
+    etiquetas: !!dA && !!dB && JSON.stringify(dA.data().tags) === JSON.stringify(['Sin dolor']) && JSON.stringify(dB.data().tags) === JSON.stringify(['Mucho calor']),
     seEjercitoLaVerificacionFallida: ja.lecturasFalladas === 2,
     sinErrores: !ja.err && !jb.err
   };

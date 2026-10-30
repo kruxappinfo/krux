@@ -285,13 +285,19 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
 
       // ═════════ Verificación posterior a la confirmación (off8, off9a/off9b, off10) ═════════
       const dayKey = () => trDateKey(new Date());
-      const runSessionNotes = async (feel, notes) => {      // como runSession, pero también escribe las notas
+      const runSessionNotes = async (feel, notes, tag, opts) => {      // como runSession, pero también escribe las notas y una etiqueta
+        const o = opts || {};
         window.__s = 1; openActiveSession(); await w(700);
         for (let i = 0; i < 12; i++) { if (await act('session-btn-set', 300)) { document.querySelector('#session-rpe-dots [data-rpe="7"]')?.click(); await w(150); continue; } if (await act('session-btn-main', 400)) continue; break; }
         await act('session-finish-btn', 300); await act('confirm-ok', 400);
         document.querySelector('[data-feel="' + feel + '"]')?.click(); document.querySelector('#plog-rpe-row [data-rpe="6"]')?.click();
         const nt = $('plog-notes'); if (nt) { nt.value = notes; nt.dispatchEvent(new Event('input', { bubbles: true })); }
-        await w(100); $('plog-save-btn')?.click(); await w(1500);
+        if (tag) [...document.querySelectorAll('#plog-tags-row .plog-tag')].find(b => b.textContent === tag)?.click();
+        if (o.waitSynced) for (let i = 0; i < 60 && ST.sync.info().pending > 0; i++) await w(500);   // escenarios del parche: la sesión debe estar ya escrita al pulsar «guardar»
+        await w(100); $('plog-save-btn')?.click();
+        if (o.afterClick) o.afterClick();                 // justo después de pulsar «guardar», en el mismo instante (síncrono)
+        if (o.stopAtClick) return '';
+        await w(1500);
         const hint = $('plog-done-hint') ? $('plog-done-hint').textContent : '';
         $('plog-close-done')?.click(); await w(400);
         return hint;
@@ -405,7 +411,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
         switchView('train-view'); await w(500);
         const g = who === 'A' ? patchGet('falla', 2) : null;      // el dispositivo A tiene lecturas de verificación fallidas
         await goOffline();
-        await runSessionNotes(who === 'A' ? 'great' : 'ok', 'nota del dispositivo ' + who);
+        await runSessionNotes(who === 'A' ? 'great' : 'ok', 'nota del dispositivo ' + who, who === 'A' ? 'Sin dolor' : 'Mucho calor');
         const mine = (rawQueue()[0] || {});
         R.miId = mine.id; R.miCreatedAtMs = mine.createdAtMs; R.enColaSinRed = ST.sync.info().pending;
         while (Date.now() < at) await w(20);                       // los dos recuperan la red a la vez
@@ -413,6 +419,87 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
         for (let i = 0; i < 90 && ST.sync.info().pending > 0; i++) await w(500);
         R.pendientesAlFinal = ST.sync.info().pending; R.conflictos = ST.sync.info().conflicts; R.lecturasFalladas = g ? g.count() : 0;
         if (g) g.restore();
+      }
+
+
+      // ═════════ Registro final persistido al pulsar «guardar» (off11a, off11b, off11c) ═════════
+      // off11a: crea la cuenta, congela la red de una forma concreta (mode) y pulsa «guardar»; la «app se cierra» ahí.
+      // off11b: la app se abre SIN conexión (offline=1): todo sigue en la cola del dispositivo.
+      // off11c: la app se abre con conexión: se envía, se verifica y se comprueba la integridad.
+      if (state === 'off11a') {
+        const mode = q.get('mode');
+        const e = 'off11' + Date.now() + '@t.dev'; localStorage.setItem('t.email11', e);
+        const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1800);
+        await ST.plans.create(planBody('Plan registro final'), { activate: true }); await w(500);
+        switchView('train-view'); await w(500);
+        const proto = firebase.firestore.DocumentReference.prototype; const oSet = proto.set, oUpd = proto.update, oGet = proto.get;
+        const isS = ref => /training_sessions/.test(ref.path); const hang = () => new Promise(() => {});
+        let gets = 0;
+        if (mode === 'inmediato') { proto.set = function (...a) { return isS(this) ? hang() : oSet.apply(this, a); }; proto.update = function (...a) { return isS(this) ? hang() : oUpd.apply(this, a); }; proto.get = function (...a) { return isS(this) ? hang() : oGet.apply(this, a); }; }
+        if (mode === 'escrituraSesion') { proto.set = function (...a) { return isS(this) ? hang() : oSet.apply(this, a); }; }                                   // la escritura nunca sale
+        if (mode === 'verificacionSesion') { proto.get = function (...a) { return isS(this) ? hang() : oGet.apply(this, a); }; }                                 // se escribe y se confirma; la lectura no responde
+        if (mode === 'escrituraRegistro') { proto.update = function (...a) { return isS(this) ? hang() : oUpd.apply(this, a); }; }                               // la sesión llega; el registro final nunca sale
+        if (mode === 'verificacionRegistro') { proto.get = function (...a) { if (isS(this) && gets++ >= 1) return hang(); return oGet.apply(this, a); }; }       // la sesión se verifica; la del registro final no responde
+        const col = () => db.collection('users').doc(c.user.uid).collection('training_sessions');
+        const tag = 'Sin dolor'; const notes = 'registro final ' + mode;
+        let atClick = null;
+        await runSessionNotes('great', notes, tag, { stopAtClick: mode === 'inmediato', waitSynced: mode === 'escrituraRegistro' || mode === 'verificacionRegistro', afterClick: () => { atClick = { q: JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]'), t: Date.now() }; } });
+        // 1) en el instante de pulsar «guardar», la sesión y el registro final ya están en el disco del dispositivo
+        const entry0 = (atClick && atClick.q[0]) || {};
+        const logAtClick = entry0.kind === 'session' ? entry0.log : (entry0.kind === 'patch' ? entry0.fields : null);
+        if (mode === 'inmediato' || mode === 'escrituraSesion' || mode === 'verificacionSesion') {
+          note('a_alPulsarGuardarEstaEnElDisco', !!entry0.id && entry0.kind === 'session' && !!logAtClick && logAtClick.feel === 'great' && logAtClick.rpe === 6 && logAtClick.notes === notes && JSON.stringify(logAtClick.tags) === JSON.stringify([tag]), JSON.stringify(atClick && atClick.q).slice(0, 300));
+        }
+        // 2) se espera a que el estado «congelado» sea el del escenario y se «cierra» la app
+        let exp = { mode, uid: c.user.uid, dateKey: dayKey(), feel: 'great', rpe: 6, notes, tags: [tag], entryId: entry0.id || null, createdAtMs: entry0.createdAtMs || null };
+        for (let i = 0; i < 60; i++) {
+          const srv = await col().get({ source: 'server' });
+          const raw = JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]');
+          const d = srv.docs[0] && srv.docs[0].data();
+          const ready = mode === 'inmediato' ? srv.size === 0
+            : mode === 'escrituraSesion' ? srv.size === 0 && raw.length === 1
+            : mode === 'verificacionSesion' ? srv.size === 1 && raw.length === 1 && raw[0].kind === 'session'
+            : mode === 'escrituraRegistro' ? srv.size === 1 && raw.length === 1 && raw[0].kind === 'patch' && d && !d.feel
+            : srv.size === 1 && raw.length === 1 && raw[0].kind === 'patch' && d && d.feel === 'great';
+          if (ready) { exp.srvAlCerrar = srv.size; exp.colaAlCerrar = raw.map(z => z.kind + ':' + z.id.slice(0, 5)); exp.id = srv.docs[0] ? srv.docs[0].id : entry0.id; if (raw[0] && raw[0].kind === 'patch') exp.entryId = raw[0].id; break; }
+          await w(500);
+        }
+        note('a_estadoDeCierre', !!exp.colaAlCerrar, JSON.stringify(exp).slice(0, 300));
+        const rawF = JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]');
+        note('a_colaConservaSesionYRegistro', rawF.length === 1 && ((rawF[0].kind === 'session' && !!rawF[0].log && rawF[0].log.notes === notes) || (rawF[0].kind === 'patch' && rawF[0].fields.notes === notes)), JSON.stringify(rawF.map(z => [z.kind, z.state, z.attempts, z.lastError])));
+        if (rawF[0] && rawF[0].kind === 'session') exp.createdAtMs = rawF[0].createdAtMs;
+        localStorage.setItem('t.exp11', JSON.stringify(exp));
+      }
+      if (state === 'off11b') {            // abierta SIN conexión
+        const exp = JSON.parse(localStorage.getItem('t.exp11') || '{}');
+        for (let i = 0; i < 30 && !uidNow(); i++) await w(300);
+        await w(2500);
+        const raw = JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]');
+        note('b_sigueEnLaColaSinRed', raw.length === 1 && raw[0].state === 'pending' && ST.sync.info().pending === 1, JSON.stringify(raw.map(z => [z.kind, z.state])));
+        note('b_registroFinalIntacto', raw.length === 1 && (raw[0].kind === 'session' ? (raw[0].log && raw[0].log.feel === 'great' && raw[0].log.rpe === 6 && raw[0].log.notes === exp.notes && JSON.stringify(raw[0].log.tags) === JSON.stringify(exp.tags)) : (raw[0].fields.feel === 'great' && raw[0].fields.notes === exp.notes && JSON.stringify(raw[0].fields.tags) === JSON.stringify(exp.tags))));
+        note('b_mismoId', raw.length === 1 && raw[0].id === exp.entryId, JSON.stringify([raw[0] && raw[0].id, exp.entryId]));
+        note('b_avisoDePendiente', !$('train-sync').classList.contains('hidden'));
+      }
+      if (state === 'off11c') {            // abierta CON conexión: se recupera
+        const exp = JSON.parse(localStorage.getItem('t.exp11') || '{}');
+        // se espera a que el servidor tenga la sesión CON el registro final y la cola esté vacía (no basta con ver «0 pendientes» al abrir)
+        const lsQueue = () => JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]');
+        let srv, doc, d;
+        for (let i = 0; i < 120; i++) {
+          if (uidNow() && window.kruxTrainLog) {
+            srv = await db.collection('users').doc(uidNow()).collection('training_sessions').get({ source: 'server' });
+            doc = srv.docs[0]; d = doc && doc.data();
+            if (d && d.feel === exp.feel && ST.sync.info().pending === 0 && !lsQueue().length) break;
+          }
+          await w(500);
+        }
+        note('c_colaVacia', ST.sync.info().pending === 0 && ST.sync.info().conflicts === 0 && !JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]').length, JSON.stringify(ST.sync.info()).slice(0, 160));
+        note('c_unSoloDocumento', srv.size === 1 && !!doc, srv.size);
+        note('c_mismoId', !!doc && (exp.id ? doc.id === exp.id : true) && (exp.entryId ? doc.id === exp.entryId : true), JSON.stringify([doc && doc.id, exp.id, exp.entryId]));
+        note('c_fecha', !!d && d.dateKey === exp.dateKey && (!exp.createdAtMs || d.createdAt.toMillis() === exp.createdAtMs), JSON.stringify([d && d.dateKey, d && d.createdAt.toMillis(), exp.createdAtMs]));
+        note('c_sensacionEsfuerzoNotasEtiquetas', !!d && d.feel === 'great' && d.rpe === 6 && d.notes === exp.notes && JSON.stringify(d.tags) === JSON.stringify(exp.tags), JSON.stringify(d && [d.feel, d.rpe, d.notes, d.tags]));
+        note('c_sesionCompleta', !!d && d.exercises.length >= 1 && d.exercises[0].sets.length >= 1 && d.durationSec >= 0);
+        note('c_historialUnaVez', (window.kruxTrainLog || []).filter(r => r.id === (doc && doc.id)).length === 1 && !(window.kruxTrainLog || []).some(r => r.pendingId), 'log=' + (window.kruxTrainLog || []).length);
       }
 
       if (state === 'off7') {          // ── recuperación: la escritura SÍ se aplica en el servidor pero la confirmación no llega
