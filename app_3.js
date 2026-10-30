@@ -17382,18 +17382,18 @@ const KRUX_TRAIN_DEMO = window.kruxTrainData;
 // Sesiones realizadas (se cargan de la cuenta al iniciar sesión)
 window.kruxTrainLog = window.kruxTrainLog || [];
 
-// Interruptor de la arquitectura de múltiples planes. Desactivado por defecto: hasta que se desplieguen
-// las reglas y se autorice la migración, Entrena sigue usando users/{uid}/training_plan/active.
-// Para probar: ?multiplan=1 en la URL (se recuerda en este navegador; ?multiplan=0 lo desactiva) o localStorage "krux.multiplan" = "1".
+// Interruptor de la arquitectura de múltiples planes (users/{uid}/training_plans). Activado por defecto.
+// Apagado en un dispositivo (?multiplan=0): Entrena vuelve a usar users/{uid}/training_plan/active, que nunca se modifica.
 window.KRUX_MULTIPLAN = (() => {
-  // ?multiplan=1 se recuerda en este navegador (el inicio de sesión puede recargar la página sin el parámetro); ?multiplan=0 lo quita
+  // ?multiplan=0 lo apaga en este dispositivo (se recuerda); ?multiplan=1 lo vuelve a encender
   try {
     const q = new URLSearchParams(location.search).get('multiplan');
-    if (q === '1') localStorage.setItem('krux.multiplan', '1');
-    else if (q === '0') localStorage.removeItem('krux.multiplan');
-    return q === '1' || (q !== '0' && localStorage.getItem('krux.multiplan') === '1');
-  } catch (_) { return new URLSearchParams(location.search).get('multiplan') === '1'; }
+    if (q === '0') localStorage.setItem('krux.multiplan', '0');
+    else if (q === '1') localStorage.removeItem('krux.multiplan');
+    return q === '0' ? false : q === '1' ? true : localStorage.getItem('krux.multiplan') !== '0';
+  } catch (_) { return new URLSearchParams(location.search).get('multiplan') !== '0'; }
 })();
+
 
 // ============================================
 // PERSISTENCIA DE ENTRENA (Firestore)
