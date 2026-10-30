@@ -50,6 +50,12 @@ const expectOp = async (label, fn, shouldPass) => {
   await expectOp('plan: crear con inicio programado null', () => col(A).doc().set(doc({ startDate: null })), true);
   await expectOp('plan: inicio programado con formato inválido', () => col(A).doc().set(doc({ startDate: '2/11/2026' })), false);
   await expectOp('plan: inicio programado que no es texto', () => col(A).doc().set(doc({ startDate: 20261102 })), false);
+  for (const [d, ok] of [['2026-12-31', true], ['2028-02-29', true], ['2026-01-31', true], ['2026-04-30', true], ['2026-02-28', true],
+                         ['2026-13-45', false], ['2026-00-00', false], ['2026-01-00', false], ['2026-04-31', false], ['2026-02-30', false],
+                         ['2026-06-31', false], ['2026-11-31', false], ['2026-13-01', false], ['2026-1-05', false], ['2026-01-5', false]]) {
+    await expectOp('plan: inicio programado ' + d + (ok ? ' (posible)' : ' (imposible)'), () => col(A).doc().set(doc({ startDate: d })), ok);
+  }
+  await expectOp('plan: 29 de febrero de un año no bisiesto (lo descarta el cliente)', () => col(A).doc().set(doc({ startDate: '2026-02-29' })), true);
   await expectOp('plan: crear con nivel 5', () => col(A).doc().set(doc({ level: 5 })), false);
   await expectOp('plan: crear con nivel 2, objetivo y material', () => col(A).doc().set(doc({ level: 2, goal: 'fuerza', equipment: ['barra'], minutes: 60 })), true);
   await expectOp('plan: crear con 11 materiales', () => col(A).doc().set(doc({ equipment: Array(11).fill('x') })), false);

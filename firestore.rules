@@ -116,9 +116,9 @@ service cloud.firestore {
             && d.revision is int && d.revision >= 1
             && d.get('equipment', []) is list && d.get('equipment', []).size() <= 10
             && (!('level' in d) || (d.level is int && d.level >= 1 && d.level <= 3))
-            // Inicio programado: «AAAA-MM-DD» o null
+            // Inicio programado: «AAAA-MM-DD» o null (mes y día posibles; el 29 de febrero de un año no bisiesto lo descarta el cliente)
             && (!('startDate' in d) || d.startDate == null
-                || (d.startDate is string && d.startDate.size() == 10 && d.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')));
+                || (d.startDate is string && d.startDate.size() == 10 && d.startDate.matches('^[0-9]{4}-((0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|(0[469]|11)-(0[1-9]|[12][0-9]|30)|02-(0[1-9]|1[0-9]|2[0-9]))$')));
         }
 
         // Un plan que deja de estar «ready» no puede seguir siendo el activo tras la escritura (se
@@ -176,22 +176,32 @@ service cloud.firestore {
             && (!('step' in d) || (d.step is int && d.step >= 1 && d.step <= 6))
             && (!('goalPrimary' in d) || d.goalPrimary in ['grado', 'fuerza', 'resistencia', 'tecnica', 'competicion', 'forma'])
             && (!('goalsSecondary' in d) || (d.goalsSecondary is list && d.goalsSecondary.size() <= 2
-                  && d.goalsSecondary.hasOnly(['grado', 'fuerza', 'resistencia', 'tecnica', 'competicion', 'forma'])))
+                  && d.goalsSecondary.hasOnly(['grado', 'fuerza', 'resistencia', 'tecnica', 'competicion', 'forma'])
+                  && d.goalsSecondary.toSet().size() == d.goalsSecondary.size()            // sin repetidos
+                  && (!('goalPrimary' in d) || !(d.goalPrimary in d.goalsSecondary))))      // distinto del principal
             && (!('experience' in d) || d.experience in ['lt1', '1-2', '2-4', 'gt4'])
             && (!('daysPerWeek' in d) || (d.daysPerWeek is int && d.daysPerWeek >= 1 && d.daysPerWeek <= 7))
             && (!('minutesPerSession' in d) || (d.minutesPerSession is int && d.minutesPerSession >= 20 && d.minutesPerSession <= 240))
             && (!('modality' in d) || d.modality in ['deportiva', 'bloque', 'ambas'])
             && (!('environment' in d) || d.environment in ['rocodromo', 'roca', 'ambos'])
-            && (!('rockFrequency' in d) || (d.rockFrequency is int && d.rockFrequency >= 1 && d.rockFrequency <= 7))
-            && (!('rockPriority' in d) || d.rockPriority in ['roca', 'rocodromo', 'ninguna'])
+            // La frecuencia en roca y la prioridad solo existen si escala en ambos entornos
+            && (!('rockFrequency' in d) || (d.get('environment', null) == 'ambos' && d.rockFrequency is int && d.rockFrequency >= 1 && d.rockFrequency <= 7))
+            && (!('rockPriority' in d) || (d.get('environment', null) == 'ambos' && d.rockPriority in ['roca', 'rocodromo', 'ninguna']))
             && (!('equipment' in d) || (d.equipment is list && d.equipment.size() <= 6
-                  && d.equipment.hasOnly(['ninguno', 'multipresa', 'gimnasio', 'bandas', 'pesas', 'otro'])))
-            && (!('equipmentOther' in d) || isString(d.equipmentOther, 60))
+                  && d.equipment.hasOnly(['ninguno', 'multipresa', 'gimnasio', 'bandas', 'pesas', 'otro'])
+                  && d.equipment.toSet().size() == d.equipment.size()                      // sin repetidos
+                  && (!('ninguno' in d.equipment) || d.equipment.size() == 1)))            // «Ninguno» es excluyente
+            && (!('equipmentOther' in d) || (isString(d.equipmentOther, 60) && 'equipment' in d && 'otro' in d.equipment))
             && (!('grades' in d) || (d.grades is map && d.grades.keys().hasOnly(['sport', 'boulder'])
                   && (!('sport' in d.grades) || scaleOk(d.grades.sport, false))
                   && (!('boulder' in d.grades) || scaleOk(d.grades.boulder, true))))
-            // Un perfil «completed» trae todo lo imprescindible
-            && (d.status != 'completed' || d.keys().hasAll(['goalPrimary', 'experience', 'daysPerWeek', 'minutesPerSession', 'modality', 'environment', 'equipment', 'completedAt']));
+            // Un perfil «completed» trae todo lo imprescindible («No lo sé» cuenta como respuesta en los grados)
+            && (d.status != 'completed' || (
+                  d.keys().hasAll(['goalPrimary', 'experience', 'daysPerWeek', 'minutesPerSession', 'modality', 'environment', 'equipment', 'completedAt', 'grades'])
+                  && d.equipment.size() >= 1
+                  && (d.environment != 'ambos' || 'rockFrequency' in d)
+                  && (d.modality == 'bloque' || ('sport' in d.grades && d.grades.sport.keys().hasAll(['usualFrom', 'max', 'target'])))
+                  && (d.modality == 'deportiva' || ('boulder' in d.grades && d.grades.boulder.keys().hasAll(['usualFrom', 'max', 'target'])))));
         }
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId) && docId == 'current' && validProfile(request.resource.data);

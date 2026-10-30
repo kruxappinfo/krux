@@ -28,7 +28,9 @@ const expectOp = async (label, fn, shouldPass) => {
   const B = await mk('b' + t, `pb${t}@test.dev`);
   const prof = (u, owner) => u.db.collection('users').doc((owner || u).uid).collection('training_profile').doc('current');
   const ment = (u, owner) => u.db.collection('users').doc((owner || u).uid).collection('mental_profile').doc('current');
-  const P = over => Object.assign({ schemaVersion: 1, status: 'in_progress', updatedAt: FV.serverTimestamp() }, over || {});
+  // Un valor «undefined» quita la clave (si no, el SDK rechaza el documento antes de llegar a las reglas y la prueba no probaría nada)
+  const clean = o => { Object.keys(o).forEach(k => { if (o[k] === undefined) delete o[k]; }); return o; };
+  const P = over => clean(Object.assign({ schemaVersion: 1, status: 'in_progress', updatedAt: FV.serverTimestamp() }, over || {}));
   const complete = over => P(Object.assign({
     status: 'completed', completedAt: FV.serverTimestamp(), step: 6, goalPrimary: 'grado', experience: '1-2', daysPerWeek: 2, minutesPerSession: 90,
     modality: 'deportiva', environment: 'ambos', rockFrequency: 1, rockPriority: 'roca', equipment: ['multipresa'],
@@ -40,7 +42,7 @@ const expectOp = async (label, fn, shouldPass) => {
   await expectOp('perfil: crear vacío en curso', () => prof(A).set(P()), true);
   await expectOp('perfil: guardado progresivo (paso 2 con grados)', () => prof(A).set(P({ step: 2, goalPrimary: 'fuerza', grades: { sport: { usualFrom: '6a', max: '6b' } } })), true);
   await expectOp('perfil: completado con el caso de prueba', () => prof(A).set(complete()), true);
-  await expectOp('perfil: completado con bloque y escala Fontainebleau', () => prof(A).set(complete({ modality: 'ambas', grades: { sport: { max: '6b' }, boulder: { usualFrom: '6A', max: '6B+', target: '7A' } } })), true);
+  await expectOp('perfil: completado con bloque y escala Fontainebleau', () => prof(A).set(complete({ modality: 'ambas', grades: { sport: { usualFrom: '6a', max: '6b', target: '6c' }, boulder: { usualFrom: '6A', max: '6B+', target: '7A' } } })), true);
   await expectOp('perfil: grado «no lo sé»', () => prof(A).set(P({ grades: { sport: { usualFrom: 'unknown', max: 'unknown' } } })), true);
   await expectOp('perfil: saltado', () => prof(A).set(P({ status: 'skipped' })), true);
   await expectOp('perfil: otro usuario no lo lee', () => prof(B, A).get(), false);
@@ -73,6 +75,32 @@ const expectOp = async (label, fn, shouldPass) => {
   await expectOp('perfil: completado sin fecha de compleción', () => prof(A).set(complete({ completedAt: undefined })), false);
   await expectOp('perfil: frecuencia en roca 9', () => prof(A).set(P({ rockFrequency: 9 })), false);
   await expectOp('perfil: paso 7', () => prof(A).set(P({ step: 7 })), false);
+  // ── endurecimiento de reglas (coherencia entre campos)
+  await expectOp('perfil: frecuencia en roca con entorno rocódromo', () => prof(A).set(P({ environment: 'rocodromo', rockFrequency: 3 })), false);
+  await expectOp('perfil: frecuencia en roca con entorno roca', () => prof(A).set(P({ environment: 'roca', rockFrequency: 3 })), false);
+  await expectOp('perfil: frecuencia en roca sin entorno', () => prof(A).set(P({ rockFrequency: 3 })), false);
+  await expectOp('perfil: prioridad en roca sin ambos entornos', () => prof(A).set(P({ environment: 'roca', rockPriority: 'roca' })), false);
+  await expectOp('perfil: frecuencia y prioridad con ambos entornos', () => prof(A).set(P({ environment: 'ambos', rockFrequency: 2, rockPriority: 'ninguna' })), true);
+  await expectOp('perfil: material duplicado', () => prof(A).set(P({ equipment: ['multipresa', 'multipresa'] })), false);
+  await expectOp('perfil: «ninguno» con otro material', () => prof(A).set(P({ equipment: ['ninguno', 'multipresa'] })), false);
+  await expectOp('perfil: solo «ninguno»', () => prof(A).set(P({ equipment: ['ninguno'] })), true);
+  await expectOp('perfil: texto de otro material sin marcar «otro»', () => prof(A).set(P({ equipment: ['multipresa'], equipmentOther: 'cuerda' })), false);
+  await expectOp('perfil: texto de otro material sin lista de material', () => prof(A).set(P({ equipmentOther: 'cuerda' })), false);
+  await expectOp('perfil: objetivo secundario igual al principal', () => prof(A).set(P({ goalPrimary: 'grado', goalsSecondary: ['grado'] })), false);
+  await expectOp('perfil: objetivos secundarios repetidos', () => prof(A).set(P({ goalPrimary: 'grado', goalsSecondary: ['fuerza', 'fuerza'] })), false);
+  await expectOp('perfil: objetivos secundarios distintos del principal', () => prof(A).set(P({ goalPrimary: 'grado', goalsSecondary: ['fuerza', 'tecnica'] })), true);
+  await expectOp('perfil: secundarios sin principal (guardado a medias)', () => prof(A).set(P({ goalsSecondary: ['fuerza'] })), true);
+  await expectOp('perfil: completado sin escalas de grados', () => prof(A).set(complete({ grades: undefined })), false);
+  await expectOp('perfil: completado deportiva sin grado objetivo', () => prof(A).set(complete({ grades: { sport: { usualFrom: '6a', max: '6b' } } })), false);
+  await expectOp('perfil: completado deportiva con «No lo sé» en los grados', () => prof(A).set(complete({ grades: { sport: { usualFrom: 'unknown', max: 'unknown', target: 'unknown' } } })), true);
+  await expectOp('perfil: completado «ambas» sin escala de bloque', () => prof(A).set(complete({ modality: 'ambas', grades: { sport: { usualFrom: '6a', max: '6b', target: '6c' } } })), false);
+  await expectOp('perfil: completado «ambas» sin escala deportiva', () => prof(A).set(complete({ modality: 'ambas', grades: { boulder: { usualFrom: '6A', max: '6B', target: '6C' } } })), false);
+  await expectOp('perfil: completado solo bloque (sin escala deportiva)', () => prof(A).set(complete({ modality: 'bloque', grades: { boulder: { usualFrom: '6A', max: '6B', target: '6C' } } })), true);
+  await expectOp('perfil: completado solo deportiva sin escala de bloque', () => prof(A).set(complete({ modality: 'deportiva', grades: { sport: { usualFrom: '6a', max: '6b', target: '6c' } } })), true);
+  await expectOp('perfil: completado con ambos entornos sin frecuencia en roca', () => prof(A).set(complete({ rockFrequency: undefined, rockPriority: undefined })), false);
+  await expectOp('perfil: completado en roca sin frecuencia (no la necesita)', () => prof(A).set(complete({ environment: 'roca', rockFrequency: undefined, rockPriority: undefined })), true);
+  await expectOp('perfil: completado con lista de material vacía', () => prof(A).set(complete({ equipment: [] })), false);
+  await expectOp('perfil: completado sin experiencia', () => prof(A).set(complete({ experience: undefined })), false);
   await expectOp('perfil: el propietario lo borra', () => prof(A).delete(), true);
   await expectOp('perfil: otro usuario no lo borra', async () => { await prof(A).set(P()); await prof(B, A).delete(); }, false);
 
