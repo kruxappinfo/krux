@@ -1,5 +1,6 @@
 // Mini cliente CDP: abre una URL en Chrome headless y espera a que document.title cambie (tiempo real)
 import { spawn } from 'node:child_process';
+import { writeFileSync, mkdirSync } from 'node:fs';
 const [url, doneRe = '^(T\\||ERR)', timeoutMs = '90000', width = '500', height = '900'] = process.argv.slice(2);
 const port = 9340 + Math.floor(Math.random() * 500);
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -17,12 +18,20 @@ try {
   const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   await send('Page.enable'); await send('Runtime.enable');
   await send('Page.navigate', { url });
+  // SHOTS_DIR: capturas de pantalla bajo demanda (la página pone el título «S|nombre»; SHOT_W recorta al ancho de la maqueta)
+  const shots = process.env.SHOTS_DIR; const seenShots = new Set(); if (shots) mkdirSync(shots, { recursive: true });
   const re = new RegExp(doneRe); const t0 = Date.now(); let title = '';
   while (Date.now() - t0 < Number(timeoutMs)) {
     const r = await send('Runtime.evaluate', { expression: 'document.title' });
     title = r.result?.result?.value || '';
+    if (shots && /^S\|/.test(title) && !seenShots.has(title)) {
+      seenShots.add(title);
+      const shot = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: Number(process.env.SHOT_W || width), height: Number(height), scale: 2 } });
+      writeFileSync(`${shots}/${title.slice(2)}.png`, Buffer.from(shot.result.data, 'base64'));
+      continue;
+    }
     if (re.test(title)) break;
-    await sleep(400);
+    await sleep(shots ? 150 : 400);
   }
   console.log(title);
 } finally { try { ws?.close(); } catch (_) {} chrome.kill('SIGKILL'); }

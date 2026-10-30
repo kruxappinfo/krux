@@ -6,6 +6,8 @@
 # Uso:  python3 scripts/backup-firestore.py [carpeta_destino]
 # Por defecto guarda en ~/krux-backups/firestore-AAAA-MM-DD_HHMM/
 # Las copias NO deben subirse al repo (contienen datos de usuarios).
+# Incluyen datos personales sensibles: perfil de entrenamiento y evaluación mental (users/{uid}/training_profile,
+# mental_profile y mental_session_logs). Guárdalas solo en local y no las compartas.
 
 import json
 import os

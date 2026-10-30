@@ -152,6 +152,67 @@ service cloud.firestore {
           && notActiveAfter();
       }
 
+      // ───────── Entrena: perfil del escalador y evaluación mental (datos personales: solo el propietario) ─────────
+      // Nunca son legibles por otros usuarios ni por seguidores. El perfil puede estar a medias mientras se rellena.
+      match /training_profile/{docId} {
+        function sportGradeOk(g) { return g is string && (g == 'unknown' || g.matches('^[4-9][abc]\\+?$')); }
+        function boulderGradeOk(g) { return g is string && (g == 'unknown' || g.matches('^[3-9]([ABC]\\+?|\\+)?$')); }
+        function scaleOk(s, boulder) {
+          return s is map && s.keys().hasOnly(['usualFrom', 'usualTo', 'max', 'target'])
+            && (!('usualFrom' in s) || (boulder ? boulderGradeOk(s.usualFrom) : sportGradeOk(s.usualFrom)))
+            && (!('usualTo' in s) || (boulder ? boulderGradeOk(s.usualTo) : sportGradeOk(s.usualTo)))
+            && (!('max' in s) || (boulder ? boulderGradeOk(s.max) : sportGradeOk(s.max)))
+            && (!('target' in s) || (boulder ? boulderGradeOk(s.target) : sportGradeOk(s.target)));
+        }
+        function validProfile(d) {
+          return d.keys().hasOnly(['schemaVersion', 'status', 'step', 'goalPrimary', 'goalsSecondary', 'experience', 'daysPerWeek',
+                                   'minutesPerSession', 'modality', 'environment', 'rockFrequency', 'rockPriority', 'equipment',
+                                   'equipmentOther', 'grades', 'updatedAt', 'completedAt'])
+            && d.keys().hasAll(['schemaVersion', 'status', 'updatedAt'])
+            && d.schemaVersion == 1
+            && d.status in ['in_progress', 'completed', 'skipped']
+            && d.updatedAt == request.time
+            && (!('completedAt' in d) || d.completedAt is timestamp)
+            && (!('step' in d) || (d.step is int && d.step >= 1 && d.step <= 6))
+            && (!('goalPrimary' in d) || d.goalPrimary in ['grado', 'fuerza', 'resistencia', 'tecnica', 'competicion', 'forma'])
+            && (!('goalsSecondary' in d) || (d.goalsSecondary is list && d.goalsSecondary.size() <= 2
+                  && d.goalsSecondary.hasOnly(['grado', 'fuerza', 'resistencia', 'tecnica', 'competicion', 'forma'])))
+            && (!('experience' in d) || d.experience in ['lt1', '1-2', '2-4', 'gt4'])
+            && (!('daysPerWeek' in d) || (d.daysPerWeek is int && d.daysPerWeek >= 1 && d.daysPerWeek <= 7))
+            && (!('minutesPerSession' in d) || (d.minutesPerSession is int && d.minutesPerSession >= 20 && d.minutesPerSession <= 240))
+            && (!('modality' in d) || d.modality in ['deportiva', 'bloque', 'ambas'])
+            && (!('environment' in d) || d.environment in ['rocodromo', 'roca', 'ambos'])
+            && (!('rockFrequency' in d) || (d.rockFrequency is int && d.rockFrequency >= 1 && d.rockFrequency <= 7))
+            && (!('rockPriority' in d) || d.rockPriority in ['roca', 'rocodromo', 'ninguna'])
+            && (!('equipment' in d) || (d.equipment is list && d.equipment.size() <= 6
+                  && d.equipment.hasOnly(['ninguno', 'multipresa', 'gimnasio', 'bandas', 'pesas', 'otro'])))
+            && (!('equipmentOther' in d) || isString(d.equipmentOther, 60))
+            && (!('grades' in d) || (d.grades is map && d.grades.keys().hasOnly(['sport', 'boulder'])
+                  && (!('sport' in d.grades) || scaleOk(d.grades.sport, false))
+                  && (!('boulder' in d.grades) || scaleOk(d.grades.boulder, true))))
+            // Un perfil «completed» trae todo lo imprescindible
+            && (d.status != 'completed' || d.keys().hasAll(['goalPrimary', 'experience', 'daysPerWeek', 'minutesPerSession', 'modality', 'environment', 'equipment', 'completedAt']));
+        }
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && docId == 'current' && validProfile(request.resource.data);
+      }
+
+      match /mental_profile/{docId} {
+        function answerOk(a, k) { return !(k in a) || a[k] in [1, 2, 3, 4, 5, 'unknown', 'skip']; }
+        function validMental(d) {
+          return d.keys().hasOnly(['schemaVersion', 'answers', 'updatedAt'])
+            && d.keys().hasAll(['schemaVersion', 'answers', 'updatedAt'])
+            && d.schemaVersion == 1
+            && d.updatedAt == request.time
+            && d.answers is map
+            && d.answers.keys().hasOnly(['fear', 'confidence', 'focus', 'frustration', 'pressure'])
+            && answerOk(d.answers, 'fear') && answerOk(d.answers, 'confidence') && answerOk(d.answers, 'focus')
+            && answerOk(d.answers, 'frustration') && answerOk(d.answers, 'pressure');
+        }
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && docId == 'current' && validMental(request.resource.data);
+      }
+
       match /training_state/{docId} {
         allow read: if isOwner(userId);
         // El puntero solo puede apuntar (tras la escritura) a un plan existente y «ready»

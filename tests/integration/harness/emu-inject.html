@@ -7,7 +7,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
   const w = ms => new Promise(r => setTimeout(r, ms));
   const $ = id => document.getElementById(id);
   const R = {};
-  const done = () => { document.title = 'T|' + JSON.stringify(R); };
+  const done = () => { const top = window.top || window; try { top.document.title = 'T|' + JSON.stringify(R); } catch (_) { document.title = 'T|' + JSON.stringify(R); } };
   const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r('__TIMEOUT__'), ms))]);
   await w(3500);
 
@@ -264,6 +264,268 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
     } catch (er) { R.err = er.message + ' ' + (er.stack || '').split('\n')[1]; }
     fin(); return;
   }
+  if (state === 'coach') {      // ── perfil del escalador, onboarding y evaluación mental (Fase 1)
+    const T = {}; const note = (k, ok, extra) => { T[k] = !!ok; if (!ok || extra) R[k] = extra === undefined ? 'FALLA' : extra; document.title = 'P|' + Object.keys(T).length + '|' + k; };
+    try {
+      const FV = firebase.firestore.FieldValue;
+      const C = window.KruxCoach; const P = window.KruxProfile;
+      const mkUser = async prefix => { const e = prefix + Date.now() + Math.floor(Math.random() * 999) + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); return { email: e, uid: c.user.uid }; };
+      const waitFor = async (fn, ms) => { for (let i = 0; i < (ms || 40); i++) { try { if (fn()) return true; } catch (_) { /* aún no */ } await w(150); } return false; };
+      const ud = u => db.collection('users').doc(u.uid);
+      const pdoc = async u => (await ud(u).collection('training_profile').doc('current').get({ source: 'server' }));
+      const mdoc = async u => (await ud(u).collection('mental_profile').doc('current').get({ source: 'server' }));
+      const click = async (sel, ms) => { const el = typeof sel === 'string' ? document.querySelector(sel) : sel; if (!el) throw new Error('no existe ' + sel); el.click(); await w(ms || 350); };
+      const pick = async (sel, value) => { const el = document.querySelector(sel); if (!el) throw new Error('no existe ' + sel); el.value = value; el.dispatchEvent(new Event('change', { bubbles: true })); await w(120); };
+      const modal = () => document.getElementById('coach-modal');
+      const title = () => (document.getElementById('cx-title') || {}).textContent || '';
+      const nextDisabled = () => document.getElementById('cx-next').disabled;
+      const navigate = () => { try { switchView('train-view'); } catch (_) { /* ya abierta */ } };
+      const shot = async name => { if (!q.get('shots')) return; const top = window.top || window; top.document.title = 'S|' + name; await w(900); };
+
+      if (!window.KRUX_COACH) {      // ── con el interruptor apagado no se ve nada
+        const u0 = await mkUser('off'); await w(2500);
+        navigate(); await w(500);
+        note('c0_flagApagado', window.KRUX_COACH === false && C.enabled() === false);
+        note('c0_tarjetaOculta', document.getElementById('train-foryou').classList.contains('hidden') && document.getElementById('train-foryou').innerHTML === '');
+        note('c0_menuOculto', document.getElementById('train-gear-profile').hidden === true);
+        note('c0_sinDatos', !(await pdoc(u0)).exists);
+        R.fallos = Object.entries(T).filter(([k, v]) => !v).map(([k]) => k); R.resumen = Object.values(T).filter(Boolean).length + '/' + Object.keys(T).length; done(); return;
+      }
+
+      // ═══ C1: usuario nuevo ═══
+      const u1 = await mkUser('c1');
+      note('c1_cargado', await waitFor(() => C.state().loaded && C.state().uid === u1.uid));
+      navigate(); await w(600);
+      const card = document.getElementById('train-foryou');
+      note('c1_tarjeta', !card.classList.contains('hidden') && card.textContent.includes('Cuéntanos cómo escalas'), card.textContent.slice(0, 60));
+      await shot('01-home-para-ti');
+      note('c1_menuVisible', document.getElementById('train-gear-profile').hidden === false);
+      note('c1_noBloquea', !!document.getElementById('train-start-btn') && !modal().classList.contains('pe-open'));
+      await click('#train-foryou [data-cx="start"]', 700);
+      note('c1_abre', modal().classList.contains('pe-open') && title().includes('objetivo'), title());
+      await shot('02-paso1');
+      note('c1_paso1SinObjetivo', nextDisabled());
+      await click('[data-goal="grado"]', 300);
+      note('c1_paso1Habilita', !nextDisabled());
+      await click('[data-sec="fuerza"]', 250); await click('[data-sec="tecnica"]', 250); await click('[data-sec="forma"]', 250);
+      note('c1_maxDosSecundarios', document.querySelectorAll('[data-sec].is-on').length === 2);
+      await click('[data-sec="forma"]', 200); // tercera pulsación no cambia nada
+      await click('#cx-next', 900);
+      const p1 = await pdoc(u1);
+      note('c1_guardadoProgresivo', p1.exists && p1.data().status === 'in_progress' && p1.data().goalPrimary === 'grado' && p1.data().step === 2 && JSON.stringify(p1.data().goalsSecondary) === JSON.stringify(['fuerza', 'tecnica']), JSON.stringify(p1.data()));
+
+      // paso 2: nivel (habitual desde-hasta, máximo y experiencia)
+      note('c2_titulo', title().includes('nivel'), title());
+      await shot('03-paso2-vacio');
+      note('c2_siguienteDeshabilitado', nextDisabled());
+      await pick('[data-grade="sport.usualFrom"]', '6a'); await pick('[data-grade="sport.usualTo"]', '6b'); await pick('[data-grade="sport.max"]', '6b');
+      note('c2_sinExperienciaAunNoAvanza', nextDisabled());
+      await click('[data-exp="1-2"]', 300);
+      note('c2_habilita', !nextDisabled());
+      await shot('04-paso2-lleno');
+      note('c2_escalaFrancesa', !!document.querySelector('[data-grade="sport.max"] option[value="6c+"]') && !document.querySelector('[data-grade="sport.max"] option[value="6A"]'));
+      // volver conserva respuestas
+      await click('[data-cx="back"]', 400);
+      note('c2_atrasConserva', title().includes('objetivo') && document.querySelector('[data-goal="grado"]').classList.contains('is-on') && document.querySelectorAll('[data-sec].is-on').length === 2);
+      await click('#cx-next', 700);
+      note('c2_adelanteConserva', document.querySelector('[data-grade="sport.usualTo"]').value === '6b' && document.querySelector('[data-grade="sport.max"]').value === '6b' && document.querySelector('[data-exp="1-2"]').classList.contains('is-on'));
+      await click('#cx-next', 800);
+
+      // paso 3: grado objetivo
+      note('c3_titulo', title().includes('grado objetivo'), title());
+      await shot('05-paso3');
+      note('c3_deshabilitado', nextDisabled());
+      await pick('[data-grade="sport.target"]', '6c+'); await click('#cx-next', 800);
+      // paso 4: disponibilidad
+      note('c4_titulo', title().includes('tiempo'), title());
+      await shot('06-paso4');
+      await click('[data-days="2"]', 250); note('c4_necesitaMinutos', nextDisabled());
+      await click('[data-min="90"]', 250); await click('#cx-next', 800);
+      // paso 5: modalidad y entorno
+      note('c5_titulo', title().includes('escalas'), title());
+      await click('[data-mod="deportiva"]', 250); await click('[data-env="ambos"]', 350);
+      note('c5_pideFrecuenciaRoca', !!document.querySelector('[data-rock="1"]') && nextDisabled());
+      note('c5_sinFontainebleauEnDeportiva', !document.querySelector('[data-grade="boulder.max"]'));
+      await click('[data-rock="1"]', 250); await click('[data-prio="roca"]', 250);
+      note('c5_habilita', !nextDisabled());
+      await shot('07-paso5-ambos');
+      await click('#cx-next', 800);
+      // paso 6: material
+      note('c6_titulo', title().includes('material'), title());
+      await shot('08-paso6');
+      await click('[data-eq="multipresa"]', 250); await click('[data-eq="ninguno"]', 250);
+      note('c6_ningunoExcluyente', document.querySelectorAll('[data-eq].is-on').length === 1 && document.querySelector('[data-eq="ninguno"]').classList.contains('is-on'));
+      await click('[data-eq="multipresa"]', 250);
+      note('c6_multipresaQuitaNinguno', document.querySelectorAll('[data-eq].is-on').length === 1 && document.querySelector('[data-eq="multipresa"]').classList.contains('is-on'));
+      await click('#cx-next', 1200);
+      const pc = await pdoc(u1); const d1 = pc.data();
+      note('c6_completado', pc.exists && d1.status === 'completed' && !!d1.completedAt && d1.step === 6, JSON.stringify(d1).slice(0, 300));
+      note('c6_casoDePrueba', d1.goalPrimary === 'grado' && d1.experience === '1-2' && d1.daysPerWeek === 2 && d1.minutesPerSession === 90 && d1.modality === 'deportiva' && d1.environment === 'ambos' && d1.rockFrequency === 1 && d1.rockPriority === 'roca'
+        && JSON.stringify(d1.equipment) === '["multipresa"]' && JSON.stringify(d1.grades) === JSON.stringify({ sport: { usualFrom: '6a', usualTo: '6b', max: '6b', target: '6c+' } }), JSON.stringify(d1));
+      note('c6_sinNivelDerivado', !('level' in d1) && !('score' in d1));
+      note('c6_resumen', title().includes('listo') && modal().textContent.includes('6a–6b') && modal().textContent.includes('máximo 6b') && modal().textContent.includes('objetivo 6c+') && modal().textContent.includes('2 días por semana · 90 min'), modal().textContent.replace(/\s+/g, ' ').slice(0, 260));
+      note('c6_sinEtiquetas', !/principiante|avanzado|déficit|débil/i.test(modal().textContent));
+      await shot('09-resumen');
+      note('c6_ofreceEvaluacion', modal().textContent.includes('Hacer la evaluación') && modal().textContent.includes('opcional'));
+      await click('[data-cx="close"]', 700);
+      note('c6_cierraSinEvaluar', !modal().classList.contains('pe-open'));
+      note('c6_tarjetaPerfil', document.getElementById('train-foryou').textContent.includes('Tu perfil de escalador') && document.getElementById('train-foryou').textContent.includes('Evaluación mental pendiente'));
+      note('c6_noVuelveAMostrarOnboarding', !document.getElementById('train-foryou').textContent.includes('Cuéntanos'));
+      await shot('10-home-perfil');
+
+      // ═══ C2: recuperación y persistencia entre dispositivos ═══
+      const lsKey = Object.keys(localStorage).find(k => k.startsWith('krux.coach.v1.'));
+      localStorage.removeItem(lsKey);                       // «otro dispositivo»: sin copia local
+      await C.reload();
+      const st = C.state();
+      note('c2_desdeServidor', st.loaded && st.profile && st.profile.status === 'completed' && st.profile.goalPrimary === 'grado' && !st.dirty.profile, JSON.stringify(st.profile).slice(0, 120));
+
+      // ═══ C3: edición ═══
+      await click('#train-foryou [data-cx="profile"]', 700);
+      note('c3_hub', title().includes('Mi perfil') && modal().querySelectorAll('[data-edit]').length >= 4, title());
+      await shot('11-hub');
+      await click('[data-edit="availability"]', 600);
+      note('c3_editaUnPaso', title().includes('tiempo') && modal().textContent.includes('Editar perfil · 1 de 1'));
+      await click('[data-days="3"]', 250); await click('#cx-next', 1000);
+      const d2 = (await pdoc(u1)).data();
+      note('c3_guardaCambio', d2.daysPerWeek === 3 && d2.status === 'completed' && d2.minutesPerSession === 90 && d2.goalPrimary === 'grado', JSON.stringify([d2.daysPerWeek, d2.status]));
+      note('c3_vuelveAlPerfil', title().includes('Mi perfil'));
+      // cambiar a «ambas» obliga a indicar la escala Fontainebleau
+      await click('[data-edit="where"]', 600); await click('[data-mod="ambas"]', 350);
+      note('c3_ambasPideBloque', !!document.querySelector('[data-grade="boulder.max"]') && nextDisabled());
+      await pick('[data-grade="boulder.usualFrom"]', '6A'); await pick('[data-grade="boulder.max"]', '6B+'); await pick('[data-grade="boulder.target"]', '7A');
+      note('c3_escalaBloque', !!document.querySelector('[data-grade="boulder.max"] option[value="6B+"]') && !document.querySelector('[data-grade="boulder.max"] option[value="6c"]') && !nextDisabled());
+      await shot('12-paso5-bloque');
+      await click('#cx-next', 1000);
+      const d3 = (await pdoc(u1)).data();
+      note('c3_escalasSeparadas', d3.modality === 'ambas' && d3.grades.boulder.max === '6B+' && d3.grades.sport.max === '6b' && d3.grades.sport.target === '6c+', JSON.stringify(d3.grades));
+      note('c3_resumenAmbas', modal().textContent.includes('Bloque (Fontainebleau)') && modal().textContent.includes('Deportiva (francesa)'));
+      // cambiar a solo bloque con perfil completo: la deportiva deja de exigirse
+      await click('[data-edit="where"]', 600); await click('[data-mod="bloque"]', 300); await click('#cx-next', 1000);
+      const d4 = (await pdoc(u1)).data();
+      note('c3_soloBloque', d4.modality === 'bloque' && d4.status === 'completed', JSON.stringify([d4.modality, d4.status]));
+      note('c3_resumenSoloBloque', !modal().textContent.includes('Deportiva (francesa)') && modal().textContent.includes('Bloque (Fontainebleau)'));
+
+      // ═══ C4: evaluación mental ═══
+      await click('[data-cx="mental-hub"]', 600);
+      note('c4_cincoPreguntas', modal().textContent.includes('caerte') && modal().textContent.includes('Pregunta 1 de 5'), title());
+      note('c4_opcionesEspeciales', modal().textContent.includes('No lo sé') && modal().textContent.includes('Prefiero no responder'));
+      await shot('13-mental-pregunta');
+      await click('[data-ans="4"]', 500); await click('[data-ans="2"]', 500); await click('[data-ans="unknown"]', 500); await click('[data-ans="skip"]', 500);
+      note('c4_pregunta5', modal().textContent.includes('Pregunta 5 de 5') && modal().textContent.includes('presión'), title());
+      await click('[data-ans="3"]', 1000);
+      const m1 = (await mdoc(u1)).data();
+      note('c4_respuestasGuardadas', JSON.stringify(m1.answers) === JSON.stringify({ fear: 4, confidence: 2, focus: 'unknown', frustration: 'skip', pressure: 3 }), JSON.stringify(m1));
+      note('c4_sinPuntuacion', !('score' in m1) && Object.keys(m1).sort().join() === 'answers,schemaVersion,updatedAt');
+      note('c4_mensajeFinal', title().includes('guardado') && modal().textContent.includes('no sustituye'), title());
+      await shot('14-mental-final');
+      await click('[data-cx="to-hub"]', 500);
+      note('c4_hubCuenta', modal().textContent.includes('5 de 5'));
+      // repetir cambiando una respuesta: se conserva el resto
+      await click('[data-cx="mental-hub"]', 500);
+      note('c4_muestraRespuestaActual', document.querySelector('[data-ans="4"]').classList.contains('is-on'));
+      await click('[data-ans="1"]', 500);
+      note('c4_cambiaUna', (await mdoc(u1)).data().answers.fear === 1 && (await mdoc(u1)).data().answers.confidence === 2);
+      await click('[data-cx="back"]', 400); await click('[data-cx="back"]', 400);   // a la pregunta 1 y, desde ahí, al perfil
+      note('c4_atrasAlPerfil', title().includes('Mi perfil'), title());
+      // borrar respuestas
+      await click('[data-cx="mental-delete"]', 600);
+      await click('#confirm-ok', 1200);
+      note('c4_borra', !(await mdoc(u1)).exists && C.state().mental === null);
+      // respuestas parciales
+      await click('[data-cx="mental-hub"]', 500); await click('[data-ans="5"]', 700);
+      await click('[data-cx="skip"]', 600);
+      const m2 = await mdoc(u1);
+      note('c4_parcial', m2.exists && JSON.stringify(m2.data().answers) === '{"fear":5}' && modal().textContent.includes('1 de 5'), JSON.stringify(m2.data && m2.data()));
+
+      // ═══ C5: saltar y completar más tarde ═══
+      await click('[data-cx="back"]', 500);
+      await firebase.auth().signOut(); await w(500);
+      const u2 = await mkUser('c2'); await waitFor(() => C.state().loaded && C.state().uid === u2.uid); navigate(); await w(500);
+      await click('#train-foryou [data-cx="later"]', 800);
+      const s2 = await pdoc(u2);
+      note('c5_ahoraNoGuarda', s2.exists && s2.data().status === 'skipped');
+      note('c5_tarjetaOculta', document.getElementById('train-foryou').classList.contains('hidden'));
+      document.getElementById('train-gear-profile').click(); await w(700);
+      note('c5_menuAbreCuestionario', modal().classList.contains('pe-open') && title().includes('Mi perfil') && modal().textContent.includes('Continuar'), title());
+      await click('[data-cx="start-wizard"]', 700);
+      note('c5_retomaDesdeElPrincipio', title().includes('objetivo'));
+      await click('[data-cx="skip"]', 800);
+      note('c5_saltarDesdeElPaso1', !modal().classList.contains('pe-open') && (await pdoc(u2)).data().status === 'skipped');
+      // cerrar a mitad = en curso y se retoma donde se dejó
+      document.getElementById('train-gear-profile').click(); await w(500); await click('[data-cx="start-wizard"]', 600);
+      await click('[data-goal="fuerza"]', 250); await click('#cx-next', 800);
+      await click('[data-cx="back"]', 400); await click('[data-cx="back"]', 700);
+      const s3 = (await pdoc(u2)).data();
+      note('c5_cerrarAMitad', s3.status === 'in_progress' && s3.goalPrimary === 'fuerza' && s3.step === 2, JSON.stringify(s3));
+      note('c5_tarjetaContinuar', document.getElementById('train-foryou').textContent.includes('Sigue donde lo dejaste'));
+      await click('#train-foryou [data-cx="start"]', 700);
+      note('c5_reanudaPaso2', title().includes('nivel'), title());
+      await click('[data-cx="back"]', 400); await click('[data-cx="back"]', 600);
+      // volver a empezar desde un perfil completo
+      // ═══ C6: aislamiento entre cuentas ═══
+      let denied = 0;
+      try { await ud(u1).collection('training_profile').doc('current').get(); } catch (er) { if (/permission/i.test(er.code + er.message)) denied++; }
+      try { await ud(u1).collection('mental_profile').doc('current').get(); } catch (er) { if (/permission/i.test(er.code + er.message)) denied++; }
+      note('c6_otraCuentaNoLee', denied === 2, denied);
+      note('c6_estadoSinFuga', !JSON.stringify(C.state()).includes(u1.uid) || C.state().uid === u2.uid);
+
+      // ═══ C7: sin conexión ═══
+      const goOffline = async () => { await db.disableNetwork(); Object.defineProperty(navigator, 'onLine', { get: () => false, configurable: true }); window.dispatchEvent(new Event('offline')); };
+      const goOnline = async () => { await db.enableNetwork(); Object.defineProperty(navigator, 'onLine', { get: () => true, configurable: true }); window.dispatchEvent(new Event('online')); };
+      document.getElementById('train-gear-profile').click(); await w(500);
+      await click('[data-cx="start-wizard"]', 600);
+      await goOffline();
+      await pick('[data-grade="sport.usualFrom"]', '6a'); await pick('[data-grade="sport.max"]', '6b'); await click('[data-exp="1-2"]', 250); await click('#cx-next', 900);
+      note('c7_pendienteSinRed', C.state().dirty.profile === true && C.state().profile.grades.sport.max === '6b' && C.state().profile.step === 3);
+      note('c7_copiaLocal', Object.keys(localStorage).some(k => k === 'krux.coach.v1.' + u2.uid && JSON.parse(localStorage.getItem(k)).profile.grades.sport.max === '6b'));
+      await click('[data-cx="back"]', 400); await click('[data-cx="back"]', 400); await click('[data-cx="back"]', 700);
+      note('c7_avisoGuardadoLocal', document.getElementById('train-foryou').textContent.includes('Guardado en este dispositivo'), document.getElementById('train-foryou').textContent.slice(0, 120));
+      await goOnline(); await waitFor(() => !C.state().dirty.profile, 60);
+      note('c7_sincronizaAlVolver', C.state().dirty.profile === false && (await pdoc(u2)).data().grades.sport.max === '6b' && (await pdoc(u2)).data().step === 3, JSON.stringify(C.state().dirty));
+      note('c7_unSoloDocumento', (await ud(u2).collection('training_profile').get()).size === 1);
+
+      // ═══ C8: diseño móvil ═══
+      const sizes = [];
+      const audit = label => {
+        const bad = [];
+        modal().querySelectorAll('button, select, input, [role=radio]').forEach(el => {
+          const r = el.getBoundingClientRect();
+          if (!r.width || !r.height) return;
+          if (r.height < 44 || r.width < 44) bad.push(`${label}:${(el.dataset && Object.keys(el.dataset)[0]) || el.tagName}:${Math.round(r.width)}x${Math.round(r.height)}`);
+        });
+        const sc = document.getElementById('cx-scroll');
+        const over = sc ? sc.scrollWidth > sc.clientWidth + 1 : false;
+        if (over) bad.push(label + ':desborde horizontal');
+        return bad;
+      };
+      document.getElementById('train-gear-profile').click(); await w(500);
+      await click('[data-cx="restart"]', 500); await click('#confirm-ok', 800);
+      let all = [];
+      for (let s = 1; s <= 6; s++) {
+        if (s === 5) { await click('[data-env="ambos"]', 300); }
+        all = all.concat(audit('paso' + s));
+        if (s < 6) {
+          // rellena lo mínimo para poder avanzar
+          if (s === 2) { await pick('[data-grade="sport.usualFrom"]', '6a'); await pick('[data-grade="sport.max"]', '6b'); await click('[data-exp="1-2"]', 200); }
+          if (s === 3) await pick('[data-grade="sport.target"]', '6c');
+          if (s === 4) { await click('[data-days="3"]', 200); await click('[data-min="60"]', 200); }
+          if (s === 5) { await click('[data-mod="ambas"]', 300); await click('[data-rock="2"]', 200); await pick('[data-grade="boulder.usualFrom"]', '6A'); await pick('[data-grade="boulder.max"]', '6B'); await pick('[data-grade="boulder.target"]', '6C'); all = all.concat(audit('paso5-completo')); }
+          await click('#cx-next', 600);
+        }
+      }
+      await click('[data-eq="otro"]', 250); all = all.concat(audit('paso6-otro'));
+      note('c8_materialOtroTieneCampo', !!document.getElementById('cx-other') && document.getElementById('cx-other').maxLength === 60);
+      await click('#cx-next', 900); all = all.concat(audit('resumen'));
+      await click('[data-cx="mental-start"]', 500); all = all.concat(audit('mental'));
+      note('c8_tactilYSinDesborde', all.length === 0, all.join(' | ').slice(0, 400));
+      R.ancho = window.innerWidth;
+    } catch (er) { R.err = er.message + ' ' + (er.stack || '').split('\n')[1]; }
+    R.fallos = Object.entries(T).filter(([k, v]) => !v).map(([k]) => k);
+    R.resumen = Object.values(T).filter(Boolean).length + '/' + Object.keys(T).length;
+    done(); return;
+  }
+
   if (state === 'sched') {      // ── inicio programado de planes
     const T = {}; const note = (k, ok, extra) => { T[k] = !!ok; if (!ok || extra) R[k] = extra === undefined ? 'FALLA' : extra; document.title = 'P|' + Object.keys(T).length + '|' + k; };
     try {
