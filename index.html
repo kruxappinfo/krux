@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=91" />
+  <link rel="stylesheet" href="./app_2.css?v=92" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -99,9 +99,10 @@
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
-  <script defer src="./train-plans.js?v=1"></script>
+  <script defer src="./train-plans.js?v=2"></script>
   <script defer src="./app_3.js?v=87"></script>
   <script defer src="./train-library.js?v=3"></script>
+  <script defer src="./train-plans-ui.js?v=1"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
@@ -1267,6 +1268,10 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               </button>
               <div class="train-gear-menu hidden" id="train-gear-menu" role="menu">
+                <button class="train-gear-item" id="train-gear-plans" role="menuitem" hidden>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/></svg>
+                  Mis planes
+                </button>
                 <button class="train-gear-item" id="train-gear-new" role="menuitem">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="2.5" x2="8" y2="5.5"/><line x1="16" y1="2.5" x2="16" y2="5.5"/><line x1="12" y1="13" x2="12" y2="18"/><line x1="9.5" y1="15.5" x2="14.5" y2="15.5"/></svg>
                   Crear plan
@@ -4017,6 +4022,7 @@
   </div>
   <div id="ex-library-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Ejercicios"></div>
   <div id="plan-wizard-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Asistente de planes"></div>
+  <div id="my-plans-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Mis planes"></div>
 
   <!-- Gym Picker Sheet -->
   <div id="gym-picker-sheet" class="modal hidden">

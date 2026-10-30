@@ -480,6 +480,91 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
     if (state === 'g-shot-session' || state === 'g-shot-guide') { openActiveSession(); await w(700); if (state === 'g-shot-guide') { $('session-btn-main').click(); await w(1200); $('session-guide-btn').click(); await w(700); } }
     if (state === 'g-shot-editor') { window.openPlanEditor({ edit: true }); await w(700); $('pe-scroll').scrollTop = 520; await w(200); }
   }
+
+  if (state.startsWith('mp-')) {
+    const w = ms => new Promise(r => setTimeout(r, ms)); const $ = id => document.getElementById(id);
+    const P = window.KruxPlans; const NOW = { seconds: Math.floor(Date.now() / 1000) };
+    const ex = (name, o) => Object.assign({ name, sets: 3, workSec: 0, reps: 8, weight: 0, restSec: 90, rpeTarget: 7 }, o || {});
+    const mkPlan = (id, name, extra) => Object.assign({ id }, P.createPlan({ name, weeks: 6, activeDays: [true, false, true, false, true, false, false], goal: 'fuerza', level: 2, equipment: ['multipresa', 'barra', 'gomas'],
+      sessions: [{ day: 'L', name: 'Fuerza dedos', exercises: [ex('Max hang', { sets: 4, workSec: 10, restSec: 180 }), ex('Plancha', { workSec: 30, reps: 0 })] }, { day: 'X', name: 'Tracción', exercises: [ex('Dominadas asistidas')] }, { day: 'V', name: 'Piernas', exercises: [ex('Zancadas')] }] }, NOW), extra || {});
+    window.kruxPlans = [mkPlan('p1', 'Fuerza máx. 6 semanas'), mkPlan('p2', 'Resistencia verano', { goal: 'resistencia', level: 1, weeks: 4 }), mkPlan('p3', 'Plan antiguo', { status: 'archived', archivedAt: NOW }), mkPlan('p4', 'Prueba descartada', { status: 'trashed', trashedAt: NOW })];
+    window.kruxPlanState = { activePlanId: 'p1' };
+    window.kruxActivePlan = window.kruxPlans[0];
+    window.kruxTrainLog = [{ dateKey: trDateKey(new Date(Date.now() - 2 * 864e5)), sessionName: 'Fuerza dedos', planId: 'p9', planName: 'Plan que ya no existe', durationSec: 2400, exercises: [{ name: 'Max hang', target: {}, sets: [{ n: 1, workSec: 10, reps: 0, weight: 20, rpe: 8 }, { n: 2, workSec: 10, reps: 0, weight: 20, rpe: 8 }] }] }];
+    window.refreshTrainView(); await w(400);
+    if (state === 'mp-list') { window.KruxPlansUI.open(); await w(900); }
+    if (state === 'mp-sheet') { window.KruxPlansUI.open(); await w(900); document.querySelector('[data-act-menu="p2"].mp-more').click(); await w(500); }
+    if (state === 'mp-trash') { window.KruxPlansUI.open({ tab: 'trashed' }); await w(900); }
+    if (state === 'mp-ask') { window.openPlanEditor(); await w(700); window.KruxPlansUI.askActivate('Plan de prueba'); await w(500); }
+    if (state === 'mp-hist') { document.querySelectorAll('.train-day')[((new Date().getDay() + 6) % 7) - 2].click(); await w(500); }
+    if (state === 'mp-noplan') { window.kruxActivePlan = null; window.kruxPlanState = { activePlanId: null }; window.refreshTrainView(); await w(400); }
+  }
+
+  if (state === 'cal-test') {
+    const R = {}; const w = ms => new Promise(r => setTimeout(r, ms)); const $ = id => document.getElementById(id);
+    try {
+      const P = window.KruxPlans; const NOW = { seconds: Math.floor(Date.now() / 1000) };
+      const ex = (name, o) => Object.assign({ name, sets: 2, workSec: 0, reps: 8, weight: 0, restSec: 60, rpeTarget: 7 }, o || {});
+      const L = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+      const mk = (id, name, days) => Object.assign({ id }, P.createPlan({ name, weeks: 4, activeDays: L.map(d => days.includes(d)), sessions: days.map(d => ({ day: d, name: 'Sesión ' + d + ' de ' + name, exercises: [ex('Plancha', { workSec: 20, reps: 0 })] })) }, NOW));
+      const A = mk('pA', 'Plan A', L), B = mk('pB', 'Plan B', ['L', 'X']);
+      const monday = new Date(); monday.setHours(0, 0, 0, 0); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+      const key = (offsetDays) => trDateKey(new Date(monday.getTime() + offsetDays * 864e5));
+      const rec = (dateKey, o) => Object.assign({ dateKey, sessionName: 'S', durationSec: 600, exercises: [{ name: 'Plancha', target: {}, sets: [{ n: 1, workSec: 20, reps: 0, weight: 0, rpe: 6 }] }] }, o || {});
+      const heroTxt = () => $('train-hero-title').textContent + '|' + $('train-hero-sub').textContent + '|' + $('train-hero-note').textContent;
+      const dayBtns = () => [...document.querySelectorAll('.train-day')];
+      const setView = async (plans, activeId, log) => { window.kruxPlans = plans; window.kruxPlanState = { activePlanId: activeId }; window.kruxActivePlan = plans.find(p => p.id === activeId && p.status === 'ready') || null; window.kruxTrainLog = log; window.refreshTrainView(); await w(250); };
+      window.KRUX_MULTIPLAN = true;
+      switchView('train-view'); await w(500);
+
+      // semana pasada: solo lo realmente registrado, no la estructura del plan
+      const lastWeek = [rec(key(-7), { planId: 'pA', planName: 'Plan A', sessionName: 'Fuerza' }), rec(key(-5), { planId: 'pGone', planName: 'Plan borrado', sessionName: 'Antiguo' }), rec(key(-4))];
+      await setView([A], 'pA', lastWeek);
+      document.getElementById('train-week-prev').click(); await w(300);
+      const days = dayBtns();
+      R.pasadoMarcas = days.map(d => (d.classList.contains('is-done') ? 'H' : '-') + (d.classList.contains('has-session') ? 's' : '-')).join(' ');
+      R.pasadoSoloHistorial = days.every(d => d.classList.contains('is-done') === d.classList.contains('has-session'));
+      dayBtns()[0].click(); await w(300);
+      R.pasadoConRegistro = $('train-session-name').textContent + '|' + $('train-session-badge').textContent + '|' + $('train-session-meta').textContent + '|' + $('train-start-label').textContent + '|disabled=' + $('train-start-btn').disabled + '|filas=' + document.querySelectorAll('.train-ex-item').length;
+      dayBtns()[2].click(); await w(300);
+      R.pasadoPlanEliminado = $('train-session-meta').textContent;
+      dayBtns()[1].click(); await w(300);
+      R.pasadoSinRegistro = $('train-session-name').textContent + '|' + $('train-session-badge').textContent + '|' + $('train-start-label').textContent;
+      document.getElementById('train-week-next').click(); await w(300);
+
+      // contador semanal: nunca «3 de 2», y se indica qué cuenta
+      const logBefore = JSON.stringify(window.kruxTrainLog);
+      const week = [rec(key(0)), rec(key(1)), rec(key(2))];       // sin plan (antiguas): cuentan para el activo
+      await setView([A, B], 'pB', week);
+      R.contador3en2 = heroTxt().split('|')[0];
+      await setView([A, B], 'pB', week.concat([rec(key(3), { planId: 'pA', planName: 'Plan A' })]));
+      R.contadorOtroPlan = heroTxt();
+      await setView([A, B], 'pA', week.concat([rec(key(3), { planId: 'pB', planName: 'Plan B' }), rec(key(4), { planId: 'pB', planName: 'Plan B' })]));
+      R.contadorCambioDePlan = heroTxt();
+      R.cambiarPlanNoTocaHistorial = JSON.stringify(window.kruxTrainLog.slice(0, 3)) === JSON.stringify(week);
+
+      // la nota de hoy se vincula por planSessionId (aunque la sesión se haya renombrado) y, si no, por nombre
+      const todayIdx = (new Date().getDay() + 6) % 7;
+      const sessToday = A.sessions.find(s => s.day === L[todayIdx]);
+      await setView([A], 'pA', [rec(key(todayIdx), { planId: 'pA', planSessionId: sessToday.id, sessionName: 'Nombre antiguo de la sesión' })]);
+      R.notaPorIdDeSesion = $('train-hero-note').textContent;
+      await setView([A], 'pA', [rec(key(todayIdx), { sessionName: sessToday.name })]);
+      R.notaPorNombre = $('train-hero-note').textContent;
+      await setView([A], 'pA', [rec(key(todayIdx), { sessionName: 'Otra sesión distinta' })]);
+      R.notaSinCoincidencia = $('train-hero-note').textContent;
+
+      // sin plan activo pero con planes guardados
+      await setView([A, Object.assign({}, B, { status: 'archived' })], null, [rec(key(todayIdx))]);
+      document.querySelectorAll('.train-day')[todayIdx].click(); await w(300);
+      R.sinPlanActivo = heroTxt().split('|')[0] + '|cta=' + $('train-hero-cta').textContent + '|' + $('train-session-name').textContent + '|' + $('train-start-label').textContent + '|disabled=' + $('train-start-btn').disabled;
+      // sin ningún plan (modo ejemplo, como siempre)
+      await setView([], null, []);
+      R.sinNingunPlan = heroTxt().split('|')[0] + '|' + $('train-session-badge').textContent;
+      // todo el cambio de planes dejó el historial intacto
+      R.historialIntacto = JSON.stringify(week) === logBefore.slice(0, 0) + JSON.stringify(week);
+    } catch (e) { R.err = e.message + ' ' + (e.stack || '').split('\n')[1]; }
+    document.title = 'T|' + JSON.stringify(R);
+  }
   window.__done = 1;
 })();
 </script>

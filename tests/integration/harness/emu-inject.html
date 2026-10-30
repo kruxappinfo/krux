@@ -31,6 +31,34 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
   }
   if (state === 'multi-dbg') {
     try {
+      R.rows = [];
+      for (let i = 0; i < 10; i++) {
+        const e = 'd' + Date.now() + i + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1200);
+        await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(e, 'password123'); await w(1500);
+        const t0 = Date.now();
+        let r; try { const sn = await db.collection('users').doc(c.user.uid).collection('training_plans').get(); r = sn.size + (sn.metadata.fromCache ? 'C' : ''); } catch (er) { r = 'ERR'; }
+        R.rows.push(i + ':' + r + ':' + (Date.now() - t0) + 'ms');
+        document.title = 'P|' + R.rows.join(' ');
+      }
+    } catch (er) { R.err = er.message; }
+    done(); return;
+  }
+  if (state === 'racepage') {
+    try {
+      const email = q.get('email'); const at = parseInt(q.get('at'), 10);
+      while (Date.now() < at) await w(5);
+      const t0 = Date.now();
+      await firebase.auth().signInWithEmailAndPassword(email, 'password123');
+      await w(5000);
+      R.plans = (window.kruxPlans || []).map(p => p.id).join();
+      R.active = window.kruxPlanState && window.kruxPlanState.activePlanId;
+      R.notice = window.kruxPlanNotice ? window.kruxPlanNotice.type : null;
+      R.msSignIn = Date.now() - t0;
+    } catch (er) { R.err = er.message; }
+    done(); return;
+  }
+  if (state === 'multi-dbg') {
+    try {
       const ST = KruxTrainStore.plans;
       const e = 'd' + Date.now() + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1500);
       const t0 = Date.now();
@@ -223,9 +251,11 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
     try {
       const P = window.KruxPlans, ST = KruxTrainStore.plans;
       const FV = firebase.firestore.FieldValue;
-      const mk = async () => { const e = 'm' + Date.now() + Math.floor(Math.random() * 9999) + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1500); return { email: e, uid: c.user.uid }; };
+      const mk = async () => { const e = 'm' + Date.now() + Math.floor(Math.random() * 9999) + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); const u = { email: e, uid: c.user.uid }; for (let i = 0; i < 12; i++) { try { await db.collection('users').doc(u.uid).get({ source: 'server' }); break; } catch (er) { await w(1000); } } await w(800); return u; };
       const ud = u => db.collection('users').doc(u.uid);
-      const cycle = async u => { await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(u.email, 'password123'); await w(2200); };
+      // Tras cambiar de cuenta el cliente puede tardar unos segundos en reconectar: se espera a que el servidor responda
+      const waitServer = async u => { for (let i = 0; i < 12; i++) { try { await db.collection('users').doc(u.uid).get({ source: 'server' }); return; } catch (er) { await w(1000); } } };
+      const cycle = async u => { await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(u.email, 'password123'); await waitServer(u); await w(1800); };
       R.trace = []; const chk = async (label) => { try { const sn = await ud(u1).collection('training_plans').get(); R.trace.push(label + ':' + sn.size + (sn.metadata.fromCache ? 'C' : '')); } catch (er) { R.trace.push(label + ':ERR'); } };
       const snapOf = async ref => { const d = await ref.get(); return d.exists ? JSON.stringify(d.data(), (k, v) => (v && v.seconds !== undefined && v.nanoseconds !== undefined ? 'TS:' + v.seconds + '.' + v.nanoseconds : v)) : null; };
       const ex = (name, o) => Object.assign({ name, sets: 3, workSec: 0, reps: 8, weight: 0, restSec: 90, rpeTarget: 7 }, o || {});

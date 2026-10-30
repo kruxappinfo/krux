@@ -27138,6 +27138,7 @@ body.kx-sheet-open #feed-view .feed-container {
 #plan-editor-modal,
 #ex-library-modal,
 #plan-wizard-modal,
+#my-plans-modal,
 #ex-guide-sheet {
   --tr-bg: var(--kx-chalk, #F7F6F0);
   --tr-surface: #FFFFFF;
@@ -28500,7 +28501,7 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 }
 
 /* Entrena no hereda el estilo global de <button> (fondo, sombra, salto al pasar el ratón) */
-:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal, #ex-guide-sheet) button {
+:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal, #my-plans-modal, #ex-guide-sheet) button {
   min-height: 0;
   border: 0;
   box-shadow: none;
@@ -28508,8 +28509,8 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
   will-change: auto;
   transform: none;
 }
-:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal, #ex-guide-sheet) button:hover { transform: none; box-shadow: none; }
-:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal, #ex-guide-sheet) button:disabled:hover { transform: none; }
+:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal, #my-plans-modal, #ex-guide-sheet) button:hover { transform: none; box-shadow: none; }
+:where(#train-view, #session-modal, #ex-editor-sheet, #plan-editor-modal, #ex-library-modal, #plan-wizard-modal, #my-plans-modal, #ex-guide-sheet) button:disabled:hover { transform: none; }
 
 /* :hover global pinta de blanco: cada control conserva su propio fondo (también en iOS tras tocar) */
 .train-day:not(.is-selected):hover,
@@ -28964,3 +28965,57 @@ body.xg-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .xg-panel, .xg-backdrop { transition: none; }
 }
+
+#confirm-modal.modal.kx-above { z-index: 100010; }
+
+.pe-conflict { display: flex; flex-direction: column; gap: 10px; }
+.pe-conflict-btn { align-self: flex-start; min-height: 44px; padding: 0 16px; border-radius: 12px; background: var(--tr-surface); color: var(--tr-amber-ink); font-size: 0.875rem; font-weight: 700; }
+.pe-conflict-btn:hover { background: var(--tr-surface); }
+
+/* ====================================================================
+   ENTRENA — «Mis planes»
+   ==================================================================== */
+.train-gear-item[hidden] { display: none; }
+.mp-card { align-items: stretch; }
+.mp-card .mp-main { align-items: flex-start; }
+.mp-card .xl-card-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.mp-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; background: var(--tr-fill); color: var(--tr-ink-2); font-size: 0.6875rem; font-weight: 800; letter-spacing: 0.02em; white-space: nowrap; }
+.mp-badge.is-active { background: var(--tr-green-btn); color: #fff; }
+.mp-badge.is-trash { background: var(--tr-red-bg); color: var(--tr-red-ink); }
+.mp-card.is-active { background: var(--tr-green-wash); box-shadow: inset 0 0 0 1.5px rgba(21, 62, 53, 0.5); }
+.mp-card.is-archived .xl-thumb, .mp-card.is-trashed .xl-thumb { background: var(--tr-fill); color: var(--tr-ink-3); }
+.mp-card.is-trashed .xl-card-name, .mp-card.is-archived .xl-card-name { color: var(--tr-ink-2); }
+.mp-extra { font-size: 0.75rem; color: var(--tr-ink-3); line-height: 1.35; }
+.mp-more { --xb: transparent; flex-shrink: 0; align-self: center; width: 48px; height: 48px; margin-right: 6px; padding: 0; display: grid; place-items: center; border-radius: 50%; background: transparent; color: var(--tr-ink-2); }
+.mp-more:hover { background: var(--tr-fill); }
+.mp-tabs { margin: 0; }
+.mp-notice { margin: 4px 0 12px; padding: 14px; border-radius: 18px; background: var(--tr-amber-bg); color: var(--tr-amber-ink); font-size: 0.875rem; line-height: 1.45; }
+.mp-notice.is-error { background: var(--tr-red-bg); color: var(--tr-red-ink); }
+.mp-notice p { margin: 0 0 10px; }
+.mp-notice-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mp-notice-btn { min-height: 44px; padding: 0 16px; border-radius: 12px; background: var(--tr-surface); color: inherit; font-size: 0.875rem; font-weight: 700; }
+.mp-notice-btn.is-quiet { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+.mp-notice-btn:hover { background: var(--tr-surface); }
+.mp-notice-btn.is-quiet:hover { background: transparent; }
+.mp-empty-btn { margin-top: 14px; width: auto; padding: 0 20px; }
+.mp-action { --xb: transparent; width: 100%; display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 8px 6px; border-radius: 14px; background: transparent; color: var(--tr-ink); text-align: left; }
+.mp-action + .mp-action { box-shadow: 0 -1px 0 var(--tr-line); }
+.mp-action:hover { background: rgba(32, 43, 39, 0.04); }
+.mp-action-icon { flex-shrink: 0; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: var(--tr-green-wash); color: var(--tr-green-ink); }
+.mp-action.is-danger .mp-action-icon { background: var(--tr-red-bg); color: var(--tr-red-ink); }
+.mp-action.is-danger { color: var(--tr-red-ink); }
+.mp-action-text { display: flex; flex-direction: column; gap: 1px; }
+.mp-action-text b { font-size: 0.9375rem; }
+.mp-action-text small { font-size: 0.8125rem; color: var(--tr-ink-3); font-weight: 500; }
+.mp-ask-actions { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 6px; }
+.mp-ask-btn { min-height: 48px; padding: 0 18px; border-radius: 14px; background: var(--tr-green-wash); color: var(--tr-green-ink); font-size: 0.9375rem; font-weight: 700; width: 100%; max-width: 320px; }
+.mp-ask-btn:hover { background: var(--tr-green-wash); }
+.mp-ask-btn.is-quiet { background: transparent; color: var(--tr-ink-2); }
+.mp-ask-btn.is-quiet:hover { background: transparent; }
+#my-plans-modal .xl-sheet .pe-lib-panel, #plan-editor-modal .xl-sheet .pe-lib-panel { max-height: 84%; }
+#plan-editor-modal .pe-lib-sheet { z-index: 12; }
+#my-plans-modal button:focus-visible, #plan-editor-modal .pe-lib-sheet button:focus-visible { outline: 2px solid var(--tr-green); outline-offset: 2px; }
+#my-plans-modal button { font-family: inherit; -webkit-tap-highlight-color: transparent; cursor: pointer; }
+
+.train-ex-row--static { cursor: default; }
+.train-hist-title { margin: 10px 8px 2px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tr-ink-3); }
