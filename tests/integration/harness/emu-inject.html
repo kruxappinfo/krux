@@ -489,6 +489,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       await cycle(u1); await new Promise(r => setTimeout(r, 2500));
       await ud(u1).collection('training_plan').doc('active').update({ name: 'Editado con la app antigua', updatedAt: FV.serverTimestamp() });
       await cycle(u1);
+      for (let i = 0; i < 40 && !(window.kruxPlanNotice && window.kruxPlanNotice.type === 'legacy-drift'); i++) { await new Promise(r => setTimeout(r, 500)); if (i === 8 || i === 20) { try { await ST.plans.reload(); } catch (_) {} } }
       note('u7_detecta', window.kruxPlanNotice && window.kruxPlanNotice.type === 'legacy-drift', JSON.stringify(window.kruxPlanNotice));
       note('u7_noSincroniza', window.kruxActivePlan.name === 'Plan antiguo');
       const driftLegacy = await snapOf(ud(u1).collection('training_plan').doc('active'));
@@ -559,7 +560,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       note('u9_borrarPlanConservaHistorial', (await ST.purge(idB)) === true && !(await planDoc(u1, idB).get()).exists && (await snapOf(sdocs[0].ref)) === histSnap);
       await cycle(u1);
       const rec = window.kruxTrainLog.find(r => r.planId === idB);
-      note('u9_registroLegibleSinPlan', !!rec && rec.planName.length > 0 && !window.kruxPlans.some(p => p.id === idB) && rec.exercises.length > 0, rec ? rec.planName : 'sin registro');
+      note('u9_registroLegibleSinPlan', !!rec && rec.planName.length > 0 && !window.kruxPlans.some(p => p.id === idB) && rec.exercises.length > 0, rec ? JSON.stringify([rec.planName, (window.kruxPlans||[]).map(p=>p.id+':'+p.status), idB, (rec.exercises||[]).length]) : 'sin registro');
 
       // ═══ U10: guardar el plan activo desde Entrena (ejercicio editado) ═══
       await ST.activate('legacy-active');
