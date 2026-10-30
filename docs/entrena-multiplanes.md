@@ -72,6 +72,8 @@ de verdad y no hay copia de compatibilidad (decisión de producto). Estrategia:
 
 Interruptor por dispositivo: `?multiplan=0` apaga la arquitectura nueva (se recuerda en `localStorage['krux.multiplan']='0'`); `?multiplan=1` la vuelve a encender.
 
+En modo clásico (`?multiplan=0`) las sesiones y su registro final también pasan por la cola local con verificación en el servidor; lo único que no hay es la copia del plan para arrancar sin conexión ni el calendario con lo pendiente al abrir sin red.
+
 ## 5. Reglas en dos pasos
 
 - **Paso 1 (con la app nueva):** las reglas actuales del repositorio (esquema nuevo + esquema antiguo todavía escribible).

@@ -430,7 +430,12 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
         const mode = q.get('mode');
         const e = 'off11' + Date.now() + '@t.dev'; localStorage.setItem('t.email11', e);
         const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1800);
-        await ST.plans.create(planBody('Plan registro final'), { activate: true }); await w(500);
+        if (q.get('multiplan') === '0') {                      // modo clásico: plan en users/{uid}/training_plan/active; se vuelve a entrar para que la app lo cargue
+          await db.collection('users').doc(c.user.uid).collection('training_plan').doc('active').set(planBody('Plan registro final'));
+          await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(e, 'password123'); await w(2000);
+          note('a_modoClasico', !window.KRUX_MULTIPLAN && !!window.kruxActivePlan, String(window.KRUX_MULTIPLAN));
+        } else await ST.plans.create(planBody('Plan registro final'), { activate: true });
+        await w(500);
         switchView('train-view'); await w(500);
         const proto = firebase.firestore.DocumentReference.prototype; const oSet = proto.set, oUpd = proto.update, oGet = proto.get;
         const isS = ref => /training_sessions/.test(ref.path); const hang = () => new Promise(() => {});

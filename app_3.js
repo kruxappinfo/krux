@@ -17850,6 +17850,8 @@ const KruxTrainStore = (() => {
   //   · Editar planes sigue necesitando conexión (la revisión del servidor evita pisar a otro dispositivo).
   // ══════════════════════════════════════════════════════════════════
   const OFFLINE = () => MULTI();
+  // Cola local de sesiones y registro final: protege también el modo clásico (?multiplan=0). La copia del plan para arrancar sin red sigue siendo solo de planes múltiples.
+  const QUEUE = () => true;
   const LS = 'krux.train.v1.';
   const lsGet = (kind, u) => { try { const raw = localStorage.getItem(`${LS}${kind}.${u}`); return raw ? JSON.parse(raw) : null; } catch (_) { return null; } };
   const lsSet = (kind, u, value) => { try { localStorage.setItem(`${LS}${kind}.${u}`, JSON.stringify(value)); return true; } catch (_) { return false; } };
@@ -17911,7 +17913,7 @@ const KruxTrainStore = (() => {
   let flushing = null;
   let flushTimer = null;
   function flush() {
-    if (!OFFLINE() || !uid()) return Promise.resolve();
+    if (!QUEUE() || !uid()) return Promise.resolve();
     if (!flushing) flushing = doFlush().catch(() => {}).then(() => { flushing = null; emit(); });
     return flushing;
   }
@@ -18029,7 +18031,7 @@ const KruxTrainStore = (() => {
     // Si la app llevaba abierta desde ayer, puede haber llegado la fecha de inicio de un plan
     if (MULTI()) q.applySchedule().then(res => { if (res && res.applied) { announceSchedule(res); if (typeof window.refreshTrainView === 'function') window.refreshTrainView(); } }).catch(() => {});
   });
-  setInterval(() => { if (OFFLINE() && uid() && queueOf(uid()).some(e => e.state === 'pending')) flush(); }, 60000);
+  setInterval(() => { if (QUEUE() && uid() && queueOf(uid()).some(e => e.state === 'pending')) flush(); }, 60000);
 
   // Guardar el plan en memoria. Con planes múltiples escribe el documento de ese plan (con control de
   // revisión); sin él, el documento antiguo de siempre.
@@ -18070,7 +18072,7 @@ const KruxTrainStore = (() => {
       return false;
     }
     if (rec.id) return true;   // ya confirmada por el servidor: reintentar no la vuelve a escribir
-    if (OFFLINE()) {
+    if (QUEUE()) {
       // Primero se guarda en este dispositivo (cola persistente) y después se intenta sincronizar
       enqueueSession(rec);
       await flush();
@@ -18115,7 +18117,7 @@ const KruxTrainStore = (() => {
 
   async function updateSession(rec, fields) {
     if (!uid()) return false;
-    if (OFFLINE()) {
+    if (QUEUE()) {
       const u = uid();
       // 1.º se guarda en la cola, sin tocar la red: junto a la sesión si todavía está pendiente, o como parche de una sesión
       // ya escrita. 2.º se envía y se verifica en el servidor; solo entonces sale de la cola.
@@ -18177,7 +18179,7 @@ const KruxTrainStore = (() => {
           : null;
       }
       const loaded = sessSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (OFFLINE()) {
+      if (QUEUE()) {
         // Lo pendiente de sincronizar cuenta en el calendario; lo ya confirmado llega con su id del servidor
         const u = uid();
         window.kruxTrainLog = [...mergePending(u, loaded), ...window.kruxTrainLog.filter(e => !e.id && !e.pendingId)];
@@ -18223,7 +18225,7 @@ const KruxTrainStore = (() => {
   });
 
   return {
-    savePlan, saveSession, updateSession, persistLog: (rec, f) => (OFFLINE() ? persistLog(rec, f) : null), isSignedIn: () => !!uid(), currentUid: uid,
+    savePlan, saveSession, updateSession, persistLog: (rec, f) => (QUEUE() ? persistLog(rec, f) : null), isSignedIn: () => !!uid(), currentUid: uid,
     // Planes múltiples (requieren window.KRUX_MULTIPLAN)
     sync: { info: syncInfo, flush, retryConflicts, discard: discardEntry, offline: OFFLINE },
     plans: { enabled: MULTI, reload: refreshPlans, retryLoad: () => { reloadTry = 0; return load(); }, ...q }
@@ -18660,7 +18662,7 @@ function initTrainView() {
   function renderSync() {
     const box = document.getElementById('train-sync');
     if (!box) return;
-    const sync = multiPlans() && window.KruxTrainStore && KruxTrainStore.sync;
+    const sync = window.KruxTrainStore && KruxTrainStore.sync;
     const i = sync ? sync.info() : null;
     if (!i || (!i.pending && !i.conflicts && !i.offline)) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     const n = (k, a, b) => `${k} ${k === 1 ? a : b}`;
