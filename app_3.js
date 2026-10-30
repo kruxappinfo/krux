@@ -17959,7 +17959,7 @@ const KruxTrainStore = (() => {
     const u = uid();
     if (!rec.pendingId) {
       const id = userRef().collection('training_sessions').doc().id;
-      Object.defineProperty(rec, 'pendingId', { value: id, enumerable: false, writable: true });
+      Object.defineProperty(rec, 'pendingId', { value: id, enumerable: false, writable: true, configurable: true });
       const entry = { id, uid: u, kind: 'session', payload: JSON.parse(JSON.stringify(sessionPayload(rec))), createdAtMs: Date.now(), log: null, state: 'pending', attempts: 0, lastError: '', queuedAt: Date.now() };
       saveQueue(u, queueOf(u).concat(entry));
       liveRecords.set(id, [rec]);

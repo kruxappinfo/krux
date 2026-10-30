@@ -246,10 +246,30 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       if (state === 'off5') {          // ── reintentar el conflicto con las reglas restauradas; descartar
         for (let i = 0; i < 60 && !(uidNow() && window.kruxActivePlan && window.kruxTrainData && !window.kruxTrainData.demo && window.kruxTrainData.exercises.length); i++) await w(300);
         switchView('train-view'); await w(1500);
+        { const settle = parseInt(q.get('settle') || '0', 10); if (settle) await w(settle); }   // diagnóstico: esperar a que el cliente se asiente tras cargar la página
+        R.msDesdeCarga = Math.round(performance.now());
+        const entry0 = ST.sync.info().entries.find(x => x.state === 'conflict') || {};
+        const sessCol5 = () => db.collection('users').doc(uidNow()).collection('training_sessions');
+        R.diag5 = { entryId: entry0.id, uid: uidNow(), antes: (await sessCol5().get({ source: 'server' })).docs.map(d => d.id.slice(0, 6)) };
+        // diagnóstico (fsdebug=1): registro del SDK de Firestore alrededor del reintento
+        const fsLog = []; const fsT0 = Date.now();
+        if (q.get('fsdebug')) {
+          firebase.firestore.setLogLevel('debug');
+          ['log', 'debug', 'info', 'warn', 'error'].forEach(m => { const o = console[m].bind(console); console[m] = (...a) => { try { const t = a.map(x => (typeof x === 'string' ? x : (x && x.message) || '')).join(' '); if (/firestore/i.test(t)) fsLog.push((Date.now() - fsT0) + 'ms ' + t.replace(/^\[[^\]]*\]\s*/, '').replace(/@firebase\/firestore: Firestore \([0-9.]+\): /, '').slice(0, 170)); } catch (_) { /* nada */ } o(...a); }; });
+        }
         note('o5_conflictoPersiste', ST.sync.info().conflicts === 1);
-        await ST.sync.retryConflicts(); await w(1500);
+        { const t0 = Date.now(); await ST.sync.retryConflicts(); R.msRetryConflicts = Date.now() - t0; } await w(1500);
+        if (q.get('fsdebug')) R.fsLog = fsLog.slice(-90);
+        { const after = await sessCol5().get({ source: 'server' }); R.diag5.despues = after.docs.map(d => d.id.slice(0, 6)); R.diag5.reintentadaEnServidor = after.docs.some(d => d.id === R.diag5.entryId); R.diag5.cola = (JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]')).map(e => e.id.slice(0, 6) + ':' + e.state); }
         { const inf = ST.sync.info(); const n = (await db.collection('users').doc(uidNow()).collection('training_sessions').get({ source: 'server' })).size;
           note('o5_reintentoSincroniza', inf.conflicts === 0 && inf.pending === 0 && n === 3, JSON.stringify({ p: inf.pending, c: inf.conflicts, n, e: inf.entries.map(x => x.state + ':' + x.lastError) })); }
+        // diagnóstico (recover=1): si el reintento no se confirmó, medir si la sesión se recupera sola y sin duplicarse
+        if (q.get('recover') && ST.sync.info().pending > 0) {
+          const t1 = Date.now(); const before = (await db.collection('users').doc(uidNow()).collection('training_sessions').get({ source: 'server' })).size;
+          for (let i = 0; i < 120 && ST.sync.info().pending > 0; i++) await w(500);
+          const docs = await db.collection('users').doc(uidNow()).collection('training_sessions').get({ source: 'server' });
+          R.recuperacion = { msHastaVaciarCola: Date.now() - t1, pendientes: ST.sync.info().pending, conflictos: ST.sync.info().conflicts, documentosAntes: before, documentosDespues: docs.size, idsUnicos: new Set(docs.docs.map(d => d.id)).size };
+        }
         // cuota de almacenamiento: si el dispositivo no puede guardar, se avisa y sigue funcionando en memoria
         const orig = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new DOMException('quota', 'QuotaExceededError'); };
         await goOffline();
@@ -260,6 +280,44 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
         Storage.prototype.setItem = orig;
         await goOnline(); for (let i = 0; i < 20 && ST.sync.info().pending > 0; i++) await w(500);
         note('o5_cuotaSincronizaAlVolver', ST.sync.info().pending === 0 && (await db.collection('users').doc(uidNow()).collection('training_sessions').get({ source: 'server' })).size === 4);
+      }
+
+      if (state === 'off7') {          // ── recuperación: la escritura SÍ se aplica en el servidor pero la confirmación no llega
+        const e = 'off7' + Date.now() + '@t.dev';
+        const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1800);
+        await ST.plans.create({ name: 'Plan confirmación perdida', weeks: 4, activeDays: [true, true, true, true, true, true, true], sessions: ['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => ({ day: d, name: 'Sesión ' + d, exercises: [ex('Plancha', { workSec: 0, reps: 5 })] })) }, { activate: true });
+        await w(500);
+        switchView('train-view'); await w(500);
+        const sessCol = () => db.collection('users').doc(c.user.uid).collection('training_sessions');
+        const proto = firebase.firestore.DocumentReference.prototype; const origSet = proto.set; let lost = 0;
+        // Las dos primeras escrituras de la sesión llegan al servidor, pero su confirmación no vuelve al cliente (el guardado y el reenvío inmediato del registro final)
+        R.calls = []; const t00 = Date.now();
+        proto.set = function (...a) { const p = origSet.apply(this, a); if (/training_sessions/.test(this.path)) R.calls.push(Math.round((Date.now() - t00) / 100) / 10 + 's:' + (lost < 2 ? 'PERDIDA' : 'normal')); if (/training_sessions/.test(this.path) && lost < 2) { lost++; return new Promise(() => {}); } return p; };
+        const tl0 = Date.now(); R.tl = [];
+        const tick = setInterval(() => R.tl.push(Math.round((Date.now() - tl0) / 1000) + 's:' + JSON.stringify(ST.sync.info().entries.map(x => x.state + '/' + x.lastError + '/' + x.attempts)) + 'lost=' + lost), 1000);
+        await runSession('great');
+        for (let i = 0; i < 80 && !ST.sync.info().entries.some(x => x.lastError === 'kx/timeout' && R.calls.length >= 2); i++) await w(500);
+        clearInterval(tick);
+        const e1 = ST.sync.info().entries[0] || {};
+        R.dbg = JSON.stringify({ lost, proto: typeof proto.set, same: proto.set !== origSet, hint: document.title.slice(0, 40) });
+        const qraw = JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]')[0] || {};
+        note('o7_confirmacionPerdida', lost === 2 && ST.sync.info().pending === 1 && e1.state === 'pending' && e1.lastError === 'kx/timeout', JSON.stringify(ST.sync.info()).slice(0, 220));
+        note('o7_noSePierdeDeLaCola', lsKeys().some(k => k.includes('.pending.' + c.user.uid)) && qraw.id === e1.id, JSON.stringify([qraw.id, e1.id]));
+        const s1 = await sessCol().get({ source: 'server' });
+        note('o7_aplicadaEnServidor', s1.size === 1 && s1.docs[0].id === e1.id, s1.size);
+        proto.set = origSet;                                   // vuelve a funcionar la confirmación
+        for (let i = 0; i < 60 && ST.sync.info().pending > 0; i++) await w(500);   // reintento programado (5 s)
+        note('o7_seRecupera', ST.sync.info().pending === 0 && ST.sync.info().conflicts === 0, JSON.stringify(ST.sync.info()).slice(0, 200));
+        const s2 = await sessCol().get({ source: 'server' }); const d2 = s2.docs[0] && s2.docs[0].data();
+        note('o7_sinDuplicados', s2.size === 1 && s2.docs[0].id === e1.id, s2.size);
+        note('o7_contenidoCompleto', !!d2 && d2.feel === 'great' && d2.rpe === 6 && d2.exercises.length >= 1 && d2.sessionName === 'Sesión ' + today, JSON.stringify(d2 && [d2.feel, d2.rpe, d2.sessionName]));
+        note('o7_mismaFecha', !!d2 && !!qraw.createdAtMs && d2.createdAt.toMillis() === qraw.createdAtMs, JSON.stringify([d2 && d2.createdAt.toMillis(), qraw.createdAtMs]));
+        note('o7_registroSincronizado', (window.kruxTrainLog || []).some(r => r.id === e1.id) && !(window.kruxTrainLog || []).some(r => r.pendingId), JSON.stringify((window.kruxTrainLog || []).map(r => ({ id: r.id, pendingId: r.pendingId, st: r.pendingState, e1: e1.id }))));
+        note('o7_colaVacia', !JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]').length);
+        // una segunda sesión, ya con confirmación normal, no se mezcla con la anterior
+        await runSession('ok');
+        const s3 = await sessCol().get({ source: 'server' });
+        note('o7_siguienteSesionNormal', s3.size === 2 && ST.sync.info().pending === 0, s3.size);
       }
     } catch (er) { R.err = er.message + ' ' + (er.stack || '').split('\n')[1]; }
     fin(); return;
