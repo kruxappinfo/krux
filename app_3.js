@@ -17963,14 +17963,24 @@ function initTrainView() {
     return null;
   }
 
-  function logFor(dateKey, name) {
+  // sessionId: id de la sesión del plan (preferente); sin él, el nombre (registros antiguos)
+  function logFor(dateKey, name, sessionId) {
     const log = window.kruxTrainLog;
     for (let i = log.length - 1; i >= 0; i--) {
-      if (log[i].demo) continue;
-      if (log[i].dateKey === dateKey && (!name || log[i].sessionName === name)) return log[i];
+      const e = log[i];
+      if (e.demo || e.dateKey !== dateKey) continue;
+      if (sessionId && e.planSessionId) { if (e.planSessionId === sessionId) return e; continue; }
+      if (!name || e.sessionName === name) return e;
     }
     return null;
   }
+
+  // Con planes múltiples el pasado muestra lo realmente registrado, no la estructura del plan actual
+  const multiPlans = () => !!window.KRUX_MULTIPLAN;
+  const isPastDate = d => { const t = new Date(); t.setHours(0, 0, 0, 0); return d < t; };
+  const entriesOn = dateKey => (window.kruxTrainLog || []).filter(e => !e.demo && e.dateKey === dateKey);
+  const hasAnyReadyPlan = () => (window.kruxPlans || []).some(p => p.status === 'ready');
+  const planGone = e => multiPlans() && !!e.planId && !(window.kruxPlans || []).some(p => p.id === e.planId);
 
   function isSelectedToday() { return weekOffset === 0 && selectedIdx === todayIdx(); }
 
@@ -17984,9 +17994,19 @@ function initTrainView() {
     const cta = document.getElementById('train-hero-cta');
     if (!title) return;
 
+    if (!plan && multiPlans() && window.kruxPlanNotice && window.kruxPlanNotice.type === 'load-error') {
+      title.textContent = 'No se han podido cargar tus planes';
+      sub.textContent = 'Revisa tu conexión. Tus planes y tu historial no se han tocado.';
+      meter.innerHTML = ''; meter.hidden = true; note.textContent = ''; note.hidden = true;
+      cta.textContent = 'Reintentar';
+      cta.classList.remove('hidden');
+      return;
+    }
     if (!plan) {
       title.textContent = 'Sin plan activo';
-      sub.textContent = 'Crea un plan para organizar tus sesiones de la semana.';
+      const pick = hasReadyPlans();
+      sub.textContent = pick ? 'Elige uno de tus planes o crea uno nuevo.' : 'Crea un plan para organizar tus sesiones de la semana.';
+      cta.textContent = pick ? 'Mis planes' : 'Crear plan';
       meter.innerHTML = '';
       meter.hidden = true;
       note.textContent = '';
@@ -18002,7 +18022,18 @@ function initTrainView() {
       .filter(e => !e.demo)
       .filter(e => { const d = new Date(e.dateKey + 'T00:00'); return d >= monday && (d - monday) < 7 * 864e5; })
       .map(e => e.dateKey));
-    const done = doneKeys.size;
+    let done = doneKeys.size;
+    let others = 0;
+    if (multiPlans()) {
+      // Solo cuentan las sesiones del plan activo (las antiguas, sin plan, cuentan para el activo);
+      // las de otros planes se indican aparte para no mostrar resultados como «3 de 2»
+      const weekEntries = (window.kruxTrainLog || []).filter(e => !e.demo)
+        .filter(e => { const d = new Date(e.dateKey + 'T00:00'); return d >= monday && (d - monday) < 7 * 864e5; });
+      const mine = weekEntries.filter(e => !e.planId || e.planId === plan.id);
+      done = new Set(mine.map(e => e.dateKey)).size;
+      others = new Set(weekEntries.filter(e => e.planId && e.planId !== plan.id).map(e => e.dateKey)).size;
+      done = Math.min(done, planned);
+    }
 
     title.textContent = done > 0 ? `${done} de ${planned} sesiones` : `${planned} ${planned === 1 ? 'sesión' : 'sesiones'}`;
     sub.textContent = `${done > 0 ? 'completadas' : 'planificadas'} esta semana · ${plan.name || 'Mi plan'}`;
@@ -18012,11 +18043,12 @@ function initTrainView() {
 
     const todaySess = planSessionFor(DAY_LABELS[todayIdx()]);
     if (todaySess) {
-      note.textContent = logFor(trDateKey(new Date()), todaySess.name) ? `Hoy: ${todaySess.name} · hecha` : `Hoy: ${todaySess.name}`;
+      note.textContent = logFor(trDateKey(new Date()), todaySess.name, todaySess.id) ? `Hoy: ${todaySess.name} · hecha` : `Hoy: ${todaySess.name}`;
     } else {
       const next = nextPlannedAfter(todayIdx());
       note.textContent = next ? `Hoy descansas · ${DAY_NAMES[next.idx]}: ${next.session.name}` : 'Hoy descansas';
     }
+    if (others > 0) note.textContent += ` · ${others === 1 ? '1 día de otro plan no se cuenta' : `${others} días de otros planes no se cuentan`}`;
     note.hidden = false;
   }
 
@@ -18037,12 +18069,13 @@ function initTrainView() {
     daysRow.innerHTML = DAY_LABELS.map((label, i) => {
       const d = dateAt(weekOffset, i);
       const isToday = weekOffset === 0 && i === todayIdx();
-      const sess = hasPlan ? planSessionFor(label) : null;
+      const past = multiPlans() && isPastDate(d);
+      const sess = hasPlan && !past ? planSessionFor(label) : null;
       const isDone = !!logFor(trDateKey(d));
       const isSelected = i === selectedIdx;
-      const cls = ['train-day', isToday && 'is-today', sess && 'has-session', isDone && 'is-done', isSelected && 'is-selected']
+      const cls = ['train-day', isToday && 'is-today', (sess || (past && isDone)) && 'has-session', isDone && 'is-done', isSelected && 'is-selected']
         .filter(Boolean).join(' ');
-      const desc = [`${DAY_NAMES[i]} ${d.getDate()}`, isToday && 'hoy', sess ? `sesión: ${sess.name}` : (hasPlan && 'descanso'), isDone && 'completada']
+      const desc = [`${DAY_NAMES[i]} ${d.getDate()}`, isToday && 'hoy', sess ? `sesión: ${sess.name}` : (hasPlan && !past && 'descanso'), isDone && 'completada']
         .filter(Boolean).join(', ');
       return `<button type="button" class="${cls}" data-idx="${i}" aria-pressed="${isSelected}" aria-label="${trEsc(desc)}">
         <span class="train-day-name">${label}</span>
@@ -18056,6 +18089,13 @@ function initTrainView() {
   function selectedState() {
     const plan = window.kruxActivePlan;
     const date = dateAt(weekOffset, selectedIdx);
+    if (multiPlans()) {
+      if (isPastDate(date)) {
+        const entries = entriesOn(trDateKey(date));
+        return entries.length ? { kind: 'history', date, entries } : { kind: 'past', date };
+      }
+      if (!plan && hasAnyReadyPlan()) return { kind: 'noplan', date };
+    }
     if (!plan) return { kind: 'demo', date };
     const sess = planSessionFor(DAY_LABELS[selectedIdx]);
     return sess ? { kind: 'session', date, sess } : { kind: 'rest', date };
@@ -18080,6 +18120,18 @@ function initTrainView() {
       };
       badgeEl.textContent = isSelectedToday() ? 'Hoy' : DAY_NAMES[selectedIdx];
       badgeEl.className = 'train-session-badge' + (isSelectedToday() ? ' is-today' : '');
+    } else if (st.kind === 'history') {
+      window.kruxTrainData = { name: st.entries.map(e => e.sessionName).join(' + '), exercises: [], demo: false };
+      badgeEl.textContent = 'Hecha';
+      badgeEl.className = 'train-session-badge is-today';
+    } else if (st.kind === 'past') {
+      window.kruxTrainData = { name: 'Sin entrenamiento', exercises: [], demo: false };
+      badgeEl.textContent = 'Pasado';
+      badgeEl.className = 'train-session-badge is-rest';
+    } else if (st.kind === 'noplan') {
+      window.kruxTrainData = { name: 'Sin plan activo', exercises: [], demo: false };
+      badgeEl.textContent = 'Sin plan';
+      badgeEl.className = 'train-session-badge is-rest';
     } else {
       window.kruxTrainData = { name: 'Descanso', exercises: [], demo: false };
       badgeEl.textContent = 'Descanso';
@@ -18090,6 +18142,15 @@ function initTrainView() {
     nameEl.textContent = st.kind === 'rest' ? `Descanso · ${DAY_NAMES[selectedIdx].toLowerCase()}` : data.name;
     if (st.kind === 'rest') {
       metaEl.textContent = 'No hay sesión planificada este día.';
+    } else if (st.kind === 'history') {
+      const sets = st.entries.reduce((n, e) => n + e.exercises.reduce((m, x) => m + x.sets.length, 0), 0);
+      const mins = Math.max(1, Math.round(st.entries.reduce((n, e) => n + (e.durationSec || 0), 0) / 60));
+      const plans = Array.from(new Set(st.entries.map(e => e.planName ? `${e.planName}${planGone(e) ? ' (plan eliminado)' : ''}` : ''))).filter(Boolean);
+      metaEl.textContent = `${sets} ${sets === 1 ? 'serie' : 'series'} · ${mins} min${plans.length ? ` · ${plans.join(', ')}` : ''}`;
+    } else if (st.kind === 'past') {
+      metaEl.textContent = 'No hay ningún entrenamiento registrado este día.';
+    } else if (st.kind === 'noplan') {
+      metaEl.textContent = 'Elige uno de tus planes para ver tus sesiones.';
     } else {
       const n = data.exercises.length;
       metaEl.textContent = n ? `${n} ${n === 1 ? 'ejercicio' : 'ejercicios'} · ≈ ${trEstimateMinutes(data.exercises)} min` : 'Sin ejercicios';
@@ -18104,6 +18165,32 @@ function initTrainView() {
     if (!list) return;
     const st = selectedState();
 
+    if (st.kind === 'history') {
+      list.innerHTML = st.entries.map(entry => {
+        const rows = entry.exercises.filter(x => x.sets.length).map(x => {
+          const first = x.sets[0];
+          const part = first.workSec ? trFmtDuration(first.workSec) : first.reps ? `${first.reps} rep` : 'hecha';
+          const maxW = Math.max(...x.sets.map(t => t.weight || 0));
+          const rpes = x.sets.map(t => t.rpe).filter(Boolean);
+          const spec = [`${x.sets.length} × ${part}`, maxW > 0 ? `+${maxW} kg` : ''].filter(Boolean).join(' · ');
+          return `<div class="train-ex-item is-done" role="listitem"><div class="train-ex-row train-ex-row--static is-done">
+            <span class="train-ex-glyph">${ICONS.check}</span>
+            <span class="train-ex-info"><span class="train-ex-name">${trEsc(x.name)}</span><span class="train-ex-spec">${trEsc(spec)}</span></span>
+            ${rpes.length ? `<span class="train-ex-rpe">RPE ${Math.round(rpes.reduce((a, b) => a + b, 0) / rpes.length * 10) / 10}</span>` : '<span></span>'}
+            <span></span></div></div>`;
+        }).join('');
+        return (st.entries.length > 1 ? `<p class="train-hist-title" role="listitem">${trEsc(entry.sessionName)}</p>` : '') + (rows || '<div class="train-empty" role="listitem"><p class="train-empty-text">No se registró ninguna serie.</p></div>');
+      }).join('');
+      return;
+    }
+    if (st.kind === 'past') {
+      list.innerHTML = `<div class="train-empty" role="listitem"><p class="train-empty-title">Nada registrado</p><p class="train-empty-text">Este día no se registró ninguna sesión.</p></div>`;
+      return;
+    }
+    if (st.kind === 'noplan') {
+      list.innerHTML = `<div class="train-empty" role="listitem"><p class="train-empty-title">Elige un plan</p><p class="train-empty-text">Tienes planes guardados: elige cuál usar o crea uno nuevo.</p><button type="button" class="train-empty-btn" data-open-plans="1">Mis planes</button></div>`;
+      return;
+    }
     if (st.kind === 'rest') {
       const next = nextPlannedAfter(selectedIdx);
       list.innerHTML = `<div class="train-empty" role="listitem">
@@ -18190,9 +18277,12 @@ function initTrainView() {
     let text = 'Comenzar entrenamiento';
     let disabled = false;
     if (st.kind === 'rest') { text = 'Día de descanso'; disabled = true; }
+    else if (st.kind === 'history') { text = 'Entrenamiento realizado'; disabled = true; }
+    else if (st.kind === 'past') { text = 'Día pasado'; disabled = true; }
+    else if (st.kind === 'noplan') { text = 'Sin plan activo'; disabled = true; }
     else if (!data.exercises.length) { text = 'Sin ejercicios'; disabled = true; }
     else if (st.kind === 'demo') text = 'Probar sesión de ejemplo';
-    else if (logFor(trDateKey(st.date), data.name)) text = 'Repetir entrenamiento';
+    else if (logFor(trDateKey(st.date), data.name, data.planSessionId)) text = 'Repetir entrenamiento';
     label.textContent = text;
     btn.disabled = disabled;
   }
@@ -18247,13 +18337,24 @@ function initTrainView() {
       editActivePlan();
     });
     document.getElementById('train-gear-library')?.addEventListener('click', openLibrary);
+    const plansItem = document.getElementById('train-gear-plans');
+    if (plansItem && window.KRUX_MULTIPLAN) {
+      plansItem.hidden = false;
+      plansItem.addEventListener('click', () => { closeGearMenu(); if (window.KruxPlansUI) window.KruxPlansUI.open(); });
+    }
     document.addEventListener('click', e => {
       if (!e.target.closest('.train-gear-wrap')) closeGearMenu();
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGearMenu(); });
   }
 
-  document.getElementById('train-hero-cta')?.addEventListener('click', openPlanEditor);
+  // Con planes guardados pero ninguno activo, el botón lleva a «Mis planes»; si no hay planes, a crearlos
+  const hasReadyPlans = () => !!window.KRUX_MULTIPLAN && (window.kruxPlans || []).some(p => p.status === 'ready');
+  document.getElementById('train-hero-cta')?.addEventListener('click', () => {
+    if (multiPlans() && window.kruxPlanNotice && window.kruxPlanNotice.type === 'load-error') { KruxTrainStore.plans.retryLoad(); return; }
+    if (hasReadyPlans() && window.KruxPlansUI) { window.KruxPlansUI.open(); return; }
+    openPlanEditor();
+  });
   document.getElementById('train-lib-link')?.addEventListener('click', openLibrary);
 
   document.getElementById('train-days-row')?.addEventListener('click', e => {
@@ -18274,7 +18375,8 @@ function initTrainView() {
       loadSelectedSession();
       return;
     }
-    const row = e.target.closest('.train-ex-row');
+    if (e.target.closest('[data-open-plans]')) { if (window.KruxPlansUI) window.KruxPlansUI.open(); return; }
+    const row = e.target.closest('.train-ex-row:not(.train-ex-row--static)');
     if (row && typeof window.openExerciseEditor === 'function') window.openExerciseEditor(parseInt(row.dataset.idx, 10));
   });
 
@@ -18831,6 +18933,35 @@ function makePcCard(d, isTop) {
 }
 // ========== END PROGRESS CARDS ==========
 
+// Reutiliza el diálogo de confirmación con un botón propio (no destructivo por defecto).
+// Se muestra por encima de las pantallas de Entrena (sesión, planes, biblioteca).
+window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finalizar', danger = false) {
+  const $ = id => document.getElementById(id);
+  const ok = $('confirm-ok');
+  const cancel = $('confirm-cancel');
+  if (typeof showConfirmModal !== 'function' || !ok || !cancel) {
+    if (window.confirm(`${title}\n${message}`)) fn();
+    return;
+  }
+  const prev = { text: ok.textContent, cls: ok.className };
+  const restore = () => {
+    ok.textContent = prev.text;
+    ok.className = prev.cls;
+    ok.removeEventListener('click', restore);
+    cancel.removeEventListener('click', restore);
+    $('confirm-modal')?.removeEventListener('click', onBackdrop);
+    $('confirm-modal')?.classList.remove('kx-above');
+  };
+  const onBackdrop = e => { if (e.target.id === 'confirm-modal') restore(); };
+  ok.textContent = okLabel;
+  ok.className = danger ? 'btn-danger' : 'btn-primary kx-confirm-primary';
+  $('confirm-modal')?.classList.add('kx-above');
+  showConfirmModal(title, message, fn);
+  ok.addEventListener('click', restore);
+  cancel.addEventListener('click', restore);
+  $('confirm-modal')?.addEventListener('click', onBackdrop);
+};
+
 // ================== ACTIVE SESSION MODULE ==================
 (function () {
   // La sesión trabaja SIEMPRE con la copia tomada al empezar (run), nunca con el plan editable:
@@ -19012,30 +19143,8 @@ function makePcCard(d, isTop) {
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
   }
 
-  // Reutiliza el diálogo de confirmación con un botón propio (no destructivo por defecto)
-  function confirmThen(title, message, fn, okLabel = 'Finalizar', danger = false) {
-    const ok = $('confirm-ok');
-    const cancel = $('confirm-cancel');
-    if (typeof showConfirmModal !== 'function' || !ok || !cancel) {
-      if (window.confirm(`${title}\n${message}`)) fn();
-      return;
-    }
-    const prev = { text: ok.textContent, cls: ok.className };
-    const restore = () => {
-      ok.textContent = prev.text;
-      ok.className = prev.cls;
-      ok.removeEventListener('click', restore);
-      cancel.removeEventListener('click', restore);
-      $('confirm-modal')?.removeEventListener('click', onBackdrop);
-    };
-    const onBackdrop = e => { if (e.target.id === 'confirm-modal') restore(); };
-    ok.textContent = okLabel;
-    ok.className = danger ? 'btn-danger' : 'btn-primary kx-confirm-primary';
-    showConfirmModal(title, message, fn);
-    ok.addEventListener('click', restore);
-    cancel.addEventListener('click', restore);
-    $('confirm-modal')?.addEventListener('click', onBackdrop);
-  }
+  // Diálogo de confirmación compartido (window.kruxConfirm)
+  const confirmThen = (...args) => window.kruxConfirm(...args);
 
   function requestClose() {
     const n = doneSetsTotal();
@@ -19617,6 +19726,9 @@ function makePcCard(d, isTop) {
   let pendingDeleteSi = -1;
   let saving = false;
   let mode = 'new';   // 'new' | 'draft' | 'edit'
+  let editId = null;          // plan guardado que se edita (planes múltiples)
+  let editRevision = null;    // revisión con la que se abrió: si cambia en el servidor, no se pisa
+  let onCloseCb = null;       // p. ej. volver a «Mis planes»
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
@@ -19650,7 +19762,25 @@ function makePcCard(d, isTop) {
     pendingDeleteSi = -1;
     saving = false;
     mode = 'new';
-    if (o.edit && window.kruxActivePlan && Array.isArray(window.kruxActivePlan.sessions)) {
+    editId = null; editRevision = null;
+    onCloseCb = typeof o.onClose === 'function' ? o.onClose : null;
+    // Planes múltiples: se edita el plan indicado (activo, inactivo o archivado)
+    const multi = !!window.KRUX_MULTIPLAN;
+    const planId = o.planId || (multi && o.edit && window.kruxActivePlan ? window.kruxActivePlan.id : null);
+    const source = planId ? (window.kruxPlans || []).find(p => p.id === planId) : null;
+    if (planId && (!source || source.status === 'trashed')) {
+      if (typeof showToast === 'function') showToast('Este plan no se puede editar', 'info', { detail: source ? 'Está en la papelera: restáuralo primero.' : 'Ya no existe.' });
+      const cb = onCloseCb; onCloseCb = null; if (cb) cb();
+      return;
+    }
+    if (source) {
+      mode = 'edit';
+      templateIdx = -1;
+      editId = source.id; editRevision = source.revision;
+      const p = clone(source);
+      p.sessions.forEach((s, i) => { s.expanded = i === 0; s.exercises = s.exercises || []; });
+      planData = linkAll(p);
+    } else if (o.edit && window.kruxActivePlan && Array.isArray(window.kruxActivePlan.sessions)) {
       mode = 'edit';
       templateIdx = -1;
       const p = clone(window.kruxActivePlan);
@@ -19679,6 +19809,8 @@ function makePcCard(d, isTop) {
     modal.classList.remove('pe-open');
     document.body.classList.remove('plan-editor-open');
     setTimeout(() => modal.classList.add('hidden'), 280);
+    const cb = onCloseCb; onCloseCb = null;
+    if (cb) cb();
   }
 
   const MODE_TEXT = {
@@ -19702,7 +19834,7 @@ function makePcCard(d, isTop) {
         </header>
 
         <div class="pe-scroll" id="pe-scroll">
-          ${mode !== 'edit' && window.kruxActivePlan && Array.isArray(window.kruxActivePlan.sessions) ? `
+          ${mode !== 'edit' && !window.KRUX_MULTIPLAN && window.kruxActivePlan && Array.isArray(window.kruxActivePlan.sessions) ? `
           <p class="pe-replace-note" role="note">Al guardar sustituirás tu plan activo «${trEsc(window.kruxActivePlan.name)}». Para cambiarlo sin perderlo, usa «Editar plan activo».</p>` : ''}
           <section class="pe-name-card" aria-labelledby="pe-name-label">
             <label class="pe-label pe-label--light" id="pe-name-label" for="pe-name-input">Nombre del plan</label>
@@ -20140,13 +20272,53 @@ function makePcCard(d, isTop) {
       return;
     }
 
+    const content = {
+      name, sessions: planData.sessions, activeDays: planData.activeDays, weeks: planData.weeks,
+      ...(planData.goal ? { goal: planData.goal, level: planData.level, equipment: planData.equipment } : {}),
+      ...(planData.minutes ? { minutes: planData.minutes } : {})
+    };
+    const signedIn = !!(firebase.auth().currentUser);
+    const multi = !!window.KRUX_MULTIPLAN && signedIn;
+    let savedNote = '';
+
+    if (multi) {
+      // Varios planes: cada plan es un documento. Si es nuevo se pregunta, siempre, si se activa.
+      let activate = false;
+      if (mode !== 'edit') {
+        activate = window.KruxPlansUI ? await window.KruxPlansUI.askActivate(name) : false;
+        if (activate === null) return;     // canceló: no se guarda nada
+      }
+      saving = true;
+      btn.disabled = true;
+      btn.classList.add('is-busy');
+      btn.querySelector('span').textContent = 'Guardando…';
+      window.kruxLastPlanError = '';
+      let ok;
+      if (mode === 'edit') {
+        const saved = await KruxTrainStore.plans.update(editId, content, editRevision);
+        ok = !!saved;
+        if (ok) { editRevision = saved.revision; await KruxTrainStore.plans.reload(); }
+      } else {
+        ok = !!(await KruxTrainStore.plans.create(content, { activate }));
+      }
+      saving = false;
+      if (!ok) {
+        btn.disabled = false;
+        btn.classList.remove('is-busy');
+        btn.querySelector('span').textContent = 'Guardar';
+        if (window.kruxLastPlanError === 'kx/conflict' || window.kruxLastPlanError === 'kx/plan-missing') showConflictBanner();
+        return;
+      }
+      savedNote = mode === 'edit' ? 'Cambios guardados.' : activate ? 'Guardado y activado.' : 'Guardado sin activar. Puedes activarlo desde «Mis planes».';
+      if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+    } else {
     // Plan activo en memoria (Entrena lo usa aunque no haya sesión iniciada)
     window.kruxActivePlan = {
-      name, sessions: planData.sessions, activeDays: planData.activeDays, weeks: planData.weeks,
-      ...(planData.goal ? { goal: planData.goal, level: planData.level, equipment: planData.equipment } : {})
+      ...content,
+      // Con un solo plan, editar conserva su identificador y revisión
+      ...(planData.id && window.KRUX_MULTIPLAN ? { id: planData.id, revision: planData.revision } : {})
     };
 
-    const signedIn = !!(firebase.auth().currentUser);
     if (signedIn) {
       saving = true;
       btn.disabled = true;
@@ -20164,6 +20336,7 @@ function makePcCard(d, isTop) {
       }
     }
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+    }
 
     const screen = document.querySelector('#plan-editor-modal .pe-screen');
     if (!screen) return;
@@ -20175,11 +20348,34 @@ function makePcCard(d, isTop) {
         <div class="pe-saved-icon">${SVG.checkBig}</div>
         <h2 class="pe-saved-title">${trEsc(name)}</h2>
         <p class="pe-saved-sub">${planData.weeks} ${planData.weeks === 1 ? 'semana' : 'semanas'} · ${planData.sessions.length} ${planData.sessions.length === 1 ? 'sesión' : 'sesiones'} · ${totalEx} ejercicios${activeDayLabels.length ? `<br>${activeDayLabels.join(' · ')}` : ''}</p>
-        <p class="pe-saved-note">${signedIn ? 'Guardado en tu cuenta.' : 'Inicia sesión para guardarlo en tu cuenta; si no, se perderá al cerrar KRUX.'}</p>
-        <button type="button" class="pe-save-btn pe-save-btn--wide" id="pe-saved-done"><span>Ir a Entrena</span></button>
+        <p class="pe-saved-note">${signedIn ? (savedNote || 'Guardado en tu cuenta.') : 'Inicia sesión para guardarlo en tu cuenta; si no, se perderá al cerrar KRUX.'}</p>
+        <button type="button" class="pe-save-btn pe-save-btn--wide" id="pe-saved-done"><span>${onCloseCb ? 'Volver a Mis planes' : 'Ir a Entrena'}</span></button>
       </div>`;
     document.getElementById('pe-saved-back').onclick = close;
     document.getElementById('pe-saved-done').onclick = close;
+  }
+
+  // Otro dispositivo cambió o borró el plan mientras se editaba: no se pisa, se ofrece recargarlo
+  function showConflictBanner() {
+    const scroll = document.getElementById('pe-scroll');
+    if (!scroll || document.getElementById('pe-conflict')) return;
+    const box = document.createElement('div');
+    box.id = 'pe-conflict';
+    box.className = 'pe-replace-note pe-conflict';
+    box.setAttribute('role', 'alert');
+    const gone = window.kruxLastPlanError === 'kx/plan-missing';
+    box.innerHTML = `<span>${gone ? 'Este plan ya no existe. Tus cambios no se han guardado.' : 'Este plan se modificó en otro dispositivo. Tus cambios no se han guardado para no pisar los de allí.'}</span>
+      ${gone ? '' : '<button type="button" class="pe-conflict-btn" id="pe-conflict-reload">Recargar el plan</button>'}`;
+    scroll.insertBefore(box, scroll.firstChild);
+    scroll.scrollTop = 0;
+    const reload = document.getElementById('pe-conflict-reload');
+    if (reload) reload.onclick = async () => {
+      reload.disabled = true;
+      await KruxTrainStore.plans.reload().catch(() => {});
+      const cb = onCloseCb; const id = editId;
+      onCloseCb = null;
+      open({ planId: id, onClose: cb });
+    };
   }
 
   window.openPlanEditor = open;

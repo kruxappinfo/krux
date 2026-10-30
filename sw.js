@@ -20,6 +20,7 @@ const STATIC_ASSETS = [
   './train-exercises.js',
   './train-plans.js',
   './train-library.js',
+  './train-plans-ui.js',
   './auth.js',
   './firebase-config.js',
   './maplibre-config.js',
