@@ -60,6 +60,19 @@ describe('catálogo mental: primera entrega', () => {
   });
 });
 
+describe('referencias internas', () => {
+  const titles = new Set(all.map(c => c.title));
+  const textOf = c => JSON.stringify({ o: c.objective, i: c.introduction, e: c.explanation, a: c.application, r: c.recommendations, s: c.steps, d: c.description, p: c.precautions, v: c.variants });
+  it('toda referencia «Título» tras «ver» o «está en» es el título exacto de una ficha', () => {
+    let n = 0;
+    all.forEach(c => [...textOf(c).matchAll(/(?:ver|está en) «([^»]+)»/g)].forEach(m => { n++; expect(titles, `${c.id} → «${m[1]}»`).toContain(m[1]); }));
+    expect(n).toBeGreaterThan(10);
+  });
+  it('ninguna ficha usa códigos internos (M05, D05…) como referencia visible', () => {
+    all.forEach(c => expect(textOf(c), c.id).not.toMatch(/\b[MCFPDTG]0\d\b/));
+  });
+});
+
 describe('seguridad', () => {
   const byCode = c => all.find(x => code(x) === c);
   it('M03, M04 y M08 tienen precaución reforzada', () => {

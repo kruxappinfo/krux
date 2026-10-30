@@ -68,8 +68,8 @@
       moments: ['antes'], safetyLevel: 'standard', related: ['m01-miedo-a-caer', 'd05-cuando-abandonar-un-intento'],
       objective: 'Distinguir el peligro objetivo de la sensación de peligro para decidir con más claridad.',
       introduction: 'Dos situaciones pueden dar el mismo miedo y tener riesgos muy distintos.',
-      explanation: 'El riesgo real se apoya en hechos comprobables: estado del material, tipo de terreno, distancia a la última protección, condiciones y preparación del equipo. El miedo percibido es lo que sientes: vértigo, sensación de vacío, ruido, mirar hacia abajo. A veces coinciden y a veces no. Un paso corto puede asustar mucho en un entorno bien protegido, y un tramo que no asusta puede ser serio si falta protección.',
-      application: 'Antes de empezar, separa dos listas: «lo que sé» (hechos que has comprobado) y «lo que siento». Decide con la primera y acompaña la segunda.',
+      explanation: 'El riesgo en escalada no depende de una única variable. Para valorarlo hay que tener en cuenta las condiciones del entorno, el estado del material, la protección, la competencia técnica de las personas implicadas y el contexto concreto. La sensación de peligro puede coincidir con un riesgo real, ser mayor o ser menor. Ninguna de las dos cosas debe ignorarse: sentir miedo no demuestra por sí solo que exista un peligro, y sentirse tranquilo tampoco demuestra que una situación sea segura.',
+      application: 'Antes de empezar, separa lo que has comprobado de lo que estás sintiendo. Revisa las condiciones y los elementos de seguridad dentro de lo que sabes hacer. Si tienes dudas sobre algo que excede tus conocimientos, consulta a una persona cualificada o elige otra vía.',
       recommendations: [
         'Dilo en voz alta con tu compañero: «lo que sé es…», «lo que siento es…».',
         'Si un hecho te preocupa, no lo rebajes: revísalo o elige otra vía.',
@@ -124,14 +124,14 @@
     lesson({
       id: 'f04-fatiga-y-frustracion', title: 'Fatiga y frustración: ¿insistir o parar?', categoryId: 'frustracion', durationMin: 4, durationLabel: '4 min',
       moments: ['durante'], related: ['d05-cuando-abandonar-un-intento', 'g02-exhalacion-larga-entre-movimientos', 'f05-objetivos-de-proceso'],
-      objective: 'Decidir si seguir o parar según tu estado físico y emocional. Los criterios de seguridad para abandonar un intento (condiciones, material, posición) están en «Decidir cuándo abandonar un intento» y tienen prioridad.',
+      objective: 'Decidir si seguir o parar según tu estado físico y emocional. Los criterios de seguridad para abandonar un intento (condiciones, material, posición) están en «Decidir cuándo abandonar un intento: criterios de seguridad» y tienen prioridad.',
       introduction: 'Insistir un poco puede ayudar. Insistir sin criterio suele empeorar el intento y aumentar la frustración.',
       explanation: 'Señales de fatiga: antebrazos que no recuperan, errores técnicos repetidos, pérdida de precisión. Señales de frustración: rabia, apretar de más, repetir lo mismo sin cambiar nada, el pensamiento «tiene que salir ya».',
-      application: 'Una regla útil: si en tres intentos seguidos no mejoras y vas peor, cambia algo (descansa, cambia de vía o termina por hoy).',
+      application: 'No existe un número universal de intentos a partir del cual debas parar. Observa cómo evoluciona tu estado: si recuperas entre intentos, mantienes la precisión y sigues tomando buenas decisiones, puedes continuar si las condiciones lo permiten. Si la fatiga se acumula, empeora la calidad de tus movimientos o la frustración te lleva a repetir intentos sin criterio, descansa, cambia de actividad o termina la sesión.',
       recommendations: [
-        'Decide antes cuántos intentos harás y cuánto descansarás.',
+        'Decide tus descansos según la intensidad del intento y tu recuperación. No continúes únicamente porque te hayas marcado un número de intentos.',
         'Descansa lo necesario para recuperar el pulso y los antebrazos.',
-        'Si notas rabia, haz una pausa antes de reintentar (ver «Objetivos de proceso» y «Exhalación larga entre movimientos»).'
+        'Si notas rabia, haz una pausa antes de reintentar (ver «Objetivos de proceso, no solo de resultado» y «Exhalación larga entre movimientos»).'
       ],
       summary: 'Parar a tiempo es parte del entrenamiento, no una derrota.',
       precautions: [
@@ -159,14 +159,15 @@
     lesson({
       id: 'd05-cuando-abandonar-un-intento', title: 'Decidir cuándo abandonar un intento: criterios de seguridad', categoryId: 'presion', durationMin: 5, durationLabel: '5 min',
       moments: ['durante'], safetyLevel: 'standard', related: ['d06-tres-decisiones-antes-de-empezar', 'f04-fatiga-y-frustracion', 'm08-protocolo-ante-un-bloqueo'],
-      objective: 'Conocer los criterios objetivos de seguridad que justifican abandonar un intento. Cómo gestionar la fatiga o la frustración está en «Fatiga y frustración».',
+      objective: 'Conocer los criterios objetivos de seguridad que justifican abandonar un intento. Cómo gestionar la fatiga o la frustración está en «Fatiga y frustración: ¿insistir o parar?».',
       introduction: 'Abandonar un intento por seguridad es una buena decisión, no un fracaso.',
-      explanation: 'Son motivos para parar: algo no está como esperabas con el material o el sistema de aseguramiento; las condiciones cambian (lluvia, viento, humedad, tormenta, oscuridad); apoyos o roca dudosos, o protección insuficiente o poco clara; la comunicación con tu compañero falla; sientes pérdida de control o pánico; notas un dolor súbito. Estas señales prevalecen sobre cualquier objetivo.',
+      explanation: 'Son motivos para parar: algo no está como esperabas con el material o el sistema de aseguramiento; las condiciones cambian (lluvia, viento, humedad, tormenta, oscuridad); apoyos o roca dudosos, o protección insuficiente o poco clara; la comunicación con tu compañero falla; sientes pérdida de control o pánico; notas un dolor súbito. Estas señales prevalecen sobre cualquier objetivo. Detectar una señal de riesgo no significa que debas improvisar una maniobra para salir de la situación. La forma de detener el intento o resolver el problema depende de tu posición, del sistema utilizado y de la formación técnica que hayas recibido.',
       application: 'Define tus criterios de parada antes de empezar (ver «Tres decisiones antes de empezar») y respétalos sin negociar en caliente.',
       recommendations: [
-        'Comunica «paro» con claridad.',
-        'Termina el intento de forma segura, con tu compañero.',
-        'Analiza lo ocurrido después, no durante.'
+        'Comunica la situación con claridad a tu compañero.',
+        'No improvises maniobras ni soluciones técnicas que no domines.',
+        'Actúa siguiendo los procedimientos que has aprendido y pide ayuda cuando sea necesario.',
+        'No permitas que el objetivo de encadenar, la presión del grupo o el tiempo invertido pesen más que la seguridad.'
       ],
       summary: 'La seguridad manda: ningún proyecto justifica ignorar una señal.',
       precautions: [
@@ -194,7 +195,7 @@
       moments: ['durante'], related: ['g02-exhalacion-larga-entre-movimientos', 'g03-relajacion-rapida'],
       objective: 'Reconocer las emociones que aparecen al escalar y qué hacen con tu movimiento.',
       introduction: 'Escalar activa emociones: ansiedad, rabia, euforia, aburrimiento. Todas son normales.',
-      explanation: 'La ansiedad suele traer rigidez, la rabia fuerza de más y la euforia imprudencia. Notarlas a tiempo te permite elegir cómo responder.',
+      explanation: 'Las emociones pueden influir en cómo escalas. La ansiedad puede aumentar la tensión, la rabia puede llevarte a hacer movimientos precipitados y la euforia puede reducir tu percepción del riesgo en determinadas situaciones. No ocurre siempre ni de la misma manera en todas las personas. Reconocer cómo te afecta cada emoción te ayuda a decidir con más claridad.',
       application: 'Aprende tus señales físicas: mandíbula, hombros, respiración, prisa.',
       recommendations: [
         'Nombra la emoción.',
@@ -262,7 +263,7 @@
         'Respira con suavidad y sin forzar. No retengas la respiración.',
         'Si notas mareo, hormigueo o falta de aire, para y respira con normalidad.',
         'Hazlo solo en una posición estable (en el suelo o en un reposo seguro) y nunca mientras se maniobra con material.',
-        'La calma no cambia el riesgo real: no la uses para obligarte a seguir si algo te parece inseguro; si no puedes continuar, para o baja (ver «Decidir cuándo abandonar un intento»).',
+        'La calma no cambia el riesgo real: no la uses para obligarte a seguir si algo te parece inseguro; si no puedes continuar, para o baja (ver «Decidir cuándo abandonar un intento: criterios de seguridad»).',
         'Si tienes problemas respiratorios o cardiacos, consulta antes con un profesional sanitario.',
         'No es terapia ni tratamiento de la ansiedad.'
       ]
@@ -273,13 +274,14 @@
       objective: 'Tener decidido de antemano un plan simple para cuando te quedes paralizado.',
       description: 'Un bloqueo es quedarte sin poder avanzar por miedo o tensión. Prepararlo en el suelo evita improvisar en caliente. La parte técnica la aprendes y practicas con tu formación; esto solo ordena tu decisión. Se prepara antes de escalar y se recuerda durante.',
       steps: [
-        'Nómbralo: «estoy bloqueado».',
-        'Comprueba tu posición: ¿estás estable? Solo si lo estás, respira y suelta la tensión que puedas.',
-        'Comunica a tu compañero cómo estás y qué necesitas, con las señales que acordasteis.',
-        'Elige una de tres opciones: seguir con un movimiento pequeño y concreto, descansar en una posición segura, o terminar el intento.',
-        'Si dudas entre seguir y parar, para. No hace falta justificarlo.'
+        'Reconoce lo que ocurre: «Estoy bloqueado».',
+        'Evita tomar decisiones precipitadas. Si puedes hacerlo sin comprometer tu posición, intenta recuperar la calma.',
+        'Comunica a tu compañero cómo estás y qué necesitas, utilizando las señales acordadas.',
+        'Valora la situación teniendo en cuenta tu posición, las condiciones y las maniobras que conoces.',
+        'Decide cómo proceder únicamente dentro de lo que sabes hacer y de las indicaciones de seguridad que has aprendido. Si no sabes cómo continuar o resolver la situación, pide ayuda.',
+        'No te obligues a seguir escalando por vergüenza, presión o miedo a decepcionar a alguien.'
       ],
-      completionCriteria: 'Elegiste una de las tres opciones y la comunicaste.',
+      completionCriteria: 'Has comunicado el bloqueo y has tomado una decisión acorde con tu posición, tus conocimientos y las condiciones de seguridad.',
       reflectionQuestions: ['¿Qué señales noto justo antes de bloquearme?', '¿Qué decisión me costó más tomar?'],
       precautions: [
         'No es una técnica de seguridad. Prepara estas decisiones con un instructor.',
@@ -353,7 +355,7 @@
       objective: 'Dirigir tu atención a dónde colocas los pies y cómo los cargas.',
       description: 'Escalar vías o bloques fáciles con un único foco: los pies.',
       steps: [
-        'Elige una vía fácil para ti (dos o tres grados por debajo de tu habitual).',
+        'Elige un itinerario claramente fácil y controlado para ti, en el que puedas concentrarte en la colocación de los pies sin que la dificultad física o técnica te distraiga.',
         'Antes de mover una mano, mira el pie y elige el apoyo.',
         'Colócalo con precisión, mirándolo hasta que haga contacto.',
         'Traslada el peso sobre ese pie antes de mover la mano.',
@@ -371,7 +373,7 @@
       id: 'c05-volver-al-presente-tras-un-error', title: 'Volver al presente tras un error', categoryId: 'concentracion', durationMin: 1, durationLabel: '1 min',
       moments: ['durante'], difficulty: 1, related: ['c04-atencion-a-los-apoyos'],
       objective: 'Recuperar el foco tras un fallo sin quedarte atrapado en él.',
-      description: 'Un «ancla» de tres pasos para usar en la pared. Para practicarla en el suelo, en un bloque fácil, provoca un fallo mínimo y entrénate en los tres pasos.',
+      description: 'Un «ancla» de tres pasos para usar en la pared. Practica los tres pasos después de recordar un error habitual o al terminar un intento fácil. No necesitas provocar fallos ni realizar movimientos incorrectos deliberadamente para entrenar esta habilidad.',
       steps: [
         'Nombra el error sin adjetivos: «el pie se resbaló».',
         'Respira una vez y suelta una parte tensa (por ejemplo, la mano libre).',
@@ -400,7 +402,7 @@
       reflectionQuestions: ['¿Qué parte me costó más escribir sin juzgarme?'],
       precautions: [
         'Analiza intentos, no personas. Si el análisis te hace sentir peor, déjalo para otro momento.',
-        'No uses esta ficha para decidir si es seguro reintentar: eso se decide con criterios de seguridad (ver «Decidir cuándo abandonar un intento»).'
+        'No uses esta ficha para decidir si es seguro reintentar: eso se decide con criterios de seguridad (ver «Decidir cuándo abandonar un intento: criterios de seguridad»).'
       ]
     }),
     exercise({
@@ -473,7 +475,7 @@
       description: 'Tres decisiones, dichas en voz alta con tu compañero, que ordenan el intento antes de empezar.',
       steps: [
         'Señal de seguir: qué tiene que cumplirse para continuar.',
-        'Señal de parar: criterios concretos de seguridad (ver «Decidir cuándo abandonar un intento») y de estado físico o emocional (ver «Fatiga y frustración») que paran el intento.',
+        'Señal de parar: criterios concretos de seguridad (ver «Decidir cuándo abandonar un intento: criterios de seguridad») y de estado físico o emocional (ver «Fatiga y frustración: ¿insistir o parar?») que paran el intento.',
         'Plan de salida: cómo terminarás el intento de forma segura y qué comunicarás a tu compañero.',
         'Dilo en voz alta con tu compañero y comprobad que lo entendéis igual.'
       ],
@@ -515,7 +517,7 @@
       precautions: [
         'Solo en una posición estable y con el aseguramiento en el que confías: no te distraigas si eso te deja en una posición comprometida.',
         'Exhala sin forzar y sin retener el aire; si te mareas o te hormiguean las manos, respira con normalidad.',
-        'No lo uses para forzarte a seguir si algo no es seguro: la decisión de parar prima (ver «Decidir cuándo abandonar un intento»).',
+        'No lo uses para forzarte a seguir si algo no es seguro: la decisión de parar prima (ver «Decidir cuándo abandonar un intento: criterios de seguridad»).',
         'Si las emociones intensas se repiten y te limitan, consulta con un profesional.',
         'No es terapia.'
       ]
