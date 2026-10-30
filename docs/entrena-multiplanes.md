@@ -1,7 +1,7 @@
 # Entrena — múltiples planes: arquitectura, migración y puesta en marcha
 
-Estado: **implementado en `dev`, desactivado por defecto**. Nada de esto afecta a usuarios reales hasta
-que se despliegue `firestore.rules` y se active el interruptor (ver «Activación»).
+Estado: **implementado en `dev` y activado por defecto** (reglas desplegadas; informe de migración de producción: 1 usuario, 0 conflictos).
+Interruptor de emergencia por dispositivo: `?multiplan=0`.
 
 ## 1. Estructura
 
@@ -70,7 +70,7 @@ de verdad y no hay copia de compatibilidad (decisión de producto). Estrategia:
 3. Publicar la app con `window.KRUX_MULTIPLAN` activado por defecto (cambio de una línea en `app_3.js`).
 4. Vigilar errores `kx/migration-conflict` y el contador de usuarios migrados.
 
-Mientras tanto, para probar con el emulador: `?multiplan=1` en la URL o `localStorage['krux.multiplan']='1'`.
+Interruptor por dispositivo: `?multiplan=0` apaga la arquitectura nueva (se recuerda en `localStorage['krux.multiplan']='0'`); `?multiplan=1` la vuelve a encender.
 
 ## 5. Reglas en dos pasos
 
