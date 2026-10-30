@@ -1,6 +1,6 @@
 // Mini cliente CDP: abre una URL en Chrome headless y espera a que document.title cambie (tiempo real)
 import { spawn } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
 const [url, doneRe = '^(T\\||ERR)', timeoutMs = '90000', width = '500', height = '900'] = process.argv.slice(2);
 const port = 9340 + Math.floor(Math.random() * 500);
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -14,7 +14,12 @@ try {
   ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise(r => ws.addEventListener('open', r));
   let id = 0; const pending = new Map();
-  ws.addEventListener('message', ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
+  const consoleLog = process.env.CONSOLE_LOG; if (consoleLog) writeFileSync(consoleLog, '');
+  ws.addEventListener('message', ev => {
+    const m = JSON.parse(ev.data);
+    if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
+    else if (consoleLog && (m.method === 'Runtime.consoleAPICalled' || m.method === 'Runtime.exceptionThrown')) appendFileSync(consoleLog, Date.now() + ' ' + (m.method === 'Runtime.exceptionThrown' ? 'EXC ' + JSON.stringify(m.params.exceptionDetails.text) : (m.params.type + ' ' + m.params.args.map(a => a.value !== undefined ? a.value : a.description).join(' ').slice(0, 400))) + '\n');
+  });
   const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   await send('Page.enable'); await send('Runtime.enable');
   await send('Page.navigate', { url });

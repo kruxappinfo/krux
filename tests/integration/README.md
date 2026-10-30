@@ -39,3 +39,22 @@ SHOTS_DIR=/ruta SHOT_W=390 WRAP=390 QS='&coach=1&shots=1' tests/integration/harn
 ```
 `WRAP=<ancho>` carga la página en un iframe de ese ancho (el Chrome sin pantalla no baja de ~500 px) y la prueba revisa
 que ningún control mida menos de 44×44 px ni desborde en horizontal.
+
+## Registro final y modo clásico
+```bash
+tests/integration/harness/registro-final.sh                # planes múltiples: 5 cierres × 2 reaperturas
+tests/integration/harness/registro-final-clasico.sh        # igual con ?multiplan=0 (sesión y registro protegidos por la cola local)
+```
+
+## Fallos intermitentes conocidos (de entorno, no de la app)
+`multi` (`u7_detecta`, `u9_registroLegibleSinPlan`, «client is offline», cuelgues en `cycle`), `o3_colaVacia`, `o5` y, de
+forma rara, `verificacionRegistro` fallan a veces en la preparación. Diagnóstico (30-oct-2026):
+- Con el registro del SDK (`QS='&fsdebug=1'` y `CONSOLE_LOG=/ruta.log`) se ve que, tras un cierre y entrada de sesión, los canales
+  `Listen` y `Write` de Firestore no reciben respuesta durante 55-60 s mientras las lecturas REST sí responden y el emulador
+  está inactivo y sin errores. Después todo se recupera solo.
+- `u7_detecta` espera 20 s a que llegue el aviso de cambios con la app antigua y `u9` lee `kruxActivePlan` (todavía `null`):
+  fallan porque la carga de la app aún no ha terminado, no por la lógica. Cuando la carga acaba a tiempo dan el resultado correcto.
+- No ocurre con el SDK solo (40 ciclos de cierre/entrada con 8-16 oyentes y escrituras: 0 bloqueos), y forzar *long polling* no lo evita
+  (4 de 8 con *long polling* forzado, 5 de 8 sin él), así que no es un problema del transporte concreto.
+- Reiniciar el emulador no cambia la tasa. Los mismos fallos aparecen con el código y las reglas anteriores.
+`cycle` deja marcas en el título (`ciclo:signOut|signIn|waitServer|fin`) para ver dónde se queda cada cuelgue.

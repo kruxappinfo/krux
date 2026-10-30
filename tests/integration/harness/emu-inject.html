@@ -1058,13 +1058,20 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
     const T = {};          // resultados que deben ser true
     const note = (k, ok, extra) => { T[k] = !!ok; if (!ok || extra) R[k] = extra === undefined ? 'FALLA' : extra; document.title = 'P|' + Object.keys(T).length + '|ultimo=' + k + '|fallos=' + Object.entries(T).filter(([a, b]) => !b).map(([a]) => a).join(',') + '|step=' + (R.step || ''); };
     try {
+      if (q.get('fsdebug')) firebase.firestore.setLogLevel('debug');
       const P = window.KruxPlans, ST = KruxTrainStore.plans;
       const FV = firebase.firestore.FieldValue;
       const mk = async () => { const e = 'm' + Date.now() + Math.floor(Math.random() * 9999) + '@t.dev'; const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); const u = { email: e, uid: c.user.uid }; for (let i = 0; i < 12; i++) { try { await db.collection('users').doc(u.uid).get({ source: 'server' }); break; } catch (er) { await w(1000); } } await w(800); return u; };
       const ud = u => db.collection('users').doc(u.uid);
       // Tras cambiar de cuenta el cliente puede tardar unos segundos en reconectar: se espera a que el servidor responda
       const waitServer = async u => { for (let i = 0; i < 12; i++) { try { await db.collection('users').doc(u.uid).get({ source: 'server' }); return; } catch (er) { await w(1000); } } };
-      const cycle = async u => { await firebase.auth().signOut(); await w(300); await firebase.auth().signInWithEmailAndPassword(u.email, 'password123'); await waitServer(u); await w(1800); };
+      const cycle = async u => {
+        const mark = s => { R.cyc = s; document.title = 'P|ciclo:' + s + '|' + (R.cycN = (R.cycN || 0) + 1); };
+        mark('signOut'); await firebase.auth().signOut(); await w(300);
+        mark('signIn'); await firebase.auth().signInWithEmailAndPassword(u.email, 'password123');
+        mark('waitServer'); await waitServer(u);
+        mark('fin'); await w(1800);
+      };
       R.trace = []; const chk = async (label) => { try { const sn = await ud(u1).collection('training_plans').get(); R.trace.push(label + ':' + sn.size + (sn.metadata.fromCache ? 'C' : '')); } catch (er) { R.trace.push(label + ':ERR'); } };
       const snapOf = async ref => { const d = await ref.get(); return d.exists ? JSON.stringify(d.data(), (k, v) => (v && v.seconds !== undefined && v.nanoseconds !== undefined ? 'TS:' + v.seconds + '.' + v.nanoseconds : v)) : null; };
       const ex = (name, o) => Object.assign({ name, sets: 3, workSec: 0, reps: 8, weight: 0, restSec: 90, rpeTarget: 7 }, o || {});
