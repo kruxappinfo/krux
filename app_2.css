@@ -20766,6 +20766,9 @@ body.plan-editor-open { overflow: hidden; }
   transition: background-color 0.18s, color 0.18s, transform 0.12s var(--tr-ease);
 }
 .pe-day-pill:active { transform: scale(0.94); }
+/* Área táctil: cubre el hueco entre botones (3 px a cada lado) sin cambiar el diseño visible */
+.pe-day-pill { position: relative; }
+.pe-day-pill::before { content: ''; position: absolute; inset: 0 -3px; }
 .pe-day-pill.on {
   background: var(--tr-green-btn);
   color: #fff;
