@@ -17916,6 +17916,30 @@ const KruxTrainStore = (() => {
     return flushing;
   }
 
+  // Lo esencial que debe tener el documento escrito: fecha, duración, ejercicios y series, la fecha de creación fijada y
+  // el registro final (sensación, esfuerzo, notas y etiquetas). Compara contra lo que se envió, no contra la memoria.
+  function matchesWritten(data, e) {
+    if (!data) return false;
+    if (e.kind === 'session') {
+      const p = e.payload || {};
+      const sets = list => (list || []).reduce((n, x) => n + ((x && x.sets) || []).length, 0);
+      if (data.dateKey !== p.dateKey || data.sessionName !== p.sessionName) return false;
+      if (Number(data.durationSec) !== Number(p.durationSec) || Number(data.startedAt) !== Number(p.startedAt)) return false;
+      if (!Array.isArray(data.exercises) || data.exercises.length !== (p.exercises || []).length || sets(data.exercises) !== sets(p.exercises)) return false;
+      const created = data.createdAt && typeof data.createdAt.toMillis === 'function' ? data.createdAt.toMillis() : null;
+      if (created !== e.createdAtMs) return false;
+    }
+    const wanted = e.kind === 'session' ? (e.log || {}) : (e.fields || {});
+    return Object.keys(wanted).every(k => JSON.stringify(data[k]) === JSON.stringify(wanted[k]));
+  }
+
+  async function verifyWritten(ref, e) {
+    let snap;
+    try { snap = await ack(ref.get({ source: 'server' }), 8000); }
+    catch (error) { throw Object.assign(new Error('No se pudo verificar la escritura'), { code: 'kx/not-verified', cause: error }); }
+    if (!snap || !snap.exists || !matchesWritten(snap.data(), e)) throw Object.assign(new Error('El servidor no devuelve lo escrito'), { code: 'kx/not-verified' });
+  }
+
   async function doFlush() {
     const u = uid();
     if (navigator.onLine === false) return;                  // sin red conocida: ni se intenta (la sesión ya está a salvo en la cola)
@@ -17931,13 +17955,16 @@ const KruxTrainStore = (() => {
         } else {
           await ack(ref.update(e.fields), 8000);
         }
-        // Confirmado por el servidor: sale de la cola y el registro en memoria pasa a «guardado»
+        // La confirmación no basta: se lee el documento del servidor y se comprueba que existe y trae lo escrito.
+        // Si la lectura falla, no responde o no coincide, la sesión sigue en la cola y se reintenta (mismo id, mismo contenido).
+        await verifyWritten(ref, e);
+        // Confirmado y verificado: sale de la cola y el registro en memoria pasa a «guardado»
         saveQueue(u, queueOf(u).filter(x => x.id !== e.id));
         (window.kruxTrainLog || []).forEach(r => { if (r.pendingId === e.id) { r.id = e.id; delete r.pendingId; delete r.pendingState; } });
         (liveRecords.get(e.id) || []).forEach(rec => { rec.id = e.id; rec.syncState = 'synced'; });
         liveRecords.delete(e.id);
       } catch (error) {
-        if (isNetworkError(error)) {                                                                                  // sin red: se queda pendiente
+        if (isNetworkError(error) || (error && error.code === 'kx/not-verified')) {                                    // sin red o sin verificar: se queda pendiente
           e.lastError = String(error.code || 'network');
           saveQueue(u, queueOf(u));
           // Con la red «disponible» pero sin respuesta, se reintenta pronto (5 s, 10 s, 20 s… hasta 60 s)
@@ -18080,10 +18107,16 @@ const KruxTrainStore = (() => {
         return rec.syncState === 'synced';
       }
       if (!rec.id) return false;
-      try { await ack(userRef().collection('training_sessions').doc(rec.id).update(log)); return true; }
-      catch (error) {
-        if (!isNetworkError(error)) { reportError('No se ha podido guardar el registro', error); return false; }
-        saveQueue(u, list.concat({ id: rec.id, uid: u, kind: 'patch', fields: log, state: 'pending', attempts: 0, lastError: '', queuedAt: Date.now() }));
+      try {
+        const ref = userRef().collection('training_sessions').doc(rec.id);
+        await ack(ref.update(log));
+        await verifyWritten(ref, { kind: 'patch', fields: log });     // sensación, esfuerzo, notas y etiquetas: se comprueban en el servidor
+        return true;
+      } catch (error) {
+        const unverified = !!error && error.code === 'kx/not-verified';
+        if (!isNetworkError(error) && !unverified) { reportError('No se ha podido guardar el registro', error); return false; }
+        saveQueue(u, list.concat({ id: rec.id, uid: u, kind: 'patch', fields: log, state: 'pending', attempts: 0, lastError: unverified ? 'kx/not-verified' : '', queuedAt: Date.now() }));
+        if (unverified) flush();                                       // el reintento (con su propia verificación) sale ya
         return false;
       }
     }

@@ -282,6 +282,139 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
         note('o5_cuotaSincronizaAlVolver', ST.sync.info().pending === 0 && (await db.collection('users').doc(uidNow()).collection('training_sessions').get({ source: 'server' })).size === 4);
       }
 
+
+      // ═════════ Verificación posterior a la confirmación (off8, off9a/off9b, off10) ═════════
+      const dayKey = () => trDateKey(new Date());
+      const runSessionNotes = async (feel, notes) => {      // como runSession, pero también escribe las notas
+        window.__s = 1; openActiveSession(); await w(700);
+        for (let i = 0; i < 12; i++) { if (await act('session-btn-set', 300)) { document.querySelector('#session-rpe-dots [data-rpe="7"]')?.click(); await w(150); continue; } if (await act('session-btn-main', 400)) continue; break; }
+        await act('session-finish-btn', 300); await act('confirm-ok', 400);
+        document.querySelector('[data-feel="' + feel + '"]')?.click(); document.querySelector('#plog-rpe-row [data-rpe="6"]')?.click();
+        const nt = $('plog-notes'); if (nt) { nt.value = notes; nt.dispatchEvent(new Event('input', { bubbles: true })); }
+        await w(100); $('plog-save-btn')?.click(); await w(1500);
+        const hint = $('plog-done-hint') ? $('plog-done-hint').textContent : '';
+        $('plog-close-done')?.click(); await w(400);
+        return hint;
+      };
+      const planBody = nm => ({ name: nm, weeks: 4, activeDays: [true, true, true, true, true, true, true], sessions: ['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => ({ day: d, name: 'Sesión ' + d, exercises: [ex('Plancha', { workSec: 0, reps: 5 })] })) });
+      const entriesNow = () => ST.sync.info().entries;
+      const rawQueue = () => JSON.parse(localStorage.getItem(lsKeys().find(k => k.includes('.pending.')) || 'x') || '[]');
+      // Sustituye ref.get() de las sesiones: 'falla' rechaza, 'sinDocumento' devuelve «no existe», 'distinto' devuelve el documento con otra duración, 'cuelga' no responde nunca (skip: lecturas que se dejan pasar antes)
+      const patchGet = (mode, times, skip) => {
+        const proto = firebase.firestore.DocumentReference.prototype; const orig = proto.get; let n = 0; let seen = 0; const log = [];
+        proto.get = function (...a) {
+          if (/training_sessions/.test(this.path) && seen++ >= (skip || 0) && n < times) {
+            n++; log.push(mode);
+            if (mode === 'falla') return Promise.reject(Object.assign(new Error('unavailable'), { code: 'unavailable' }));
+            if (mode === 'cuelga') return new Promise(() => {});
+            return orig.apply(this, a).then(snap => (mode === 'sinDocumento'
+              ? { exists: false, data: () => undefined, id: snap.id }
+              : { exists: true, id: snap.id, data: () => Object.assign({}, snap.data(), { durationSec: (snap.data().durationSec || 0) + 1 }) }));
+          }
+          return orig.apply(this, a);
+        };
+        return { restore: () => { proto.get = orig; }, count: () => n, log };
+      };
+      const integridad = (d, exp) => !!d && d.dateKey === exp.dateKey && d.feel === exp.feel && d.rpe === 6 && d.notes === exp.notes && d.createdAt.toMillis() === exp.createdAtMs && d.exercises.length >= 1 && Array.isArray(d.tags);
+
+      if (state === 'off8') {          // ── la verificación: lectura fallida, documento ausente o distinto, y reconexión
+        const e = 'off8' + Date.now() + '@t.dev';
+        const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1800);
+        await ST.plans.create(planBody('Plan verificación'), { activate: true }); await w(500);
+        switchView('train-view'); await w(500);
+        const col = () => db.collection('users').doc(c.user.uid).collection('training_sessions');
+        const scenario = async (key, mode, times, feel, notes) => {
+          const g = patchGet(mode, times);
+          await runSessionNotes(feel, notes);
+          for (let i = 0; i < 40 && !(entriesNow().some(x => x.lastError === 'kx/not-verified')); i++) await w(300);
+          const ent = entriesNow()[0] || {}; const raw = rawQueue()[0] || {};
+          const midServer = await col().get({ source: 'server' });
+          note(key + '_sinVerificarSeQuedaEnCola', ST.sync.info().pending === 1 && ent.state === 'pending' && ent.lastError === 'kx/not-verified' && raw.id === ent.id, JSON.stringify([ST.sync.info().pending, ent.state, ent.lastError]));
+          note(key + '_noSeDescarta', ST.sync.info().conflicts === 0 && !!raw.id);
+          const t0 = Date.now(); g.restore();
+          for (let i = 0; i < 80 && ST.sync.info().pending > 0; i++) await w(500);
+          const after = await col().get({ source: 'server' }); const doc = after.docs.find(d => d.id === ent.id);
+          note(key + '_seRecupera', ST.sync.info().pending === 0 && ST.sync.info().conflicts === 0, 'ms=' + (Date.now() - t0) + ' ' + JSON.stringify(ST.sync.info()).slice(0, 120));
+          note(key + '_mismoId', !!doc && after.size === midServer.size + (midServer.docs.some(d => d.id === ent.id) ? 0 : 1), after.size + '/' + midServer.size);
+          note(key + '_integridad', integridad(doc && doc.data(), { dateKey: dayKey(), feel, notes, createdAtMs: raw.createdAtMs }), JSON.stringify(doc && [doc.data().dateKey, doc.data().feel, doc.data().rpe, doc.data().notes]));
+          return after.size;
+        };
+        const n1 = await scenario('s2_lecturaFallida', 'falla', 2, 'great', 'nota uno: lectura fallida');
+        const n2 = await scenario('s2_sinDocumento', 'sinDocumento', 2, 'beast', 'nota dos: documento ausente');
+        const n3 = await scenario('s2_documentoDistinto', 'distinto', 2, 'ok', 'nota tres: documento distinto');
+        note('s2_sinDuplicadosAlFinal', n1 === 1 && n2 === 2 && n3 === 3, [n1, n2, n3].join());
+        // Registro final (sensación, esfuerzo, notas): se deja pasar la verificación de la sesión y falla la del parche
+        { const gp = patchGet('falla', 1, 1);
+          await runSessionNotes('beast', 'nota parche: registro final');
+          for (let i = 0; i < 40 && gp.count() < 1; i++) await w(300);
+          const rawP = rawQueue()[0] || {};
+          note('s5p_parcheSeQuedaEnCola', gp.count() === 1 && (ST.sync.info().pending === 1 || ST.sync.info().pending === 0), JSON.stringify([gp.count(), ST.sync.info().pending, rawP.kind]));
+          for (let i = 0; i < 80 && ST.sync.info().pending > 0; i++) await w(500);
+          const sp = await col().get({ source: 'server' });
+          const docP = sp.docs.find(d => d.data().notes === 'nota parche: registro final');
+          note('s5p_registroFinalLlegaIntegro', !!docP && docP.data().feel === 'beast' && docP.data().rpe === 6 && ST.sync.info().pending === 0 && sp.size === 4, JSON.stringify([sp.size, docP && docP.data().feel, docP && docP.data().notes]));
+          gp.restore(); }
+        // Recuperación tras reconexión: la sesión se hace sin red; al volver, la primera lectura de verificación falla
+        const g4 = patchGet('falla', 1);
+        await goOffline();
+        await runSessionNotes('bad', 'nota cuatro: sin red');
+        note('s4_enColaSinRed', ST.sync.info().pending === 1 && g4.count() === 0, JSON.stringify([ST.sync.info().pending, g4.count()]));
+        const raw4 = rawQueue()[0] || {};
+        await goOnline();
+        for (let i = 0; i < 80 && ST.sync.info().pending > 0; i++) await w(500);
+        const fin4 = await col().get({ source: 'server' }); const doc4 = fin4.docs.find(d => d.id === raw4.id);
+        note('s4_reconexionRecupera', ST.sync.info().pending === 0 && fin4.size === 5 && g4.count() === 1, JSON.stringify([ST.sync.info().pending, fin4.size, g4.count()]));
+        note('s4_integridad', integridad(doc4 && doc4.data(), { dateKey: dayKey(), feel: 'bad', notes: 'nota cuatro: sin red', createdAtMs: raw4.createdAtMs }));
+        g4.restore();
+        note('s_idsUnicos', new Set(fin4.docs.map(d => d.id)).size === 5);
+        note('s_registrosEnPantallaSincronizados', !(window.kruxTrainLog || []).some(r => r.pendingId));
+      }
+
+      if (state === 'off9a') {          // ── primera mitad del «cierre de la app entre la escritura y la verificación»
+        const e = 'off9' + Date.now() + '@t.dev'; localStorage.setItem('t.email9', e);
+        const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1800);
+        await ST.plans.create(planBody('Plan cierre'), { activate: true }); await w(500);
+        switchView('train-view'); await w(500);
+        const g = patchGet('cuelga', 99);                   // la verificación no responde nunca: aquí «se cierra» la app
+        await runSessionNotes('great', 'nota nueve: cierre de la app');
+        // «Cerrar la app» justo cuando ya está la sesión escrita, el registro final adjunto a la cola y la verificación sin responder
+        for (let i = 0; i < 80 && !(g.count() >= 1 && (rawQueue()[0] || {}).log); i++) await w(300);
+        const raw = rawQueue()[0] || {};
+        const srv = await db.collection('users').doc(c.user.uid).collection('training_sessions').get({ source: 'server' });
+        note('s3a_registroFinalEnLaCola', !!raw.log && raw.log.feel === 'great' && raw.log.notes === 'nota nueve: cierre de la app', JSON.stringify(raw.log));
+        note('s3a_escritaEnServidor', srv.size === 1 && srv.docs[0].id === raw.id, JSON.stringify([srv.size, srv.docs[0] && srv.docs[0].id, raw.id]));
+        note('s3a_siguePendienteEnDisco', ST.sync.info().pending === 1 && lsKeys().some(k => k.includes('.pending.' + c.user.uid)) && raw.state === 'pending', JSON.stringify([ST.sync.info().pending, raw.state]));
+        R.dbg9 = JSON.stringify({ log: raw.log, attempts: raw.attempts, lastError: raw.lastError, ids: rawQueue().map(z => z.id.slice(0, 5)), hint: ($('plog-done-hint') || {}).textContent });
+        localStorage.setItem('t.exp9', JSON.stringify({ id: raw.id, createdAtMs: raw.createdAtMs, dateKey: dayKey(), feel: 'great', notes: 'nota nueve: cierre de la app' }));
+      }
+      if (state === 'off9b') {          // ── segunda mitad: la app se abre de nuevo (otra carga de página, mismo almacenamiento local)
+        const exp = JSON.parse(localStorage.getItem('t.exp9') || '{}');
+        for (let i = 0; i < 80 && !(uidNow() && ST.sync.info().pending === 0 && window.kruxTrainLog); i++) await w(500);
+        const srv = await db.collection('users').doc(uidNow()).collection('training_sessions').get({ source: 'server' });
+        const doc = srv.docs.find(d => d.id === exp.id);
+        note('s3b_colaVaciaTrasReabrir', ST.sync.info().pending === 0 && ST.sync.info().conflicts === 0 && !rawQueue().length, JSON.stringify(ST.sync.info()).slice(0, 160));
+        note('s3b_unSoloDocumentoMismoId', srv.size === 1 && !!doc, srv.size);
+        note('s3b_integridad', integridad(doc && doc.data(), exp), JSON.stringify(doc && [doc.data().dateKey, doc.data().feel, doc.data().rpe, doc.data().notes, doc.data().createdAt.toMillis(), exp.createdAtMs]));
+        note('s3b_historialMuestraLaSesion', (window.kruxTrainLog || []).some(r => r.id === exp.id) && (window.kruxTrainLog || []).filter(r => r.id === exp.id).length === 1, 'log=' + (window.kruxTrainLog || []).length);
+      }
+
+      if (state === 'off10') {          // ── dos dispositivos con la misma cuenta, cada uno con una sesión sin enviar
+        const email = q.get('email'); const at = parseInt(q.get('at'), 10); const who = q.get('who');
+        await firebase.auth().signInWithEmailAndPassword(email, 'password123');
+        for (let i = 0; i < 80 && !(uidNow() && window.kruxActivePlan && window.kruxTrainData && !window.kruxTrainData.demo && window.kruxTrainData.exercises.length); i++) await w(300);
+        switchView('train-view'); await w(500);
+        const g = who === 'A' ? patchGet('falla', 2) : null;      // el dispositivo A tiene lecturas de verificación fallidas
+        await goOffline();
+        await runSessionNotes(who === 'A' ? 'great' : 'ok', 'nota del dispositivo ' + who);
+        const mine = (rawQueue()[0] || {});
+        R.miId = mine.id; R.miCreatedAtMs = mine.createdAtMs; R.enColaSinRed = ST.sync.info().pending;
+        while (Date.now() < at) await w(20);                       // los dos recuperan la red a la vez
+        await goOnline();
+        for (let i = 0; i < 90 && ST.sync.info().pending > 0; i++) await w(500);
+        R.pendientesAlFinal = ST.sync.info().pending; R.conflictos = ST.sync.info().conflicts; R.lecturasFalladas = g ? g.count() : 0;
+        if (g) g.restore();
+      }
+
       if (state === 'off7') {          // ── recuperación: la escritura SÍ se aplica en el servidor pero la confirmación no llega
         const e = 'off7' + Date.now() + '@t.dev';
         const c = await firebase.auth().createUserWithEmailAndPassword(e, 'password123'); await w(1800);
