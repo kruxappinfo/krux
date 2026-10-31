@@ -6,13 +6,16 @@
 // El contenido es orientativo y está pendiente de revisión profesional: el aviso se muestra siempre.
 //
 // Persistencia: el catálogo va empaquetado (funciona sin conexión). Lo completado se guarda solo en este dispositivo
-// (localStorage, por usuario): no hay escritura en Firestore ni cola nueva. Añadir un ejercicio a una sesión usa el
-// guardado de planes de siempre (KruxTrainStore.savePlan, con control de revisión).
+// (localStorage, por usuario): no hay escritura en Firestore ni cola nueva. Sin sesión iniciada se guarda bajo «anon»
+// y ese progreso NO se transfiere a la cuenta al iniciar sesión (de momento). Añadir o quitar un ejercicio de una sesión
+// usa el guardado de planes de siempre (KruxTrainStore.savePlan, con control de revisión) a través de KruxMentalOps:
+// el plan en memoria solo cambia cuando el servidor confirma. La lógica vive en train-mental-ops.js.
 (function () {
   'use strict';
 
   const D = window.KRUX_MENTAL_DATA;
-  if (!D || !window.KRUX_COACH) return;
+  const OPS = window.KruxMentalOps;
+  if (!D || !OPS || !window.KRUX_COACH) return;
 
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -51,18 +54,25 @@
   // LO COMPLETADO (solo en este dispositivo)
   // ============================================
   const uid = () => { try { const u = firebase.auth().currentUser; return u ? u.uid : null; } catch (_) { return null; } };
-  const lsKey = () => `krux.mental.v1.${uid() || 'anon'}`;
   const todayKey = () => (typeof trDateKey === 'function' ? trDateKey(new Date()) : new Date().toISOString().slice(0, 10));
-  function readDone() {
-    try { const o = JSON.parse(localStorage.getItem(lsKey()) || '{}'); return o && typeof o.done === 'object' && o.done ? o.done : {}; } catch (_) { return {}; }
-  }
-  function markDone(id) {
-    const done = readDone();
-    const cur = done[id] || { n: 0 };
-    done[id] = { n: cur.n + 1, last: todayKey() };
-    try { localStorage.setItem(lsKey(), JSON.stringify({ v: 1, done })); return true; } catch (_) { return false; }
-  }
-  const doneToday = id => { const d = readDone()[id]; return !!d && d.last === todayKey(); };
+  const progress = OPS.createProgress({ storage: () => window.localStorage, uid, today: todayKey });
+  const readDone = progress.read;
+  const markDone = progress.mark;
+  const doneToday = progress.doneToday;
+
+  // Guardado de sessions[].mental[]: en fila y sin tocar el plan en memoria hasta que el servidor confirme
+  const ops = OPS.createOps({
+    limit: MAX_MENTAL,
+    isMulti: () => !!window.KRUX_MULTIPLAN,
+    plans: () => [window.kruxActivePlan].concat(window.kruxPlans || []).filter(Boolean),
+    savePlan: plan => window.KruxTrainStore.savePlan(plan)
+  });
+  const FAIL = {
+    guardado: ['No se ha podido guardar', 'Inténtalo de nuevo cuando haya conexión.'],
+    error: ['No se ha podido guardar', 'Ha ocurrido un error inesperado. Inténtalo de nuevo.'],
+    plan: ['El plan ha cambiado', 'Vuelve a abrir Entrena e inténtalo de nuevo.'],
+    limite: [`Esta sesión ya tiene ${MAX_MENTAL} ejercicios mentales`, 'Quita alguno para añadir otro.']
+  };
 
   // ============================================
   // MODAL Y NAVEGACIÓN
@@ -201,9 +211,13 @@
 
   function doneScreen() {
     const c = BY_ID.get(view.id);
+    // Solo se dice que queda anotado si el dispositivo lo ha guardado de verdad
+    const note = view.saved
+      ? 'Queda anotado en este dispositivo. Puedes repetirlo cuando quieras.'
+      : 'No se ha podido anotar en este dispositivo (el almacenamiento no está disponible), así que no constará como hecho. Puedes repetirlo cuando quieras.';
     return shell({
-      title: 'Ejercicio completado', sub: c.title, close: true,
-      body: `<div class="mx-card"><p class="mx-big">Hecho. Gracias por dedicarle un rato.</p><p class="xl-text">Queda anotado en este dispositivo. Puedes repetirlo cuando quieras.</p></div>${relatedHTML(c)}`,
+      title: view.saved ? 'Ejercicio completado' : 'Ejercicio terminado', sub: c.title, close: true,
+      body: `<div class="mx-card"><p class="mx-big">${view.saved ? 'Hecho. Gracias por dedicarle un rato.' : 'Has llegado al final del ejercicio.'}</p><p class="xl-text">${note}</p></div>${relatedHTML(c)}`,
       footer: `<div class="cx-footer-stack"><button type="button" class="cx-btn cx-btn--primary" data-mx="home">Volver a la biblioteca</button></div>`
     });
   }
@@ -243,30 +257,24 @@
   async function addToSession(i) {
     const plan = targetPlan(); const c = BY_ID.get(view.id);
     const sess = plan && plan.sessions[i];
-    if (!sess || (sess.mental || []).some(m => m.id === c.id) || (sess.mental || []).length >= MAX_MENTAL) return;
+    if (!sess) return;
     if (!window.KruxTrainStore || !firebase.auth().currentUser) { toast('Inicia sesión para guardarlo en tu plan', 'info'); return; }
-    const before = sess.mental ? sess.mental.slice() : undefined;
-    sess.mental = (sess.mental || []).concat([{ id: c.id, contentVersion: c.contentVersion || 1 }]);
-    const ok = await window.KruxTrainStore.savePlan(plan);
-    if (!ok) {
-      // El guardado falló (sin conexión o plan cambiado en otro dispositivo): no queda nada a medias en pantalla
-      if (before) sess.mental = before; else delete sess.mental;
-      toast('No se ha podido añadir', 'error', { detail: 'Inténtalo de nuevo cuando haya conexión.' });
-      render();
+    const res = await ops.add(plan, sess, c.id, c.contentVersion || 1);
+    const here = view && view.type === 'add' && view.id === c.id;
+    if (!res.ok) {
+      if (FAIL[res.reason]) toast(FAIL[res.reason][0], 'error', { detail: FAIL[res.reason][1] });
+      if (here) render();
       return;
     }
     toast('Añadido a la sesión', 'success');
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
-    back();
+    if (here) back();
   }
 
   async function removeFromSession(planRef, sess, id) {
     if (!window.KruxTrainStore) return;
-    const before = (sess.mental || []).slice();
-    const next = before.filter(m => m.id !== id);
-    if (next.length) sess.mental = next; else delete sess.mental;
-    const ok = await window.KruxTrainStore.savePlan(planRef);
-    if (!ok) { sess.mental = before; toast('No se ha podido quitar', 'error', { detail: 'Inténtalo de nuevo cuando haya conexión.' }); }
+    const res = await ops.remove(planRef, sess, id);
+    if (!res.ok && FAIL[res.reason]) toast(FAIL[res.reason][0], 'error', { detail: FAIL[res.reason][1] });
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView(); else renderSession(lastSession);
   }
 
@@ -318,7 +326,7 @@
             const id = view.id;
             const saved = markDone(id);
             if (!saved) toast('No se ha podido anotar en este dispositivo', 'info');
-            view = { type: 'done', id }; stack = stack.filter(v => v.type !== 'run'); render();
+            view = { type: 'done', id, saved }; stack = stack.filter(v => v.type !== 'run'); render();
             break;
           }
           case 'add': go({ type: 'add', id: view.id }); break;

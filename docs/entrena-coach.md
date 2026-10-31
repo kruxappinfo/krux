@@ -109,4 +109,9 @@ en la web (no hay botón; en la app nativa es prácticamente inalcanzable).
   Se guarda con el guardado de planes de siempre (`KruxTrainStore.savePlan`, con control de revisión), en multi y en clásico.
   Las reglas ya publicadas y las preparadas no validan el contenido de cada sesión: no hace falta cambiarlas.
 - Lo completado se guarda **solo en este dispositivo** (`krux.mental.v1.{uid}`); su sincronización queda para la fase 4.
+  Si el almacenamiento falla, la pantalla final no dice que quedó anotado.
+- **Progreso anónimo:** sin sesión iniciada se guarda bajo `krux.mental.v1.anon`. Ese progreso **no se transfiere a la cuenta al
+  iniciar sesión** (limitación actual, sin migración prevista todavía).
+- Añadir o quitar de una sesión (`train-mental-ops.js`): las operaciones van en fila, se guardan sobre una copia y el plan en
+  memoria solo cambia cuando el servidor confirma. Un fallo o un conflicto de revisión no deja nada a medias. No toca `exercises[]`.
 - El aviso «orientativo, pendiente de revisión profesional» aparece en la biblioteca y en cada ficha.
