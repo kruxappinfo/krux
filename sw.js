@@ -4,7 +4,7 @@
  * PWA completa con soporte offline
  */
 
-const CACHE_VERSION = 'v88';
+const CACHE_VERSION = 'v90';
 const CACHE_NAME = `krux-cache-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `krux-data-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
@@ -23,6 +23,9 @@ const STATIC_ASSETS = [
   './train-plans-ui.js',
   './train-profile.js',
   './train-coach-ui.js',
+  './train-mental-data.js',
+  './train-mental-ops.js',
+  './train-mental-ui.js',
   './auth.js',
   './firebase-config.js',
   './maplibre-config.js',
