@@ -18801,7 +18801,7 @@ function initTrainView() {
   });
 
   // Refresco tras guardar un plan, editar un ejercicio o terminar una sesión
-  window.refreshTrainView = () => renderAll();
+  window.refreshTrainView = () => { renderAll(); document.dispatchEvent(new CustomEvent('krux:train-refresh')); };
   window.kruxRenderTrainExercises = () => { loadSelectedSession(); };
 
   renderAll();

@@ -27144,6 +27144,7 @@ body.kx-sheet-open #feed-view .feed-container {
 #my-plans-modal,
 #coach-modal,
 #mental-modal,
+#coach-welcome,
 #ex-guide-sheet {
   --tr-bg: var(--kx-chalk, #F7F6F0);
   --tr-surface: #FFFFFF;
@@ -29097,8 +29098,10 @@ body.xg-open { overflow: hidden; }
 .cx-special { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .cx-special .cx-btn { flex: 1 1 140px; }
 .cx-pickbar { gap: 8px; }
-.cx-footer-stack { width: 100%; display: flex; flex-direction: column; gap: 6px; }
-.cx-footer-stack .cx-btn { width: 100%; }
+.cx-footer-stack { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+/* Causa del botón descentrado: .pe-save-btn--wide tiene max-width 320px y en una columna con align-items:stretch quedaba pegado a la izquierda */
+.cx-footer-stack > .cx-btn, .cx-footer-stack > .pe-save-btn { width: 100%; max-width: 320px; margin-inline: auto; justify-content: center; }
+.cx-pickbar > .cx-btn, .cx-pickbar > .pe-save-btn { flex: 1 1 0; max-width: 320px; justify-content: center; }
 @media (max-width: 360px) { .cx-rows--edit li { padding-right: 72px; } .cx-btn { padding: 0 14px; } }
 .cx-question { margin: 0 0 14px; font-size: 1.1875rem; line-height: 1.3; font-weight: 800; letter-spacing: -0.01em; color: var(--tr-ink); }
 
@@ -29139,3 +29142,81 @@ body.xg-open { overflow: hidden; }
 .mx-row--session { padding: 0; gap: 0; }
 .mx-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 12px 6px 12px 14px; border: 0; background: none; color: inherit; text-align: left; font-family: inherit; }
 .mx-row-x { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: none; color: var(--tr-ink-3); }
+
+/* ── Para ti: recomendaciones de entrenamiento ── */
+.cx-rec { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding: 14px; border-radius: 18px; background: var(--tr-fill); }
+.cx-rec.is-soft { background: var(--tr-green-wash); }
+.cx-rec-obj { margin: 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tr-green); }
+.cx-rec-title { margin: 0; font-size: 1.0625rem; font-weight: 800; letter-spacing: -0.01em; color: var(--tr-ink); }
+.cx-rec-meta { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.8125rem; font-weight: 700; color: var(--tr-ink-2); }
+.cx-rec-why { margin: 2px 0 0; font-size: 0.875rem; line-height: 1.45; color: var(--tr-ink-2); }
+.cx-rec-list { margin: 0; font-size: 0.8125rem; line-height: 1.4; color: var(--tr-ink-3); }
+.cx-rec-safety { margin: 0; font-size: 0.8125rem; line-height: 1.4; color: var(--tr-ink-3); }
+.cx-rec-safety--unverified { color: var(--tr-ink); font-weight: 600; }
+.cx-rec-go { align-self: stretch; margin-top: 6px; }
+.cx-profile-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0, 0, 0, 0.06); }
+.cx-profile-line > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cx-profile-line b { font-size: 0.875rem; color: var(--tr-ink); }
+.cx-profile-line span { font-size: 0.8125rem; color: var(--tr-ink-3); overflow-wrap: anywhere; }
+.cx-profile-line .cx-btn { min-height: 44px; padding: 0 14px; flex-shrink: 0; }
+
+/* ── Objetivos (principal y secundarios) y fin del onboarding ── */
+.cx-sub { margin: -2px 0 10px; }
+.cx-sel { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 18px; background: var(--tr-green-wash); }
+.cx-sel-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-height: 32px; }
+.cx-sel-k { flex: 0 0 88px; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--tr-green); }
+.cx-sel-none { font-size: 0.875rem; color: var(--tr-ink-3); }
+.cx-pill { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 0 12px; border-radius: 999px; background: var(--tr-surface); color: var(--tr-ink); font-size: 0.875rem; font-weight: 700; box-shadow: inset 0 0 0 1px rgba(21, 62, 53, 0.25); }
+.cx-pill svg { width: 14px; height: 14px; }
+.cx-pill--main { background: var(--tr-green-btn); color: #fff; box-shadow: none; }
+.xl-chip.is-disabled { opacity: 0.45; cursor: not-allowed; text-decoration: line-through; }
+.cx-rec.is-featured { background: var(--tr-green-wash); box-shadow: inset 0 0 0 1.5px rgba(21, 62, 53, 0.35); margin-top: 0; }
+.cx-rec-badge { align-self: flex-start; margin: 0 0 2px; padding: 3px 10px; border-radius: 999px; background: var(--tr-green-btn); color: #fff; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.02em; }
+.cx-more { margin: 14px 0 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tr-green); }
+#cx-scroll .cx-rec { margin-bottom: 0; }
+
+/* ── Bienvenida a Krux Coach y transiciones del onboarding ── */
+.cw-backdrop { position: fixed; inset: 0; z-index: 70000; display: grid; place-items: center; padding: 20px; background: rgba(16, 28, 23, 0.52); opacity: 0; transition: opacity 0.25s var(--tr-ease); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.cw-backdrop.is-open { opacity: 1; }
+.cw-card { width: 100%; max-width: 360px; max-height: 100%; overflow-y: auto; padding: 28px 24px 18px; border-radius: 28px; background: var(--tr-surface); box-shadow: 0 24px 60px rgba(10, 24, 18, 0.35); display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; opacity: 0; transform: translateY(10px) scale(0.94); transition: opacity 0.3s var(--tr-ease) 0.04s, transform 0.38s var(--tr-ease) 0.04s; }
+.cw-backdrop.is-open .cw-card { opacity: 1; transform: none; }
+.cw-mark { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 20px; background: var(--tr-green-wash); color: var(--tr-green); margin-bottom: 4px; }
+.cw-title { margin: 0; font-size: 1.5rem; line-height: 1.15; font-weight: 800; letter-spacing: -0.02em; color: var(--tr-ink); }
+.cw-text { margin: 0 0 8px; font-size: 0.9375rem; line-height: 1.5; color: var(--tr-ink-2); }
+.cw-go { max-width: none; height: 54px; }
+.cw-later { width: 100%; justify-content: center; }
+#coach-welcome button { font-family: inherit; -webkit-tap-highlight-color: transparent; cursor: pointer; }
+#coach-welcome button:focus-visible { outline: 2px solid var(--tr-green); outline-offset: 2px; }
+.cx-btn, .xl-opt, .xl-chip, .xl-seg-btn, .cx-pill { transition: transform 0.15s var(--tr-ease), background-color 0.15s, box-shadow 0.15s; }
+.cx-btn:active, .xl-opt:active, .xl-chip:active, .xl-seg-btn:active, .cx-pill:active { transform: scale(0.97); }
+.xl-progress span { animation: cx-prog 0.45s var(--tr-ease); }
+@keyframes cx-prog { from { width: var(--from, 0%); } }
+.cx-in-fwd { animation: cx-fwd 0.36s var(--tr-ease); }
+.cx-in-back { animation: cx-back 0.36s var(--tr-ease); }
+.cx-in-up { animation: cx-up 0.32s var(--tr-ease); }
+@keyframes cx-fwd { from { opacity: 0; transform: translateX(28px); } }
+@keyframes cx-back { from { opacity: 0; transform: translateX(-28px); } }
+@keyframes cx-up { from { opacity: 0; transform: translateY(14px); } }
+@keyframes cx-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.cx-prep { min-height: 56vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; }
+.cx-prep-orb { position: relative; width: 96px; height: 96px; display: grid; place-items: center; color: var(--tr-green); }
+.cx-prep-orb span { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--tr-green); opacity: 0; animation: cx-pulse 1.6s var(--tr-ease) infinite; }
+.cx-prep-orb span + span { animation-delay: 0.7s; }
+.cx-prep-orb svg { position: relative; animation: cx-float 1.6s ease-in-out infinite; }
+@keyframes cx-pulse { from { transform: scale(0.5); opacity: 0.55; } to { transform: scale(1.15); opacity: 0; } }
+@keyframes cx-float { 50% { transform: translateY(-4px); } }
+.cx-prep-title { margin: 0; font-size: 1.125rem; font-weight: 800; color: var(--tr-ink); }
+.cx-prep-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 0.875rem; color: var(--tr-ink-3); }
+.cx-prep-steps li { opacity: 0; animation: cx-rise 0.4s var(--tr-ease) forwards; animation-delay: calc(0.2s + var(--i) * 0.5s); }
+.cx-reveal > * { opacity: 0; animation: cx-rise 0.5s var(--tr-ease) forwards; }
+.cx-reveal > :nth-child(2) { animation-delay: 0.12s; }
+.cx-reveal > :nth-child(3) { animation-delay: 0.22s; }
+.cx-reveal > :nth-child(n+4) { animation-delay: 0.32s; }
+.cx-hero-k { margin: 0 0 -4px; font-size: 0.8125rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tr-green); }
+.cx-rec.is-featured { box-shadow: inset 0 0 0 1.5px rgba(21, 62, 53, 0.35), 0 10px 28px rgba(21, 62, 53, 0.14); }
+@media (prefers-reduced-motion: reduce) {
+  .cw-backdrop, .cw-card, .cx-btn, .xl-opt, .xl-chip, .xl-seg-btn, .cx-pill { transition: none; }
+  .cw-card { transform: none; }
+  .xl-progress span, .cx-in-fwd, .cx-in-back, .cx-in-up, .cx-prep-orb span, .cx-prep-orb svg { animation: none; }
+  .cx-prep-steps li, .cx-reveal > * { animation: none; opacity: 1; }
+}

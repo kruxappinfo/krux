@@ -67,6 +67,7 @@
   let profile = null;        // perfil normalizado (+ completedAtMs); null = sin empezar
   let mental = null;         // { schemaVersion, answers }; null = sin hacer
   let dirty = { profile: false, mental: false };
+  let limits = null;         // limitaciones (opcionales): SOLO en este dispositivo, ver limRead/limWrite
   let loaded = false;
   let loadFailed = false;
   let queue = Promise.resolve();
@@ -77,6 +78,36 @@
     if (!uid) return;
     try { localStorage.setItem(lsKey(), JSON.stringify({ profile, mental, dirty })); } catch (_) { /* cuota o modo privado: sigue en memoria */ }
   }
+  // Limitaciones: las reglas de Firestore solo admiten los campos del perfil en training_profile, así que no se sincronizan con la cuenta.
+  const limKey = () => 'krux.coach.limits.v1.' + uid;
+  function limRead() { try { const r = JSON.parse(localStorage.getItem(limKey()) || 'null'); return r ? PR.normalizeLimits(r) : null; } catch (_) { return null; } }
+  function limWrite() {
+    if (!uid) return false;
+    try { if (limits) localStorage.setItem(limKey(), JSON.stringify(limits)); else localStorage.removeItem(limKey()); return true; } catch (_) { return false; }
+  }
+  // Grados de rocódromo cuando escala en ambos entornos: las reglas solo admiten grades.sport/boulder (los de roca), así que van en este dispositivo.
+  const gymKey = () => 'krux.coach.gym.v1.' + uid;
+  function gymRead() { try { const r = JSON.parse(localStorage.getItem(gymKey()) || 'null'); return r && typeof r === 'object' ? r : null; } catch (_) { return null; } }
+  function gymWrite() {
+    if (!uid || !profile) return;
+    try { if (profile.gradesGym) localStorage.setItem(gymKey(), JSON.stringify(profile.gradesGym)); else localStorage.removeItem(gymKey()); } catch (_) { /* sigue en memoria */ }
+  }
+  // Solo lo que admite el servidor: sin gradesGym. Con rocódromo como único entorno, «grades» son los de rocódromo y no tienen objetivo:
+  // un perfil completado exige uno, así que se guarda «No lo sé» (no se inventa ningún grado).
+  function serverGrades(out) {
+    delete out.gradesGym;
+    if (out.status === 'completed' && out.environment === 'rocodromo' && out.grades) {
+      ['sport', 'boulder'].forEach(sc => { if (out.grades[sc] && !out.grades[sc].target) out.grades[sc] = Object.assign({}, out.grades[sc], { target: PR.GRADE_UNKNOWN }); });
+    }
+    return out;
+  }
+  // Perfil guardado antes de separar los grados por entorno (sin copia local de rocódromo): los grados guardados se leen como de roca/rocódromo según su entorno; no se reescribe nada.
+  function attachGym(p) {
+    if (!p) return p;
+    if (p.environment === 'ambos') { const g = gymRead(); if (g) { const n = PR.normalizeProfile(Object.assign({}, p, { gradesGym: g })); if (n.gradesGym) p.gradesGym = n.gradesGym; } }
+    else delete p.gradesGym;
+    return p;
+  }
   const col = name => firebase.firestore().collection('users').doc(uid).collection(name).doc('current');
   const offline = () => navigator.onLine === false;
   function withTimeout(promise, ms) {
@@ -85,7 +116,7 @@
 
   function profilePayload() {
     const { completedAtMs, ...rest } = profile;
-    const out = { ...PR.normalizeProfile(rest), updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+    const out = serverGrades({ ...PR.normalizeProfile(rest), updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
     if (out.status === 'completed') out.completedAt = firebase.firestore.Timestamp.fromMillis(completedAtMs || Date.now());
     return out;
   }
@@ -109,6 +140,7 @@
   // Cambio local inmediato + intento de envío (en serie para no cruzar escrituras)
   function persist(kind) {
     dirty[kind] = true;
+    if (kind === 'profile') gymWrite();
     lsWrite();
     queue = queue.then(writeDirty, writeDirty);
     return queue.then(ok => { renderCard(); return ok; });
@@ -118,7 +150,7 @@
     loaded = false; loadFailed = false;
     const local = lsRead();
     if (local) {
-      profile = local.profile ? { ...local.profile } : null;
+      profile = local.profile ? attachGym({ ...local.profile }) : null;
       mental = local.mental || null;
       dirty = { profile: !!(local.dirty && local.dirty.profile), mental: !!(local.dirty && local.dirty.mental) };
     } else { profile = null; mental = null; dirty = { profile: false, mental: false }; }
@@ -131,6 +163,7 @@
           const d = pSnap.data();
           profile = PR.normalizeProfile(d);
           if (d.completedAt && d.completedAt.toMillis) profile.completedAtMs = d.completedAt.toMillis();
+          attachGym(profile);
         } else profile = null;
       }
       if (!dirty.mental) mental = mSnap.exists ? PR.normalizeMental(mSnap.data()) : null;
@@ -138,6 +171,7 @@
     } catch (_) { loadFailed = !local; }
     loaded = true;
     renderCard();
+    maybeWelcome();
     if (dirty.profile || dirty.mental) persist(dirty.profile ? 'profile' : 'mental');
   }
 
@@ -145,10 +179,11 @@
     if (uid && (!user || user.uid !== uid)) {
       // Cierre de sesión o cambio de cuenta: la copia local solo se conserva si hay algo sin enviar
       if (!dirty.profile && !dirty.mental) { try { localStorage.removeItem(lsKey()); } catch (_) { /* nada */ } }
-      closeModal(true);
+      closeModal(true); hideWelcome(true);
     }
     uid = user ? user.uid : null;
     profile = null; mental = null; dirty = { profile: false, mental: false }; loaded = false;
+    limits = uid ? limRead() : null;
     const item = $('train-gear-profile');
     if (item) item.hidden = !(ENABLED() && uid);
     if (!uid || !ENABLED()) { renderCard(); return; }
@@ -158,6 +193,40 @@
   // ============================================
   // TARJETA «PARA TI» (pantalla principal de Entrena)
   // ============================================
+  // ── Recomendaciones (train-recommender.js) ──
+  let recs = null;
+  const todayKey = () => (typeof trDateKey === 'function' ? trDateKey(new Date()) : new Date().toISOString().slice(0, 10));
+  function computeRecs() {
+    const RC = window.KruxRecommender, X = window.KruxExercises, lib = window.KruxLibrary;
+    const cat = lib && lib.catalog && lib.catalog();
+    if (!RC || !X || !cat || !profile) return null;
+    const md = window.KRUX_MENTAL_DATA;
+    try {
+      return RC.recommend({
+        catalog: cat, X, profile, mental, limits, history: window.kruxTrainLog || [], today: todayKey(), equipment: PR.catalogEquipment(profile),
+        practices: PR.practices(profile).map(pr => { const g = PR.gradesFor(profile, pr.env, pr.scale) || {}; return { key: pr.key, label: pr.label, env: pr.env, scale: pr.scale, usual: g.usualFrom, max: g.max }; }),
+        mentalItems: md ? md.exercises.map(e => ({ id: e.id, title: e.title, minutes: e.durationMin, categoryId: e.categoryId })) : []
+      });
+    } catch (e) { console.error('Recomendador:', e); return null; }
+  }
+  function recsHTML(r) {
+    if (!r) return '<p class="cx-note">Las recomendaciones no están disponibles ahora mismo.</p>';
+    const cards = r.items.map(i => recCard(i)).join('');
+    return `${cards}${r.empty ? `<p class="cx-note">${esc(r.empty)}</p>` : ''}<p class="cx-note">${esc(r.note)}</p>`;
+  }
+  function startRecommendation(id) {
+    const r = recs && recs.items.find(i => i.id === id);
+    if (!r) return;
+    if (r.kind === 'mental') { if (window.KruxMentalUI && window.KruxMentalUI.openItem) window.KruxMentalUI.openItem(r.mentalId); return; }
+    if (window.KruxTrainSession && window.KruxTrainSession.isRunning()) { toast('Ya tienes un entrenamiento abierto', 'info'); return; }
+    // Mismo flujo que una sesión de plan: el entrenamiento en curso y su registro final los gestiona app_3.js (sin plan asociado)
+    window.kruxTrainData = {
+      name: r.session.name, exercises: JSON.parse(JSON.stringify(r.session.exercises)).map(e => { delete e.why; return e; }), demo: false,
+      planId: null, planName: '', planRevision: null, planSessionId: null
+    };
+    if (typeof window.openActiveSession === 'function') window.openActiveSession();
+  }
+
   function renderCard() {
     const el = $('train-foryou');
     if (!el) return;
@@ -176,14 +245,16 @@
           <button type="button" class="cx-btn cx-btn--ghost" data-cx="later">Ahora no</button>
         </div>${pending}`;
     } else if (status === 'completed') {
-      const rows = PR.summarize(profile).filter(r => ['goal', 'sport', 'boulder', 'availability'].includes(r.key));
+      const rows = PR.summarize(profile).filter(r => ['goal', 'availability'].includes(r.key));
       const mentalLine = PR.mentalIsComplete(mental) ? '' : '<p class="cx-note">Evaluación mental pendiente · opcional</p>';
+      recs = computeRecs();
       html = `
         <p class="cx-kicker">Para ti</p>
-        <h2 class="cx-card-title">Tu perfil de escalador</h2>
-        <ul class="cx-card-rows">${rows.map(r => `<li><span>${esc(r.label)}</span><b>${esc(r.value)}</b></li>`).join('')}</ul>
-        ${mentalLine}
-        <div class="cx-card-actions"><button type="button" class="cx-btn cx-btn--secondary" data-cx="profile">Ver y editar perfil</button></div>${pending}`;
+        <h2 class="cx-card-title">Entrenamientos recomendados</h2>
+        ${recsHTML(recs)}
+        <div class="cx-profile-line"><div><b>Tu perfil de escalador</b><span>${esc(rows.map(r => r.value).join(' · '))}</span></div>
+          <button type="button" class="cx-btn cx-btn--secondary" data-cx="profile">Ver y editar</button></div>
+        ${mentalLine}${pending}`;
     }
     // Saltado: no se insiste. El perfil sigue disponible en el menú.
     el.innerHTML = html;
@@ -191,6 +262,8 @@
   }
 
   document.addEventListener('click', e => {
+    const go = e.target.closest && e.target.closest('#train-foryou [data-rec]');
+    if (go) { startRecommendation(go.dataset.rec); return; }
     const b = e.target.closest && e.target.closest('#train-foryou [data-cx]');
     if (!b) return;
     const act = b.dataset.cx;
@@ -202,6 +275,53 @@
       toast('Perfil pendiente', 'info', { detail: 'Lo encontrarás en el menú de Entrena cuando quieras.' });
     }
   });
+
+  // ============================================
+  // BIENVENIDA (popup de primera vez en Entrena)
+  // ============================================
+  // Aparece solo si no existe ningún perfil (ni en curso, ni saltado): «Ahora no» guarda el perfil como «skipped» (igual que «Ahora no» de la
+  // tarjeta), y abandonar el cuestionario lo deja «en curso» (se retoma desde la tarjeta o el menú), así que no vuelve a salir.
+  const reduceMotion = () => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; } };
+  let welcomeEl = null;
+  const trainActive = () => { const v = $('train-view'); return !!v && v.classList.contains('active') && !v.classList.contains('hidden'); };
+  function welcomeOpen() { return !!welcomeEl; }
+  function maybeWelcome() {
+    if (!ENABLED() || !uid || !loaded || loadFailed || profile || welcomeEl || view || !trainActive()) return;
+    if (window.KruxTrainSession && window.KruxTrainSession.isRunning()) return;
+    showWelcome();
+  }
+  function showWelcome() {
+    const el = document.createElement('div');
+    el.id = 'coach-welcome'; el.className = 'cw-backdrop';
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-labelledby', 'cw-title'); el.setAttribute('aria-describedby', 'cw-text');
+    el.innerHTML = `<div class="cw-card">
+      <span class="cw-mark" aria-hidden="true">${svg('<path d="m3 20 6-11 4 6 3-4 5 9z"/><path d="M14.5 5.5l1.2 2.3 2.3 1.2-2.3 1.2-1.2 2.3-1.2-2.3L11 9l2.3-1.2z" stroke-width="1.4"/>', 30)}</span>
+      <h2 class="cw-title" id="cw-title">Vamos a conocerte.</h2>
+      <p class="cw-text" id="cw-text">Cada escalador es diferente. Cuéntanos cómo escalas, qué quieres mejorar y cuánto tiempo tienes. Prepararemos un entrenamiento adaptado a ti.</p>
+      <button type="button" class="pe-save-btn pe-save-btn--wide cw-go" data-cw="go"><span>Personalizar mi entrenamiento</span></button>
+      <button type="button" class="cx-btn cx-btn--ghost cw-later" data-cw="later">Ahora no</button>
+    </div>`;
+    document.body.appendChild(el);
+    welcomeEl = el;
+    el.addEventListener('click', e => {
+      const b = e.target.closest('[data-cw]');
+      if (b) { b.dataset.cw === 'go' ? welcomeGo() : welcomeLater(); }
+    });
+    requestAnimationFrame(() => requestAnimationFrame(() => { el.classList.add('is-open'); const g = el.querySelector('.cw-go'); if (g) g.focus({ preventScroll: true }); }));
+  }
+  function hideWelcome(now) {
+    const el = welcomeEl; if (!el) return;
+    welcomeEl = null;
+    el.classList.remove('is-open');
+    if (now || reduceMotion()) el.remove(); else setTimeout(() => el.remove(), 260);
+  }
+  function welcomeGo() { hideWelcome(); openWizard(1); }
+  function welcomeLater() {
+    hideWelcome();
+    profile = Object.assign(PR.normalizeProfile(profile || {}), { status: 'skipped' });
+    persist('profile');
+    toast('Perfil pendiente', 'info', { detail: 'Lo encontrarás en el menú de Entrena cuando quieras.' });
+  }
 
   // ============================================
   // MODAL
@@ -243,7 +363,7 @@
           <div class="pe-heading">${sub}<h2 class="pe-title xl-wz-title" id="cx-title" tabindex="-1">${opts.title}</h2></div>
           ${skip}
         </header>
-        ${opts.progress != null ? `<div class="xl-progress" aria-hidden="true"><span style="width:${opts.progress}%"></span></div>` : ''}
+        ${opts.progress != null ? `<div class="xl-progress" aria-hidden="true"><span style="width:${opts.progress}%;--from:${(view && view._prog) || 0}%"></span></div>` : ''}
         <div class="xl-scroll xl-wz-scroll" id="cx-scroll">${opts.body}</div>
         ${opts.footer ? `<div class="xl-pickbar cx-pickbar">${opts.footer}</div>` : ''}
       </div>`;
@@ -254,17 +374,29 @@
     if (!m || !view) return;
     const scroll = $('cx-scroll');
     const keepTop = scroll ? scroll.scrollTop : 0;
-    const keepType = view._last === view.type + ':' + (view.step || view.q || '');
+    const prevLast = view._last || '';
+    const keepType = prevLast === view.type + ':' + (view.step || view.q || '');
     let html = '';
     if (view.type === 'wizard') html = wizardScreen();
     else if (view.type === 'summary') html = summaryScreen();
     else if (view.type === 'mental') html = mentalScreen();
     else if (view.type === 'mental-done') html = mentalDoneScreen();
+    else if (view.type === 'preparing') html = preparingScreen();
+    else if (view.type === 'limits') html = limitsScreen();
     else html = hubScreen();
     m.innerHTML = html;
     view._last = view.type + ':' + (view.step || view.q || '');
     const sc = $('cx-scroll');
     if (sc && keepType) sc.scrollTop = keepTop;
+    // Transición entre preguntas: la nueva entra desde el lado de la dirección del avance (solo opacidad y transform)
+    if (sc && !keepType && !reduceMotion()) {
+      const cur = view.step || view.q || 0, prev = parseInt((prevLast.split(':')[1] || '0'), 10) || 0;
+      const same = prevLast.split(':')[0] === view.type;
+      if (view.type === 'summary') sc.classList.add('cx-reveal');
+      else if (same && prev && cur) sc.classList.add(cur >= prev ? 'cx-in-fwd' : 'cx-in-back');
+      else sc.classList.add('cx-in-up');
+    }
+    if (view.type === 'wizard' || view.type === 'mental') { const pr = document.querySelector('#coach-modal .xl-progress span'); view._prog = pr ? parseFloat(pr.style.width) : 0; }
     const keep = focusSel && m.querySelector(focusSel);
     const t = $('cx-title');
     if (keep) keep.focus({ preventScroll: true });
@@ -275,17 +407,19 @@
   // ONBOARDING (6 pasos)
   // ============================================
   const STEP_TITLES = {
-    1: '¿Cuál es tu objetivo?', 2: '¿Cuál es tu nivel?', 3: '¿Cuál es tu grado objetivo?',
-    4: '¿Cuánto tiempo tienes?', 5: '¿Cómo y dónde escalas?', 6: '¿Con qué material cuentas?'
+    1: '¿Cuál es tu objetivo?', 2: '¿Cómo y dónde escalas?', 3: '¿Cuál es tu nivel?',
+    4: '¿Cuál es tu grado objetivo?', 5: '¿Cuánto tiempo tienes?', 6: '¿Con qué material cuentas?'
   };
+  // Pasos que se recorren: el 4 (grado objetivo, solo roca) se omite si no escala en roca
+  const flow = p => [1, 2, 3, 4, 5, 6].filter(n => n !== 4 || p.environment !== 'rocodromo');
 
-  function gradeSelect(scale, key, label, opts) {
-    const g = (profile.grades && profile.grades[scale]) || {};
-    const list = PR.SCALES[scale];
+  function gradeSelect(pr, key, label, opts) {
+    const g = PR.gradesFor(profile, pr.env, pr.scale) || {};
+    const list = PR.SCALES[pr.scale];
     const optional = opts && opts.optional;
     return `
       <label class="cx-field"><span class="pe-label">${esc(label)}</span>
-        <select class="cx-select" data-grade="${scale}.${key}" ${opts && opts.id ? `id="${opts.id}"` : ''}>
+        <select class="cx-select" data-grade="${pr.key}.${key}">
           <option value=""${g[key] ? '' : ' selected'}>${optional ? 'Sin indicar' : 'Elige un grado'}</option>
           ${list.map(x => `<option value="${esc(x)}"${g[key] === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}
           <option value="unknown"${g[key] === 'unknown' ? ' selected' : ''}>No lo sé</option>
@@ -305,41 +439,42 @@
     return `<div class="cx-grid" role="radiogroup">${values.map(v => `<button type="button" class="xl-seg-btn${current === v ? ' is-on' : ''}" role="radio" aria-checked="${current === v}" data-${attr}="${v}">${v}${unit || ''}</button>`).join('')}</div>`;
   }
 
+  // Objetivos: principal (obligatorio) y hasta dos secundarios que no pueden repetir el principal
+  function goalsBody(p) {
+    const secondary = p.goalsSecondary || [];
+    const name = id => PR.labelOf(PR.GOALS, id);
+    const sel = p.goalPrimary ? `<div class="cx-sel" id="cx-sel" role="status" aria-live="polite">
+        <div class="cx-sel-row"><span class="cx-sel-k">Principal</span><span class="cx-pill cx-pill--main">${esc(name(p.goalPrimary))}</span></div>
+        <div class="cx-sel-row"><span class="cx-sel-k">Secundarios</span>${secondary.length
+          ? secondary.map(id => `<button type="button" class="cx-pill" data-sec="${id}" aria-label="Quitar ${esc(name(id))}">${esc(name(id))}<span aria-hidden="true">${I.close}</span></button>`).join('')
+          : '<span class="cx-sel-none">Ninguno</span>'}</div></div>` : '';
+    return `${sel}
+      <div class="pe-card"><h3 class="pe-label" id="cx-main-label">Objetivo principal</h3>
+        <p class="pe-hint cx-sub">Lo que más quieres mejorar. Elige uno.</p>
+        ${optList(PR.GOALS, p.goalPrimary, 'goal', id => I.goal[id])}</div>
+      <div class="pe-card"><h3 class="pe-label" id="cx-sec-label">Objetivos secundarios <span class="cx-opt">(opcional, hasta 2)</span></h3>
+        <p class="pe-hint cx-sub">Otros aspectos que también quieres trabajar.</p>
+        <div class="xl-fchips" role="group" aria-labelledby="cx-sec-label">${PR.GOALS.map(g => {
+          const isMain = g.id === p.goalPrimary, on = secondary.includes(g.id);
+          return `<button type="button" class="xl-chip xl-chip--lg${on ? ' is-on' : ''}${isMain ? ' is-disabled' : ''}" aria-pressed="${on}"${isMain ? ' aria-disabled="true" data-sec-main="1" title="Ya es tu objetivo principal"' : ` data-sec="${g.id}"`}>${esc(g.label)}</button>`;
+        }).join('')}</div>
+        ${p.goalPrimary ? '<p class="pe-hint">El objetivo principal no puede ser también secundario.</p>' : ''}</div>`;
+  }
+
+  function gradeCards(p, withTarget) {
+    return PR.practices(p).filter(x => !withTarget || x.target).map(pr => `
+      <div class="pe-card">
+        <h3 class="pe-label">${esc(pr.label)} <span class="cx-opt">(${esc(PR.SCALE_NAMES[pr.scale].replace(/^Escala /, '').replace(/ \(.*\)/, ''))})</span></h3>
+        ${withTarget
+          ? gradeSelect(pr, 'target', 'Grado objetivo')
+          : `${gradeSelect(pr, 'usualFrom', 'Grado habitual (desde)')}${gradeSelect(pr, 'usualTo', 'Grado habitual (hasta)', { optional: true })}${gradeSelect(pr, 'max', 'Máximo encadenado')}`}
+      </div>`).join('');
+  }
+
   function stepBody(step) {
     const p = profile;
-    if (step === 1) {
-      const secondary = p.goalsSecondary || [];
-      return `${optList(PR.GOALS, p.goalPrimary, 'goal', id => I.goal[id])}
-        <div class="pe-card"><h3 class="pe-label" id="cx-sec-label">Objetivos secundarios <span class="cx-opt">(opcional, hasta 2)</span></h3>
-          <div class="xl-fchips" role="group" aria-labelledby="cx-sec-label">${PR.GOALS.filter(g => g.id !== p.goalPrimary).map(g => `
-            <button type="button" class="xl-chip xl-chip--lg${secondary.includes(g.id) ? ' is-on' : ''}" aria-pressed="${secondary.includes(g.id)}" data-sec="${g.id}">${esc(g.label)}</button>`).join('')}</div></div>`;
-    }
+    if (step === 1) return goalsBody(p);
     if (step === 2) {
-      const sportBlock = PR.needsSport(p) ? `
-        <div class="pe-card">
-          <h3 class="pe-label">${esc(PR.SCALE_NAMES.sport)}</h3>
-          ${gradeSelect('sport', 'usualFrom', 'Grado habitual (desde)')}
-          ${gradeSelect('sport', 'usualTo', 'Grado habitual (hasta)', { optional: true })}
-          ${gradeSelect('sport', 'max', 'Máximo encadenado')}
-          <p class="pe-hint">El grado habitual es con el que escalas con regularidad. El máximo es el más difícil que has encadenado: son dos datos distintos.</p>
-        </div>` : '<div class="xl-alert xl-alert--soft" role="note"><p class="xl-text">Como solo practicas bloque, tus grados los indicas en el paso «Cómo y dónde escalas».</p></div>';
-      return `${sportBlock}
-        <div class="pe-card"><h3 class="pe-label" id="cx-exp-label">¿Cuánto tiempo llevas escalando?</h3>
-          ${optList(PR.EXPERIENCE, p.experience, 'exp')}</div>`;
-    }
-    if (step === 3) {
-      if (!PR.needsSport(p)) return '<div class="xl-alert xl-alert--soft" role="note"><p class="xl-text">Como solo practicas bloque, tu grado objetivo lo indicas en el paso «Cómo y dónde escalas».</p></div>';
-      return `<div class="pe-card">${gradeSelect('sport', 'target', 'Grado objetivo (escala francesa)')}
-        <p class="pe-hint">Es una aspiración personal, no una predicción de tu rendimiento. Puedes cambiarla cuando quieras.</p></div>`;
-    }
-    if (step === 4) {
-      return `<div class="pe-card">
-        <h3 class="pe-label" id="cx-days-label">Días por semana</h3>${gridSeg([1, 2, 3, 4, 5, 6, 7], p.daysPerWeek, 'days')}
-        <div class="pe-divider" aria-hidden="true"></div>
-        <h3 class="pe-label" id="cx-min-label">Duración de cada sesión</h3>${gridSeg(PR.MINUTES, p.minutesPerSession, 'min', ' min')}
-        <p class="pe-hint">Podrás ajustarlo después. Sirve para proponerte planes que quepan en tu semana.</p></div>`;
-    }
-    if (step === 5) {
       let out = `<div class="pe-card"><h3 class="pe-label">¿Qué escalas?</h3>${optList(PR.MODALITY, p.modality, 'mod', id => I.modality[id])}</div>
         <div class="pe-card"><h3 class="pe-label">¿Dónde sueles escalar?</h3>${optList(PR.ENVIRONMENT, p.environment, 'env', id => I.env[id])}</div>`;
       if (PR.asksRock(p)) {
@@ -348,15 +483,24 @@
           <h3 class="pe-label" id="cx-prio-label">¿Qué quieres priorizar? <span class="cx-opt">(opcional)</span></h3>
           <div class="xl-fchips" role="radiogroup" aria-labelledby="cx-prio-label">${PR.ROCK_PRIORITY.map(o => `<button type="button" class="xl-chip xl-chip--lg${p.rockPriority === o.id ? ' is-on' : ''}" role="radio" aria-checked="${p.rockPriority === o.id}" data-prio="${o.id}">${esc(o.label)}</button>`).join('')}</div></div>`;
       }
-      if (PR.needsBoulder(p)) {
-        out += `<div class="pe-card"><h3 class="pe-label">${esc(PR.SCALE_NAMES.boulder)}</h3>
-          ${gradeSelect('boulder', 'usualFrom', 'Grado habitual (desde)')}
-          ${gradeSelect('boulder', 'usualTo', 'Grado habitual (hasta)', { optional: true })}
-          ${gradeSelect('boulder', 'max', 'Máximo encadenado')}
-          ${gradeSelect('boulder', 'target', 'Grado objetivo')}
-          <p class="pe-hint">La escala de bloque es independiente de la de deportiva: no se mezclan.</p></div>`;
-      }
       return out;
+    }
+    if (step === 3) {
+      const cards = gradeCards(p, false);
+      return `<div class="pe-card"><h3 class="pe-label" id="cx-exp-label">¿Cuánto tiempo llevas escalando?</h3>
+          ${optList(PR.EXPERIENCE, p.experience, 'exp')}</div>
+        ${cards}${cards ? '<p class="pe-hint">El grado habitual es con el que escalas con regularidad; el máximo es el más difícil que has encadenado. Los grados de roca y de rocódromo no son comparables, así que se piden por separado y Krux nunca los convierte.</p>' : ''}`;
+    }
+    if (step === 4) {
+      return `${gradeCards(p, true)}<p class="pe-hint">Solo pedimos el grado objetivo en roca. Es una aspiración personal, no una predicción de tu rendimiento, y puedes cambiarla cuando quieras.</p>`;
+    }
+    if (step === 5) {
+      return `<div class="pe-card">
+        <h3 class="pe-label" id="cx-days-label">¿Cuántos días tienes disponibles para escalar a la semana?</h3>${gridSeg([1, 2, 3, 4, 5, 6, 7], p.daysPerWeek, 'days')}
+        <p class="pe-hint">Cuenta los días en que podrías escalar, no los de entrenamiento complementario: Krux decide aparte cuánto entrenar fuera de la pared.</p>
+        <div class="pe-divider" aria-hidden="true"></div>
+        <h3 class="pe-label" id="cx-min-label">Duración de cada sesión</h3>${gridSeg(PR.MINUTES, p.minutesPerSession, 'min', ' min')}
+        <p class="pe-hint">Podrás ajustarlo después. Sirve para proponerte entrenamientos que quepan en tu semana.</p></div>`;
     }
     const eq = p.equipment || [];
     return `<div class="pe-card"><div class="xl-fchips" role="group" aria-label="Material disponible">${PR.EQUIPMENT.map(o => `
@@ -367,13 +511,14 @@
 
   function wizardScreen() {
     const editing = !!view.steps;
-    const total = editing ? view.steps.length : PR.STEPS;
-    const pos = editing ? view.steps.indexOf(view.step) + 1 : view.step;
-    const last = editing ? pos === total : view.step === PR.STEPS;
+    const list = editing ? view.steps : flow(profile);
+    const total = list.length;
+    const pos = Math.max(1, list.indexOf(view.step) + 1);
+    const last = pos === total;
     const ok = PR.stepIsValid(view.step, profile);
     return shell({
       title: STEP_TITLES[view.step],
-      sub: editing ? `Editar perfil · ${pos} de ${total}` : `Paso ${view.step} de ${PR.STEPS}`,
+      sub: editing ? `Editar perfil · ${pos} de ${total}` : `Paso ${pos} de ${total}`,
       progress: Math.round((pos / total) * 100),
       backLabel: pos === 1 ? 'Cerrar' : 'Paso anterior',
       skip: editing ? '' : 'Saltar',
@@ -388,18 +533,15 @@
   }
 
   function setGrade(path, value) {
-    const [scale, key] = path.split('.');
-    const grades = Object.assign({}, profile.grades);
-    const g = Object.assign({}, grades[scale]);
-    if (value) g[key] = value; else delete g[key];
-    if (Object.keys(g).length) grades[scale] = g; else delete grades[scale];
-    if (Object.keys(grades).length) profile.grades = grades; else delete profile.grades;
+    const [env, scale, key] = path.split('.');
+    PR.setGradeFor(profile, env, scale, key, value);
   }
 
   function onWizardClick(e) {
-    const el = e.target.closest('[data-goal],[data-sec],[data-exp],[data-days],[data-min],[data-mod],[data-env],[data-rock],[data-prio],[data-eq]');
+    const el = e.target.closest('[data-sec-main],[data-goal],[data-sec],[data-exp],[data-days],[data-min],[data-mod],[data-env],[data-rock],[data-prio],[data-eq]');
     if (!el) return false;
     const d = el.dataset;
+    if (d.secMain) { toast('Ya es tu objetivo principal', 'info'); return true; }
     if (d.goal) { profile.goalPrimary = d.goal; profile.goalsSecondary = (profile.goalsSecondary || []).filter(x => x !== d.goal); if (!profile.goalsSecondary.length) delete profile.goalsSecondary; }
     else if (d.sec) {
       const cur = profile.goalsSecondary || [];
@@ -412,7 +554,7 @@
     else if (d.min) profile.minutesPerSession = parseInt(d.min, 10);
     else if (d.mod) profile.modality = d.mod;
     else if (d.env) {
-      profile.environment = d.env;
+      PR.withEnvironment(profile, d.env);           // los grados de cada entorno se conservan en su entorno
       if (d.env !== 'ambos') { delete profile.rockFrequency; delete profile.rockPriority; }
     }
     else if (d.rock) profile.rockFrequency = parseInt(d.rock, 10);
@@ -437,7 +579,8 @@
     if (!PR.stepIsValid(view.step, profile)) return;
     const editing = !!view.steps;
     const lastEdit = editing && view.step === view.steps[view.steps.length - 1];
-    const lastStep = !editing && view.step === PR.STEPS;
+    const fl = flow(profile);
+    const lastStep = !editing && view.step === fl[fl.length - 1];
     profile = Object.assign(PR.normalizeProfile(profile), { completedAtMs: profile.completedAtMs });
     if (editing) {
       // Guardar la edición no cambia el estado del perfil; si estaba completo, sigue completo
@@ -455,13 +598,17 @@
     }
     if (lastStep) {
       profile.status = 'completed'; profile.step = PR.STEPS; profile.completedAtMs = Date.now();
-      persist('profile');
-      view = { type: 'summary' }; render(); return;
+      persist('profile');                              // 1) se guarda el perfil
+      // 2-4) breve transición de preparación y, después, el recomendador (el mismo de «Para ti», con sus filtros de seguridad)
+      const token = view = { type: 'preparing', _prog: 100 }; render();
+      setTimeout(() => { if (view === token) { view = { type: 'summary' }; render(); } }, reduceMotion() ? 250 : 1900);
+      return;
     }
+    const nx = fl[fl.indexOf(view.step) + 1] || view.step + 1;
     profile.status = 'in_progress';
-    profile.step = view.step + 1;
+    profile.step = nx;
     persist('profile');
-    view.step++;
+    view.step = nx;
     render();
   }
 
@@ -471,7 +618,8 @@
       if (i > 0) { view.step = view.steps[i - 1]; render(); } else { view = { type: 'hub' }; render(); }
       return;
     }
-    if (view.step > 1) { view.step--; render(); return; }
+    const fl = flow(profile), i = fl.indexOf(view.step);
+    if (i > 0) { view.step = fl[i - 1]; render(); return; }
     saveDraftAndClose();
   }
 
@@ -484,20 +632,59 @@
   // ============================================
   // RESUMEN
   // ============================================
-  function summaryRows(p) {
-    return `<ul class="cx-rows">${PR.summarize(p).map(r => `<li><span>${esc(r.label)}</span><b>${esc(r.value)}</b></li>`).join('')}</ul>`;
+  // Tarjeta de una recomendación (la usan la pantalla principal de Entrena y la de fin del onboarding)
+  function recCard(i, o) {
+    o = o || {};
+    const meta = [`~${i.minutes} min`, `Dificultad ${i.level.toLowerCase()}`, i.kind === 'mental' ? i.demand : `Exigencia ${i.demand.toLowerCase()}`, i.equipment.length ? i.equipment.join(', ') : 'Sin material'];
+    const list = i.session ? `<p class="cx-rec-list">${esc(i.session.exercises.map(e => e.name).join(' · '))}</p>` : '';
+    return `<article class="cx-rec${i.soft ? ' is-soft' : ''}${o.featured ? ' is-featured' : ''}" data-rec-id="${esc(i.id)}">
+      ${o.featured ? '<p class="cx-rec-badge">Tu primer entrenamiento</p>' : ''}
+      ${i.objective.toLowerCase() !== i.title.toLowerCase() ? `<p class="cx-rec-obj">${esc(i.objective)}</p>` : ''}
+      <h3 class="cx-rec-title">${esc(i.title)}</h3>
+      <ul class="cx-rec-meta">${meta.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+      <p class="cx-rec-why">${esc(i.reason)}</p>${list}
+      <p class="cx-rec-safety cx-rec-safety--${esc(i.safety.state)}">${esc(i.safety.text)}</p>
+      ${o.noButton ? '' : `<button type="button" class="cx-btn cx-btn--primary cx-rec-go" data-rec="${esc(i.id)}">Comenzar</button>`}
+    </article>`;
   }
 
-  function summaryScreen() {
-    const warn = PR.gradeWarnings(profile).length
-      ? '<p class="pe-hint">Tu grado habitual figura por encima de tu máximo encadenado. Si es correcto, no pasa nada: puedes dejarlo así o corregirlo desde tu perfil.</p>' : '';
+  function preparingScreen() {
+    const steps = ['Revisando tu perfil', 'Aplicando tus limitaciones', 'Eligiendo los ejercicios'];
     return shell({
-      title: 'Tu perfil está listo', close: true, backLabel: 'Cerrar',
-      body: `<div class="pe-card">${summaryRows(profile)}${warn}</div>
-        <div class="pe-card"><h3 class="pe-label">Entrenamiento mental <span class="cx-opt">(opcional)</span></h3>
-          <p class="xl-text">Cinco preguntas breves para sugerirte lecciones y ejercicios de entrenamiento mental. No es un test ni un diagnóstico: son contenidos educativos y deportivos. Puedes saltarte cualquier pregunta.</p></div>`,
-      footer: `<div class="cx-footer-stack"><button type="button" class="pe-save-btn pe-save-btn--wide" data-cx="mental-start"><span>${mental && PR.mentalAnswered(mental) ? 'Revisar mis respuestas' : 'Hacer la evaluación'}</span></button>
-        <button type="button" class="cx-btn cx-btn--ghost" data-cx="close">Ahora no</button></div>`
+      title: 'Preparando tu entrenamiento', close: true, backLabel: 'Cerrar',
+      body: `<div class="cx-prep" role="status" aria-live="polite">
+        <div class="cx-prep-orb" aria-hidden="true"><span></span><span></span>${svg('<path d="m3 20 6-11 4 6 3-4 5 9z"/>', 34)}</div>
+        <p class="cx-prep-title">Estamos preparando un entrenamiento para ti</p>
+        <ul class="cx-prep-steps">${steps.map((t, i) => `<li style="--i:${i}">${esc(t)}</li>`).join('')}</ul></div>`
+    });
+  }
+
+  // Fin del onboarding: perfil guardado → recomendador (el mismo de «Para ti», con sus filtros de seguridad) → propuestas inmediatas
+  function summaryScreen() {
+    const r = recs = computeRecs();
+    const main = r && r.items.find(i => i.kind === 'session');
+    const rest = r ? r.items.filter(i => i !== main) : [];
+    const warn = PR.gradeWarnings(profile).length
+      ? '<p class="pe-hint">Tu grado habitual figura por encima de tu máximo encadenado. Si es correcto, no pasa nada: puedes corregirlo desde tu perfil.</p>' : '';
+    const pendingSave = (dirty.profile) ? '<p class="cx-note" role="status">Guardado en este dispositivo. Se enviará cuando haya conexión.</p>' : '';
+    let body;
+    if (!r) body = '<div class="pe-card"><p class="xl-text">Las recomendaciones no están disponibles ahora mismo. Tu perfil ya está guardado.</p></div>';
+    else {
+      body = (main ? `<p class="cx-hero-k">Krux ha preparado esto para ti</p>${recCard(main, { featured: true, noButton: true })}` : `<div class="pe-card"><p class="xl-text">${esc(r.empty || 'Ahora mismo no hay entrenamientos compatibles que proponerte.')}</p></div>`)
+        + (rest.length ? `<h3 class="cx-more">${main ? 'Otras propuestas' : 'Propuestas'}</h3>${rest.map(i => recCard(i)).join('')}` : '')
+        + `<p class="cx-note">${esc(r.note)}</p>`;
+    }
+    const mentalDone = PR.mentalAnswered(mental) > 0;
+    body += `${warn}${pendingSave}
+      <div class="pe-card"><h3 class="pe-label">Entrenamiento mental <span class="cx-opt">(opcional)</span></h3>
+        <p class="xl-text">Cinco preguntas breves para sugerirte lecciones y ejercicios de entrenamiento mental. No es un test ni un diagnóstico. Puedes saltarte cualquier pregunta.</p>
+        <div class="cx-card-actions"><button type="button" class="cx-btn cx-btn--secondary" data-cx="mental-start">${mentalDone ? 'Revisar mis respuestas' : 'Hacer la evaluación'}</button></div></div>
+      <div class="cx-card-actions cx-card-actions--end"><button type="button" class="cx-btn cx-btn--ghost" data-cx="to-hub">${main ? 'Revisar mi perfil' : 'Revisar mi perfil y mis limitaciones'}</button></div>`;
+    return shell({
+      title: 'Tu perfil está listo', sub: 'Perfil guardado', close: true, backLabel: 'Volver a Entrena',
+      body,
+      footer: `<div class="cx-footer-stack">${main ? `<button type="button" class="pe-save-btn pe-save-btn--wide" data-rec="${esc(main.id)}"><span>Empezar entrenamiento</span></button>` : ''}
+        <button type="button" class="cx-btn cx-btn--ghost" data-cx="close">Volver a Entrena</button></div>`
     });
   }
 
@@ -543,14 +730,16 @@
       title: 'Gracias, ya está guardado', close: true, backLabel: 'Cerrar',
       body: `<div class="pe-card"><p class="xl-text">Usaremos tus respuestas solo para sugerirte lecciones y ejercicios de entrenamiento mental. No generan ninguna puntuación ni etiqueta sobre ti.</p>
         <p class="pe-hint">Puedes cambiarlas, repetirlas o borrarlas cuando quieras desde tu perfil. Esto es contenido educativo y deportivo: no sustituye la ayuda de un profesional si la necesitas.</p></div>`,
-      footer: `<button type="button" class="pe-save-btn pe-save-btn--wide" data-cx="${view.from === 'hub' ? 'to-hub' : 'close'}"><span>Hecho</span></button>`
+      footer: `<button type="button" class="pe-save-btn pe-save-btn--wide" data-cx="${view.from === 'hub' ? 'to-hub' : 'to-recs'}"><span>${view.from === 'hub' ? 'Hecho' : 'Ver mis recomendaciones'}</span></button>`
     });
   }
 
   // ============================================
   // PERFIL (consulta y edición)
   // ============================================
-  const EDIT_STEPS = { goal: [1], sport: [2, 3], boulder: [5], experience: [2], availability: [4], where: [5], equipment: [6] };
+  const EDIT_STEPS = { goal: [1], experience: [3], availability: [5], where: [2], equipment: [6] };
+  // Grados: habitual y máximo (paso 3) y, solo en roca, objetivo (paso 4)
+  const editStepsFor = key => /^grade\.roca\./.test(key) ? [3, 4] : /^grade\./.test(key) ? [3] : EDIT_STEPS[key];
 
   function hubScreen() {
     const complete = profile && profile.status === 'completed';
@@ -562,7 +751,11 @@
       title: 'Mi perfil de escalador', close: true, backLabel: 'Cerrar',
       body: `${banner}
         ${rows.length ? `<div class="pe-card"><ul class="cx-rows cx-rows--edit">${rows.map(r => `<li><span>${esc(r.label)}</span><b>${esc(r.value)}</b>
-          ${EDIT_STEPS[r.key] ? `<button type="button" class="cx-edit" data-edit="${r.key}" aria-label="Editar ${esc(r.label.toLowerCase())}">Editar</button>` : ''}</li>`).join('')}</ul></div>` : ''}
+          ${editStepsFor(r.key) ? `<button type="button" class="cx-edit" data-edit="${r.key}" aria-label="Editar ${esc(r.label.toLowerCase())}">Editar</button>` : ''}</li>`).join('')}</ul></div>` : ''}
+        <div class="pe-card"><h3 class="pe-label">Limitaciones <span class="cx-opt">(opcional)</span></h3>
+          <p class="xl-text" id="cx-lim-text">${PR.limitsAnswered(limits) ? esc(PR.limitsText(limits)) : 'Sin indicar.'}</p>
+          <div class="cx-card-actions"><button type="button" class="cx-btn cx-btn--secondary" data-cx="limits">${PR.limitsAnswered(limits) ? 'Editar' : 'Indicar'}</button></div>
+          <p class="pe-hint">Zonas con molestias o lesiones que conviene tener en cuenta. Se guardan solo en este dispositivo.</p></div>
         <div class="pe-card"><h3 class="pe-label">Entrenamiento mental</h3>
           <p class="xl-text">${answered ? `${answered} de ${PR.MENTAL_QUESTIONS.length} preguntas respondidas.` : 'Evaluación inicial sin hacer.'} Tus respuestas son privadas.</p>
           <div class="cx-card-actions">
@@ -572,6 +765,38 @@
         ${profile ? `<div class="cx-card-actions cx-card-actions--end"><button type="button" class="cx-btn cx-btn--ghost" data-cx="restart">Volver a empezar el cuestionario</button></div>` : ''}
         <p class="pe-hint">Los datos de tu perfil solo los ves tú. Las copias de seguridad locales de KRUX pueden incluirlos: no las compartas.</p>`
     });
+  }
+
+  function limitsScreen() {
+    const d = view.draft;
+    const chips = PR.LIMITS.map(o => `<button type="button" class="xl-chip xl-chip--lg${d.items.includes(o.id) ? ' is-on' : ''}" aria-pressed="${d.items.includes(o.id)}" data-lim="${o.id}">${esc(o.label)}</button>`).join('')
+      + `<button type="button" class="xl-chip xl-chip--lg${d.none ? ' is-on' : ''}" aria-pressed="${!!d.none}" data-lim="none">Ninguna</button>`;
+    return shell({
+      title: 'Limitaciones', sub: 'Opcional',
+      body: `<div class="pe-card"><div class="xl-fchips" role="group" aria-label="Zonas con molestias o lesiones">${chips}</div>
+        ${d.items.includes('otra') ? `<label class="cx-field"><span class="pe-label">¿Cuál?</span><input type="text" class="cx-input" id="cx-lim-other" maxlength="60" value="${esc(d.other || '')}" autocomplete="off"></label>` : ''}
+        <p class="pe-hint">Marca lo que quieras o déjalo en blanco. Se guarda solo en este dispositivo y puedes cambiarlo cuando quieras.</p></div>`,
+      footer: `${limits ? '<button type="button" class="cx-btn cx-btn--ghost" data-cx="limits-clear">Quitar</button>' : ''}<button type="button" class="cx-btn cx-btn--primary" data-cx="limits-save">Guardar</button>`
+    });
+  }
+  function openLimits() {
+    const l = limits || {};
+    view = { type: 'limits', draft: { items: [...(l.items || [])], none: !!l.none, other: l.other || '' } };
+    render();
+  }
+  function toggleLimit(id) {
+    const d = view.draft;
+    if (id === 'none') { d.none = !d.none; if (d.none) { d.items = []; d.other = ''; } }
+    else { d.items = d.items.includes(id) ? d.items.filter(x => x !== id) : d.items.concat(id); if (d.items.length) d.none = false; if (!d.items.includes('otra')) d.other = ''; }
+    render('[data-lim="' + id + '"]');
+  }
+  function saveLimits(clear) {
+    const d = view.draft;
+    const next = clear ? null : PR.normalizeLimits({ items: d.items, other: d.other, none: d.none });
+    limits = next && PR.limitsAnswered(next) ? next : null;
+    if (!limWrite()) { limits = limRead(); toast('No se pudo guardar en este dispositivo', 'error'); return; }
+    view = { type: 'hub' }; render();
+    toast(limits ? 'Limitaciones guardadas' : 'Limitaciones quitadas', 'success');
   }
 
   function mentalDelete() {
@@ -595,10 +820,13 @@
     m._cxBound = true;
     m.addEventListener('click', e => {
       if (!view) return;
+      const rec = e.target.closest('[data-rec]');
+      if (rec) { const id = rec.dataset.rec; closeModal(true); startRecommendation(id); return; }
       if (view.type === 'wizard' && onWizardClick(e)) return;
       if (view.type === 'mental') { const a = e.target.closest('[data-ans]'); if (a) { const v = a.dataset.ans; answerMental(/^[1-5]$/.test(v) ? parseInt(v, 10) : v); return; } }
+      if (view.type === 'limits') { const c = e.target.closest('[data-lim]'); if (c) { toggleLimit(c.dataset.lim); return; } }
       const ed = e.target.closest('[data-edit]');
-      if (ed) { openWizard(EDIT_STEPS[ed.dataset.edit][0], EDIT_STEPS[ed.dataset.edit]); return; }
+      if (ed) { const st = editStepsFor(ed.dataset.edit); openWizard(st[0], st); return; }
       const b = e.target.closest('[data-cx]');
       if (!b) return;
       switch (b.dataset.cx) {
@@ -606,20 +834,25 @@
         case 'back':
           if (view.type === 'wizard') wizardBack();
           else if (view.type === 'mental') { if (view.q > 0) { view.q--; render(); } else if (view.from === 'hub') { view = { type: 'hub' }; render(); } else { view = { type: 'summary' }; render(); } }
+          else if (view.type === 'limits') { view = { type: 'hub' }; render(); }
           else if (view.type === 'mental-done' && view.from === 'hub') { view = { type: 'hub' }; render(); }
           else closeModal();
           break;
         case 'skip':
-          if (view.type === 'mental') { view.from === 'hub' ? (view = { type: 'hub' }, render()) : closeModal(); }
+          if (view.type === 'mental') { view = { type: view.from === 'hub' ? 'hub' : 'summary' }; render(); }
           else { profile = Object.assign(PR.normalizeProfile(profile || {}), { status: 'skipped' }); persist('profile'); closeModal(); toast('Perfil pendiente', 'info', { detail: 'Lo encontrarás en el menú de Entrena cuando quieras.' }); }
           break;
         case 'close': closeModal(); break;
         case 'to-hub': view = { type: 'hub' }; render(); break;
+        case 'to-recs': view = { type: 'summary' }; render(); break;
         case 'mental-start': startMental('summary'); break;
         case 'mental-hub': startMental('hub'); break;
         case 'mental-delete': mentalDelete(); break;
         case 'start-wizard': openWizard(profile ? PR.firstIncompleteStep(profile) : 1); break;
         case 'restart': restart(); break;
+        case 'limits': openLimits(); break;
+        case 'limits-save': saveLimits(false); break;
+        case 'limits-clear': saveLimits(true); break;
       }
     });
     m.addEventListener('change', e => {
@@ -629,10 +862,11 @@
       refreshNext();
     });
     m.addEventListener('input', e => {
+      if (e.target.id === 'cx-lim-other' && view && view.type === 'limits') { view.draft.other = e.target.value.slice(0, 60); return; }
       if (e.target.id !== 'cx-other') return;
       profile.equipmentOther = e.target.value.slice(0, 60);
     });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && view) { if (view.type === 'wizard') saveDraftAndClose(); else closeModal(); } });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && welcomeEl) { welcomeLater(); return; } if (e.key === 'Escape' && view) { if (view.type === 'wizard') saveDraftAndClose(); else closeModal(); } });
   }
 
   // ============================================
@@ -651,14 +885,18 @@
       });
     }
     firebase.auth().onAuthStateChanged(onUser);
+    const tv = $('train-view');
+    if (tv && window.MutationObserver) new MutationObserver(() => maybeWelcome()).observe(tv, { attributes: true, attributeFilter: ['class'] });
+    document.addEventListener('krux:train-refresh', () => { if (ENABLED() && uid && loaded) renderCard(); });
     window.addEventListener('online', () => { if (uid && (dirty.profile || dirty.mental)) persist(dirty.profile ? 'profile' : 'mental'); });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && uid && (dirty.profile || dirty.mental)) persist(dirty.profile ? 'profile' : 'mental'); });
   }
 
   window.KruxCoach = {
     enabled: ENABLED,
-    state: () => ({ uid, profile, mental, dirty: { ...dirty }, loaded, loadFailed }),
+    state: () => ({ uid, profile, mental, limits, dirty: { ...dirty }, loaded, loadFailed }),
     openProfile: () => { if (!profile) openWizard(1); else openHub(); },
+    recommendations: () => recs,
     reload: loadAll,
     flush: () => persist(dirty.profile ? 'profile' : 'mental')
   };
