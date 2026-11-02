@@ -370,6 +370,8 @@
     renderSession(lastSession);
   }
 
-  window.KruxMentalUI = { open, renderSession, catalog: () => ({ lessons: D.lessons.length, exercises: D.exercises.length }) };
+  // Abre directamente la ficha de un contenido (lo usa «Para ti»); un id desconocido abre la biblioteca
+  function openItem(id) { if (!BY_ID.has(id)) { open(); return; } stack = []; view = null; go({ type: 'detail', id }); }
+  window.KruxMentalUI = { open, openItem, renderSession, catalog: () => ({ lessons: D.lessons.length, exercises: D.exercises.length }) };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

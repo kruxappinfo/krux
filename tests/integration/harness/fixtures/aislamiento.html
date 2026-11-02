@@ -1,0 +1,7 @@
+<!doctype html><meta charset="utf-8"><title>…</title>
+<script>
+  // Página mínima para probar el aislamiento de perfiles del arnés: informa de lo que ya había en localStorage y deja una marca.
+  const previa = localStorage.getItem('marca');
+  localStorage.setItem('marca', 'ejecucion-' + Date.now());
+  document.title = 'T|' + JSON.stringify({ previa, fallos: /falla=1/.test(location.search) ? ['forzado'] : [] });
+</script>

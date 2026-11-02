@@ -647,6 +647,6 @@
     SCHEMA_VERSION, PARAMS, EXTRA_KEYS, TAGS, GOALS, LEVEL_LABELS, DEMAND_LABELS, DURATION_BUCKETS, RELATION_TYPES, TEMPO_RE, MAX_PLAN_NOTES,
     normalize, createCatalog, validateExercise, validateCatalog, findProgressionCycles,
     searchScore, filterExercises, getRelations, verifiedMedia, resolveByName, planItemFromExercise, linkPlanItem,
-    paramsForPlanItem, recommendPlan, estimateMinutes, equipmentOk
+    paramsForPlanItem, recommendPlan, estimateMinutes, equipmentOk, FOCUS
   };
 }));
