@@ -210,7 +210,7 @@
     box.innerHTML = list.length ? list.map(ex => {
       const it = X && X.planItemFromExercise ? X.planItemFromExercise(ex) : null, c = cat.catById.get(ex.primaryCategoryId);
       return `<button type="button" class="cx-ex cxh-ex" data-guide="${esc(ex.id)}" aria-label="${esc(`${ex.name}. Ver instrucciones`)}">
-        <span class="cx-ex-art cx-art--${esc(ex.primaryCategoryId)}" aria-hidden="true">${catIcon(ex.primaryCategoryId, 24)}</span>
+        <span class="cx-ex-art cx-art--${esc(ex.primaryCategoryId)}" style="--ex-img:url('assets/train/ex/${esc(ex.id)}.jpg')" aria-hidden="true">${catIcon(ex.primaryCategoryId, 24)}</span>
         <span class="cx-ex-body"><b>${esc(ex.name)}</b><span class="cx-ex-spec">${esc([c ? catShort(c) : '', X && X.LEVEL_LABELS[ex.technicalLevel] || ''].filter(Boolean).join(' · '))}</span>${it ? `<small>${esc(work(it))}</small>` : ''}</span>
         <span class="cxh-chev">${IC.chev}</span></button>`;
     }).join('') : '<p class="cxh-note">No hay ejercicios con ese filtro.</p>';

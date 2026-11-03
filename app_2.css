@@ -29527,3 +29527,28 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 /* Entrenamiento mental en el cuestionario */
 .cx-ask-note { display: flex; gap: 12px; align-items: center; margin: 0; padding: 14px 16px; border-radius: 18px; background: var(--tr-green-wash); color: var(--tr-ink-2); font-size: 0.9375rem; line-height: 1.4; }
 .cx-ask-note svg { flex: none; color: var(--tr-green); }
+
+/* Foto propia de cada ejercicio (assets/train/ex/<id>.jpg); si no existe se ve la de su categoría */
+.cx-ex-art.cx-art--dedos { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-dedos.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--traccion { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-traccion.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--potencia { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-potencia.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--resistencia { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-resistencia.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--piernas { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-piernas.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--core { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-core.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--tecnica { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-tecnica.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--antagonistas { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-antagonistas.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--movilidad { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-movilidad.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--general { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-general.jpg') center / cover no-repeat; }
+.cx-ex-art.cx-art--recuperacion { background: var(--ex-img, none) center / cover no-repeat, var(--art) url('assets/train/cat-movilidad.jpg') center / cover no-repeat; }
+
+/* ── Popup de rocódromo ── */
+.ml-gym-popup .maplibregl-popup-content { padding: 0; border-radius: 20px; overflow: hidden; background: #fff; box-shadow: 0 10px 30px rgba(10, 24, 18, 0.2); }
+.ml-gym-popup-content { position: relative; width: 260px; padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 8px; font-family: var(--kx-font, inherit); }
+.ml-gym-kicker { margin: 0; padding-right: 36px; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #5A665F; }
+.ml-gym-price { letter-spacing: 0.06em; }
+.ml-gym-price--no { color: #2E7D4F; }
+.ml-gym-title { margin: 0; padding-right: 30px; font-size: 1.125rem; line-height: 1.2; font-weight: 800; letter-spacing: -0.01em; color: var(--kx-granite, #202923); }
+.ml-gym-tags { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ml-gym-tags li { padding: 4px 10px; border-radius: 999px; background: var(--kx-sage-soft, #EBF2EC); color: var(--kx-forest, #153E35); font-size: 0.8125rem; font-weight: 700; }
+.ml-gym-popup .ml-gym-btn { margin-top: 6px; min-height: 44px; border: 0; border-radius: 14px; background: var(--kx-forest, #153E35); color: #fff; font: inherit; font-size: 0.9375rem; font-weight: 700; cursor: pointer; }
+.ml-gym-popup .ml-gym-btn:hover { background: var(--kx-forest, #153E35); }

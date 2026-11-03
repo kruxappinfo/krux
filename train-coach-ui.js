@@ -791,7 +791,7 @@
   function exCard(ex) {
     const cat = libCat(), gid = window.KruxGuide ? window.KruxGuide.idFor(ex) : null, c = cat && gid ? cat.byId.get(gid) : null;
     const parts = [workOf(ex), ex.weight > 0 ? `+${ex.weight} kg` : ''].filter(Boolean).join(' · ');
-    const inner = `<span class="cx-ex-art cx-art--${esc(c ? c.primaryCategoryId : 'general')}" aria-hidden="true">${focusIcon(c ? c.primaryCategoryId : 'general', 24)}</span>
+    const inner = `<span class="cx-ex-art cx-art--${esc(c ? c.primaryCategoryId : 'general')}"${gid ? ` style="--ex-img:url('assets/train/ex/${esc(gid)}.jpg')"` : ''} aria-hidden="true">${focusIcon(c ? c.primaryCategoryId : 'general', 24)}</span>
       <span class="cx-ex-body"><b>${esc(ex.name)}</b><span class="cx-ex-spec">${esc(parts)}</span>${ex.restSec ? `<small>Descanso ${esc(durOf(ex.restSec))}</small>` : ''}</span>
       ${gid ? `<span class="cx-ex-how">Cómo hacerlo</span>` : ''}`;
     return gid
