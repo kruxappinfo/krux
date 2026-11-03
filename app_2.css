@@ -29545,8 +29545,9 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 .ml-gym-popup .maplibregl-popup-content { padding: 0; border-radius: 20px; overflow: hidden; background: #fff; box-shadow: 0 10px 30px rgba(10, 24, 18, 0.2); }
 .ml-gym-popup-content { position: relative; width: 260px; padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 8px; font-family: var(--kx-font, inherit); }
 .ml-gym-kicker { margin: 0; padding-right: 36px; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #5A665F; }
-.ml-gym-price { letter-spacing: 0.06em; }
-.ml-gym-price--no { color: #2E7D4F; }
+.ml-gym-price { display: inline-block; margin-left: 2px; padding: 2px 8px; border-radius: 999px; letter-spacing: 0.06em; }
+.ml-gym-price--si { background: #FFE6DC; color: #8A3A1C; }
+.ml-gym-price--no { background: var(--kx-sage-soft, #EBF2EC); color: #1F6B45; }
 .ml-gym-title { margin: 0; padding-right: 30px; font-size: 1.125rem; line-height: 1.2; font-weight: 800; letter-spacing: -0.01em; color: var(--kx-granite, #202923); }
 .ml-gym-tags { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .ml-gym-tags li { padding: 4px 10px; border-radius: 999px; background: var(--kx-sage-soft, #EBF2EC); color: var(--kx-forest, #153E35); font-size: 0.8125rem; font-weight: 700; }

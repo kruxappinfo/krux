@@ -5891,17 +5891,24 @@ function loadGymMarkers() {
     .catch(err => console.warn('[Rocódromos] No se han podido cargar:', err));
 }
 
-// Icono: cuadrado redondeado con una presa. De pago = verde bosque; gratuito (municipal o al aire libre) = blanco con borde verde
+// Iconos: de pago = cuadrado verde bosque con moneda «€» coral; gratuito (municipal o al aire libre) = círculo blanco con borde verde.
+// Se distinguen por la forma y por la moneda, no solo por el color, para leerse bien sobre la ortofoto.
 async function loadGymIcons() {
   const size = 96;
-  const icon = (bg, fg, ring) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}">
-    <defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.6" flood-color="#0b1f1a" flood-opacity="0.35"/></filter></defs>
-    <rect x="6" y="6" width="36" height="36" rx="12" fill="${bg}" stroke="${ring}" stroke-width="2.5" filter="url(#s)"/>
-    <path d="M17.6 30.6c-2.4-1.3-3.2-4.4-1.8-6.9l3.4-6.2c1.5-2.7 4.9-3.7 7.6-2.2l4.1 2.3c2.6 1.5 3.4 4.9 1.8 7.4l-3.2 5.1c-1.5 2.4-4.7 3.3-7.2 1.9z" fill="${fg}"/>
-    <circle cx="24.4" cy="23.4" r="2.5" fill="${bg}"/>
+  const shadow = '<defs><filter id="s" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.6" flood-color="#0b1f1a" flood-opacity="0.35"/></filter></defs>';
+  const hold = (fg, bg) => `<path d="M17.6 31.6c-2.4-1.3-3.2-4.4-1.8-6.9l3.4-6.2c1.5-2.7 4.9-3.7 7.6-2.2l4.1 2.3c2.6 1.5 3.4 4.9 1.8 7.4l-3.2 5.1c-1.5 2.4-4.7 3.3-7.2 1.9z" fill="${fg}"/><circle cx="24.4" cy="24.4" r="2.5" fill="${bg}"/>`;
+  const paid = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}">${shadow}
+    <rect x="5" y="7" width="36" height="36" rx="11" fill="#153E35" stroke="#ffffff" stroke-width="2.5" filter="url(#s)"/>
+    <g transform="translate(-1 1)">${hold('#ffffff', '#153E35')}</g>
+    <circle cx="38.5" cy="9.5" r="7.5" fill="#FF8D67" stroke="#ffffff" stroke-width="2"/>
+    <text x="38.5" y="13.2" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10.5" font-weight="700" fill="#202923">€</text>
   </svg>`;
-  await loadSVGAsImage('gym-icon-paid', icon('#153E35', '#ffffff', '#ffffff'), size);
-  await loadSVGAsImage('gym-icon-free', icon('#ffffff', '#153E35', '#153E35'), size);
+  const free = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}">${shadow}
+    <circle cx="24" cy="25" r="17" fill="#ffffff" stroke="#153E35" stroke-width="3" filter="url(#s)"/>
+    <g transform="translate(-0.4 0.6)">${hold('#153E35', '#ffffff')}</g>
+  </svg>`;
+  await loadSVGAsImage('gym-icon-paid', paid, size);
+  await loadSVGAsImage('gym-icon-free', free, size);
 }
 
 function setupGymLayerInteraction() {
