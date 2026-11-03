@@ -29144,16 +29144,8 @@ body.xg-open { overflow: hidden; }
 .mx-row-x { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: none; color: var(--tr-ink-3); }
 
 /* ── Para ti: recomendaciones de entrenamiento ── */
-.cx-rec { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding: 14px; border-radius: 18px; background: var(--tr-fill); }
-.cx-rec.is-soft { background: var(--tr-green-wash); }
-.cx-rec-obj { margin: 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tr-green); }
-.cx-rec-title { margin: 0; font-size: 1.0625rem; font-weight: 800; letter-spacing: -0.01em; color: var(--tr-ink); }
-.cx-rec-meta { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.8125rem; font-weight: 700; color: var(--tr-ink-2); }
-.cx-rec-why { margin: 2px 0 0; font-size: 0.875rem; line-height: 1.45; color: var(--tr-ink-2); }
-.cx-rec-list { margin: 0; font-size: 0.8125rem; line-height: 1.4; color: var(--tr-ink-3); }
 .cx-rec-safety { margin: 0; font-size: 0.8125rem; line-height: 1.4; color: var(--tr-ink-3); }
 .cx-rec-safety--unverified { color: var(--tr-ink); font-weight: 600; }
-.cx-rec-go { align-self: stretch; margin-top: 6px; }
 .cx-profile-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0, 0, 0, 0.06); }
 .cx-profile-line > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .cx-profile-line b { font-size: 0.875rem; color: var(--tr-ink); }
@@ -29170,8 +29162,6 @@ body.xg-open { overflow: hidden; }
 .cx-pill svg { width: 14px; height: 14px; }
 .cx-pill--main { background: var(--tr-green-btn); color: #fff; box-shadow: none; }
 .xl-chip.is-disabled { opacity: 0.45; cursor: not-allowed; text-decoration: line-through; }
-.cx-rec.is-featured { background: var(--tr-green-wash); box-shadow: inset 0 0 0 1.5px rgba(21, 62, 53, 0.35); margin-top: 0; }
-.cx-rec-badge { align-self: flex-start; margin: 0 0 2px; padding: 3px 10px; border-radius: 999px; background: var(--tr-green-btn); color: #fff; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.02em; }
 .cx-more { margin: 14px 0 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tr-green); }
 #cx-scroll .cx-rec { margin-bottom: 0; }
 
@@ -29213,7 +29203,6 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 .cx-reveal > :nth-child(3) { animation-delay: 0.22s; }
 .cx-reveal > :nth-child(n+4) { animation-delay: 0.32s; }
 .cx-hero-k { margin: 0 0 -4px; font-size: 0.8125rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tr-green); }
-.cx-rec.is-featured { box-shadow: inset 0 0 0 1.5px rgba(21, 62, 53, 0.35), 0 10px 28px rgba(21, 62, 53, 0.14); }
 @media (prefers-reduced-motion: reduce) {
   .cw-backdrop, .cw-card, .cx-btn, .xl-opt, .xl-chip, .xl-seg-btn, .cx-pill { transition: none; }
   .cw-card { transform: none; }
@@ -29328,3 +29317,102 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 #coach-modal .cx-grid--dots .xl-seg-btn { min-width: 44px; }
 #coach-modal .cx-group .cx-grid--dots { margin-inline: -6px; gap: 3px; }
 .cx-mod-row { flex: 1; }
+
+/* ── Entrena: recomendaciones resumidas y ficha del entrenamiento (KRUX_COACH) ── */
+.cx-art--tecnica { --art: #E3ECF1; --art-ink: #2F5566; }
+.cx-art--resistencia { --art: #E4EEE5; --art-ink: #2E6045; }
+.cx-art--dedos { --art: #F2EADF; --art-ink: #7A5428; }
+.cx-art--traccion { --art: #ECE8F1; --art-ink: #574A72; }
+.cx-art--potencia { --art: #F4E6DF; --art-ink: #8A4A2E; }
+.cx-art--piernas { --art: #E2EFEC; --art-ink: #2C6258; }
+.cx-art--core { --art: #EFEDE2; --art-ink: #635C2B; }
+.cx-art--antagonistas { --art: #E8ECEF; --art-ink: #44545F; }
+.cx-art--movilidad, .cx-art--recuperacion { --art: #E7F0EE; --art-ink: #2F5E55; }
+.cx-art--general { --art: #ECEDE7; --art-ink: #46503F; }
+.cx-art--mental { --art: #ECE9F4; --art-ink: #53487A; }
+
+.cx-rec { --xb: var(--tr-surface); position: relative; width: 100%; display: flex; align-items: center; gap: 14px; margin-top: 10px; padding: 10px 12px 10px 10px; border-radius: 22px; background: var(--xb); color: inherit; text-align: left; box-shadow: 0 0 0 1px var(--tr-line), 0 3px 12px rgba(32, 43, 39, 0.05); }
+.cx-foryou .cx-rec { box-shadow: 0 0 0 1px var(--tr-line); }
+.cx-rec-art { flex: none; width: 76px; height: 76px; display: grid; place-items: center; border-radius: 17px; background: var(--art, var(--tr-fill)); color: var(--art-ink, var(--tr-green)); }
+.cx-rec-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cx-rec-title { font-size: 1.0625rem; font-weight: 800; letter-spacing: -0.01em; color: var(--tr-ink); }
+.cx-rec-meta { font-size: 0.8125rem; line-height: 1.4; color: var(--tr-ink-2); }
+.cx-rec-meta span + span::before { content: '·'; margin-right: 6px; color: var(--tr-ink-3); }
+.cx-rec-obj { font-size: 0.75rem; font-weight: 700; color: var(--tr-ink-3); }
+.cx-rec-chev { flex: none; color: var(--tr-ink-3); display: grid; }
+.cx-rec.is-featured { background: var(--tr-green-wash); box-shadow: inset 0 0 0 1.5px var(--tr-green), 0 10px 28px rgba(21, 62, 53, 0.12); margin-top: 0; }
+.cx-rec.is-featured .cx-rec-art { width: 88px; height: 88px; }
+.cx-rec-badge { align-self: flex-start; margin: 0 0 2px; padding: 3px 10px; border-radius: 999px; background: var(--tr-green-btn); color: #fff; font-size: 0.6875rem; font-weight: 800; letter-spacing: 0.02em; }
+
+/* Ficha */
+#coach-modal .cx-d { display: flex; flex-direction: column; max-width: 560px; margin-inline: auto; background: var(--tr-bg); }
+#coach-modal .cx-d-scroll { padding: 0 0 calc(20px + env(safe-area-inset-bottom, 0px)); }
+.cx-d-hero { position: relative; min-height: 260px; display: flex; flex-direction: column; justify-content: flex-end; padding: calc(64px + env(safe-area-inset-top, 0px)) 20px 44px; color: #fff;
+  background: linear-gradient(180deg, rgba(10, 24, 18, 0.1) 0%, rgba(10, 24, 18, 0.25) 40%, rgba(10, 24, 18, 0.78) 100%), #5F4C3A url('assets/train/sesion-roca.jpg') center 40% / cover no-repeat; }
+.cx-d-back { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 16px; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: rgba(255, 255, 255, 0.92); color: var(--tr-ink); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15); }
+#coach-modal .cx-d-back:hover { background: rgba(255, 255, 255, 0.92); }
+.cx-d-kicker { margin: 0 0 4px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.9; }
+.cx-d-title { margin: 0; font-size: 2rem; line-height: 1.08; font-weight: 800; letter-spacing: -0.025em; color: #fff; }
+.cx-d-title:focus { outline: none; }
+.cx-d-meta { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 12px 0 0; font-size: 1rem; font-weight: 500; }
+.cx-d-meta span { display: inline-flex; align-items: center; gap: 7px; }
+.cx-d-tabs { position: sticky; top: 0; z-index: 2; display: flex; gap: 4px; margin: -24px 0 0; padding: 12px 16px 10px; border-radius: 24px 24px 0 0; background: var(--tr-bg); }
+.cx-d-tab { --xb: transparent; flex: 1; min-height: 44px; border-radius: 999px; background: var(--xb); color: var(--tr-ink-2); font-size: 0.9375rem; font-weight: 600; }
+.cx-d-tab.is-on { --xb: var(--tr-green-wash); color: var(--tr-green-ink); font-weight: 700; }
+.cx-d-body { display: flex; flex-direction: column; gap: 14px; padding: 6px 16px 0; animation: cx-up 0.28s var(--tr-ease); }
+.cx-d-card { padding: 16px; border-radius: 22px; background: var(--tr-surface); box-shadow: 0 0 0 1px var(--tr-line), 0 3px 12px rgba(32, 43, 39, 0.04); }
+.cx-d-card p { margin: 0; font-size: 0.9375rem; line-height: 1.5; color: var(--tr-ink-2); }
+.cx-d-h { margin: 0 0 12px; font-size: 1.0625rem; font-weight: 800; letter-spacing: -0.01em; color: var(--tr-ink); }
+.cx-d-h span { font-weight: 500; color: var(--tr-ink-3); font-size: 0.9375rem; }
+.cx-d-goal { display: flex; gap: 14px; align-items: flex-start; }
+.cx-d-goal-ic { flex: none; color: var(--tr-green); margin-top: 2px; }
+.cx-d-goal b { display: block; margin-bottom: 2px; font-size: 1.0625rem; color: var(--tr-ink); }
+.cx-d-facts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cx-d-facts li { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 16px; background: var(--tr-surface); box-shadow: 0 0 0 1px var(--tr-line); }
+.cx-d-facts li:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.cx-d-facts span { font-size: 0.75rem; font-weight: 600; color: var(--tr-ink-3); }
+.cx-d-facts b { font-size: 0.9375rem; color: var(--tr-ink); overflow-wrap: anywhere; }
+.cx-blocks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cx-block { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 14px; border-radius: 14px; box-shadow: 0 0 0 1px var(--tr-line); }
+.cx-block--main { background: var(--tr-green-wash); box-shadow: none; }
+.cx-block-ic { display: grid; color: var(--tr-ink-2); }
+.cx-block--main .cx-block-ic { color: var(--tr-green); }
+.cx-block b { flex: 1; font-size: 0.9375rem; font-weight: 600; color: var(--tr-ink); }
+.cx-block--main b { font-weight: 800; }
+.cx-block > span:last-child { font-size: 0.875rem; color: var(--tr-ink-2); font-variant-numeric: tabular-nums; }
+.cx-d-sec .cx-d-h { margin: 6px 4px 10px; }
+.cx-ex-list { display: flex; flex-direction: column; gap: 8px; }
+.cx-ex { --xb: var(--tr-surface); width: 100%; display: flex; align-items: center; gap: 14px; padding: 8px 12px 8px 8px; border-radius: 18px; background: var(--xb); color: inherit; text-align: left; box-shadow: 0 0 0 1px var(--tr-line); }
+.cx-d-card .cx-ex { box-shadow: none; padding-left: 0; }
+.cx-d-card .cx-ex + .cx-ex { border-radius: 0; box-shadow: 0 -1px 0 var(--tr-line); padding-top: 12px; }
+.cx-ex-art { flex: none; width: 60px; height: 60px; display: grid; place-items: center; border-radius: 15px; background: var(--art, var(--tr-fill)); color: var(--art-ink, var(--tr-green)); }
+.cx-ex-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cx-ex-body b { font-size: 0.9375rem; color: var(--tr-ink); overflow-wrap: anywhere; }
+.cx-ex-spec { font-size: 0.875rem; font-weight: 600; color: var(--tr-ink-2); font-variant-numeric: tabular-nums; }
+.cx-ex-body small { font-size: 0.8125rem; color: var(--tr-ink-3); }
+.cx-ex-how { flex: none; font-size: 0.75rem; font-weight: 700; color: var(--tr-green-ink); }
+.cx-d-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 0.9375rem; line-height: 1.5; color: var(--tr-ink-2); }
+.cx-d-safe.cx-rec-safety--unverified { background: var(--tr-amber-bg); box-shadow: none; }
+.cx-d-safe.cx-rec-safety--unverified p, .cx-d-safe.cx-rec-safety--unverified .cx-d-h { color: var(--tr-amber-ink); }
+.cx-d-foot { margin: 0 4px; font-size: 0.8125rem; line-height: 1.45; color: var(--tr-ink-3); }
+#coach-modal .cx-d .xl-pickbar { padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px)); border-top: 0; background: linear-gradient(to top, var(--tr-bg) 78%, rgba(247, 246, 240, 0)); -webkit-backdrop-filter: none; backdrop-filter: none; }
+#coach-modal .cx-d .pe-save-btn--wide { max-width: none; height: 58px; border-radius: 20px; font-size: 1.0625rem; }
+@media (prefers-reduced-motion: reduce) { .cx-d-body { animation: none; } }
+
+/* Fotos (assets/train): modalidades, cabecera de la ficha y una por categoría de ejercicio */
+.cx-mod-art--deportiva { background-image: url('assets/train/modalidad-deportiva.jpg'); }
+.cx-mod-art--bloque { background-image: url('assets/train/modalidad-bloque.jpg'); }
+.cx-d-hero { background: linear-gradient(180deg, rgba(10, 24, 18, 0.1) 0%, rgba(10, 24, 18, 0.3) 45%, rgba(10, 24, 18, 0.8) 100%), #3A332B url('assets/train/ficha-cabecera.jpg') center 30% / cover no-repeat; }
+.cx-rec-art.cx-art--dedos, .cx-ex-art.cx-art--dedos { background: var(--art) url('assets/train/cat-dedos.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--traccion, .cx-ex-art.cx-art--traccion { background: var(--art) url('assets/train/cat-traccion.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--potencia, .cx-ex-art.cx-art--potencia { background: var(--art) url('assets/train/cat-potencia.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--resistencia, .cx-ex-art.cx-art--resistencia { background: var(--art) url('assets/train/cat-resistencia.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--piernas, .cx-ex-art.cx-art--piernas { background: var(--art) url('assets/train/cat-piernas.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--core, .cx-ex-art.cx-art--core { background: var(--art) url('assets/train/cat-core.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--tecnica, .cx-ex-art.cx-art--tecnica { background: var(--art) url('assets/train/cat-tecnica.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--antagonistas, .cx-ex-art.cx-art--antagonistas { background: var(--art) url('assets/train/cat-antagonistas.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--movilidad, .cx-ex-art.cx-art--movilidad { background: var(--art) url('assets/train/cat-movilidad.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--general, .cx-ex-art.cx-art--general { background: var(--art) url('assets/train/cat-general.jpg') center / cover no-repeat; }
+.cx-rec-art.cx-art--recuperacion, .cx-ex-art.cx-art--recuperacion { background: var(--art) url('assets/train/cat-movilidad.jpg') center / cover no-repeat; }
+:is(.cx-rec-art, .cx-ex-art):is(.cx-art--dedos, .cx-art--traccion, .cx-art--potencia, .cx-art--resistencia, .cx-art--piernas, .cx-art--core, .cx-art--tecnica, .cx-art--antagonistas, .cx-art--movilidad, .cx-art--recuperacion, .cx-art--general) svg { display: none; }
+.cx-rec-art, .cx-ex-art { overflow: hidden; }
