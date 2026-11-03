@@ -234,15 +234,15 @@
     const pending = (dirty.profile || dirty.mental) ? '<p class="cx-note" role="status">Guardado en este dispositivo. Se enviará cuando haya conexión.</p>' : '';
     const status = profile ? profile.status : null;
     let html = '';
-    if (!profile || status === 'in_progress') {
-      const started = !!profile;
+    if (status === 'in_progress' || status === 'skipped') {
+      // Sin perfil no hay tarjeta: la bienvenida es el modal. Aquí solo queda el acceso para retomar o empezar tras «Ahora no».
+      const started = status === 'in_progress';
       html = `
         <p class="cx-kicker">Para ti</p>
-        <h2 class="cx-card-title">${started ? 'Sigue donde lo dejaste' : 'Cuéntanos cómo escalas'}</h2>
-        <p class="cx-card-text">${started ? 'Te quedan unas pocas preguntas para personalizar Entrena.' : 'Seis preguntas rápidas para personalizar Entrena. Puedes saltarlas y hacerlas cuando quieras.'}</p>
+        <h2 class="cx-card-title">${started ? 'Sigue donde lo dejaste' : 'Personaliza tu entrenamiento'}</h2>
+        <p class="cx-card-text">${started ? 'Te quedan unas pocas preguntas para personalizar Entrena.' : 'Cuéntanos cómo escalas y Krux preparará entrenamientos adaptados a ti.'}</p>
         <div class="cx-card-actions">
-          <button type="button" class="cx-btn cx-btn--primary" data-cx="start">${started ? 'Continuar' : 'Empezar'}</button>
-          <button type="button" class="cx-btn cx-btn--ghost" data-cx="later">Ahora no</button>
+          <button type="button" class="cx-btn cx-btn--primary" data-cx="start">${started ? 'Continuar' : 'Empezar'}</button>${started ? '\n          <button type="button" class="cx-btn cx-btn--ghost" data-cx="later">Ahora no</button>' : ''}
         </div>${pending}`;
     } else if (status === 'completed') {
       const rows = PR.summarize(profile).filter(r => ['goal', 'availability'].includes(r.key));
@@ -256,7 +256,6 @@
           <button type="button" class="cx-btn cx-btn--secondary" data-cx="profile">Ver y editar</button></div>
         ${mentalLine}${pending}`;
     }
-    // Saltado: no se insiste. El perfil sigue disponible en el menú.
     el.innerHTML = html;
     el.classList.toggle('hidden', !html);
   }
@@ -279,14 +278,14 @@
   // ============================================
   // BIENVENIDA (popup de primera vez en Entrena)
   // ============================================
-  // Aparece solo si no existe ningún perfil (ni en curso, ni saltado): «Ahora no» guarda el perfil como «skipped» (igual que «Ahora no» de la
+  // Aparece (también si la carga del servidor falla: el perfil queda en local y se reintenta) solo si no existe ningún perfil (ni en curso, ni saltado): «Ahora no» guarda el perfil como «skipped» (igual que «Ahora no» de la
   // tarjeta), y abandonar el cuestionario lo deja «en curso» (se retoma desde la tarjeta o el menú), así que no vuelve a salir.
   const reduceMotion = () => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; } };
   let welcomeEl = null;
   const trainActive = () => { const v = $('train-view'); return !!v && v.classList.contains('active') && !v.classList.contains('hidden'); };
   function welcomeOpen() { return !!welcomeEl; }
   function maybeWelcome() {
-    if (!ENABLED() || !uid || !loaded || loadFailed || profile || welcomeEl || view || !trainActive()) return;
+    if (!ENABLED() || !uid || !loaded || profile || welcomeEl || view || !trainActive()) return;
     if (window.KruxTrainSession && window.KruxTrainSession.isRunning()) return;
     showWelcome();
   }
@@ -302,6 +301,7 @@
       <button type="button" class="cx-btn cx-btn--ghost cw-later" data-cw="later">Ahora no</button>
     </div>`;
     document.body.appendChild(el);
+    document.documentElement.classList.add('cw-lock');
     welcomeEl = el;
     el.addEventListener('click', e => {
       const b = e.target.closest('[data-cw]');
@@ -312,6 +312,7 @@
   function hideWelcome(now) {
     const el = welcomeEl; if (!el) return;
     welcomeEl = null;
+    document.documentElement.classList.remove('cw-lock');
     el.classList.remove('is-open');
     if (now || reduceMotion()) el.remove(); else setTimeout(() => el.remove(), 260);
   }
