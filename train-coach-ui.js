@@ -270,6 +270,8 @@
   document.addEventListener('click', e => {
     const go = e.target.closest && e.target.closest('#train-foryou [data-rec]');
     if (go) { startRecommendation(go.dataset.rec); return; }
+    const op = e.target.closest && e.target.closest('#train-foryou [data-rec-open]');
+    if (op) { openRec(op.dataset.recOpen, 'card'); return; }
     const b = e.target.closest && e.target.closest('#train-foryou [data-cx]');
     if (!b) return;
     const act = b.dataset.cx;
@@ -412,6 +414,7 @@
     let html = '';
     if (view.type === 'wizard') html = wizardScreen();
     else if (view.type === 'ready') html = readyScreen();
+    else if (view.type === 'rec') html = recScreen();
     else if (view.type === 'summary') html = summaryScreen();
     else if (view.type === 'mental') html = mentalScreen();
     else if (view.type === 'mental-done') html = mentalDoneScreen();
@@ -477,12 +480,6 @@
       </button>`).join('')}</div>`;
   }
 
-  // Ilustraciones de las modalidades (líneas sobre salvia; se sustituyen por fotos poniendo una imagen de fondo en .cx-mod-art)
-  const MOD_ART = {
-    deportiva: '<svg viewBox="0 0 160 96" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><path d="M0 96V60l34-30 26 22 30-40 40 46 30-20v58z" fill="#C9DCCF"/><path d="M0 96V74l40-24 32 26 28-18 60 38z" fill="#A9C5B2"/><path d="M96 8v34M96 42c0 14-10 14-10 28" fill="none" stroke="#153E35" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="1 5"/><circle cx="96" cy="8" r="3.2" fill="#153E35"/></svg>',
-    bloque: '<svg viewBox="0 0 160 96" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="160" height="96" fill="#DDE8E0"/><path d="M0 96V44c20-14 44-18 66-8 22 10 44 6 94-14v74z" fill="#B7CEBF"/><g fill="#153E35"><circle cx="44" cy="30" r="5.5"/><circle cx="82" cy="22" r="4.5"/><circle cx="112" cy="46" r="6"/><circle cx="64" cy="60" r="5"/><circle cx="130" cy="20" r="3.8"/></g></svg>'
-  };
-
   // Selector numérico: círculos (días) o tarjetas con cronómetro (minutos)
   function gridSeg(values, current, attr, unit, kind) {
     const cls = kind === 'time' ? 'cx-grid cx-grid--time' : 'cx-grid cx-grid--dots';
@@ -491,7 +488,7 @@
 
   function modTiles(current) {
     const tile = o => `<button type="button" class="cx-mod${current === o.id ? ' is-on' : ''}" role="radio" aria-checked="${current === o.id}" data-mod="${o.id}">
-        <span class="cx-mod-art">${MOD_ART[o.id]}</span>
+        <span class="cx-mod-art cx-mod-art--${esc(o.id)}" aria-hidden="true"></span>
         <span class="cx-mod-row"><span class="cx-mod-tx"><b>${esc(o.label)}</b><small>${esc(o.desc)}</small></span><span class="xl-opt-check">${I.check}</span></span>
       </button>`;
     const both = PR.MODALITY.filter(o => o.id === 'ambas'), two = PR.MODALITY.filter(o => o.id !== 'ambas');
@@ -711,20 +708,120 @@
   // ============================================
   // RESUMEN
   // ============================================
-  // Tarjeta de una recomendación (la usan la pantalla principal de Entrena y la de fin del onboarding)
+  // Tarjeta resumida de una recomendación (Entrena y fin del onboarding): qué hacer de un vistazo. El porqué y el cómo, en su ficha.
+  const libCat = () => { const l = window.KruxLibrary; return l && l.catalog ? l.catalog() : null; };
+  const BRAIN = svg('<path d="M9.5 3.5a3 3 0 0 0-3 3 3 3 0 0 0-2.5 4.4A3.2 3.2 0 0 0 5.5 17a3 3 0 0 0 4 3.2V3.9a3 3 0 0 0 0-.4z"/><path d="M14.5 3.5a3 3 0 0 1 3 3 3 3 0 0 1 2.5 4.4 3.2 3.2 0 0 1-1.5 6.1 3 3 0 0 1-4 3.2V3.9"/>', 26);
+  const CHEV = svg('<polyline points="9 18 15 12 9 6"/>', 20);
+  function focusIcon(focus, size) {
+    if (focus === 'mental') return BRAIN;
+    const l = window.KruxLibrary, cat = focus === 'recuperacion' ? 'movilidad' : focus;
+    return l && l.categoryIcon ? l.categoryIcon(cat, size || 26) : '';
+  }
+  const recFocus = i => (i.kind === 'mental' ? 'mental' : (i.soft ? 'recuperacion' : i.focus || 'general'));
+  const recMeta = i => [`~${i.minutes} min`, i.kind === 'mental' ? '' : `Dificultad ${i.level.toLowerCase()}`, i.kind === 'mental' ? i.demand : `Exigencia ${i.demand.toLowerCase()}`].filter(Boolean);
   function recCard(i, o) {
     o = o || {};
-    const meta = [`~${i.minutes} min`, `Dificultad ${i.level.toLowerCase()}`, i.kind === 'mental' ? i.demand : `Exigencia ${i.demand.toLowerCase()}`, i.equipment.length ? i.equipment.join(', ') : 'Sin material'];
-    const list = i.session ? `<p class="cx-rec-list">${esc(i.session.exercises.map(e => e.name).join(' · '))}</p>` : '';
-    return `<article class="cx-rec${i.soft ? ' is-soft' : ''}${o.featured ? ' is-featured' : ''}" data-rec-id="${esc(i.id)}">
-      ${o.featured ? '<p class="cx-rec-badge">Tu primer entrenamiento</p>' : ''}
-      ${i.objective.toLowerCase() !== i.title.toLowerCase() ? `<p class="cx-rec-obj">${esc(i.objective)}</p>` : ''}
-      <h3 class="cx-rec-title">${esc(i.title)}</h3>
-      <ul class="cx-rec-meta">${meta.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
-      <p class="cx-rec-why">${esc(i.reason)}</p>${list}
-      <p class="cx-rec-safety cx-rec-safety--${esc(i.safety.state)}">${esc(i.safety.text)}</p>
-      ${o.noButton ? '' : `<button type="button" class="cx-btn cx-btn--primary cx-rec-go" data-rec="${esc(i.id)}">Comenzar</button>`}
-    </article>`;
+    const f = recFocus(i);
+    const act = i.kind === 'mental' ? `data-rec="${esc(i.id)}"` : `data-rec-open="${esc(i.id)}"`;
+    return `<button type="button" class="cx-rec${i.soft ? ' is-soft' : ''}${o.featured ? ' is-featured' : ''}" data-rec-id="${esc(i.id)}" ${act} aria-label="${esc(`${i.title}. ${recMeta(i).join(', ')}. ${i.kind === 'mental' ? 'Abrir práctica' : 'Ver entrenamiento'}`)}">
+      <span class="cx-rec-art cx-art--${esc(f)}" aria-hidden="true">${focusIcon(f, 28)}</span>
+      <span class="cx-rec-body">
+        ${o.featured ? '<span class="cx-rec-badge">Tu primer entrenamiento</span>' : ''}
+        <b class="cx-rec-title">${esc(i.title)}</b>
+        <span class="cx-rec-meta">${esc(recMeta(i).join(' · '))}</span>
+        ${i.objective.toLowerCase() !== i.title.toLowerCase() ? `<small class="cx-rec-obj">${esc(i.objective)}</small>` : ''}
+      </span>
+      <span class="cx-rec-chev" aria-hidden="true">${CHEV}</span>
+    </button>`;
+  }
+
+  // ============================================
+  // FICHA DE UN ENTRENAMIENTO (Resumen · Ejercicios · Consejos)
+  // ============================================
+  // Bloques de la sesión según sus ejercicios: la movilidad del principio es el calentamiento y la del final, la vuelta a la calma
+  function sessionBlocks(exs) {
+    const cat = libCat();
+    const mob = it => { const ex = cat && it.exerciseId ? cat.byId.get(it.exerciseId) : null; return !!ex && ex.categoryIds.includes('movilidad'); };
+    let a = 0; while (a < exs.length - 1 && mob(exs[a])) a++;
+    let b = exs.length; while (b > a + 1 && mob(exs[b - 1])) b--;
+    return [
+      { key: 'warm', name: 'Calentamiento', items: exs.slice(0, a) },
+      { key: 'main', name: 'Bloque principal', items: exs.slice(a, b) },
+      { key: 'cool', name: 'Vuelta a la calma', items: exs.slice(b) }
+    ].filter(x => x.items.length);
+  }
+  const BLOCK_ICON = {
+    warm: svg('<circle cx="12" cy="13.5" r="7"/><path d="M12 10v3.5l2 1.5M9.5 3h5M12 3v3.5"/>', 22),
+    main: svg('<path d="M6.5 6.5v11M17.5 6.5v11M3 9.5v5M21 9.5v5M6.5 12h11"/>', 22),
+    cool: svg('<circle cx="13" cy="4.5" r="1.8"/><path d="M7 21l3-6 3 2v4M10 15l1-5 4 3 3-1M11 10l-3 1-2 3"/>', 22)
+  };
+  const minutesOf = items => { const X = window.KruxExercises; return X && X.estimateMinutes ? X.estimateMinutes(items) : 0; };
+  const workOf = ex => (typeof trFmtWork === 'function' ? trFmtWork(ex) : `${ex.sets} series`);
+  const durOf = sec => (typeof trFmtDuration === 'function' ? trFmtDuration(sec) : `${sec} s`);
+
+  function exCard(ex) {
+    const cat = libCat(), c = cat && ex.exerciseId ? cat.byId.get(ex.exerciseId) : null;
+    const gid = window.KruxGuide ? window.KruxGuide.idFor(ex) : null;
+    const parts = [workOf(ex), ex.weight > 0 ? `+${ex.weight} kg` : ''].filter(Boolean).join(' · ');
+    const inner = `<span class="cx-ex-art cx-art--${esc(c ? c.primaryCategoryId : 'general')}" aria-hidden="true">${focusIcon(c ? c.primaryCategoryId : 'general', 24)}</span>
+      <span class="cx-ex-body"><b>${esc(ex.name)}</b><span class="cx-ex-spec">${esc(parts)}</span>${ex.restSec ? `<small>Descanso ${esc(durOf(ex.restSec))}</small>` : ''}</span>
+      ${gid ? `<span class="cx-ex-how">Cómo hacerlo</span>` : ''}`;
+    return gid
+      ? `<button type="button" class="cx-ex" data-guide="${esc(gid)}" aria-label="${esc(`${ex.name}. ${parts}${ex.restSec ? `, descanso ${durOf(ex.restSec)}` : ''}. Ver instrucciones`)}">${inner}</button>`
+      : `<div class="cx-ex">${inner}</div>`;
+  }
+
+  function openRec(id, from) {
+    const i = recs && recs.items.find(x => x.id === id);
+    if (!i || i.kind !== 'session') return;
+    view = { type: 'rec', id, tab: 'resumen', from: from || 'card' };
+    render();
+    if (from !== 'summary') openModal();
+  }
+
+  function recScreen() {
+    const i = recs && recs.items.find(x => x.id === view.id);
+    if (!i) return shell({ title: 'Entrenamiento', close: true, body: '<div class="pe-card"><p class="xl-text">Esta propuesta ya no está disponible.</p></div>' });
+    const exs = i.session.exercises, blocks = sessionBlocks(exs), tab = view.tab;
+    const practice = i.practice && profile ? (PR.practices(profile).find(p => p.key === i.practice) || {}).label : '';
+    const tabs = [['resumen', 'Resumen'], ['ejercicios', 'Ejercicios'], ['consejos', 'Consejos']];
+    let body = '';
+    if (tab === 'resumen') {
+      const eq = i.equipment.length ? i.equipment.join(', ') : 'Sin material';
+      const facts = [['Duración', `~${i.minutes} min`], ['Dificultad', i.level], ['Exigencia', i.demand], practice ? ['Modalidad', practice] : null, ['Material', eq.charAt(0).toUpperCase() + eq.slice(1)]].filter(Boolean);
+      const cat = libCat(), fc = cat && cat.catById ? cat.catById.get(i.focus) : null;
+      const main = blocks.find(b => b.key === 'main');
+      body = `<div class="cx-d-card cx-d-goal"><span class="cx-d-goal-ic">${svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>', 26)}</span>
+          <div><b>Objetivo</b><p>${esc(i.objective)}${fc && fc.description ? ` · ${esc(fc.description)}` : ''}${i.soft ? ' · sesión suave para recuperar' : ''}</p></div></div>
+        <ul class="cx-d-facts">${facts.map(f => `<li><span>${esc(f[0])}</span><b>${esc(f[1])}</b></li>`).join('')}</ul>
+        <section class="cx-d-card"><h3 class="cx-d-h">Estructura de la sesión</h3>
+          <ul class="cx-blocks">${blocks.map(b => `<li class="cx-block cx-block--${b.key}"><span class="cx-block-ic">${BLOCK_ICON[b.key]}</span><b>${esc(b.name)}</b><span>~${minutesOf(b.items)} min</span></li>`).join('')}</ul></section>
+        ${main ? `<section class="cx-d-card"><h3 class="cx-d-h">Ejercicios principales</h3><div class="cx-ex-list">${main.items.map(exCard).join('')}</div></section>` : ''}`;
+    } else if (tab === 'ejercicios') {
+      body = blocks.map(b => `<section class="cx-d-sec"><h3 class="cx-d-h">${esc(b.name)} <span>· ~${minutesOf(b.items)} min</span></h3><div class="cx-ex-list">${b.items.map(exCard).join('')}</div></section>`).join('')
+        + '<p class="cx-d-foot">Pulsa un ejercicio para ver cómo se hace. La prescripción es la base del catálogo: subir la carga es decisión tuya.</p>';
+    } else {
+      const why = i.reason.split('. ').map((t, k, a) => (k < a.length - 1 ? t + '.' : t)).filter(Boolean);
+      body = `<section class="cx-d-card"><h3 class="cx-d-h">Por qué te lo recomendamos</h3><ul class="cx-d-list">${why.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>
+        <section class="cx-d-card cx-d-safe cx-rec-safety--${esc(i.safety.state)}"><h3 class="cx-d-h">Limitaciones</h3><p>${esc(i.safety.text)}</p></section>
+        ${recs.note ? `<section class="cx-d-card"><h3 class="cx-d-h">Sobre estas propuestas</h3><p>${esc(recs.note)}</p></section>` : ''}`;
+    }
+    return `
+      <div class="pe-screen xl-screen cx-d">
+        <div class="xl-scroll cx-d-scroll" id="cx-scroll">
+          <header class="cx-d-hero cx-art--${esc(recFocus(i))}">
+            <button type="button" class="cx-d-back" data-cx="back" aria-label="${view.from === 'summary' ? 'Volver a las propuestas' : 'Volver a Entrena'}">${I.back}</button>
+            <div class="cx-d-hero-tx">
+              <p class="cx-d-kicker">${i.soft ? 'Recuperación' : 'Recomendado para ti'}</p>
+              <h2 class="cx-d-title" id="cx-title" tabindex="-1">${esc(i.title)}</h2>
+              <p class="cx-d-meta"><span>${BLOCK_ICON.warm} ~${i.minutes} min</span><span>${svg('<path d="M5 20v-5M12 20v-9M19 20V5"/>', 20)} Exigencia ${esc(i.demand.toLowerCase())}</span></p>
+            </div>
+          </header>
+          <div class="cx-d-tabs" role="tablist" aria-label="Secciones del entrenamiento">${tabs.map(t => `<button type="button" role="tab" class="cx-d-tab${tab === t[0] ? ' is-on' : ''}" aria-selected="${tab === t[0]}" data-cx-tab="${t[0]}">${t[1]}</button>`).join('')}</div>
+          <div class="cx-d-body" role="tabpanel">${body}</div>
+        </div>
+        <div class="xl-pickbar cx-pickbar cx-d-foot-bar"><button type="button" class="pe-save-btn pe-save-btn--wide cx-d-start" data-rec="${esc(i.id)}">${svg('<path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/>', 18)}<span>Comenzar sesión</span></button></div>
+      </div>`;
   }
 
   function preparingScreen() {
@@ -935,6 +1032,10 @@
       if (!view) return;
       const rec = e.target.closest('[data-rec]');
       if (rec) { const id = rec.dataset.rec; closeModal(true); startRecommendation(id); return; }
+      const ro = e.target.closest('[data-rec-open]');
+      if (ro) { openRec(ro.dataset.recOpen, view.type === 'summary' ? 'summary' : 'card'); return; }
+      const tb = e.target.closest('[data-cx-tab]');
+      if (tb && view.type === 'rec') { view.tab = tb.dataset.cxTab; render('[data-cx-tab="' + view.tab + '"]'); const sc = $('cx-scroll'), tl = m.querySelector('.cx-d-tabs'); if (sc && tl && sc.scrollTop > tl.offsetTop) sc.scrollTop = tl.offsetTop; return; }
       if (view.type === 'wizard' && onWizardClick(e)) return;
       if (view.type === 'mental') { const a = e.target.closest('[data-ans]'); if (a) { const v = a.dataset.ans; answerMental(/^[1-5]$/.test(v) ? parseInt(v, 10) : v); return; } }
       if (view.type === 'limits') { const c = e.target.closest('[data-lim]'); if (c) { toggleLimit(c.dataset.lim); return; } }
@@ -949,6 +1050,7 @@
           else if (view.type === 'mental') { if (view.q > 0) { view.q--; render(); } else if (view.from === 'hub') { view = { type: 'hub' }; render(); } else { view = { type: 'summary' }; render(); } }
           else if (view.type === 'limits') { view = { type: 'hub' }; render(); }
           else if (view.type === 'mental-done' && view.from === 'hub') { view = { type: 'hub' }; render(); }
+          else if (view.type === 'rec' && view.from === 'summary') { view = { type: 'summary' }; render(); }
           else closeModal();
           break;
         case 'skip':
