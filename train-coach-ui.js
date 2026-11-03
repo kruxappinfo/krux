@@ -265,6 +265,7 @@
     }
     el.innerHTML = html;
     el.classList.toggle('hidden', !html);
+    document.dispatchEvent(new CustomEvent('krux:coach-change'));
   }
 
   document.addEventListener('click', e => {
@@ -413,6 +414,7 @@
     const keepType = prevLast === view.type + ':' + (view.step || view.q || '');
     let html = '';
     if (view.type === 'wizard') html = wizardScreen();
+    else if (view.type === 'mental-ask') html = mentalAskScreen();
     else if (view.type === 'ready') html = readyScreen();
     else if (view.type === 'rec') html = recScreen();
     else if (view.type === 'summary') html = summaryScreen();
@@ -575,7 +577,8 @@
   function wizardScreen() {
     const editing = !!view.steps;
     const list = editing ? view.steps : flow(profile);
-    const total = list.length;
+    const ask = askMental();
+    const total = list.length + (ask ? 1 : 0);
     const pos = Math.max(1, list.indexOf(view.step) + 1);
     const last = pos === total;
     const ok = PR.stepIsValid(view.step, profile);
@@ -651,6 +654,31 @@
     return true;
   }
 
+  // 2-4) breve transición de preparación y, después, el recomendador (el mismo de «Para ti», con sus filtros de seguridad)
+  function goPreparing() {
+    const token = view = { type: 'preparing', _prog: 100 }; render();
+    setTimeout(() => { if (view === token) { view = { type: 'ready' }; render(); } }, reduceMotion() ? 250 : 1900);
+  }
+
+  // Última pantalla del cuestionario físico: ¿incluir entrenamiento mental? (no se guarda nada si responde que no)
+  const askMental = () => !!view && view.type === 'wizard' && !view.steps && !view.adjust && !PR.mentalAnswered(mental);
+  function mentalAskScreen() {
+    const total = flow(profile).length + 1, pick = view.pick;
+    const card = (id, title, text, icon) => `<button type="button" class="xl-opt cx-ask${pick === id ? ' is-on' : ''}" role="radio" aria-checked="${pick === id}" data-mental-ask="${id}">
+        <span class="xl-opt-icon">${icon}</span><span class="xl-opt-text"><b>${title}</b><small>${text}</small></span><span class="xl-opt-check">${I.check}</span></button>`;
+    return wzShell({
+      pos: total, total, sub: `Paso ${total} de ${total}`, skip: 'Saltar', backLabel: 'Paso anterior',
+      title: '¿Quieres incluir entrenamiento mental?',
+      lead: 'La escalada no es solo fuerza y técnica. También podemos ayudarte a trabajar la confianza, la concentración y la gestión del miedo.',
+      body: `<div class="xl-opts" role="radiogroup" aria-label="Entrenamiento mental">
+          ${card('yes', 'Sí, incluirlo', 'Quiero trabajar también mi preparación psicológica.', BRAIN)}
+          ${card('no', 'No por ahora', 'Prefiero centrarme inicialmente en el entrenamiento físico.', svg('<path d="M6.5 6.5v11M17.5 6.5v11M3 9.5v5M21 9.5v5M6.5 12h11"/>', 26))}</div>
+        <p class="cx-ask-note">${svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>', 20)}<span>Siempre podrás activar el entrenamiento mental más adelante desde tu plan.</span></p>
+        <p class="pe-hint">Si lo incluyes, tus respuestas son privadas: solo las ves tú. Esto es contenido educativo y deportivo, no sustituye apoyo profesional.</p>`,
+      footer: `<button type="button" class="pe-save-btn pe-save-btn--wide" id="cx-next" data-cx="next"${pick ? '' : ' disabled'}><span>${pick === 'yes' ? 'Continuar' : 'Crear mi plan'}</span></button>`
+    });
+  }
+
   async function wizardNext() {
     if (!PR.stepIsValid(view.step, profile)) return;
     const editing = !!view.steps;
@@ -675,9 +703,9 @@
     if (lastStep) {
       profile.status = 'completed'; profile.step = PR.STEPS; profile.completedAtMs = Date.now();
       persist('profile');                              // 1) se guarda el perfil
-      // 2-4) breve transición de preparación y, después, el recomendador (el mismo de «Para ti», con sus filtros de seguridad)
-      const token = view = { type: 'preparing', _prog: 100 }; render();
-      setTimeout(() => { if (view === token) { view = { type: 'ready' }; render(); } }, reduceMotion() ? 250 : 1900);
+      // Antes de preparar el plan se ofrece (sin obligar) el entrenamiento mental, salvo que ya haya respuestas
+      if (!PR.mentalAnswered(mental) && !view.adjust) { view = { type: 'mental-ask', pick: null }; render(); return; }
+      goPreparing();
       return;
     }
     const nx = fl[fl.indexOf(view.step) + 1] || view.step + 1;
@@ -741,7 +769,8 @@
   // Bloques de la sesión según sus ejercicios: la movilidad del principio es el calentamiento y la del final, la vuelta a la calma
   function sessionBlocks(exs) {
     const cat = libCat();
-    const mob = it => { const ex = cat && it.exerciseId ? cat.byId.get(it.exerciseId) : null; return !!ex && ex.categoryIds.includes('movilidad'); };
+    const catEx = it => { const g = window.KruxGuide ? window.KruxGuide.idFor(it) : null; return cat && g ? cat.byId.get(g) : null; };
+    const mob = it => { const ex = catEx(it); return !!ex && ex.categoryIds.includes('movilidad'); };
     let a = 0; while (a < exs.length - 1 && mob(exs[a])) a++;
     let b = exs.length; while (b > a + 1 && mob(exs[b - 1])) b--;
     return [
@@ -760,8 +789,7 @@
   const durOf = sec => (typeof trFmtDuration === 'function' ? trFmtDuration(sec) : `${sec} s`);
 
   function exCard(ex) {
-    const cat = libCat(), c = cat && ex.exerciseId ? cat.byId.get(ex.exerciseId) : null;
-    const gid = window.KruxGuide ? window.KruxGuide.idFor(ex) : null;
+    const cat = libCat(), gid = window.KruxGuide ? window.KruxGuide.idFor(ex) : null, c = cat && gid ? cat.byId.get(gid) : null;
     const parts = [workOf(ex), ex.weight > 0 ? `+${ex.weight} kg` : ''].filter(Boolean).join(' · ');
     const inner = `<span class="cx-ex-art cx-art--${esc(c ? c.primaryCategoryId : 'general')}" aria-hidden="true">${focusIcon(c ? c.primaryCategoryId : 'general', 24)}</span>
       <span class="cx-ex-body"><b>${esc(ex.name)}</b><span class="cx-ex-spec">${esc(parts)}</span>${ex.restSec ? `<small>Descanso ${esc(durOf(ex.restSec))}</small>` : ''}</span>
@@ -779,8 +807,44 @@
     if (from !== 'summary') openModal();
   }
 
+  // Ficha de una sesión del plan activo: misma pantalla que las recomendaciones, con los ejercicios reales del plan
+  function planPseudoRec(sess, plan) {
+    const cat = libCat(), G = window.KruxGuide;
+    const exs = sess.exercises || [];
+    const cx = exs.map(it => { const g = G ? G.idFor(it) : null; return cat && g ? cat.byId.get(g) : null; }).filter(Boolean);
+    const count = {};
+    cx.forEach(e => { if (e.primaryCategoryId !== 'movilidad') count[e.primaryCategoryId] = (count[e.primaryCategoryId] || 0) + 1; });
+    const focus = Object.keys(count).sort((a, b) => count[b] - count[a])[0] || (cx[0] && cx[0].primaryCategoryId) || 'general';
+    const fc = cat && cat.catById ? cat.catById.get(focus) : null, X = window.KruxExercises;
+    const lvl = cx.length ? Math.max(...cx.map(e => e.technicalLevel)) : 0, dem = cx.length ? Math.max(...cx.map(e => e.physicalDemand)) : 0;
+    const eq = [...new Set(cx.flatMap(e => (e.equipment && e.equipment.required) || []))].filter(id => id !== 'peso-corporal').map(id => (cat.eqById.get(id) || { name: id }).name.toLowerCase());
+    const DAYS = { L: 'lunes', M: 'martes', X: 'miércoles', J: 'jueves', V: 'viernes', S: 'sábado', D: 'domingo' };
+    return {
+      pseudo: true, kind: 'session', id: 'plan-' + (sess.id || sess.name), focus, title: sess.name, objective: fc ? fc.name : (plan.name || 'Sesión'),
+      minutes: typeof trEstimateMinutes === 'function' ? trEstimateMinutes(exs) : 0, level: X && lvl ? X.LEVEL_LABELS[lvl] : '', demand: X && dem ? X.DEMAND_LABELS[dem] : '',
+      equipment: eq, reason: '', safety: null, soft: false, practice: null, dayName: DAYS[sess.day] || '',
+      session: { name: sess.name, exercises: exs }, _sess: sess, _plan: plan
+    };
+  }
+  function openPlanSession(sessId) {
+    const plan = window.kruxActivePlan;
+    const sess = plan && (plan.sessions || []).find(x => (x.id || x.name) === sessId);
+    if (!sess) return;
+    view = { type: 'rec', id: 'plan-' + sessId, pseudo: planPseudoRec(sess, plan), tab: 'resumen', from: 'plan' };
+    render(); openModal();
+  }
+  function startPlanSession() {
+    const i = view && view.pseudo; if (!i) return;
+    if (window.KruxTrainSession && window.KruxTrainSession.isRunning()) { toast('Ya tienes un entrenamiento abierto', 'info'); return; }
+    const plan = i._plan, sess = i._sess;
+    closeModal(true);
+    // Mismo flujo que «Comenzar entrenamiento» de Entrena (app_3.js): el registro lo gestiona el módulo de sesión
+    window.kruxTrainData = { name: sess.name, exercises: sess.exercises, demo: false, planId: plan.id || null, planName: plan.name || '', planRevision: plan.revision || null, planSessionId: sess.id || null };
+    if (typeof window.openActiveSession === 'function') window.openActiveSession();
+  }
+
   function recScreen() {
-    const i = recs && recs.items.find(x => x.id === view.id);
+    const i = view.pseudo || (recs && recs.items.find(x => x.id === view.id));
     if (!i) return shell({ title: 'Entrenamiento', close: true, body: '<div class="pe-card"><p class="xl-text">Esta propuesta ya no está disponible.</p></div>' });
     const exs = i.session.exercises, blocks = sessionBlocks(exs), tab = view.tab;
     const practice = i.practice && profile ? (PR.practices(profile).find(p => p.key === i.practice) || {}).label : '';
@@ -788,7 +852,7 @@
     let body = '';
     if (tab === 'resumen') {
       const eq = i.equipment.length ? i.equipment.join(', ') : 'Sin material';
-      const facts = [['Duración', `~${i.minutes} min`], ['Dificultad', i.level], ['Exigencia', i.demand], practice ? ['Modalidad', practice] : null, ['Material', eq.charAt(0).toUpperCase() + eq.slice(1)]].filter(Boolean);
+      const facts = [['Duración', `~${i.minutes} min`], i.level ? ['Dificultad', i.level] : null, i.demand ? ['Exigencia', i.demand] : null, practice ? ['Modalidad', practice] : null, ['Material', eq.charAt(0).toUpperCase() + eq.slice(1)]].filter(Boolean);
       const cat = libCat(), fc = cat && cat.catById ? cat.catById.get(i.focus) : null;
       const main = blocks.find(b => b.key === 'main');
       body = `<div class="cx-d-card cx-d-goal"><span class="cx-d-goal-ic">${svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>', 26)}</span>
@@ -801,10 +865,13 @@
       body = blocks.map(b => `<section class="cx-d-sec"><h3 class="cx-d-h">${esc(b.name)} <span>· ~${minutesOf(b.items)} min</span></h3><div class="cx-ex-list">${b.items.map(exCard).join('')}</div></section>`).join('')
         + '<p class="cx-d-foot">Pulsa un ejercicio para ver cómo se hace. La prescripción es la base del catálogo: subir la carga es decisión tuya.</p>';
     } else {
-      const why = i.reason.split('. ').map((t, k, a) => (k < a.length - 1 ? t + '.' : t)).filter(Boolean);
-      body = `<section class="cx-d-card"><h3 class="cx-d-h">Por qué te lo recomendamos</h3><ul class="cx-d-list">${why.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>
-        <section class="cx-d-card cx-d-safe cx-rec-safety--${esc(i.safety.state)}"><h3 class="cx-d-h">Limitaciones</h3><p>${esc(i.safety.text)}</p></section>
-        ${recs.note ? `<section class="cx-d-card"><h3 class="cx-d-h">Sobre estas propuestas</h3><p>${esc(recs.note)}</p></section>` : ''}`;
+      const why = (i.reason || '').split('. ').map((t, k, a) => (k < a.length - 1 ? t + '.' : t)).filter(Boolean);
+      const notes = i.pseudo ? exs.filter(e => e.notes || e.rpeTarget) : [];
+      body = (why.length ? `<section class="cx-d-card"><h3 class="cx-d-h">Por qué te lo recomendamos</h3><ul class="cx-d-list">${why.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>` : '')
+        + (notes.length ? `<section class="cx-d-card"><h3 class="cx-d-h">Notas de tu plan</h3><ul class="cx-d-list">${notes.map(e => `<li><b>${esc(e.name)}</b>${e.rpeTarget ? ` · RPE ${esc(e.rpeTarget)}` : ''}${e.notes ? `: ${esc(e.notes)}` : ''}</li>`).join('')}</ul></section>` : '')
+        + (i.safety ? `<section class="cx-d-card cx-d-safe cx-rec-safety--${esc(i.safety.state)}"><h3 class="cx-d-h">Limitaciones</h3><p>${esc(i.safety.text)}</p></section>` : '')
+        + (!i.pseudo && recs && recs.note ? `<section class="cx-d-card"><h3 class="cx-d-h">Sobre estas propuestas</h3><p>${esc(recs.note)}</p></section>` : '');
+      if (!body) body = '<section class="cx-d-card"><p>Esta sesión no tiene consejos propios. Pulsa un ejercicio en la pestaña Ejercicios para ver cómo se hace.</p></section>';
     }
     return `
       <div class="pe-screen xl-screen cx-d">
@@ -812,15 +879,15 @@
           <header class="cx-d-hero cx-art--${esc(recFocus(i))}">
             <button type="button" class="cx-d-back" data-cx="back" aria-label="${view.from === 'summary' ? 'Volver a las propuestas' : 'Volver a Entrena'}">${I.back}</button>
             <div class="cx-d-hero-tx">
-              <p class="cx-d-kicker">${i.soft ? 'Recuperación' : 'Recomendado para ti'}</p>
+              <p class="cx-d-kicker">${i.pseudo ? (i.dayName ? 'Tu plan · ' + esc(i.dayName) : 'Sesión de tu plan') : i.soft ? 'Recuperación' : 'Recomendado para ti'}</p>
               <h2 class="cx-d-title" id="cx-title" tabindex="-1">${esc(i.title)}</h2>
-              <p class="cx-d-meta"><span>${BLOCK_ICON.warm} ~${i.minutes} min</span><span>${svg('<path d="M5 20v-5M12 20v-9M19 20V5"/>', 20)} Exigencia ${esc(i.demand.toLowerCase())}</span></p>
+              <p class="cx-d-meta"><span>${BLOCK_ICON.warm} ~${i.minutes} min</span>${i.demand ? `<span>${svg('<path d="M5 20v-5M12 20v-9M19 20V5"/>', 20)} Exigencia ${esc(i.demand.toLowerCase())}</span>` : ''}</p>
             </div>
           </header>
           <div class="cx-d-tabs" role="tablist" aria-label="Secciones del entrenamiento">${tabs.map(t => `<button type="button" role="tab" class="cx-d-tab${tab === t[0] ? ' is-on' : ''}" aria-selected="${tab === t[0]}" data-cx-tab="${t[0]}">${t[1]}</button>`).join('')}</div>
           <div class="cx-d-body" role="tabpanel">${body}</div>
         </div>
-        <div class="xl-pickbar cx-pickbar cx-d-foot-bar"><button type="button" class="pe-save-btn pe-save-btn--wide cx-d-start" data-rec="${esc(i.id)}">${svg('<path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/>', 18)}<span>Comenzar sesión</span></button></div>
+        <div class="xl-pickbar cx-pickbar cx-d-foot-bar"><button type="button" class="pe-save-btn pe-save-btn--wide cx-d-start" ${i.pseudo ? 'data-plan-start="1"' : `data-rec="${esc(i.id)}"`}>${svg('<path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/>', 18)}<span>Comenzar sesión</span></button></div>
       </div>`;
   }
 
@@ -911,19 +978,22 @@
     const qn = PR.MENTAL_QUESTIONS[view.q];
     const cur = mental && mental.answers ? mental.answers[qn.id] : undefined;
     const levels = [1, 2, 3, 4, 5];
-    return shell({
-      title: 'Evaluación mental', sub: `Pregunta ${view.q + 1} de ${PR.MENTAL_QUESTIONS.length}`,
-      progress: Math.round(((view.q + 1) / PR.MENTAL_QUESTIONS.length) * 100),
-      backLabel: view.q === 0 ? 'Cerrar' : 'Pregunta anterior', skip: 'Saltar evaluación',
-      body: `<div class="pe-card">
-        <h3 class="cx-question" id="cx-q">${esc(qn.text)}</h3>
-        <div class="cx-scale" role="radiogroup" aria-labelledby="cx-q">${levels.map(n => `<button type="button" class="xl-seg-btn${cur === n ? ' is-on' : ''}" role="radio" aria-checked="${cur === n}" data-ans="${n}">${n}</button>`).join('')}</div>
+    const onb = view.from === 'onboard';
+    const body = `<div class="pe-card">
+        ${onb ? '' : `<h3 class="cx-question" id="cx-q">${esc(qn.text)}</h3>`}
+        <div class="cx-scale" role="radiogroup" aria-labelledby="${onb ? 'cx-title' : 'cx-q'}">${levels.map(n => `<button type="button" class="xl-seg-btn${cur === n ? ' is-on' : ''}" role="radio" aria-checked="${cur === n}" data-ans="${n}">${n}</button>`).join('')}</div>
         <div class="cx-scale-ends" aria-hidden="true"><span>1 · ${esc(qn.low)}</span><span>5 · ${esc(qn.high)}</span></div>
         <div class="cx-special">
           <button type="button" class="cx-btn cx-btn--secondary${cur === 'unknown' ? ' is-on' : ''}" aria-pressed="${cur === 'unknown'}" data-ans="unknown">${esc(PR.MENTAL_SPECIAL.unknown)}</button>
           <button type="button" class="cx-btn cx-btn--secondary${cur === 'skip' ? ' is-on' : ''}" aria-pressed="${cur === 'skip'}" data-ans="skip">${esc(PR.MENTAL_SPECIAL.skip)}</button>
         </div></div>
-        <p class="pe-hint">Tus respuestas son privadas: solo las ves tú. No se muestran en tu perfil público ni se comparan con nadie.</p>`
+        <p class="pe-hint">Tus respuestas son privadas: solo las ves tú. No se muestran en tu perfil público ni se comparan con nadie.</p>`;
+    if (onb) return wzShell({ pos: view.q + 1, total: PR.MENTAL_QUESTIONS.length, sub: `Entrenamiento mental · pregunta ${view.q + 1} de ${PR.MENTAL_QUESTIONS.length}`, skip: 'Saltar evaluación', backLabel: view.q === 0 ? 'Paso anterior' : 'Pregunta anterior', title: esc(qn.text), body });
+    return shell({
+      title: 'Evaluación mental', sub: `Pregunta ${view.q + 1} de ${PR.MENTAL_QUESTIONS.length}`,
+      progress: Math.round(((view.q + 1) / PR.MENTAL_QUESTIONS.length) * 100),
+      backLabel: view.q === 0 ? 'Cerrar' : 'Pregunta anterior', skip: 'Saltar evaluación',
+      body
     });
   }
 
@@ -936,11 +1006,12 @@
   }
 
   function mentalDoneScreen() {
+    const onb = view.from === 'onboard';
     return shell({
       title: 'Gracias, ya está guardado', close: true, backLabel: 'Cerrar',
       body: `<div class="pe-card"><p class="xl-text">Usaremos tus respuestas solo para sugerirte lecciones y ejercicios de entrenamiento mental. No generan ninguna puntuación ni etiqueta sobre ti.</p>
         <p class="pe-hint">Puedes cambiarlas, repetirlas o borrarlas cuando quieras desde tu perfil. Esto es contenido educativo y deportivo: no sustituye la ayuda de un profesional si la necesitas.</p></div>`,
-      footer: `<button type="button" class="pe-save-btn pe-save-btn--wide" data-cx="${view.from === 'hub' ? 'to-hub' : 'to-recs'}"><span>${view.from === 'hub' ? 'Hecho' : 'Ver mis recomendaciones'}</span></button>`
+      footer: `<button type="button" class="pe-save-btn pe-save-btn--wide" data-cx="${onb ? 'prepare' : view.from === 'hub' ? 'to-hub' : 'to-recs'}"><span>${onb ? 'Crear mi plan' : view.from === 'hub' ? 'Hecho' : 'Ver mis recomendaciones'}</span></button>`
     });
   }
 
@@ -1032,10 +1103,14 @@
       if (!view) return;
       const rec = e.target.closest('[data-rec]');
       if (rec) { const id = rec.dataset.rec; closeModal(true); startRecommendation(id); return; }
+      const ps = e.target.closest('[data-plan-start]');
+      if (ps && view.type === 'rec') { startPlanSession(); return; }
       const ro = e.target.closest('[data-rec-open]');
       if (ro) { openRec(ro.dataset.recOpen, view.type === 'summary' ? 'summary' : 'card'); return; }
       const tb = e.target.closest('[data-cx-tab]');
       if (tb && view.type === 'rec') { view.tab = tb.dataset.cxTab; render('[data-cx-tab="' + view.tab + '"]'); const sc = $('cx-scroll'), tl = m.querySelector('.cx-d-tabs'); if (sc && tl && sc.scrollTop > tl.offsetTop) sc.scrollTop = tl.offsetTop; return; }
+      const ma = e.target.closest('[data-mental-ask]');
+      if (ma && view.type === 'mental-ask') { view.pick = ma.dataset.mentalAsk; render('[data-mental-ask="' + view.pick + '"]'); return; }
       if (view.type === 'wizard' && onWizardClick(e)) return;
       if (view.type === 'mental') { const a = e.target.closest('[data-ans]'); if (a) { const v = a.dataset.ans; answerMental(/^[1-5]$/.test(v) ? parseInt(v, 10) : v); return; } }
       if (view.type === 'limits') { const c = e.target.closest('[data-lim]'); if (c) { toggleLimit(c.dataset.lim); return; } }
@@ -1044,17 +1119,24 @@
       const b = e.target.closest('[data-cx]');
       if (!b) return;
       switch (b.dataset.cx) {
-        case 'next': wizardNext(); break;
+        case 'next':
+          if (view.type === 'mental-ask') { if (view.pick === 'yes') startMental('onboard'); else if (view.pick === 'no') goPreparing(); }
+          else wizardNext();
+          break;
+        case 'prepare': goPreparing(); break;
         case 'back':
           if (view.type === 'wizard') wizardBack();
-          else if (view.type === 'mental') { if (view.q > 0) { view.q--; render(); } else if (view.from === 'hub') { view = { type: 'hub' }; render(); } else { view = { type: 'summary' }; render(); } }
+          else if (view.type === 'mental-ask') { view = { type: 'wizard', step: flow(profile)[flow(profile).length - 1] }; render(); }
+          else if (view.type === 'mental') { if (view.q > 0) { view.q--; render(); } else if (view.from === 'hub') { view = { type: 'hub' }; render(); } else if (view.from === 'onboard') { view = { type: 'mental-ask', pick: 'yes' }; render(); } else { view = { type: 'summary' }; render(); } }
           else if (view.type === 'limits') { view = { type: 'hub' }; render(); }
           else if (view.type === 'mental-done' && view.from === 'hub') { view = { type: 'hub' }; render(); }
           else if (view.type === 'rec' && view.from === 'summary') { view = { type: 'summary' }; render(); }
           else closeModal();
           break;
         case 'skip':
-          if (view.type === 'mental') { view = { type: view.from === 'hub' ? 'hub' : 'summary' }; render(); }
+          if (view.type === 'mental-ask') goPreparing();
+          else if (view.type === 'mental' && view.from === 'onboard') goPreparing();
+          else if (view.type === 'mental') { view = { type: view.from === 'hub' ? 'hub' : 'summary' }; render(); }
           else { profile = Object.assign(PR.normalizeProfile(profile || {}), { status: 'skipped' }); persist('profile'); closeModal(); toast('Perfil pendiente', 'info', { detail: 'Lo encontrarás en el menú de Entrena cuando quieras.' }); }
           break;
         case 'close': closeModal(); break;
@@ -1112,6 +1194,8 @@
     enabled: ENABLED,
     state: () => ({ uid, profile, mental, limits, dirty: { ...dirty }, loaded, loadFailed }),
     openProfile: () => { if (!profile) openWizard(1); else openHub(); },
+    openMental: () => { if (!profile) { openWizard(1); return; } startMental('hub'); openModal(); },
+    openPlanSession,
     recommendations: () => recs,
     reload: loadAll,
     flush: () => persist(dirty.profile ? 'profile' : 'mental')

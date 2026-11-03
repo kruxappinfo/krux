@@ -598,6 +598,8 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       const modal = () => document.getElementById('coach-modal');
       const title = () => (document.getElementById('cx-title') || {}).textContent || '';
       // El cuestionario acaba en «¡Plan listo!»; «Ver mi plan» lleva a las propuestas del recomendador
+      // Antes de preparar el plan se pregunta por el entrenamiento mental: «No por ahora» sigue sin guardar nada
+      const mentalNo = async () => { if (await waitFor(() => document.querySelector('[data-mental-ask]'), 6)) { await click('[data-mental-ask="no"]', 250); await click('#cx-next', 500); } };
       const toRecs = async () => { await waitFor(() => title().includes('Plan listo'), 40); await click('[data-cx="to-recs"]', 700); await waitFor(() => title().includes('Tu perfil está listo'), 40); };
       const nextDisabled = () => document.getElementById('cx-next').disabled;
       const navigate = () => { try { switchView('train-view'); } catch (_) { /* ya abierta */ } };
@@ -715,6 +717,20 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       await click('[data-eq="multipresa"]', 250);
       note('c6_multipresaQuitaNinguno', document.querySelectorAll('[data-eq].is-on').length === 1 && document.querySelector('[data-eq="multipresa"]').classList.contains('is-on'));
       await click('#cx-next', 500);
+      note('m_preguntaMentalAlFinal', title().includes('entrenamiento mental') && modal().textContent.includes('La escalada no es solo fuerza y técnica. También podemos ayudarte a trabajar la confianza, la concentración y la gestión del miedo.') && modal().textContent.includes('Siempre podrás activar el entrenamiento mental más adelante desde tu plan.') && modal().textContent.includes('Paso 7 de 7') && nextDisabled() && modal().querySelectorAll('[data-mental-ask]').length === 2 && modal().querySelectorAll('.cx-seg.is-on').length === 7, title());
+      await shot('09a-mental-pregunta');
+      await click('[data-cx="back"]', 500);
+      note('m_atrasVuelveAlPaso6', title().includes('material') && !!document.querySelector('[data-eq].is-on'), title());
+      await click('#cx-next', 500); await click('[data-mental-ask="yes"]', 250);
+      note('m_siEsSeleccionable', document.querySelector('[data-mental-ask="yes"]').classList.contains('is-on') && !nextDisabled() && document.getElementById('cx-next').textContent.includes('Continuar'));
+      await shot('09a-mental-si');
+      await click('#cx-next', 600);
+      note('m_siAbreLaEvaluacionExistente', modal().textContent.includes('pregunta 1 de 5') && modal().querySelectorAll('[data-ans]').length === 7, modal().textContent.slice(0, 120));
+      await shot('09a-mental-pregunta1');
+      await click('[data-cx="back"]', 500);
+      note('m_atrasVuelveALaPregunta', !!document.querySelector('[data-mental-ask="yes"].is-on'));
+      await click('[data-cx="skip"]', 600);
+      note('m_saltarSigueSinGuardarNada', title().includes('Preparando') && !(await ud(u1).collection('mental_profile').doc('current').get({ source: 'server' })).exists);
       note('p_pantallaDePreparacion', title().includes('Preparando') && !!modal().querySelector('.cx-prep-orb') && modal().textContent.includes('Revisando tu perfil'));
       await shot('09b-preparando');
       await waitFor(() => title().includes('Plan listo'), 40);
@@ -844,6 +860,67 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       note('r_quedaRegistrada', sdocs.some(d => d.sessionName === rec0.session.name && !d.planId), JSON.stringify(sdocs.map(d => [d.sessionName, d.planId || null])));
       await w(600);
       note('r_laTarjetaUsaElNuevoHistorial', !window.KruxTrainSession.isRunning() && /sesión registrada|sesiones registradas/.test(rcard.textContent) && !rcard.textContent.includes('Aún no tienes sesiones'), rcard.textContent.slice(-140));
+      // ═══ Entrena en cuatro apartados: Sesión · Plan · Ejercicios · Progresión (solo presentación, con datos reales) ═══
+      { const H = window.KruxHub, tv = document.getElementById('train-view'), tabs = [...document.querySelectorAll('#cxh-tabs [data-cxh-tab]')];
+        const cat = window.KruxLibrary.catalog(), X = window.KruxExercises, pc = () => document.getElementById('cxh-plan-card').textContent.replace(/\s+/g, ' ');
+        const refresh = () => { document.dispatchEvent(new CustomEvent('krux:train-refresh')); return w(150); };
+        note('h_cuatroApartados', tabs.map(b => b.textContent).join('|') === 'Sesión|Plan|Ejercicios|Progresión' && H.tab() === 'sesion' && tv.dataset.cxh === 'sesion' && getComputedStyle(tv.querySelector('.train-hero')).display === 'none');
+        note('h_sinPlanLoDice', pc().includes('Sin plan activo'), pc());
+        const key = d => trDateKey(d), ago = n => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
+        const item = id => X.planItemFromExercise(cat.byId.get(id));
+        const pubs = cat.exercises.filter(e => e.status === 'published');
+        const byCat = c => pubs.filter(e => e.primaryCategoryId === c)[0];
+        const e1 = byCat('dedos'), e2 = byCat('traccion'), e3 = byCat('core');
+        window.kruxActivePlan = { id: 'p1', name: 'Progresión 5+', weeks: 8, startDate: key(ago(28)), sessions: [
+          { id: 's1', day: 'L', name: 'Fuerza', exercises: [item(e1.id), item(e2.id)] }, { id: 's2', day: 'X', name: 'Core', exercises: [item(e3.id)] }] };
+        await refresh();
+        note('h_tarjetaPlanActivo', pc().includes('Progresión 5+') && pc().includes('2 sesiones / semana') && /~\d+ min \/ sesión/.test(pc()) && pc().includes('Semana 5 de 8') && document.querySelector('#cxh-plan-card [role="progressbar"]').getAttribute('aria-valuenow') === '63', pc());
+        note('h_enfoqueConDatosReales', document.querySelectorAll('#cxh-focus .cxh-focus-tile').length === 3 && !document.getElementById('cxh-focus').hidden, document.getElementById('cxh-focus').textContent);
+        note('h_mentalOpcionalSinActivar', document.getElementById('cxh-mental').textContent.includes('Añadir entrenamiento mental') && !document.getElementById('cxh-mental').textContent.includes('Confianza, concentración y gestión del miedo'));
+        await shot('20-sesion');
+        // Plan
+        await click('[data-cxh-tab="plan"]', 400);
+        const pt = () => document.getElementById('cxh-p-plan').textContent.replace(/\s+/g, ' ');
+        note('h_planSemanal', H.tab() === 'plan' && getComputedStyle(document.getElementById('cxh-p-plan')).display !== 'none' && getComputedStyle(document.getElementById('cxh-p-sesion') || document.getElementById('train-footer') || document.body).display !== undefined
+          && pt().includes('8 semanas') && pt().includes('Semana 5 de 8') && document.querySelectorAll('#cxh-p-plan .cxh-weeks li').length === 8 && document.querySelectorAll('#cxh-p-plan .cxh-sess').length === 2 && document.querySelectorAll('#cxh-p-plan .cxh-day.is-rest').length === 5 && pt().includes('Lunes') && pt().includes(e1.name === '' ? '' : 'Fuerza'), pt().slice(0, 240));
+        note('h_planOcultaLoDeSesion', getComputedStyle(document.querySelector('#train-view .train-footer')).display === 'none' && getComputedStyle(document.getElementById('cxh-plan-card')).display === 'none');
+        await shot('21-plan');
+        await click('[data-plan-sess="s1"]', 700);
+        { const dt = () => modal().textContent.replace(/\s+/g, ' ');
+          note('h_fichaDeSesionDelPlan', modal().classList.contains('pe-open') && title() === 'Fuerza' && dt().includes('Estructura de la sesión') && dt().includes('Tu plan · lunes'), title());
+          await click('[data-cx-tab="ejercicios"]', 400);
+          note('h_fichaConEjerciciosDelPlan', dt().includes(e1.name) && dt().includes(trFmtWork(item(e1.id))) && dt().includes(e2.name), dt().slice(0, 200));
+          await click('[data-cx-tab="consejos"]', 300);
+          note('h_fichaConsejosSinInventar', !dt().includes('Por qué te lo recomendamos') && !dt().includes('Limitaciones'));
+          const orig = window.openActiveSession; let started = null; window.openActiveSession = () => { started = JSON.parse(JSON.stringify(window.kruxTrainData)); };
+          await click('.cx-d-start', 500); window.openActiveSession = orig;
+          note('h_comenzarUsaElFlujoDelPlan', !!started && started.planId === 'p1' && started.planSessionId === 's1' && started.name === 'Fuerza' && started.exercises.length === 2 && !modal().classList.contains('pe-open'), JSON.stringify(started && { p: started.planId, s: started.planSessionId })); }
+        // Ejercicios
+        await click('[data-cxh-tab="ejercicios"]', 400);
+        const exItems = () => [...document.querySelectorAll('#cxh-ex-list .cxh-ex')];
+        note('h_bibliotecaVisual', document.querySelectorAll('#cxh-p-ejercicios .cxh-chip').length === cat.categories.length + 1 && exItems().length === pubs.length && exItems().every(x => x.dataset.guide && x.querySelector('.cx-ex-art')), exItems().length + '/' + pubs.length);
+        await click('[data-cxh-cat="dedos"]', 300);
+        note('h_filtroPorCategoria', exItems().length === pubs.filter(e => e.categoryIds.includes('dedos')).length && exItems().length > 0);
+        await click('[data-cxh-cat=""]', 300);
+        { const q = document.getElementById('cxh-q'); q.value = 'plancha'; q.dispatchEvent(new Event('input', { bubbles: true })); await w(200);
+          note('h_busqueda', exItems().length >= 1 && exItems().every(x => /plancha/i.test(x.textContent)), exItems().length + ''); }
+        await click(exItems()[0], 600);
+        note('h_abreInstrucciones', window.KruxGuide.isOpen()); window.KruxGuide.close(); await w(400);
+        await shot('22-ejercicios');
+        // Progresión: con el historial real y vacía
+        await click('[data-cxh-tab="progresion"]', 400);
+        const gt = () => document.getElementById('cxh-p-progresion').textContent.replace(/\s+/g, ' ');
+        note('h_progresionConHistorialReal', /\d+(sesión registrada|sesiones registradas)/.test(gt()) && document.querySelectorAll('#cxh-p-progresion .cxh-bar').length === 8 && gt().includes('Regularidad') && !gt().includes('Aún no hay datos'), gt().slice(0, 200));
+        await shot('23-progresion');
+        { const keep = window.kruxTrainLog; window.kruxTrainLog = []; await refresh();
+          note('h_progresionVaciaEsInvitacion', gt().includes('Aún no hay datos de progreso') && !!document.querySelector('#cxh-p-progresion [data-cxh-act="sesion"]'));
+          window.kruxTrainLog = keep; await refresh(); }
+        // Entrenamiento mental: invitación discreta desde Entrena
+        await click('[data-cxh-tab="sesion"]', 300);
+        await click('#cxh-mental [data-cxh-act="mental-on"]', 700);
+        note('h_activarMentalDespues', modal().classList.contains('pe-open') && title().includes('Evaluación mental') && modal().textContent.includes('pregunta') === false || modal().textContent.includes('Pregunta 1 de 5'), title());
+        await click('[data-cx="back"]', 500);
+        window.kruxActivePlan = null; await refresh(); H.setTab('sesion'); }
       await click('#train-foryou [data-cx="profile"]', 700); await click('[data-cx="limits"]', 400); await click('[data-cx="limits-clear"]', 500);
       // cambiar a «ambas» obliga a indicar los grados de bloque de cada entorno (y el objetivo en roca)
       await click('[data-edit="where"]', 600); await click('[data-mod="ambas"]', 350); await click('#cx-next', 1000);
@@ -855,7 +932,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       await click('#cx-next', 800);
       note('c3_objetivoBloqueRoca', title().includes('objetivo') && !!document.querySelector('[data-grade="roca.boulder.target"]') && !document.querySelector('[data-grade="rocodromo.boulder.target"]') && !!document.querySelector('[data-grade="roca.sport.target"]'));
       await pick('[data-grade="roca.boulder.target"]', '7A'); await click('#cx-next', 800); await click('#cx-next', 800); await click('#cx-next', 500);
-      await toRecs();
+      await mentalNo(); await toRecs();
       const d3 = (await pdoc(u1)).data();
       note('c3_escalasSeparadas', d3.modality === 'ambas' && d3.status === 'completed' && d3.grades.boulder.max === '6B+' && d3.grades.boulder.target === '7A' && d3.grades.sport.max === '6b' && d3.grades.sport.target === '6c+' && !('gradesGym' in d3), JSON.stringify(d3.grades));
       const gym3 = JSON.parse(localStorage.getItem('krux.coach.gym.v1.' + u1.uid) || 'null');
@@ -984,7 +1061,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       }
       await click('[data-eq="otro"]', 250); all = all.concat(audit('paso6-otro'));
       note('c8_materialOtroTieneCampo', !!document.getElementById('cx-other') && document.getElementById('cx-other').maxLength === 60);
-      await click('#cx-next', 500); all = all.concat(audit('preparando')); await waitFor(() => title().includes('Plan listo'), 40); await w(700); all = all.concat(audit('plan-listo')); await toRecs(); await w(500); all = all.concat(audit('resumen'));
+      await click('#cx-next', 500); await mentalNo(); all = all.concat(audit('preparando')); await waitFor(() => title().includes('Plan listo'), 40); await w(700); all = all.concat(audit('plan-listo')); await toRecs(); await w(500); all = all.concat(audit('resumen'));
       note('c8_resumenSinBotonDescentrado', (() => { const m = modal().getBoundingClientRect(); return [...modal().querySelectorAll('.cx-pickbar button')].every(b => { const r = b.getBoundingClientRect(); return Math.abs((r.left + r.right) / 2 - (m.left + m.right) / 2) <= 1.5; }); })());
       await click('[data-cx="mental-start"]', 500); all = all.concat(audit('mental'));
       note('c8_tactilYSinDesborde', all.length === 0, all.join(' | ').slice(0, 400));
