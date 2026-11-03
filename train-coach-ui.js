@@ -376,8 +376,7 @@
     const scroll = $('cx-scroll');
     const keepTop = scroll ? scroll.scrollTop : 0;
     const prevLast = view._last || '';
-    const page = view.step ? view.step + (view.sub ? '.5' : '') : (view.q || '');   // «.5»: subpágina de roca dentro del paso 2
-    const keepType = prevLast === view.type + ':' + page;
+    const keepType = prevLast === view.type + ':' + (view.step || view.q || '');
     let html = '';
     if (view.type === 'wizard') html = wizardScreen();
     else if (view.type === 'summary') html = summaryScreen();
@@ -387,12 +386,12 @@
     else if (view.type === 'limits') html = limitsScreen();
     else html = hubScreen();
     m.innerHTML = html;
-    view._last = view.type + ':' + page;
+    view._last = view.type + ':' + (view.step || view.q || '');
     const sc = $('cx-scroll');
     if (sc && keepType) sc.scrollTop = keepTop;
     // Transición entre preguntas: la nueva entra desde el lado de la dirección del avance (solo opacidad y transform)
     if (sc && !keepType && !reduceMotion()) {
-      const cur = parseFloat(page) || 0, prev = parseFloat(prevLast.split(':')[1] || '0') || 0;
+      const cur = view.step || view.q || 0, prev = parseInt((prevLast.split(':')[1] || '0'), 10) || 0;
       const same = prevLast.split(':')[0] === view.type;
       if (view.type === 'summary') sc.classList.add('cx-reveal');
       else if (same && prev && cur) sc.classList.add(cur >= prev ? 'cx-in-fwd' : 'cx-in-back');
@@ -476,15 +475,16 @@
   function stepBody(step) {
     const p = profile;
     if (step === 1) return goalsBody(p);
-    if (step === 2 && view.sub === 'rock') {
-      return `<div class="pe-card"><h3 class="pe-label" id="cx-rock-label">¿Cuántos días a la semana escalas en roca?</h3>${gridSeg([1, 2, 3, 4, 5, 6, 7], p.rockFrequency, 'rock')}
+    if (step === 2) {
+      let out = `<div class="pe-card"><h3 class="pe-label">¿Qué escalas?</h3>${optList(PR.MODALITY, p.modality, 'mod', id => I.modality[id])}</div>
+        <div class="pe-card"><h3 class="pe-label">¿Dónde sueles escalar?</h3>${optList(PR.ENVIRONMENT, p.environment, 'env', id => I.env[id])}</div>`;
+      if (PR.asksRock(p)) {
+        out += `<div class="pe-card" id="cx-rock-card"><h3 class="pe-label" id="cx-rock-label">¿Cuántos días a la semana escalas en roca?</h3>${gridSeg([1, 2, 3, 4, 5, 6, 7], p.rockFrequency, 'rock')}
           <div class="pe-divider" aria-hidden="true"></div>
           <h3 class="pe-label" id="cx-prio-label">¿Qué quieres priorizar? <span class="cx-opt">(opcional)</span></h3>
           <div class="xl-fchips" role="radiogroup" aria-labelledby="cx-prio-label">${PR.ROCK_PRIORITY.map(o => `<button type="button" class="xl-chip xl-chip--lg${p.rockPriority === o.id ? ' is-on' : ''}" role="radio" aria-checked="${p.rockPriority === o.id}" data-prio="${o.id}">${esc(o.label)}</button>`).join('')}</div></div>`;
-    }
-    if (step === 2) {
-      return `<div class="pe-card"><h3 class="pe-label">¿Qué escalas?</h3>${optList(PR.MODALITY, p.modality, 'mod', id => I.modality[id])}</div>
-        <div class="pe-card"><h3 class="pe-label">¿Dónde sueles escalar?</h3>${optList(PR.ENVIRONMENT, p.environment, 'env', id => I.env[id])}</div>`;
+      }
+      return out;
     }
     if (step === 3) {
       const cards = gradeCards(p, false);
@@ -510,22 +510,18 @@
       <p class="pe-hint">Solo se te propondrá lo que puedas hacer con lo que marques. El peso corporal siempre cuenta.</p></div>`;
   }
 
-  // El paso 2 tiene dos páginas cuando escalas en roca y en rocódromo: dónde/qué, y después los días en roca
-  const needsRockPage = () => view.step === 2 && !view.sub && PR.asksRock(profile);
-  const pageOk = () => view.sub === 'rock' ? !!profile.rockFrequency : (view.step === 2 && PR.asksRock(profile) ? !!(profile.modality && profile.environment) : PR.stepIsValid(view.step, profile));
-
   function wizardScreen() {
     const editing = !!view.steps;
     const list = editing ? view.steps : flow(profile);
     const total = list.length;
     const pos = Math.max(1, list.indexOf(view.step) + 1);
-    const last = pos === total && !needsRockPage();
-    const ok = pageOk();
+    const last = pos === total;
+    const ok = PR.stepIsValid(view.step, profile);
     return shell({
-      title: view.sub === 'rock' ? 'Tu escalada en roca' : STEP_TITLES[view.step],
+      title: STEP_TITLES[view.step],
       sub: editing ? `Editar perfil · ${pos} de ${total}` : `Paso ${pos} de ${total}`,
       progress: Math.round((pos / total) * 100),
-      backLabel: pos === 1 && !view.sub ? 'Cerrar' : 'Paso anterior',
+      backLabel: pos === 1 ? 'Cerrar' : 'Paso anterior',
       skip: editing ? '' : 'Saltar',
       body: stepBody(view.step),
       footer: `<button type="button" class="pe-save-btn pe-save-btn--wide" id="cx-next" data-cx="next"${ok ? '' : ' disabled'}><span>${last ? (editing ? 'Guardar' : 'Terminar') : 'Siguiente'}</span></button>`
@@ -534,7 +530,7 @@
 
   function refreshNext() {
     const b = $('cx-next');
-    if (b && view && view.type === 'wizard') b.disabled = !pageOk();
+    if (b && view && view.type === 'wizard') b.disabled = !PR.stepIsValid(view.step, profile);
   }
 
   function setGrade(path, value) {
@@ -542,10 +538,22 @@
     PR.setGradeFor(profile, env, scale, key, value);
   }
 
+  // Al elegir «Ambos» aparecen las preguntas de roca debajo: la tarjeta entra con fundido y la pantalla baja suavemente hasta ella
+  function revealRock() {
+    const card = $('cx-rock-card'), sc = $('cx-scroll');
+    if (!card || !sc) return;
+    if (!reduceMotion()) card.classList.add('cx-rock-in');
+    setTimeout(() => {
+      const top = sc.scrollTop + card.getBoundingClientRect().top - sc.getBoundingClientRect().top - 12;
+      try { sc.scrollTo({ top, behavior: reduceMotion() ? 'auto' : 'smooth' }); } catch (_) { sc.scrollTop = top; }
+    }, reduceMotion() ? 0 : 220);
+  }
+
   function onWizardClick(e) {
     const el = e.target.closest('[data-sec-main],[data-goal],[data-sec],[data-exp],[data-days],[data-min],[data-mod],[data-env],[data-rock],[data-prio],[data-eq]');
     if (!el) return false;
     const d = el.dataset;
+    const hadRock = profile ? PR.asksRock(profile) : false;
     if (d.secMain) { toast('Ya es tu objetivo principal', 'info'); return true; }
     if (d.goal) { profile.goalPrimary = d.goal; profile.goalsSecondary = (profile.goalsSecondary || []).filter(x => x !== d.goal); if (!profile.goalsSecondary.length) delete profile.goalsSecondary; }
     else if (d.sec) {
@@ -577,16 +585,12 @@
     if (profile.rockPriority === undefined) delete profile.rockPriority;
     const attr = Object.keys(d)[0];
     render(`[data-${attr.replace(/[A-Z]/g, c => '-' + c.toLowerCase())}="${d[attr]}"]`);
+    if (d.env && !hadRock && PR.asksRock(profile)) revealRock();
     return true;
   }
 
   async function wizardNext() {
-    if (!pageOk()) return;
-    if (needsRockPage()) {   // segunda página del paso 2: lo respondido hasta aquí ya queda guardado
-      profile.status = profile.status === 'completed' ? 'completed' : 'in_progress';
-      persist('profile'); view.sub = 'rock'; render(); return;
-    }
-    if (view.sub) { if (!PR.stepIsValid(view.step, profile)) return; view.sub = null; }
+    if (!PR.stepIsValid(view.step, profile)) return;
     const editing = !!view.steps;
     const lastEdit = editing && view.step === view.steps[view.steps.length - 1];
     const fl = flow(profile);
@@ -623,14 +627,13 @@
   }
 
   function wizardBack() {
-    if (view.sub) { view.sub = null; render(); return; }
     if (view.steps) {
       const i = view.steps.indexOf(view.step);
       if (i > 0) { view.step = view.steps[i - 1]; render(); } else { view = { type: 'hub' }; render(); }
       return;
     }
     const fl = flow(profile), i = fl.indexOf(view.step);
-    if (i > 0) { view.step = fl[i - 1]; view.sub = view.step === 2 && PR.asksRock(profile) ? 'rock' : null; render(); return; }
+    if (i > 0) { view.step = fl[i - 1]; render(); return; }
     saveDraftAndClose();
   }
 
