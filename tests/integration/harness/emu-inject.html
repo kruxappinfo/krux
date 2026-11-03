@@ -662,7 +662,12 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       await shot('03-paso2-donde');
       note('c5_sinGradosAun', !document.querySelector('[data-grade]'));
       await click('[data-mod="deportiva"]', 250); await click('[data-env="ambos"]', 350);
-      note('c5_pideFrecuenciaRoca', !!document.querySelector('[data-rock="1"]') && nextDisabled());
+      note('c5_rocaEnOtraPagina', !document.querySelector('[data-rock="1"]') && !nextDisabled() && document.getElementById('cx-next').textContent.includes('Siguiente'));
+      await click('#cx-next', 500);
+      note('c5_pideFrecuenciaRoca', title().includes('roca') && !!document.querySelector('[data-rock="1"]') && nextDisabled());
+      await click('[data-cx="back"]', 400);
+      note('c5_atrasDeRoca', !!document.querySelector('[data-env="ambos"]') && !document.querySelector('[data-rock="1"]'));
+      await click('#cx-next', 500);
       await click('[data-rock="1"]', 250); await click('[data-prio="roca"]', 250);
       note('c5_habilita', !nextDisabled());
       await shot('04-paso2-ambos');
@@ -684,8 +689,10 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       note('c2_escalaFrancesa', !!document.querySelector('[data-grade="roca.sport.max"] option[value="6c+"]') && !document.querySelector('[data-grade="roca.sport.max"] option[value="6A"]'));
       // volver conserva respuestas
       await click('[data-cx="back"]', 400);
+      note('c5_atrasVuelveAUltimaPagina', title().includes('roca') && document.querySelector('[data-rock="1"]').classList.contains('is-on'));
+      await click('[data-cx="back"]', 400);
       note('c2_atrasConserva', title().includes('escalas') && document.querySelector('[data-env="ambos"]').classList.contains('is-on') && document.querySelector('[data-mod="deportiva"]').classList.contains('is-on'));
-      await click('#cx-next', 700);
+      await click('#cx-next', 500); await click('#cx-next', 700);
       note('c2_adelanteConserva', document.querySelector('[data-grade="roca.sport.usualTo"]').value === '6b' && document.querySelector('[data-grade="roca.sport.max"]').value === '6b' && document.querySelector('[data-grade="rocodromo.sport.max"]').value === '6c' && document.querySelector('[data-exp="1-2"]').classList.contains('is-on'));
       await click('#cx-next', 800);
 
@@ -812,7 +819,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       note('r_laTarjetaUsaElNuevoHistorial', !window.KruxTrainSession.isRunning() && /sesión registrada|sesiones registradas/.test(rcard.textContent) && !rcard.textContent.includes('Aún no tienes sesiones'), rcard.textContent.slice(-140));
       await click('#train-foryou [data-cx="profile"]', 700); await click('[data-cx="limits"]', 400); await click('[data-cx="limits-clear"]', 500);
       // cambiar a «ambas» obliga a indicar los grados de bloque de cada entorno (y el objetivo en roca)
-      await click('[data-edit="where"]', 600); await click('[data-mod="ambas"]', 350); await click('#cx-next', 1000);
+      await click('[data-edit="where"]', 600); await click('[data-mod="ambas"]', 350); await click('#cx-next', 500); await click('#cx-next', 1000);
       note('c3_ambasPideBloque', title().includes('nivel') && !!document.querySelector('[data-grade="roca.boulder.max"]') && !!document.querySelector('[data-grade="rocodromo.boulder.max"]') && nextDisabled(), title());
       await pick('[data-grade="roca.boulder.usualFrom"]', '6A'); await pick('[data-grade="roca.boulder.max"]', '6B+');
       await pick('[data-grade="rocodromo.boulder.usualFrom"]', '5+'); await pick('[data-grade="rocodromo.boulder.max"]', '6A+');
@@ -831,7 +838,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       await click('#train-foryou [data-cx="profile"]', 700);
       note('c3_resumenAmbas', modal().textContent.includes('Bloque en roca') && modal().textContent.includes('Deportiva en roca') && modal().textContent.includes('Bloque en rocódromo') && modal().textContent.includes('Deportiva en rocódromo'));
       // cambiar a solo bloque con perfil completo: la deportiva deja de exigirse
-      await click('[data-edit="where"]', 600); await click('[data-mod="bloque"]', 300); await click('#cx-next', 1000);
+      await click('[data-edit="where"]', 600); await click('[data-mod="bloque"]', 300); await click('#cx-next', 500); await click('#cx-next', 1000);
       const d4 = (await pdoc(u1)).data();
       note('c3_soloBloque', d4.modality === 'bloque' && d4.status === 'completed', JSON.stringify([d4.modality, d4.status]));
       note('c3_resumenSoloBloque', !modal().textContent.includes('Deportiva en roca') && !modal().textContent.includes('Deportiva en rocódromo') && modal().textContent.includes('Bloque en roca') && modal().textContent.includes('Bloque en rocódromo'));
@@ -938,7 +945,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       await click('[data-cx="restart"]', 500); await click('#confirm-ok', 800);
       let all = [];
       for (let s = 1; s <= 6; s++) {
-        if (s === 2) { await click('[data-mod="ambas"]', 300); await click('[data-env="ambos"]', 300); await click('[data-rock="2"]', 200); }
+        if (s === 2) { await click('[data-mod="ambas"]', 300); await click('[data-env="ambos"]', 300); await click('#cx-next', 500); await click('[data-rock="2"]', 200); }
         all = all.concat(audit('paso' + s));
         if (s < 6) {
           // rellena lo mínimo para poder avanzar
