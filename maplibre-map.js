@@ -1105,6 +1105,9 @@ function onMapLoad() {
   // Cargar markers de escuelas (vista general)
   loadSchoolMarkers();
 
+  // Rocódromos (Comunidad de Madrid): se ven a partir de un zoom más cercano que las escuelas
+  loadGymMarkers();
+
   // Cargar escuelas aprobadas desde Firestore (marcadores adicionales)
   loadApprovedSchoolsFromFirestore();
 
@@ -5839,6 +5842,109 @@ function showParkingPopup(props, coords) {
 // ============================================
 
 let mlSchoolPopup = null;
+
+// ============================================
+// ROCÓDROMOS
+// ============================================
+// Capa propia de rocódromos (Cartografia/Rocodromos/rocodromos.geojson). Aparecen a partir del zoom 9, agrupados en
+// burbujas con el número de rocódromos hasta el zoom 11; desde el 12 se ve cada uno con su icono y, desde el 13, su nombre.
+const GYM_MIN_ZOOM = 9;
+let mlGymPopup = null;
+
+function loadGymMarkers() {
+  if (!mlMap || mlMap.getSource('gyms-source')) return;
+  fetch('Cartografia/Rocodromos/rocodromos.geojson')
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+    .then(async geojson => {
+      if (mlMap.getSource('gyms-source')) return;
+      mlMap.addSource('gyms-source', { type: 'geojson', data: geojson, cluster: true, clusterMaxZoom: 11, clusterRadius: 44 });
+      await loadGymIcons();
+      // Burbuja de grupo: halo salvia + círculo verde bosque con el número
+      mlMap.addLayer({
+        id: 'gym-clusters-halo', type: 'circle', source: 'gyms-source', minzoom: GYM_MIN_ZOOM, filter: ['has', 'point_count'],
+        paint: { 'circle-color': '#DCE9DF', 'circle-opacity': 0.75, 'circle-radius': ['step', ['get', 'point_count'], 21, 5, 25, 15, 30] }
+      });
+      mlMap.addLayer({
+        id: 'gym-clusters', type: 'circle', source: 'gyms-source', minzoom: GYM_MIN_ZOOM, filter: ['has', 'point_count'],
+        paint: { 'circle-color': '#153E35', 'circle-radius': ['step', ['get', 'point_count'], 15, 5, 18, 15, 22], 'circle-stroke-width': 2.5, 'circle-stroke-color': '#ffffff' }
+      });
+      mlMap.addLayer({
+        id: 'gym-cluster-count', type: 'symbol', source: 'gyms-source', minzoom: GYM_MIN_ZOOM, filter: ['has', 'point_count'],
+        layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-allow-overlap': true },
+        paint: { 'text-color': '#ffffff' }
+      });
+      mlMap.addLayer({
+        id: 'gym-markers-layer', type: 'symbol', source: 'gyms-source', minzoom: GYM_MIN_ZOOM, filter: ['!', ['has', 'point_count']],
+        layout: {
+          'icon-image': ['case', ['==', ['get', 'pago'], 'no'], 'gym-icon-free', 'gym-icon-paid'],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.32, 12, 0.42, 15, 0.55],
+          'icon-allow-overlap': true, 'icon-anchor': 'center'
+        }
+      });
+      mlMap.addLayer({
+        id: 'gym-labels-layer', type: 'symbol', source: 'gyms-source', minzoom: 13, filter: ['!', ['has', 'point_count']],
+        layout: { 'text-field': ['get', 'nombre'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [0, 1.6], 'text-anchor': 'top', 'text-max-width': 9, 'text-optional': true },
+        paint: { 'text-color': '#153E35', 'text-halo-color': 'rgba(255, 255, 255, 0.95)', 'text-halo-width': 2 }
+      });
+      setupGymLayerInteraction();
+    })
+    .catch(err => console.warn('[Rocódromos] No se han podido cargar:', err));
+}
+
+// Icono: cuadrado redondeado con una presa. De pago = verde bosque; gratuito (municipal o al aire libre) = blanco con borde verde
+async function loadGymIcons() {
+  const size = 96;
+  const icon = (bg, fg, ring) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}">
+    <defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.6" flood-color="#0b1f1a" flood-opacity="0.35"/></filter></defs>
+    <rect x="6" y="6" width="36" height="36" rx="12" fill="${bg}" stroke="${ring}" stroke-width="2.5" filter="url(#s)"/>
+    <path d="M17.6 30.6c-2.4-1.3-3.2-4.4-1.8-6.9l3.4-6.2c1.5-2.7 4.9-3.7 7.6-2.2l4.1 2.3c2.6 1.5 3.4 4.9 1.8 7.4l-3.2 5.1c-1.5 2.4-4.7 3.3-7.2 1.9z" fill="${fg}"/>
+    <circle cx="24.4" cy="23.4" r="2.5" fill="${bg}"/>
+  </svg>`;
+  await loadSVGAsImage('gym-icon-paid', icon('#153E35', '#ffffff', '#ffffff'), size);
+  await loadSVGAsImage('gym-icon-free', icon('#ffffff', '#153E35', '#153E35'), size);
+}
+
+function setupGymLayerInteraction() {
+  ['gym-clusters', 'gym-markers-layer'].forEach(layer => {
+    mlMap.on('mouseenter', layer, () => { mlMap.getCanvas().style.cursor = 'pointer'; });
+    mlMap.on('mouseleave', layer, () => { mlMap.getCanvas().style.cursor = ''; });
+  });
+  // Grupo: acercar hasta que se separe
+  mlMap.on('click', 'gym-clusters', async (e) => {
+    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    const f = e.features && e.features[0];
+    if (!f) return;
+    try {
+      const zoom = await mlMap.getSource('gyms-source').getClusterExpansionZoom(f.properties.cluster_id);
+      mlMap.easeTo({ center: f.geometry.coordinates, zoom: Math.max(zoom, mlMap.getZoom() + 1) });
+    } catch (_) { mlMap.easeTo({ center: f.geometry.coordinates, zoom: mlMap.getZoom() + 2 }); }
+  });
+  mlMap.on('click', 'gym-markers-layer', (e) => {
+    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    const f = e.features && e.features[0];
+    if (f) showGymPopup(f.properties, f.geometry.coordinates.slice());
+  });
+}
+
+function showGymPopup(p, coords) {
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const yes = v => v === true || v === 'true';
+  const types = [[yes(p.cuerda), 'Cuerda'], [yes(p.bloque), 'Bloque'], [yes(p.auto), 'Autobelay']].filter(t => t[0]).map(t => t[1]);
+  const price = p.pago === 'si' ? 'De pago' : p.pago === 'no' ? 'Gratuito' : '';
+  const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${coords[1]},${coords[0]}`;
+  if (!mlGymPopup) mlGymPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: true, maxWidth: '300px', offset: 18, className: 'ml-gym-popup' });
+  mlGymPopup.setLngLat(coords).setHTML(`
+    <div class="ml-gym-popup-content">
+      <button type="button" class="ml-popup-close-btn" data-gym-close aria-label="Cerrar">&times;</button>
+      <p class="ml-gym-kicker">Rocódromo${price ? ` · <span class="ml-gym-price ml-gym-price--${esc(p.pago)}">${price}</span>` : ''}</p>
+      <h3 class="ml-gym-title">${esc(p.nombre)}</h3>
+      ${types.length ? `<ul class="ml-gym-tags">${types.map(t => `<li>${t}</li>`).join('')}</ul>` : ''}
+      <button type="button" class="ml-gym-btn" data-gym-go>Cómo llegar</button>
+    </div>`).addTo(mlMap);
+  const el = mlGymPopup.getElement();
+  el.querySelector('[data-gym-close]').onclick = () => mlGymPopup.remove();
+  el.querySelector('[data-gym-go]').onclick = () => window.open(gmapsUrl, '_blank');
+}
 
 /**
  * Carga los markers de escuelas como Symbol Layer nativo de MapLibre
