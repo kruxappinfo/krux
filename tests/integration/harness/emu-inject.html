@@ -597,6 +597,8 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       const pick = async (sel, value) => { const el = document.querySelector(sel); if (!el) throw new Error('no existe ' + sel); el.value = value; el.dispatchEvent(new Event('change', { bubbles: true })); await w(120); };
       const modal = () => document.getElementById('coach-modal');
       const title = () => (document.getElementById('cx-title') || {}).textContent || '';
+      // El cuestionario acaba en «¡Plan listo!»; «Ver mi plan» lleva a las propuestas del recomendador
+      const toRecs = async () => { await waitFor(() => title().includes('Plan listo'), 40); await click('[data-cx="to-recs"]', 700); await waitFor(() => title().includes('Tu perfil está listo'), 40); };
       const nextDisabled = () => document.getElementById('cx-next').disabled;
       const navigate = () => { try { switchView('train-view'); } catch (_) { /* ya abierta */ } };
       const shot = async name => { if (!q.get('shots')) return; const top = window.top || window; top.document.title = 'S|' + name; await w(900); };
@@ -626,7 +628,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       // popup de bienvenida: aparece solo, sin perfil, al entrar en Entrena
       const welcome = () => document.getElementById('coach-welcome');
       note('w_aparece', !!welcome() && welcome().classList.contains('is-open') && welcome().getAttribute('role') === 'dialog');
-      note('w_texto', welcome().textContent.includes('Vamos a conocerte.') && welcome().textContent.includes('Cada escalador es diferente. Cuéntanos cómo escalas, qué quieres mejorar y cuánto tiempo tienes. Prepararemos un entrenamiento adaptado a ti.') && welcome().textContent.includes('Personalizar mi entrenamiento') && welcome().textContent.includes('Ahora no'));
+      note('w_texto', welcome().textContent.includes('Entrena a tu manera.') && welcome().textContent.includes('Un plan de entrenamiento que evoluciona contigo y con tu escalada.') && ['Conoce tu nivel', 'Define tus objetivos', 'Adapta tu entrenamiento'].every(t => welcome().textContent.includes(t)) && welcome().textContent.includes('Personalizar mi entrenamiento') && welcome().textContent.includes('Ahora no'));
       note('w_fondoOscuro', getComputedStyle(welcome()).backgroundColor.startsWith('rgba') && parseFloat(getComputedStyle(welcome()).backgroundColor.split(',')[3]) > 0.3 && parseInt(getComputedStyle(welcome().firstElementChild).borderTopLeftRadius) >= 20);
       note('w_botonesTactiles', [...welcome().querySelectorAll('button')].every(b => b.getBoundingClientRect().height >= 44));
       { const rules = [...document.styleSheets].flatMap(ss => { try { return [...ss.cssRules]; } catch (_) { return []; } });   // la animación existe en la hoja de estilos (en el Chrome de pruebas «reducir movimiento» la anula en computed style)
@@ -715,7 +717,17 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       await click('#cx-next', 500);
       note('p_pantallaDePreparacion', title().includes('Preparando') && !!modal().querySelector('.cx-prep-orb') && modal().textContent.includes('Revisando tu perfil'));
       await shot('09b-preparando');
-      await waitFor(() => title().includes('listo'), 40);
+      await waitFor(() => title().includes('Plan listo'), 40);
+      { const pr = (await pdoc(u1)).data(), t = modal().textContent.replace(/\s+/g, ' ');
+        note('r_planListoConDatosReales', t.includes('Hemos creado tu entrenamiento personalizado según tus respuestas.') && t.includes(pr.daysPerWeek + ' días disponibles') && t.includes('~' + pr.minutesPerSession + ' minutos por sesión') && t.includes('Objetivo: ') && t.includes('Experiencia: ') && !!modal().querySelector('[data-cx="to-recs"]') && !!modal().querySelector('[data-cx="adjust"]') && modal().querySelectorAll('.cx-seg.is-on').length === modal().querySelectorAll('.cx-seg').length, t.slice(0, 300)); }
+      await shot('09c-plan-listo');
+      await click('[data-cx="adjust"]', 500);
+      note('r_ajustarConservaRespuestas', title().includes('objetivo') && !!document.querySelector('[data-goal].is-on') && !document.querySelector('[data-cx="skip"]'));
+      await click('#cx-next', 700);
+      note('r_ajustarNoDegradaEstado', (await pdoc(u1)).data().status === 'completed');
+      await click('[data-cx="back"]', 500); await click('[data-cx="back"]', 500);
+      note('r_volverDeAjustarVaAlPlan', title().includes('Plan listo'));
+      await toRecs();
       note('p_despuesRecomendacion', title().includes('listo') && !!modal().querySelector('.cx-rec.is-featured') && modal().textContent.includes('Krux ha preparado esto para ti') && modal().querySelector('.cx-reveal') !== null);
       const pc = await pdoc(u1); const d1 = pc.data();
       note('c6_completado', pc.exists && d1.status === 'completed' && !!d1.completedAt && d1.step === 6, JSON.stringify(d1).slice(0, 300));
@@ -825,7 +837,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       await click('#cx-next', 800);
       note('c3_objetivoBloqueRoca', title().includes('objetivo') && !!document.querySelector('[data-grade="roca.boulder.target"]') && !document.querySelector('[data-grade="rocodromo.boulder.target"]') && !!document.querySelector('[data-grade="roca.sport.target"]'));
       await pick('[data-grade="roca.boulder.target"]', '7A'); await click('#cx-next', 800); await click('#cx-next', 800); await click('#cx-next', 500);
-      await waitFor(() => title().includes('listo'), 40);
+      await toRecs();
       const d3 = (await pdoc(u1)).data();
       note('c3_escalasSeparadas', d3.modality === 'ambas' && d3.status === 'completed' && d3.grades.boulder.max === '6B+' && d3.grades.boulder.target === '7A' && d3.grades.sport.max === '6b' && d3.grades.sport.target === '6c+' && !('gradesGym' in d3), JSON.stringify(d3.grades));
       const gym3 = JSON.parse(localStorage.getItem('krux.coach.gym.v1.' + u1.uid) || 'null');
@@ -954,7 +966,7 @@ window.addEventListener('error', e => { console.log('ERR', e.message); });
       }
       await click('[data-eq="otro"]', 250); all = all.concat(audit('paso6-otro'));
       note('c8_materialOtroTieneCampo', !!document.getElementById('cx-other') && document.getElementById('cx-other').maxLength === 60);
-      await click('#cx-next', 500); all = all.concat(audit('preparando')); await waitFor(() => title().includes('listo'), 40); await w(700); all = all.concat(audit('resumen'));
+      await click('#cx-next', 500); all = all.concat(audit('preparando')); await waitFor(() => title().includes('Plan listo'), 40); await w(700); all = all.concat(audit('plan-listo')); await toRecs(); await w(500); all = all.concat(audit('resumen'));
       note('c8_resumenSinBotonDescentrado', (() => { const m = modal().getBoundingClientRect(); return [...modal().querySelectorAll('.cx-pickbar button')].every(b => { const r = b.getBoundingClientRect(); return Math.abs((r.left + r.right) / 2 - (m.left + m.right) / 2) <= 1.5; }); })());
       await click('[data-cx="mental-start"]', 500); all = all.concat(audit('mental'));
       note('c8_tactilYSinDesborde', all.length === 0, all.join(' | ').slice(0, 400));

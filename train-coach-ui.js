@@ -53,6 +53,13 @@
       bloque: svg('<path d="M4 20 9 8l4 6 3-4 4 10z"/>'),
       ambas: svg('<path d="M3 20 9 8l4 6M13 14l3-4 5 10z"/>')
     },
+    exp: {
+      lt1: svg('<path d="m4 19 8-12 8 12z"/>'),
+      '1-2': svg('<path d="m2 19 6-9 3 4 3-5 8 10z"/>'),
+      '2-4': svg('<path d="m2 20 7-11 3 4 3-6 7 13z"/><path d="M15 7V3l4 1.5L15 6"/>'),
+      gt4: svg('<path d="m2 20 6-10 3 5 4-9 7 14z"/><path d="M15 6V2l4 1.5L15 5"/>')
+    },
+    stopwatch: svg('<circle cx="12" cy="13.5" r="7"/><path d="M12 10v3.5l2 1.5M9.5 3h5M12 3v3.5"/>', 22),
     env: {
       rocodromo: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="9" r="1"/><circle cx="12" cy="15" r="1"/>'),
       roca: svg('<path d="m3 20 6-11 4 6 3-4 5 9z"/>'),
@@ -294,9 +301,14 @@
     el.id = 'coach-welcome'; el.className = 'cw-backdrop';
     el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-labelledby', 'cw-title'); el.setAttribute('aria-describedby', 'cw-text');
     el.innerHTML = `<div class="cw-card">
-      <span class="cw-mark" aria-hidden="true">${svg('<path d="m3 20 6-11 4 6 3-4 5 9z"/><path d="M14.5 5.5l1.2 2.3 2.3 1.2-2.3 1.2-1.2 2.3-1.2-2.3L11 9l2.3-1.2z" stroke-width="1.4"/>', 30)}</span>
-      <h2 class="cw-title" id="cw-title">Vamos a conocerte.</h2>
-      <p class="cw-text" id="cw-text">Cada escalador es diferente. Cuéntanos cómo escalas, qué quieres mejorar y cuánto tiempo tienes. Prepararemos un entrenamiento adaptado a ti.</p>
+      <div class="cw-hero" aria-hidden="true"><span class="cw-mark">${svg('<path d="m3 20 6-11 4 6 3-4 5 9z"/><path d="M14.5 5.5l1.2 2.3 2.3 1.2-2.3 1.2-1.2 2.3-1.2-2.3L11 9l2.3-1.2z" stroke-width="1.4"/>', 30)}</span></div>
+      <h2 class="cw-title" id="cw-title">Entrena a tu manera.</h2>
+      <p class="cw-text" id="cw-text">Un plan de entrenamiento que evoluciona contigo y con tu escalada.</p>
+      <ul class="cw-points">
+        <li><span class="cw-pt-ic">${svg('<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>', 22)}</span><span class="cw-pt-tx"><b>Conoce tu nivel</b><small>Tu experiencia y modalidad.</small></span></li>
+        <li><span class="cw-pt-ic">${svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>', 22)}</span><span class="cw-pt-tx"><b>Define tus objetivos</b><small>Qué quieres mejorar.</small></span></li>
+        <li><span class="cw-pt-ic">${svg('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', 22)}</span><span class="cw-pt-tx"><b>Adapta tu entrenamiento</b><small>Tu tiempo y disponibilidad.</small></span></li>
+      </ul>
       <button type="button" class="pe-save-btn pe-save-btn--wide cw-go" data-cw="go"><span>Personalizar mi entrenamiento</span></button>
       <button type="button" class="cx-btn cx-btn--ghost cw-later" data-cw="later">Ahora no</button>
     </div>`;
@@ -355,6 +367,7 @@
   function openHub() { view = { type: 'hub' }; render(); openModal(); }
 
   function shell(opts) {
+    if (opts.wz) return wzShell(opts);
     const sub = opts.sub ? `<p class="pe-subtitle xl-step">${opts.sub}</p>` : '';
     const skip = opts.skip ? `<button type="button" class="cx-skip" data-cx="skip">${opts.skip}</button>` : '';
     return `
@@ -370,6 +383,25 @@
       </div>`;
   }
 
+  // Cabecera del cuestionario: volver + «Paso X de N» + Saltar, barra segmentada y título con texto de apoyo
+  function wzShell(opts) {
+    const segs = Array.from({ length: opts.total }, (_, i) => `<span class="cx-seg${i < opts.pos ? ' is-on' : ''}${i === opts.pos - 1 ? ' is-cur' : ''}"></span>`).join('');
+    return `
+      <div class="pe-screen xl-screen cx-wz">
+        <header class="cx-wz-top">
+          <button type="button" class="cx-wz-back" data-cx="back" aria-label="${esc(opts.backLabel || 'Volver')}">${I.back}</button>
+          <span class="cx-wz-step" id="cx-step">${opts.sub}</span>
+          ${opts.skip ? `<button type="button" class="cx-skip" data-cx="skip">${opts.skip}</button>` : ''}
+        </header>
+        <div class="cx-segs" role="progressbar" aria-valuemin="1" aria-valuemax="${opts.total}" aria-valuenow="${opts.pos}" aria-labelledby="cx-step">${segs}</div>
+        <div class="xl-scroll xl-wz-scroll" id="cx-scroll">
+          <div class="cx-wz-head"><h2 class="cx-wz-title" id="cx-title" tabindex="-1">${opts.title}</h2>${opts.lead ? `<p class="cx-wz-lead">${opts.lead}</p>` : ''}</div>
+          ${opts.body}
+        </div>
+        ${opts.footer ? `<div class="xl-pickbar cx-pickbar">${opts.footer}</div>` : ''}
+      </div>`;
+  }
+
   function render(focusSel) {
     const m = modal();
     if (!m || !view) return;
@@ -379,6 +411,7 @@
     const keepType = prevLast === view.type + ':' + (view.step || view.q || '');
     let html = '';
     if (view.type === 'wizard') html = wizardScreen();
+    else if (view.type === 'ready') html = readyScreen();
     else if (view.type === 'summary') html = summaryScreen();
     else if (view.type === 'mental') html = mentalScreen();
     else if (view.type === 'mental-done') html = mentalDoneScreen();
@@ -411,6 +444,14 @@
     1: '¿Cuál es tu objetivo?', 2: '¿Cómo y dónde escalas?', 3: '¿Cuál es tu nivel?',
     4: '¿Cuál es tu grado objetivo?', 5: '¿Cuánto tiempo tienes?', 6: '¿Con qué material cuentas?'
   };
+  const STEP_LEADS = {
+    1: 'Elige lo que más quieres mejorar y, si quieres, hasta dos aspectos más.',
+    2: 'Selecciona las opciones que practicas.',
+    3: 'Así ajustaremos la intensidad y la progresión del plan.',
+    4: 'Una aspiración personal, no una predicción de tu rendimiento.',
+    5: 'Sé realista: así el plan será sostenible.',
+    6: 'Solo te propondremos lo que puedas hacer con lo que marques.'
+  };
   // Pasos que se recorren: el 4 (grado objetivo, solo roca) se omite si no escala en roca
   const flow = p => [1, 2, 3, 4, 5, 6].filter(n => n !== 4 || p.environment !== 'rocodromo');
 
@@ -436,8 +477,32 @@
       </button>`).join('')}</div>`;
   }
 
-  function gridSeg(values, current, attr, unit) {
-    return `<div class="cx-grid" role="radiogroup">${values.map(v => `<button type="button" class="xl-seg-btn${current === v ? ' is-on' : ''}" role="radio" aria-checked="${current === v}" data-${attr}="${v}">${v}${unit || ''}</button>`).join('')}</div>`;
+  // Ilustraciones de las modalidades (líneas sobre salvia; se sustituyen por fotos poniendo una imagen de fondo en .cx-mod-art)
+  const MOD_ART = {
+    deportiva: '<svg viewBox="0 0 160 96" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><path d="M0 96V60l34-30 26 22 30-40 40 46 30-20v58z" fill="#C9DCCF"/><path d="M0 96V74l40-24 32 26 28-18 60 38z" fill="#A9C5B2"/><path d="M96 8v34M96 42c0 14-10 14-10 28" fill="none" stroke="#153E35" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="1 5"/><circle cx="96" cy="8" r="3.2" fill="#153E35"/></svg>',
+    bloque: '<svg viewBox="0 0 160 96" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="160" height="96" fill="#DDE8E0"/><path d="M0 96V44c20-14 44-18 66-8 22 10 44 6 94-14v74z" fill="#B7CEBF"/><g fill="#153E35"><circle cx="44" cy="30" r="5.5"/><circle cx="82" cy="22" r="4.5"/><circle cx="112" cy="46" r="6"/><circle cx="64" cy="60" r="5"/><circle cx="130" cy="20" r="3.8"/></g></svg>'
+  };
+
+  // Selector numérico: círculos (días) o tarjetas con cronómetro (minutos)
+  function gridSeg(values, current, attr, unit, kind) {
+    const cls = kind === 'time' ? 'cx-grid cx-grid--time' : 'cx-grid cx-grid--dots';
+    return `<div class="${cls}" role="radiogroup" aria-labelledby="${attr === 'min' ? 'cx-min-label' : attr === 'days' ? 'cx-days-label' : 'cx-rock-label'}">${values.map(v => `<button type="button" class="xl-seg-btn${current === v ? ' is-on' : ''}" role="radio" aria-checked="${current === v}" data-${attr}="${v}">${kind === 'time' ? `<span class="cx-time-ic">${I.stopwatch}</span><b>${v}</b><small>min</small><span class="cx-badge">${I.check}</span>` : v}</button>`).join('')}</div>`;
+  }
+
+  function modTiles(current) {
+    const tile = o => `<button type="button" class="cx-mod${current === o.id ? ' is-on' : ''}" role="radio" aria-checked="${current === o.id}" data-mod="${o.id}">
+        <span class="cx-mod-art">${MOD_ART[o.id]}</span>
+        <span class="cx-mod-row"><span class="cx-mod-tx"><b>${esc(o.label)}</b><small>${esc(o.desc)}</small></span><span class="xl-opt-check">${I.check}</span></span>
+      </button>`;
+    const both = PR.MODALITY.filter(o => o.id === 'ambas'), two = PR.MODALITY.filter(o => o.id !== 'ambas');
+    return `<div class="cx-mods" role="radiogroup" aria-labelledby="cx-mod-label">${two.map(tile).join('')}</div>${optList(both, current, 'mod', id => I.modality[id])}`;
+  }
+
+  function envTiles(current) {
+    return `<div class="cx-tiles" role="radiogroup" aria-labelledby="cx-env-label">${PR.ENVIRONMENT.map(o => `
+      <button type="button" class="cx-tile${current === o.id ? ' is-on' : ''}" role="radio" aria-checked="${current === o.id}" data-env="${o.id}">
+        <span class="cx-tile-ic">${I.env[o.id]}</span><b>${esc(o.label)}</b><span class="cx-badge">${I.check}</span>
+      </button>`).join('')}</div>`;
   }
 
   // Objetivos: principal (obligatorio) y hasta dos secundarios que no pueden repetir el principal
@@ -464,7 +529,7 @@
 
   function gradeCards(p, withTarget) {
     return PR.practices(p).filter(x => !withTarget || x.target).map(pr => `
-      <div class="pe-card">
+      <div class="pe-card cx-group">
         <h3 class="pe-label">${esc(pr.label)} <span class="cx-opt">(${esc(PR.SCALE_NAMES[pr.scale].replace(/^Escala /, '').replace(/ \(.*\)/, ''))})</span></h3>
         ${withTarget
           ? gradeSelect(pr, 'target', 'Grado objetivo')
@@ -476,10 +541,10 @@
     const p = profile;
     if (step === 1) return goalsBody(p);
     if (step === 2) {
-      let out = `<div class="pe-card"><h3 class="pe-label">¿Qué escalas?</h3>${optList(PR.MODALITY, p.modality, 'mod', id => I.modality[id])}</div>
-        <div class="pe-card"><h3 class="pe-label">¿Dónde sueles escalar?</h3>${optList(PR.ENVIRONMENT, p.environment, 'env', id => I.env[id])}</div>`;
+      let out = `<div class="pe-card cx-group"><h3 class="pe-label cx-cap" id="cx-mod-label">¿Qué escalas?</h3>${modTiles(p.modality)}</div>
+        <div class="pe-card cx-group"><h3 class="pe-label cx-cap" id="cx-env-label">¿Dónde sueles escalar?</h3>${envTiles(p.environment)}</div>`;
       if (PR.asksRock(p)) {
-        out += `<div class="pe-card" id="cx-rock-card"><h3 class="pe-label" id="cx-rock-label">¿Cuántos días a la semana escalas en roca?</h3>${gridSeg([1, 2, 3, 4, 5, 6, 7], p.rockFrequency, 'rock')}
+        out += `<div class="pe-card cx-group" id="cx-rock-card"><h3 class="pe-label" id="cx-rock-label">¿Cuántos días a la semana escalas en roca?</h3>${gridSeg([1, 2, 3, 4, 5, 6, 7], p.rockFrequency, 'rock')}
           <div class="pe-divider" aria-hidden="true"></div>
           <h3 class="pe-label" id="cx-prio-label">¿Qué quieres priorizar? <span class="cx-opt">(opcional)</span></h3>
           <div class="xl-fchips" role="radiogroup" aria-labelledby="cx-prio-label">${PR.ROCK_PRIORITY.map(o => `<button type="button" class="xl-chip xl-chip--lg${p.rockPriority === o.id ? ' is-on' : ''}" role="radio" aria-checked="${p.rockPriority === o.id}" data-prio="${o.id}">${esc(o.label)}</button>`).join('')}</div></div>`;
@@ -489,7 +554,7 @@
     if (step === 3) {
       const cards = gradeCards(p, false);
       return `<div class="pe-card"><h3 class="pe-label" id="cx-exp-label">¿Cuánto tiempo llevas escalando?</h3>
-          ${optList(PR.EXPERIENCE, p.experience, 'exp')}</div>
+          ${optList(PR.EXPERIENCE, p.experience, 'exp', id => I.exp[id])}</div>
         ${cards}${cards ? '<p class="pe-hint">El grado habitual es con el que escalas con regularidad; el máximo es el más difícil que has encadenado. Los grados de roca y de rocódromo no son comparables, así que se piden por separado y Krux nunca los convierte.</p>' : ''}`;
     }
     if (step === 4) {
@@ -500,7 +565,7 @@
         <h3 class="pe-label" id="cx-days-label">¿Cuántos días tienes disponibles para escalar a la semana?</h3>${gridSeg([1, 2, 3, 4, 5, 6, 7], p.daysPerWeek, 'days')}
         <p class="pe-hint">Cuenta los días en que podrías escalar, no los de entrenamiento complementario: Krux decide aparte cuánto entrenar fuera de la pared.</p>
         <div class="pe-divider" aria-hidden="true"></div>
-        <h3 class="pe-label" id="cx-min-label">Duración de cada sesión</h3>${gridSeg(PR.MINUTES, p.minutesPerSession, 'min', ' min')}
+        <h3 class="pe-label" id="cx-min-label">Duración de cada sesión</h3>${gridSeg(PR.MINUTES, p.minutesPerSession, 'min', '', 'time')}
         <p class="pe-hint">Podrás ajustarlo después. Sirve para proponerte entrenamientos que quepan en tu semana.</p></div>`;
     }
     const eq = p.equipment || [];
@@ -518,11 +583,11 @@
     const last = pos === total;
     const ok = PR.stepIsValid(view.step, profile);
     return shell({
+      wz: true, pos, total, lead: STEP_LEADS[view.step],
       title: STEP_TITLES[view.step],
       sub: editing ? `Editar perfil · ${pos} de ${total}` : `Paso ${pos} de ${total}`,
-      progress: Math.round((pos / total) * 100),
       backLabel: pos === 1 ? 'Cerrar' : 'Paso anterior',
-      skip: editing ? '' : 'Saltar',
+      skip: (editing || view.adjust) ? '' : 'Saltar',
       body: stepBody(view.step),
       footer: `<button type="button" class="pe-save-btn pe-save-btn--wide" id="cx-next" data-cx="next"${ok ? '' : ' disabled'}><span>${last ? (editing ? 'Guardar' : 'Terminar') : 'Siguiente'}</span></button>`
     });
@@ -615,12 +680,11 @@
       persist('profile');                              // 1) se guarda el perfil
       // 2-4) breve transición de preparación y, después, el recomendador (el mismo de «Para ti», con sus filtros de seguridad)
       const token = view = { type: 'preparing', _prog: 100 }; render();
-      setTimeout(() => { if (view === token) { view = { type: 'summary' }; render(); } }, reduceMotion() ? 250 : 1900);
+      setTimeout(() => { if (view === token) { view = { type: 'ready' }; render(); } }, reduceMotion() ? 250 : 1900);
       return;
     }
     const nx = fl[fl.indexOf(view.step) + 1] || view.step + 1;
-    profile.status = 'in_progress';
-    profile.step = nx;
+    if (!view.adjust) { profile.status = 'in_progress'; profile.step = nx; }   // al ajustar, el perfil sigue completo
     persist('profile');
     view.step = nx;
     render();
@@ -634,6 +698,7 @@
     }
     const fl = flow(profile), i = fl.indexOf(view.step);
     if (i > 0) { view.step = fl[i - 1]; render(); return; }
+    if (view.adjust) { view = { type: 'ready' }; render(); return; }
     saveDraftAndClose();
   }
 
@@ -671,6 +736,40 @@
         <p class="cx-prep-title">Estamos preparando un entrenamiento para ti</p>
         <ul class="cx-prep-steps">${steps.map((t, i) => `<li style="--i:${i}">${esc(t)}</li>`).join('')}</ul></div>`
     });
+  }
+
+  // ============================================
+  // PLAN LISTO
+  // ============================================
+  // Entre la preparación y las propuestas: resume lo que el usuario ha respondido (datos reales del perfil)
+  function readyScreen() {
+    const p = profile, total = flow(p).length;
+    const names = [p.goalPrimary].concat(p.goalsSecondary || []).filter(Boolean).map(id => PR.labelOf(PR.GOALS, id));
+    const rows = [
+      [svg('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', 24), `${p.daysPerWeek} ${p.daysPerWeek === 1 ? 'día disponible' : 'días disponibles'} a la semana`],
+      [I.stopwatch.replace('width="22" height="22"', 'width="24" height="24"'), `~${p.minutesPerSession} minutos por sesión`],
+      [svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>', 24), `Objetivo: ${names.join(', ')}`],
+      [svg('<path d="m2 20 6-10 3 5 4-9 7 14z"/>', 24), `Experiencia: ${PR.labelOf(PR.EXPERIENCE, p.experience).toLowerCase()}`]
+    ].filter(r => !/undefined|NaN|: $/.test(r[1]));
+    const flag = `<svg class="cx-flag" viewBox="0 0 220 110" aria-hidden="true"><path d="M0 110c14-26 34-34 58-26 14-16 34-18 52-4 24-30 50-26 64 6 16-8 32-4 46 24z" fill="#E3ECE5"/><path d="M52 110 108 34l54 76z" fill="#8CB099"/><path d="M92 110l22-30 24 30z" fill="#6E9C80"/><path d="M60 110l26-34 16 22 8-12 14 24z" fill="#A9C5B2"/><path d="M108 34V8" stroke="#153E35" stroke-width="3" stroke-linecap="round"/><path d="M108 8l26 8-26 8z" fill="#153E35"/></svg>`;
+    return `
+      <div class="pe-screen xl-screen cx-wz cx-ready">
+        <header class="cx-wz-top">
+          <button type="button" class="cx-wz-back" data-cx="adjust" aria-label="Ajustar respuestas">${I.back}</button>
+          <span class="cx-wz-step" id="cx-step">Paso ${total} de ${total}</span>
+        </header>
+        <div class="cx-segs" role="progressbar" aria-valuemin="1" aria-valuemax="${total}" aria-valuenow="${total}" aria-labelledby="cx-step">${Array.from({ length: total }, () => '<span class="cx-seg is-on"></span>').join('')}</div>
+        <div class="xl-scroll xl-wz-scroll cx-reveal" id="cx-scroll">
+          ${flag}
+          <div class="cx-wz-head cx-wz-head--c"><h2 class="cx-wz-title" id="cx-title" tabindex="-1">¡Plan listo!</h2><p class="cx-wz-lead">Hemos creado tu entrenamiento personalizado según tus respuestas.</p></div>
+          <ul class="cx-facts">${rows.map(r => `<li><span class="cx-fact-ic">${r[0]}</span><b>${esc(r[1])}</b></li>`).join('')}</ul>
+          ${dirty.profile ? '<p class="cx-note" role="status">Guardado en este dispositivo. Se enviará cuando haya conexión.</p>' : ''}
+        </div>
+        <div class="xl-pickbar cx-pickbar"><div class="cx-footer-stack">
+          <button type="button" class="pe-save-btn pe-save-btn--wide" data-cx="to-recs"><span>Ver mi plan</span></button>
+          <button type="button" class="cx-btn cx-btn--ghost cx-adjust" data-cx="adjust">Ajustar respuestas</button>
+        </div></div>
+      </div>`;
   }
 
   // Fin del onboarding: perfil guardado → recomendador (el mismo de «Para ti», con sus filtros de seguridad) → propuestas inmediatas
@@ -858,6 +957,7 @@
           break;
         case 'close': closeModal(); break;
         case 'to-hub': view = { type: 'hub' }; render(); break;
+        case 'adjust': view = { type: 'wizard', step: 1, adjust: true }; render(); break;
         case 'to-recs': view = { type: 'summary' }; render(); break;
         case 'mental-start': startMental('summary'); break;
         case 'mental-hub': startMental('hub'); break;
