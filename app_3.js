@@ -19495,8 +19495,11 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     } catch (_) { /* silencioso si el navegador bloquea audio */ }
   }
 
-  // Tick sutil cada segundo durante trabajo
-  function soundTick()    { beep({ freq: 660, duration: 0.04, volume: 0.2 }); }
+  // Tick cada segundo; se vuelve más agudo y fuerte al acercarse el final (últimos 10 s)
+  function soundTick()    { beep({ freq: 660, duration: 0.05, volume: 0.3 }); }
+  function soundTickNear() { beep({ freq: 880, duration: 0.06, volume: 0.45 }); }
+  // Tick más grave durante el descanso, para distinguirlo del trabajo
+  function soundTickRest() { beep({ freq: 440, duration: 0.05, volume: 0.25 }); }
   // Pitidos urgentes en los últimos 3 segundos de trabajo
   function soundUrgent()  { beep({ freq: 1100, duration: 0.07, volume: 0.5, type: 'square' }); }
   // Triple pitido al completar una serie / fin de trabajo
@@ -19849,7 +19852,9 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     if (remaining <= 3 && remaining > 0) {
       time.classList.add('is-urgent');
       soundUrgent();
-    } else if (remaining > 3) {
+    } else if (remaining <= 10) {
+      soundTickNear();
+    } else {
       soundTick();
     }
     if (targetSec >= 40 && remaining === Math.floor(targetSec / 2)) speak('Mitad');
@@ -19864,6 +19869,8 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     if (timerSec <= 3 && timerSec > 0) {
       time.classList.add('is-urgent');
       soundUrgent();
+    } else if (timerSec > 3) {
+      timerSec <= 10 ? soundTickNear() : soundTickRest();
     }
     if (timerSec <= 0) {
       clearInterval(intervalId);
