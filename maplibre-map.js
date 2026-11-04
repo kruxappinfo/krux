@@ -70,8 +70,12 @@ function mlClearApprovedListeners() {
 }
 
 // Cancels pending (user-specific) subscriptions and empties their map layers.
-// Called when the user logs out so stale personal data is not left on the map.
+// Called on every session change so the previous user's data and admin tools are not left on the map.
 function mlClearPendingItemsLayers() {
+  // Edición por arrastre (solo admin) que estuviera en curso
+  if (mlEditState.docId) mlCancelPendingEdit();
+  mlPendingSchoolsCache.clear();
+
   if (mlMyPendingRoutesUnsub) { try { mlMyPendingRoutesUnsub(); } catch (e) {} mlMyPendingRoutesUnsub = null; }
   if (mlMyPendingPOIUnsub) { try { mlMyPendingPOIUnsub(); } catch (e) {} mlMyPendingPOIUnsub = null; }
   if (mlMyPendingSectorsUnsub) { try { mlMyPendingSectorsUnsub(); } catch (e) {} mlMyPendingSectorsUnsub = null; }
@@ -82,7 +86,8 @@ function mlClearPendingItemsLayers() {
   if (!mlMap) return;
   const empty = { type: 'FeatureCollection', features: [] };
   ['pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source',
-   'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source']
+   'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source',
+   'pending-my-schools-source', 'admin-pending-schools-source']
     .forEach(id => { try { if (mlMap.getSource(id)) mlMap.getSource(id).setData(empty); } catch (e) {} });
 }
 
@@ -1104,14 +1109,8 @@ function onMapLoad() {
   // Cargar escuelas aprobadas desde Firestore (marcadores adicionales)
   loadApprovedSchoolsFromFirestore();
 
-  // Cargar escuelas pendientes: admin ve todas, spotter solo las propias, otros nada
-  checkAdminRole().then(role => {
-    if (role === 'admin') {
-      loadAllPendingSchoolsForAdmin();
-    } else if (role === 'spotter') {
-      loadMyPendingSchoolsFromFirestore();
-    }
-  });
+  // Escuelas pendientes (admin ve todas, spotter solo las propias, otros nada): las carga el
+  // listener de sesión de más abajo, que se dispara al registrarse y en cada cambio de usuario
 
   // NO cargar escuela por defecto - el usuario selecciona desde markers
   // mlLoadSchool('valeria');
@@ -1119,7 +1118,7 @@ function onMapLoad() {
   // Re-subscribe to approved items and update pending items on auth state change.
   // onSnapshot connections are dropped when Firebase auth state changes; without this
   // approved Spotter content disappears after logout/re-login.
-  // Fires immediately on registration — guarded by mlCurrentSchool check so it's a no-op at init.
+  // Fires immediately on registration: también hace la carga inicial de las escuelas pendientes.
   if (typeof firebase !== 'undefined' && firebase.auth) {
     firebase.auth().onAuthStateChanged(async (user) => {
       // Invalidate cached roles so they are re-evaluated under the new auth state
@@ -1128,30 +1127,34 @@ function onMapLoad() {
       _cachedAdminRoleTime = 0;
       _cachedAdminCheckTime = 0;
 
-      if (!mlMap || !mlCurrentSchool) return;
+      if (!mlMap) return;
+
+      // Lo del usuario anterior (pendientes, escuelas pendientes, edición en curso) no sobrevive
+      // a ningún cambio de sesión: logout, login o cambio directo de cuenta
+      mlClearPendingItemsLayers();
+
       const schoolId = mlCurrentSchool;
+      if (schoolId) {
+        // Approved items are public — always re-subscribe regardless of auth state
+        loadApprovedRoutesFromFirestore(schoolId);
+        loadApprovedSectorsFromFirestore(schoolId);
+        loadApprovedPOIFromFirestore(schoolId);
+      }
 
-      // Approved items are public — always re-subscribe regardless of auth state
-      loadApprovedRoutesFromFirestore(schoolId);
-      loadApprovedSectorsFromFirestore(schoolId);
-      loadApprovedPOIFromFirestore(schoolId);
-
-      if (user) {
-        // Reload user-specific (pending) items based on new role
-        checkAdminRole().then(role => {
-          if (role === 'admin') {
-            loadAllPendingForAdmin(schoolId);
-            loadAllPendingSchoolsForAdmin();
-          } else if (role === 'spotter') {
-            loadMyPendingRoutesFromFirestore(schoolId);
-            loadMyPendingPOIFromFirestore(schoolId);
-            loadMyPendingSectorsFromFirestore(schoolId);
-            loadMyPendingSchoolsFromFirestore();
-          }
-        });
-      } else {
-        // Logged out: clear pending item layers (user-specific data must not persist)
-        mlClearPendingItemsLayers();
+      if (!user) return;
+      // Reload user-specific (pending) items based on the new user's real role
+      const role = await checkAdminRole();
+      if (!auth.currentUser || auth.currentUser.uid !== user.uid) return;   // la sesión cambió durante la consulta
+      if (role === 'admin') {
+        if (schoolId) loadAllPendingForAdmin(schoolId);
+        loadAllPendingSchoolsForAdmin();
+      } else if (role === 'spotter') {
+        if (schoolId) {
+          loadMyPendingRoutesFromFirestore(schoolId);
+          loadMyPendingPOIFromFirestore(schoolId);
+          loadMyPendingSectorsFromFirestore(schoolId);
+        }
+        loadMyPendingSchoolsFromFirestore();
       }
     });
   }

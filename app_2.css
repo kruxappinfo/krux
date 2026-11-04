@@ -15134,13 +15134,10 @@ body.pwa-standalone .feed-header {
 }
 
 /* Dev Toast */
-/* Botón Spotter solo visible en el mapa */
+/* Botón Spotter: vive dentro del mapa (solo se ve en esa vista); su visibilidad la decide
+   dev-route-editor.js según los permisos, sin forzarla desde aquí */
 #btn-dev-editor {
-  display: none !important;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15) !important;
-}
-body.map-active #btn-dev-editor {
-  display: flex !important;
 }
 
 /* Dev Editor Button Active State */
@@ -21233,7 +21230,7 @@ body.plan-editor-open { overflow: hidden; }
   --kx-shadow-card: 0 1px 2px rgba(32, 41, 35, 0.04), 0 10px 28px rgba(32, 41, 35, 0.06);
   --kx-shadow-pop: 0 14px 36px rgba(32, 41, 35, 0.2);
   --kx-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --kx-nav-h: 60px;
+  --kx-nav-h: 64px;
 }
 
 /* ---------- Navegador: selección y barras de la vista del feed ---------- */
@@ -22200,9 +22197,9 @@ body.plan-editor-open { overflow: hidden; }
     max-width: 560px !important;
     min-height: var(--kx-nav-h) !important;
     margin: 0 auto !important;
-    padding: 5px 4px !important;
+    padding: 6px 4px !important;
     border: 1px solid rgba(255, 255, 255, 0.66) !important;
-    border-radius: 24px !important;
+    border-radius: 26px !important;
     background: rgba(250, 249, 245, 0.74) !important;
     -webkit-backdrop-filter: blur(24px) saturate(1.6) !important;
     backdrop-filter: blur(24px) saturate(1.6) !important;
@@ -22213,10 +22210,10 @@ body.plan-editor-open { overflow: hidden; }
   body.map-active .bottom-nav .nav-item {
     flex: 1 !important;
     min-width: 0 !important;
-    min-height: 46px !important;
-    padding: 2px 2px !important;
+    min-height: 50px !important;
+    padding: 3px 2px !important;
     gap: 2px !important;
-    border-radius: 17px !important;
+    border-radius: 18px !important;
     color: var(--kx-ink-3) !important;
     background: transparent !important;
   }
@@ -22231,9 +22228,9 @@ body.plan-editor-open { overflow: hidden; }
   /* El icono lleva su propia cápsula (transparente salvo en la sección activa) */
   .bottom-nav .nav-item svg {
     box-sizing: content-box;
-    width: 20px !important;
-    height: 20px !important;
-    padding: 3px clamp(7px, 4.2vw - 2px, 16px);
+    width: 21px !important;
+    height: 21px !important;
+    padding: 4px clamp(7px, 4.4vw - 2px, 17px);
     border-radius: 999px;
     stroke: currentColor !important;
     stroke-width: 1.75px !important;
@@ -22284,6 +22281,13 @@ body.plan-editor-open { overflow: hidden; }
     padding-bottom: 0 !important;
     background: var(--kx-bg);
   }
+}
+
+/* Al tocar una sección no se dibuja el anillo de foco antiguo (se veía como un segundo selector
+   alrededor de la cápsula); el foco de teclado conserva su contorno */
+.bottom-nav .nav-item:focus,
+.bottom-nav .nav-item:focus-visible {
+  box-shadow: none;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -30112,7 +30116,7 @@ body.map-active {
   --map-ctrl: 40px;
   --map-r: 13px;
   --map-top: calc(env(safe-area-inset-top, 0px) + 12px);
-  --map-bottom: calc(env(safe-area-inset-bottom, 0px) + 82px);   /* por encima de la navegación flotante */
+  --map-bottom: calc(env(safe-area-inset-bottom, 0px) + 86px);   /* 12 px por encima de la navegación flotante */
 }
 
 @media (min-width: 1025px) {
@@ -30584,16 +30588,62 @@ body.map-active #map-view .legend-panel .lp-pane {
   box-shadow: var(--map-shadow);
 }
 
-/* Herramienta Spotter: abajo a la izquierda, sobre la escala, sin tapar la pila derecha */
-body.map-active #btn-dev-editor {
-  top: auto !important;
-  right: auto !important;
-  left: var(--map-gap) !important;
-  bottom: calc(var(--map-bottom) + 34px) !important;
+/* Herramienta Spotter (solo admin/spotter): encabeza la pila de la derecha, separada del resto.
+   El fondo no lleva !important para que los colores de cada modo (en línea) sigan mandando */
+#map-view .kx-ctrl-edit {
+  position: relative;
+  order: -1;
+  width: var(--map-ctrl) !important;
+  height: var(--map-ctrl) !important;
+  min-height: 0 !important;
+  margin: 0 0 var(--map-space) !important;   /* doble separación: herramienta aparte de la navegación */
+  padding: 0 !important;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--map-edge) !important;
+  border-radius: var(--map-r) !important;
+  background: var(--map-solid);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--map-shadow) !important;
+  color: var(--map-ink);
+  cursor: pointer;
+  transform: none !important;
+  will-change: auto !important;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease) !important;
 }
 
-body.map-active:has(.maplibregl-compact-show) #btn-dev-editor {
-  bottom: calc(var(--map-bottom) + 74px) !important;
+#map-view .kx-ctrl-edit svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75;
+}
+
+#map-view .kx-ctrl-edit:hover {
+  background: #FFFFFF;
+}
+
+#map-view .kx-ctrl-edit::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+}
+
+#map-view .kx-ctrl-edit:focus-visible {
+  outline: 2px solid var(--map-accent);
+  outline-offset: 2px;
+}
+
+/* Mientras MapLibre crea la pila, el botón espera en la misma columna */
+#map-view #map > #btn-dev-editor {
+  position: absolute !important;
+  top: auto !important;
+  left: auto !important;
+  right: var(--map-gap) !important;
+  bottom: calc(var(--map-bottom) + 270px) !important;
+  z-index: 2;
 }
 
 /* Escritorio: el buscador no se estira de lado a lado */
