@@ -30143,7 +30143,7 @@ body.map-active #map-view {
   overflow: hidden;
 }
 
-/* --- Barra superior: buscador, filtro y leyenda --- */
+/* --- Barra superior: buscador y leyenda (el filtro está en la columna inferior derecha) --- */
 #map-view .map-topbar {
   position: absolute;
   z-index: 5;
@@ -30211,7 +30211,7 @@ body.map-active #map-view {
   background: rgba(240, 239, 233, 0.94);
 }
 
-/* Filtro y leyenda: cuadrados de 42 px */
+/* Filtro (columna inferior) y leyenda (barra superior): cuadrados de 44 px */
 #map-view #btn-grade-filter,
 #map-view #btn-info-legend {
   position: relative !important;
@@ -30276,11 +30276,11 @@ body.map-active #map-view {
   margin-left: auto;
 }
 
-/* Paneles anclados bajo la barra: altura acotada y scroll interno */
-body.map-active #map-view .grade-filter-panel,
+/* Paneles: siempre junto a la columna de controles (nunca encima), con altura acotada y scroll interno.
+   La leyenda cuelga de la barra superior; el filtro se abre a la altura de su botón, abajo */
 body.map-active #map-view .legend-panel {
   top: var(--map-panel-top) !important;
-  right: calc(var(--map-gap) + var(--map-ctrl) + 8px) !important;   /* deja libre la columna de controles */
+  right: calc(var(--map-gap) + var(--map-ctrl) + 8px) !important;
   width: min(300px, calc(100vw - 2 * var(--map-gap) - var(--map-ctrl) - 8px));
   max-height: calc(100% - var(--map-panel-top) - var(--map-bottom) - 30px);   /* hasta la escala, sin pisar la navegación */
   border-radius: 20px;
@@ -30289,15 +30289,32 @@ body.map-active #map-view .legend-panel {
 }
 
 body.map-active #map-view .grade-filter-panel {
+  top: auto !important;
+  bottom: calc(var(--map-bottom) + 36px) !important;   /* por encima de la escala y la «i» */
+  right: calc(var(--map-gap) + var(--map-ctrl) + 8px) !important;
   width: min(270px, calc(100vw - 2 * var(--map-gap) - var(--map-ctrl) - 8px));
+  max-height: calc(100% - var(--map-top) - var(--map-search-h) - 8px - var(--map-bottom) - 36px);   /* hasta la barra superior */
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(20, 28, 24, 0.08), 0 16px 40px rgba(20, 28, 24, 0.22);
+  transform: translateY(8px) scale(0.97);
+  transform-origin: bottom right;
 }
 
-body.map-active #map-view:has(.maplibregl-compact-show) .grade-filter-panel,
+body.map-active #map-view .grade-filter-panel.open {
+  transform: none;
+}
+
+/* Atribución desplegada (hasta 4 líneas): los paneles terminan antes de ella */
+body.map-active #map-view:has(.maplibregl-compact-show) .grade-filter-panel {
+  bottom: calc(var(--map-bottom) + 84px) !important;
+  max-height: calc(100% - var(--map-top) - var(--map-search-h) - 8px - var(--map-bottom) - 84px);
+}
+
 body.map-active #map-view:has(.maplibregl-compact-show) .legend-panel {
-  max-height: calc(100% - var(--map-panel-top) - var(--map-bottom) - 76px);   /* atribución desplegada (hasta 4 líneas) */
+  max-height: calc(100% - var(--map-panel-top) - var(--map-bottom) - 76px);
 }
 
 /* Leyenda: cabecera y pestañas fijas; solo se desplaza la lista */
@@ -30323,13 +30340,16 @@ body.map-active #map-view .legend-panel .lp-pane {
   overscroll-behavior: contain;
 }
 
-/* Escritorio: mismo criterio (junto a la columna de controles); la atribución es una tira de ~28 px abajo a la derecha */
+/* Escritorio: la atribución es una tira de ~28 px abajo a la derecha (no se despliega por encima) */
 @media (min-width: 1025px) {
-  body.map-active #map-view .grade-filter-panel,
   body.map-active #map-view .legend-panel,
-  body.map-active #map-view:has(.maplibregl-compact-show) .grade-filter-panel,
   body.map-active #map-view:has(.maplibregl-compact-show) .legend-panel {
     max-height: calc(100% - var(--map-panel-top) - var(--map-bottom) - 40px);
+  }
+
+  body.map-active #map-view:has(.maplibregl-compact-show) .grade-filter-panel {
+    bottom: calc(var(--map-bottom) + 36px) !important;
+    max-height: calc(100% - var(--map-top) - var(--map-search-h) - 8px - var(--map-bottom) - 36px);
   }
 }
 
@@ -30539,7 +30559,7 @@ body.map-active #map-view .legend-panel .lp-pane {
 }
 
 /* Edición (solo admin/spotter) y volver a centrar: mismo módulo que la ubicación (44 px, hueco de 6 px).
-   Encabezan la columna: edición arriba; centrar encima de la ubicación.
+   Columna: edición, filtro, centrar y ubicación.
    El fondo no lleva !important para que los colores de cada modo de edición (en línea) sigan mandando */
 #map-view .kx-ctrl-edit,
 #map-view .reset-view-btn {
@@ -30565,9 +30585,10 @@ body.map-active #map-view .legend-panel .lp-pane {
   transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease) !important;
 }
 
-#map-view .kx-ctrl-edit {
-  order: -1;
-}
+/* Orden de la columna, de arriba abajo: edición, filtro, centrar y ubicación */
+#map-view .kx-ctrl-edit { order: -3; }
+#map-view #btn-grade-filter { order: -2; }
+#map-view .reset-view-btn { order: -1; }
 
 /* La regla antigua de .reset-view-btn (posición absoluta, fondo blanco y márgenes del móvil) ya no aplica */
 #map-view .reset-view-btn {
