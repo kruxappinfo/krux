@@ -30255,7 +30255,7 @@ body.map-active #map-view {
 #map-view #btn-info-legend::before,
 #map-view .reset-view-btn::before,
 #map-view .kx-ctrl-3d::before,
-#map-view .maplibregl-ctrl-group > button:only-child::before {
+#map-view .maplibregl-ctrl-group > button::before {
   content: '';
   position: absolute;
   inset: -2px;
@@ -30361,7 +30361,7 @@ body.map-active #map-view .legend-panel .lp-pane {
   }
 }
 
-/* --- Pila inferior derecha: 3D, brújula, zoom, ubicación y atribución --- */
+/* --- Pila inferior derecha: edición (admin/spotter), 3D, ubicación y atribución --- */
 #map-view .maplibregl-ctrl-bottom-right {
   right: var(--map-gap);
   bottom: var(--map-bottom);
@@ -30405,35 +30405,12 @@ body.map-active #map-view .legend-panel .lp-pane {
   min-height: 0;
   padding: 0;
   border: 0;
-  border-radius: 0;
+  border-radius: calc(var(--map-r) - 1px);
   background: transparent;
   box-shadow: none;
   transform: none;
   will-change: auto;
   -webkit-tap-highlight-color: transparent;
-}
-
-#map-view .maplibregl-ctrl-group button:first-child {
-  border-radius: calc(var(--map-r) - 1px) calc(var(--map-r) - 1px) 0 0;
-}
-
-#map-view .maplibregl-ctrl-group button:last-child {
-  border-radius: 0 0 calc(var(--map-r) - 1px) calc(var(--map-r) - 1px);
-}
-
-#map-view .maplibregl-ctrl-group button:only-child {
-  border-radius: calc(var(--map-r) - 1px);
-}
-
-/* Zoom + y −: dos botones juntos; se ensancha la zona táctil a los lados */
-#map-view .maplibregl-ctrl-group > button:not(:only-child)::before {
-  content: '';
-  position: absolute;
-  inset: 0 -3px;
-}
-
-#map-view .maplibregl-ctrl-group button + button {
-  border-top: 1px solid var(--map-line);
 }
 
 #map-view .maplibregl-ctrl-group button:not(:disabled):hover {
@@ -30446,22 +30423,12 @@ body.map-active #map-view .legend-panel .lp-pane {
   background-color: var(--map-press) !important;
 }
 
-/* Iconos propios de trazo 1.75 (máscara: el color sigue al estado) */
-#map-view .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
-#map-view .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon,
+/* Icono propio de la ubicación, trazo 1.75 (máscara: el color sigue al estado) */
 #map-view .maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
   background-image: none !important;
   background-color: var(--map-ink);
   -webkit-mask: var(--map-icon) center / 20px 20px no-repeat;
   mask: var(--map-icon) center / 20px 20px no-repeat;
-}
-
-#map-view .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon {
-  --map-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round'%3E%3Cpath d='M12 5.5v13M5.5 12h13'/%3E%3C/svg%3E");
-}
-
-#map-view .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
-  --map-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round'%3E%3Cpath d='M5.5 12h13'/%3E%3C/svg%3E");
 }
 
 #map-view .maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
@@ -30484,12 +30451,6 @@ body.map-active #map-view .legend-panel .lp-pane {
 #map-view .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active-error .maplibregl-ctrl-icon,
 #map-view .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-background-error .maplibregl-ctrl-icon {
   background-color: var(--kx-danger);
-}
-
-/* Brújula: aguja con el norte en carbón (MapLibre la gira con transform) */
-#map-view .maplibregl-ctrl-compass .maplibregl-ctrl-icon {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3.5 15.25 12h-6.5z' fill='%23202923'/%3E%3Cpath d='M12 20.5 8.75 12h6.5z' fill='none' stroke='%238A938E' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
-  background-size: 20px 20px;
 }
 
 /* Vista 3D: mismo módulo que la pila; activo en azul-violeta */
