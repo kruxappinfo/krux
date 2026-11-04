@@ -10562,14 +10562,16 @@ function addGradeFilterButton() {
   mlMap.on('zoom', updateFilterVisibility);
   updateFilterVisibility();
 
-  // Cerrar panel al hacer clic fuera
-  document.addEventListener('click', (e) => {
+  // Cerrar panel al tocar fuera (pointerdown además de click: en iOS un toque sobre el mapa no siempre genera click)
+  const closeFilterOnOutside = (e) => {
     const panelEl = document.getElementById('grade-filter-panel');
     const btnEl = document.getElementById('btn-grade-filter');
     if (panelEl && btnEl && !panelEl.contains(e.target) && !btnEl.contains(e.target)) {
       closeGradeFilterPanel();
     }
-  });
+  };
+  document.addEventListener('click', closeFilterOnOutside);
+  document.addEventListener('pointerdown', closeFilterOnOutside);
 }
 
 /**
@@ -11111,14 +11113,16 @@ function addInfoLegendButton() {
   panel.innerHTML = buildLegendPanelHTML();
   container.appendChild(panel);
 
-  // Cerrar al pulsar fuera
-  document.addEventListener('click', (e) => {
+  // Cerrar al pulsar fuera (también con pointerdown, por iOS)
+  const closeLegendOnOutside = (e) => {
     const p = document.getElementById('legend-panel');
     const b = document.getElementById('btn-info-legend');
     if (p && b && !p.contains(e.target) && !b.contains(e.target)) {
       closeLegendPanel();
     }
-  });
+  };
+  document.addEventListener('click', closeLegendOnOutside);
+  document.addEventListener('pointerdown', closeLegendOnOutside);
 }
 
 function buildLegendPanelHTML() {

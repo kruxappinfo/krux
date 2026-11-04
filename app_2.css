@@ -30160,16 +30160,21 @@ body.map-active #map-view {
   pointer-events: auto;
 }
 
-#map-view .map-search {
+#map-view .map-search-wrap {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+#map-view .map-search {
+  width: 100%;
   height: var(--map-search-h);
-  min-height: 0;
   margin: 0;
-  padding: 0 14px 0 13px;
+  padding: 0 6px 0 13px;
   display: flex;
   align-items: center;
   gap: 9px;
+  box-sizing: border-box;
   border: 1px solid var(--map-edge);
   border-radius: 15px;
   background: var(--map-glass);
@@ -30177,14 +30182,9 @@ body.map-active #map-view {
   backdrop-filter: blur(20px) saturate(1.5);
   box-shadow: var(--map-shadow);
   color: var(--map-ink-2);
-  font: 500 0.9rem/1 var(--kx-font);
-  letter-spacing: 0;
-  text-align: left;
-  cursor: pointer;
-  transform: none;
-  will-change: auto;
+  cursor: text;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.2s var(--kx-ease);
+  transition: background 0.2s var(--kx-ease), box-shadow 0.2s var(--kx-ease);
 }
 
 #map-view .map-search svg {
@@ -30194,21 +30194,155 @@ body.map-active #map-view {
   color: var(--map-ink);
 }
 
-#map-view .map-search span {
+/* 16 px: iOS no hace zoom al enfocar el campo */
+#map-view .map-search input {
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--map-ink);
+  font: 500 1rem/1.2 var(--kx-font);
+  letter-spacing: 0;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-appearance: none;
+  appearance: none;
+  caret-color: var(--kx-forest);
 }
 
-#map-view .map-search:hover {
+#map-view .map-search input::placeholder {
+  color: var(--map-ink-2);
+  opacity: 1;
+}
+
+#map-view .map-search input::-webkit-search-cancel-button,
+#map-view .map-search input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#map-view .map-search:focus-within {
+  background: #FFFFFF;
+  box-shadow: var(--map-shadow), 0 0 0 2px var(--kx-forest);
+}
+
+#map-view .map-search-clear {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(32, 41, 35, 0.08);
+  color: var(--map-ink);
+  box-shadow: none;
   transform: none;
-  box-shadow: var(--map-shadow);
-  background: var(--map-solid);
+  will-change: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
-#map-view .map-search:active {
-  background: rgba(240, 239, 233, 0.94);
+#map-view .map-search-clear[hidden] {
+  display: none;
+}
+
+#map-view .map-search-clear:active {
+  background: rgba(32, 41, 35, 0.16);
+}
+
+/* Sugerencias: justo bajo la barra, sin hojas ni modales */
+#map-view .map-suggest {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: min(46vh, 380px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 6px;
+  border: 1px solid var(--map-edge);
+  border-radius: 18px;
+  background: rgba(252, 251, 247, 0.97);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: 0 1px 2px rgba(20, 28, 24, 0.08), 0 16px 40px rgba(20, 28, 24, 0.22);
+}
+
+#map-view .map-suggest[hidden] {
+  display: none;
+}
+
+#map-view .ms-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 4px;
+  color: var(--kx-ink-3);
+  font: 700 0.75rem/1.2 var(--kx-font);
+  letter-spacing: 0.02em;
+}
+
+#map-view .ms-row {
+  min-height: 56px;
+  padding: 6px 8px;
+  gap: 10px;
+  cursor: pointer;
+}
+
+#map-view .ms-row .search-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+
+#map-view .ms-row .search-grade {
+  min-width: 40px;
+  height: 32px;
+  border-radius: 10px;
+  font-size: 0.875rem;
+}
+
+#map-view .ms-row[aria-selected="true"] {
+  background: var(--kx-sage-soft);
+}
+
+#map-view .ms-state {
+  padding: 14px 12px;
+  text-align: left;
+}
+
+#map-view .ms-state-title {
+  font: 700 0.9375rem/1.3 var(--kx-font);
+  color: var(--kx-ink);
+}
+
+#map-view .ms-state-hint {
+  margin-top: 2px;
+  font: 500 0.8125rem/1.35 var(--kx-font);
+  color: var(--kx-ink-3);
+}
+
+@media (hover: hover) {
+  #map-view .map-search:hover {
+    background: var(--map-solid);
+  }
+
+  #map-view .ms-row:hover {
+    background: var(--kx-sage-soft);
+  }
 }
 
 /* Filtro (columna inferior) y leyenda (barra superior): cuadrados de 44 px */
@@ -30243,10 +30377,12 @@ body.map-active #map-view {
   stroke: currentColor;
 }
 
-#map-view #btn-grade-filter:hover,
-#map-view #btn-info-legend:hover {
-  background: #FFFFFF !important;
-  transform: none !important;
+/* El hover solo existe con ratón: en el móvil se quedaba «pegado» tras tocar el botón */
+@media (hover: hover) {
+  #map-view #btn-grade-filter:hover,
+  #map-view #btn-info-legend:hover {
+    background: #FFFFFF !important;
+  }
 }
 
 #map-view #btn-grade-filter:active,
@@ -30262,14 +30398,26 @@ body.map-active #map-view {
   color: var(--kx-forest) !important;
 }
 
+/* Filtro aplicado (panel cerrado): el botón no cambia de color, solo lleva un punto verde.
+   Un relleno oscuro se leía como un botón «pulsado» y atascado */
 #map-view #btn-grade-filter.has-filter {
-  background: var(--kx-forest) !important;
-  border-color: var(--kx-forest) !important;
-  color: #FFFFFF !important;
+  color: var(--kx-forest) !important;
 }
 
-#map-view #btn-grade-filter.has-filter svg {
-  stroke: currentColor;
+#map-view #btn-grade-filter.has-filter::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--kx-forest);
+  box-shadow: 0 0 0 2px var(--map-solid);
+}
+
+#map-view #btn-grade-filter.has-filter.active::after {
+  box-shadow: 0 0 0 2px var(--kx-sage);
 }
 
 #map-view #btn-info-legend {
@@ -30402,10 +30550,12 @@ body.map-active #map-view .legend-panel .lp-pane {
   -webkit-tap-highlight-color: transparent;
 }
 
-#map-view .maplibregl-ctrl-group button:not(:disabled):hover {
-  background-color: rgba(255, 255, 255, 0.7) !important;
-  transform: none;
-  box-shadow: none;
+@media (hover: hover) {
+  #map-view .maplibregl-ctrl-group button:not(:disabled):hover {
+    background-color: rgba(255, 255, 255, 0.7) !important;
+    transform: none;
+    box-shadow: none;
+  }
 }
 
 #map-view .maplibregl-ctrl-group button:not(:disabled):active {
@@ -30605,12 +30755,14 @@ body.map-active #map-view .legend-panel .lp-pane {
   stroke-width: 1.75;
 }
 
-#map-view .kx-ctrl-edit:hover {
-  background: #FFFFFF;
-}
+@media (hover: hover) {
+  #map-view .kx-ctrl-edit:hover {
+    background: #FFFFFF;
+  }
 
-#map-view .reset-view-btn:hover {
-  background: #FFFFFF !important;
+  #map-view .reset-view-btn:hover {
+    background: #FFFFFF !important;
+  }
 }
 
 #map-view .reset-view-btn:active {
@@ -30622,10 +30774,15 @@ body.map-active #map-view .legend-panel .lp-pane {
   outline-offset: 2px;
 }
 
-/* Escritorio: el buscador no se estira de lado a lado */
+/* Escritorio: el buscador va centrado en la pantalla (y sus sugerencias debajo); la leyenda sigue a la derecha.
+   Al estar centrado nunca queda bajo la navegación lateral (la ventana mínima es de 1025 px) */
 @media (min-width: 1025px) {
-  #map-view .map-search {
-    flex: 0 1 420px;
+  #map-view .map-search-wrap {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 420px;
+    transform: translateX(-50%);
   }
 }
 
