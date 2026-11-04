@@ -29709,19 +29709,19 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 /* Velo solo cuando hay foto, para que el texto se lea */
 #activity-view .ax-project.has-photo::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(8, 24, 20, 0.45) 0%, rgba(8, 24, 20, 0.12) 45%, rgba(8, 24, 20, 0.72) 100%); }
 #activity-view .ax-project > * { position: relative; }
-#activity-view .ax-project-body { padding: 20px 20px 14px; min-height: 172px; display: flex; flex-direction: column; }
+#activity-view .ax-project-body { padding: 14px 18px 8px; min-height: 0; display: flex; flex-direction: column; }
 #activity-view .ax-project-eyebrow { font-size: var(--kx-fs-caption); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; opacity: .88; }
 #activity-view .ax-project-count { position: absolute; top: 16px; right: 16px; padding: 5px 11px; border-radius: 999px; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.22); font-size: var(--kx-fs-caption); font-weight: 600; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-#activity-view .ax-project-grade { margin-top: 4px; font-size: 4rem; line-height: 0.95; font-weight: 800; letter-spacing: -0.045em; }
-#activity-view .ax-project-name { margin: 6px 0 0; font-size: 1.375rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; padding-right: 56px; }
-#activity-view .ax-project-place { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; font-size: var(--kx-fs-meta); opacity: .92; padding-right: 56px; }
+#activity-view .ax-project-grade { margin-top: 2px; font-size: 2.875rem; line-height: 0.95; font-weight: 800; letter-spacing: -0.045em; }
+#activity-view .ax-project-name { margin: 4px 0 0; font-size: 1.1875rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; padding-right: 56px; }
+#activity-view .ax-project-place { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font-size: var(--kx-fs-meta); opacity: .92; padding-right: 56px; }
 #activity-view .ax-project-go { position: absolute; right: 18px; top: 50%; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.94); color: var(--ax-ink); cursor: pointer; }
-#activity-view .ax-project-stats { display: grid; grid-template-columns: 1fr 1fr 1.4fr; margin: 0 20px; padding: 14px 0 18px; border-top: 1px solid rgba(255,255,255,.22); }
+#activity-view .ax-project-stats { display: grid; grid-template-columns: 1fr 1fr 1.4fr; margin: 0 18px; padding: 10px 0 12px; border-top: 1px solid rgba(255,255,255,.22); }
 #activity-view .ax-project-stats > div { display: flex; flex-direction: column; gap: 2px; padding: 0 12px; min-width: 0; }
 #activity-view .ax-project-stats > div:first-child { padding-left: 0; }
 #activity-view .ax-project-stats > div + div { border-left: 1px solid rgba(255,255,255,.22); }
-#activity-view .ax-project-stats dd { margin: 0; font-size: 1.25rem; font-weight: 700; line-height: 1.15; }
-#activity-view .ax-project-stats > div:last-child dd { font-size: 1rem; line-height: 1.5; }
+#activity-view .ax-project-stats dd { margin: 0; font-size: 1.0625rem; font-weight: 700; line-height: 1.15; }
+#activity-view .ax-project-stats > div:last-child dd { font-size: 0.9375rem; line-height: 1.5; }
 #activity-view .ax-project-stats dt { font-size: var(--kx-fs-caption); opacity: .82; }
 #activity-view .ax-dots { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
 #activity-view .ax-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(32, 43, 39, 0.18); transition: background .2s, width .2s; }
@@ -30032,7 +30032,7 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 .ax-sheet-overlay .ax-actions .ax-btn--soft { margin-top: 0; }
 
 @media (min-width: 600px) {
-  #activity-view .ax-project-body { min-height: 220px; }
+  #activity-view .ax-project-body { min-height: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ax-sheet-overlay, .ax-sheet, #activity-view .ax-panel.is-celebrate .ax-meters-num, #activity-view .ax-skel { animation: none; }
