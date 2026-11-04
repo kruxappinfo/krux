@@ -71,34 +71,22 @@
     montana: 'Elevación sobre el nivel del mar',
   };
   const MILESTONES = [
-    { id: 'pisa', name: 'la Torre de Pisa', short: 'Torre de Pisa', m: 57, kind: 'estructura', shape: 'pisa', note: 'Altura aproximada (≈56–57 m según el lado que se mida).' },
-    { id: 'libertad', name: 'la Estatua de la Libertad', short: 'Estatua de la Libertad', m: 93, kind: 'estructura', shape: 'statue', note: 'Del suelo a la antorcha, incluido el pedestal.' },
-    { id: 'bigben', name: 'el Big Ben (Elizabeth Tower)', short: 'Big Ben', m: 96, kind: 'estructura', shape: 'clock', note: 'Altura total de la torre.' },
-    { id: 'eiffel', name: 'la Torre Eiffel', short: 'Torre Eiffel', m: 330, kind: 'estructura', shape: 'eiffel', note: 'Con antenas (330 m); sin ellas mide unos 300 m.' },
-    { id: 'empire', name: 'el Empire State Building', short: 'Empire State', m: 443, kind: 'estructura', shape: 'empire', note: 'Hasta la punta de la antena (443 m); el tejado está a 381 m.' },
-    { id: 'burj', name: 'el Burj Khalifa', short: 'Burj Khalifa', m: 828, kind: 'estructura', shape: 'burj', note: 'Altura total con la aguja.' },
-    { id: 'capitan', name: 'la pared de El Capitán', short: 'El Capitán', m: 900, kind: 'pared', shape: 'wall', note: 'Pared de Yosemite, unos 900 m desde la base.' },
-    { id: 'naranjo', name: 'el Naranjo de Bulnes', short: 'Naranjo de Bulnes', m: 2519, kind: 'montana', shape: 'mountain', note: 'Cota de la cima sobre el nivel del mar (2.519 m), no desnivel de la pared.' },
-    { id: 'mulhacen', name: 'el Mulhacén', short: 'Mulhacén', m: 3479, kind: 'montana', shape: 'mountain', note: 'Cota de la cima sobre el nivel del mar.' },
-    { id: 'teide', name: 'el Teide', short: 'Teide', m: 3715, kind: 'montana', shape: 'mountain', note: 'Cota de la cima sobre el nivel del mar (la base está bajo el mar).' },
-    { id: 'montblanc', name: 'el Mont Blanc', short: 'Mont Blanc', m: 4806, kind: 'montana', shape: 'mountain', note: 'Cota de la cima sobre el nivel del mar (varía con el hielo de la cumbre).' },
-    { id: 'kili', name: 'el Kilimanjaro', short: 'Kilimanjaro', m: 5895, kind: 'montana', shape: 'mountain', note: 'Cota de la cima sobre el nivel del mar.' },
-    { id: 'aconcagua', name: 'el Aconcagua', short: 'Aconcagua', m: 6961, kind: 'montana', shape: 'mountain', note: 'Cota de la cima sobre el nivel del mar.' },
-    { id: 'k2', name: 'el K2', short: 'K2', m: 8611, kind: 'montana', shape: 'mountain', note: 'Cota de la cima sobre el nivel del mar.' },
-    { id: 'everest', name: 'el Everest', short: 'Everest', m: 8849, kind: 'montana', shape: 'mountain', note: 'Cota de la cima sobre el nivel del mar (8.848,86 m).' },
+    { id: 'pisa', name: 'la Torre de Pisa', short: 'Torre de Pisa', m: 57, kind: 'estructura', note: 'Altura aproximada (≈56–57 m según el lado que se mida).' },
+    { id: 'libertad', name: 'la Estatua de la Libertad', short: 'Estatua de la Libertad', m: 93, kind: 'estructura', note: 'Del suelo a la antorcha, incluido el pedestal.' },
+    { id: 'bigben', name: 'el Big Ben (Elizabeth Tower)', short: 'Big Ben', m: 96, kind: 'estructura', note: 'Altura total de la torre.' },
+    { id: 'eiffel', name: 'la Torre Eiffel', short: 'Torre Eiffel', m: 330, kind: 'estructura', note: 'Con antenas (330 m); sin ellas mide unos 300 m.' },
+    { id: 'empire', name: 'el Empire State Building', short: 'Empire State', m: 443, kind: 'estructura', note: 'Hasta la punta de la antena (443 m); el tejado está a 381 m.' },
+    { id: 'burj', name: 'el Burj Khalifa', short: 'Burj Khalifa', m: 828, kind: 'estructura', note: 'Altura total con la aguja.' },
+    { id: 'capitan', name: 'la pared de El Capitán', short: 'El Capitán', m: 900, kind: 'pared', note: 'Pared de Yosemite, unos 900 m desde la base.' },
+    { id: 'naranjo', name: 'el Naranjo de Bulnes', short: 'Naranjo de Bulnes', m: 2519, kind: 'montana', note: 'Cota de la cima sobre el nivel del mar (2.519 m), no desnivel de la pared.' },
+    { id: 'mulhacen', name: 'el Mulhacén', short: 'Mulhacén', m: 3479, kind: 'montana', note: 'Cota de la cima sobre el nivel del mar.' },
+    { id: 'teide', name: 'el Teide', short: 'Teide', m: 3715, kind: 'montana', note: 'Cota de la cima sobre el nivel del mar (la base está bajo el mar).' },
+    { id: 'montblanc', name: 'el Mont Blanc', short: 'Mont Blanc', m: 4806, kind: 'montana', note: 'Cota de la cima sobre el nivel del mar (varía con el hielo de la cumbre).' },
+    { id: 'kili', name: 'el Kilimanjaro', short: 'Kilimanjaro', m: 5895, kind: 'montana', note: 'Cota de la cima sobre el nivel del mar.' },
+    { id: 'aconcagua', name: 'el Aconcagua', short: 'Aconcagua', m: 6961, kind: 'montana', note: 'Cota de la cima sobre el nivel del mar.' },
+    { id: 'k2', name: 'el K2', short: 'K2', m: 8611, kind: 'montana', note: 'Cota de la cima sobre el nivel del mar.' },
+    { id: 'everest', name: 'el Everest', short: 'Everest', m: 8849, kind: 'montana', note: 'Cota de la cima sobre el nivel del mar (8.848,86 m).' },
   ].sort((a, b) => a.m - b.m);
-
-  // Siluetas propias (viewBox 100×120): se rellenan de abajo arriba según el progreso
-  const SIL = {
-    eiffel: 'M50 3 L53 28 L59 52 L65 74 L80 117 L67 117 L61 99 L39 99 L33 117 L20 117 L35 74 L41 52 L47 28 Z',
-    burj: 'M50 2 L52 18 L55 36 L59 56 L63 76 L69 98 L72 117 L28 117 L31 98 L37 76 L41 56 L45 36 L48 18 Z',
-    empire: 'M49 2 H51 V18 H55 V28 H60 V40 H66 V52 H74 V117 H26 V52 H34 V40 H40 V28 H45 V18 H49 Z',
-    statue: 'M45 3 L51 1 L53 13 L49 22 L58 31 L57 72 L68 72 L68 117 L32 117 L32 72 L43 72 L42 31 L38 24 Z',
-    clock: 'M50 2 L59 22 V32 H67 V117 H33 V32 H41 V22 Z',
-    pisa: 'M30 117 L39 16 L67 20 L63 117 Z',
-    wall: 'M8 117 V44 L22 34 L34 20 L50 14 L60 24 L74 20 L92 38 V117 Z',
-    mountain: 'M3 117 L34 40 L47 55 L66 8 L97 117 Z',
-  };
 
   // ── Estado ───────────────────────────────────────────────────────────
   const S = {
@@ -111,7 +99,6 @@
     pyrView: 'send',
     hmFilter: 'all', hmYear: new Date().getFullYear(), hmGymYear: new Date().getFullYear(),
     recMore: false,
-    projIdx: 0,
     placesTab: 'school',
     sessFilter: 'all', sessions: [], sessShown: 5, gymSessions: [], gymSessShown: 5,
     thumbs: new Map(),
@@ -184,8 +171,7 @@
     return `<div class="ax-seg" role="group" aria-label="${esc(label)}">${opts.map(([v, l]) => `<button type="button" class="ax-seg-btn${v === current ? ' is-active' : ''}" data-ax="${action}" data-v="${v}" aria-pressed="${v === current}">${l}</button>`).join('')}</div>`;
   }
   const panelHead = (title, right = '') => `<header class="ax-panel-head"><h2 class="ax-h2">${title}</h2>${right}</header>`;
-  const moreBtn = (action, open, lessTxt = 'Ver menos', moreTxt = 'Ver más') => `<button type="button" class="ax-more-pill" data-ax="${action}" aria-expanded="${open}">${open ? lessTxt : moreTxt}</button>`;
-  const statIcon = (icon, tone = '') => `<span class="ax-ico${tone ? ' ax-ico--' + tone : ''}">${icon}</span>`;
+  const moreBtn = (action, open, lessTxt = 'Ver menos', moreTxt = 'Ver todas') => `<button type="button" class="ax-head-link" data-ax="${action}" aria-expanded="${open}">${open ? lessTxt : moreTxt}${I.chevron}</button>`;
 
   // ── Hoja inferior (detalles) ────────────────────────────────────────
   let sheetEl = null, sheetPrevFocus = null, sheetOnClose = null;
@@ -322,22 +308,7 @@
     return list.slice().sort((a, b) => t(b) - t(a));
   }
 
-  function renderProject() {
-    const el = $('ax-project');
-    if (!el) return;
-    const list = projectsList();
-    if (!list.length) {
-      el.innerHTML = `<article class="ax-project is-empty">
-        <div class="ax-project-body">
-          <span class="ax-project-eyebrow">Proyecto activo</span>
-          <h2 class="ax-project-empty-title">Elige tu próximo objetivo</h2>
-          <p class="ax-project-empty-text">Guarda una vía como proyecto desde el mapa y aquí verás tus intentos y tu evolución.</p>
-          <button type="button" class="ax-btn ax-btn--light" data-ax="goto-map">Buscar una vía</button>
-        </div></article>`;
-      return;
-    }
-    const n = S.projIdx % list.length;
-    const p = list[n];
+  function projectSlide(p, n, total) {
     const tries = S.rock.filter(i => String(i.a.routeId) === String(p.id));
     const attempts = tries.reduce((s, i) => s + (parseInt(i.a.tries, 10) > 0 ? parseInt(i.a.tries, 10) : 1), 0);
     const sent = tries.some(i => i.send);
@@ -348,24 +319,44 @@
     const placeTxt = [pl.school, pl.sector ? `Sector ${pl.sector}` : ''].filter(Boolean).join(' · ');
     const go = ref && knownSchool(ref.schoolId)
       ? `<button type="button" class="ax-project-go" data-ax="place-go" data-school="${esc(ref.schoolId)}" aria-label="Ver ${esc(p.name || 'la vía')} en el mapa">${I.chevron}</button>` : '';
-    el.innerHTML = `<article class="ax-project"${ref ? photoAttr(ref.schoolId, pl.sector) : ''}>
-      <div class="ax-project-art" aria-hidden="true"></div>
+    return `<article class="ax-project" role="group" aria-roledescription="proyecto" aria-label="${n + 1} de ${total}"${ref ? photoAttr(ref.schoolId, pl.sector) : ''}>
       <div class="ax-project-body">
-        <div class="ax-project-top">
-          <span class="ax-project-eyebrow">Proyecto activo</span>
-          ${list.length > 1 ? `<button type="button" class="ax-project-count" data-ax="proj-next" aria-label="Ver el siguiente proyecto">${n + 1} de ${list.length}</button>` : ''}
-        </div>
+        <span class="ax-project-eyebrow">Proyecto activo</span>
+        ${total > 1 ? `<span class="ax-project-count">${n + 1} de ${total}</span>` : ''}
         <div class="ax-project-grade">${esc(p.grade || '?')}</div>
         <h2 class="ax-project-name">${esc(p.name || 'Vía sin nombre')}</h2>
-        <p class="ax-project-place">${placeTxt ? esc(placeTxt) : (sent ? 'Encadenado' : 'Guardado en tus proyectos')}</p>
+        <p class="ax-project-place">${placeTxt ? `${I.pin}<span>${esc(placeTxt)}</span>` : '<span>Guardado en tus proyectos</span>'}</p>
         ${go}
       </div>
       <dl class="ax-project-stats">
-        <div><dd>${tries.length ? attempts : '—'}</dd><dt>intentos</dt></div>
-        <div><dd>${tries.length ? days : '—'}</dd><dt>${days === 1 ? 'sesión' : 'sesiones'}</dt></div>
-        <div><dd>${sent ? 'Encadenado' : (last ? relDays(last.d) : 'Sin intentos')}</dd><dt>${sent ? 'estado' : 'último intento'}</dt></div>
+        <div><dd>${tries.length ? attempts : '—'}</dd><dt>Intentos</dt></div>
+        <div><dd>${tries.length ? days : '—'}</dd><dt>${days === 1 ? 'Sesión' : 'Sesiones'}</dt></div>
+        <div><dd>${sent ? 'Encadenado' : (last ? relDays(last.d) : 'Sin intentos')}</dd><dt>${sent ? 'Estado' : 'Último intento'}</dt></div>
       </dl>
     </article>`;
+  }
+
+  function renderProject() {
+    const el = $('ax-project');
+    if (!el) return;
+    const list = projectsList();
+    if (!list.length) {
+      el.innerHTML = `<div class="ax-project-empty">
+          <span class="ax-eyebrow">Proyecto activo</span>
+          <h2>Elige tu próximo objetivo</h2>
+          <p>Guarda una vía como proyecto desde el mapa: aquí verás tus intentos, tus sesiones y cuándo la encadenas.</p>
+          <button type="button" class="ax-btn" data-ax="goto-map">Buscar una vía en el mapa</button>
+        </div>`;
+      return;
+    }
+    el.innerHTML = `<div class="ax-project-track" data-ax-track tabindex="0" aria-label="Proyectos activos">${list.map((p, n) => projectSlide(p, n, list.length)).join('')}</div>
+      ${list.length > 1 ? `<div class="ax-dots" aria-hidden="true">${list.map((_, n) => `<i class="${n === 0 ? 'is-on' : ''}"></i>`).join('')}</div>` : ''}`;
+    const track = el.querySelector('[data-ax-track]');
+    const dots = [...el.querySelectorAll('.ax-dots i')];
+    if (dots.length) track.addEventListener('scroll', () => {
+      const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+      dots.forEach((d, k) => d.classList.toggle('is-on', k === i));
+    }, { passive: true });
     hydrateThumbs(el);
   }
 
@@ -387,7 +378,7 @@
     const daysN = parseInt(g('stat-placeholder-1'), 10) || 0;
     const prevDays = prev ? new Set(prev.filter(i => i.d).map(i => dkey(i.d))).size : 0;
 
-    const card = (val, label, icon, extra) => `<div class="ax-stat"><div class="ax-stat-top"><strong class="ax-stat-val">${val}</strong>${statIcon(icon)}</div><span class="ax-stat-lbl">${label}</span>${extra || ''}</div>`;
+    const metric = (val, label, extra) => `<div class="ax-metric"><strong class="ax-metric-val">${val}</strong><span class="ax-metric-lbl">${label}</span>${extra || '<span class="ax-trend is-flat"></span>'}</div>`;
     const secondary = [
       ['Flash rate', g('stat-flash-rate')], ['Intentos totales', g('stat-total-tries')], ['Intentos por vía', g('stat-avg-tries')],
       ['Vías valoradas', g('stat-rated-routes')], ['Valoración media', g('stat-avg-rating')], ['Escuelas visitadas', g('stat-schools-count')],
@@ -395,13 +386,13 @@
     ];
     el.innerHTML = `<article class="ax-panel">
       ${panelHead('Tu rendimiento', select('perf-period', p, [['week', 'Esta semana'], ['month', 'Este mes'], ['year', 'Este año'], ['todo', 'Todo']], 'Periodo de las estadísticas'))}
-      <div class="ax-stat-grid">
-        ${card(g('stat-total-routes'), 'vías encadenadas', I.trend, prev ? trend(delta(cur.length, prev.length)) : '')}
-        ${card(g('stat-max-grade'), 'grado máximo', I.zap, prev ? trendSteps(cs.maxI, ps.maxI, 'grado', 'grados') : '')}
-        ${card(g('stat-avg-grade'), 'grado medio', I.gauge, prev ? trendSteps(cs.avgI, ps.avgI, 'grado', 'grados') : '')}
-        ${card(daysN, 'días escalando', I.calendar, prev ? trend(delta(daysN, prevDays)) : '')}
+      <div class="ax-metrics">
+        ${metric(g('stat-total-routes'), 'Vías encadenadas', prev ? trend(delta(cur.length, prev.length)) : '')}
+        ${metric(g('stat-max-grade'), 'Grado máximo', prev ? trendSteps(cs.maxI, ps.maxI, 'grado', 'grados') : '')}
+        ${metric(g('stat-avg-grade'), 'Grado medio', prev ? trendSteps(cs.avgI, ps.avgI, 'grado', 'grados') : '')}
+        ${metric(daysN, 'Días escalando', prev ? trend(delta(daysN, prevDays)) : '')}
       </div>
-      <dl class="ax-perf-more" id="ax-perf-more"${S.perfMore ? '' : ' hidden'}>
+      <dl class="ax-kv-list" id="ax-perf-more"${S.perfMore ? '' : ' hidden'}>
         ${secondary.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}
       </dl>
       <button type="button" class="ax-link" data-ax="perf-more" aria-expanded="${S.perfMore}" aria-controls="ax-perf-more">${S.perfMore ? 'Menos estadísticas' : 'Más estadísticas'}</button>
@@ -433,13 +424,10 @@
     return { idx, cur, next, base, pct, missing: next ? Math.max(0, Math.ceil(next.m - meters)) : 0 };
   }
 
-  function silhouette(shape, pct) {
-    const path = SIL[shape] || SIL.mountain;
-    const h = 120 * (pct / 100);
-    return `<svg class="ax-sil" viewBox="0 0 100 120" aria-hidden="true">
-      <defs><clipPath id="axc-sil"><rect x="0" y="${(120 - h).toFixed(1)}" width="100" height="${h.toFixed(1)}"/></clipPath></defs>
-      <path d="${path}" class="ax-sil-bg"/><path d="${path}" class="ax-sil-fg" clip-path="url(#axc-sil)"/></svg>`;
-  }
+  // Fotos reales de los hitos: se añaden a assets/activity/hitos/<id>.jpg y su id aquí.
+  // Sin foto, la tarjeta es solo tipográfica (no se dibujan siluetas ni se inventan imágenes).
+  const HITO_PHOTOS = new Set([]);
+  const hitoPhoto = m => (m && HITO_PHOTOS.has(m.id) ? `assets/activity/hitos/${m.id}.jpg` : null);
 
   function celebrate(rng, st) {
     // Una vez por hito y periodo con fecha fija (no cada vez que se abre la pantalla).
@@ -478,25 +466,27 @@
       const x = meters / st.cur.m;
       eq = `Equivale a ${Math.round(x * 10) === 10 ? '' : `<strong>${fmtTimes(x)} veces</strong> `}${esc(st.cur.name)}`;
     } else eq = `Camino a ${esc(MILESTONES[0].name)}`;
-    const shape = (st.cur || st.next || MILESTONES[0]).shape;
     const nextTxt = known && st.next
-      ? `${Math.round(st.pct)}% hacia ${esc(st.next.name)} · faltan ${nf.format(st.missing)} m`
+      ? `<strong>${Math.round(st.pct)}%</strong> hacia ${esc(st.next.name)} · faltan ${nf.format(st.missing)} m`
       : (known ? 'Has superado todos los hitos' : '');
 
-    el.innerHTML = `<article class="ax-panel ax-meters">
-      ${panelHead('Metros escalados', sel)}
-      <div class="ax-meters-main">
-        <div class="ax-meters-text">
-          <div class="ax-meters-num">${nf.format(meters)}<span> m</span></div>
-          <p class="ax-meters-eq">${eq}</p>
-          ${prevR.total > 0 && known ? trend(delta(total, prevR.total), ` vs ${PREV_TXT[p]}`) : ''}
+    const photo = hitoPhoto(st.cur || st.next);
+    el.innerHTML = `<article class="ax-panel ax-meters${photo ? ' has-photo' : ''}">
+      ${photo ? `<img class="ax-meters-photo" src="${photo}" alt="${esc((st.cur || st.next).short)}" loading="lazy">` : ''}
+      <div class="ax-meters-body">
+        ${panelHead('Metros escalados', sel)}
+        <div class="ax-meters-num">${nf.format(meters)}<span> m</span></div>
+        <p class="ax-meters-eq">${eq}</p>
+        ${prevR.total > 0 && known ? trend(delta(total, prevR.total), ` vs ${PREV_TXT[p]}`) : ''}
+        <div class="ax-meters-row">
+          <div class="ax-meters-prog">
+            ${known && st.next ? `<div class="ax-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(st.pct)}" aria-label="Progreso hacia ${esc(st.next.short)}"><i style="width:${st.pct.toFixed(1)}%"></i></div>` : ''}
+            ${nextTxt ? `<p class="ax-caption">${nextTxt}</p>` : ''}
+          </div>
+          <button type="button" class="ax-round" data-ax="meters-hitos" aria-label="Ver hitos y marcas de metros">${I.chevron}</button>
         </div>
-        <div class="ax-meters-art">${silhouette(shape, st.cur ? 100 : (known ? st.pct : 0))}</div>
-        <button type="button" class="ax-round" data-ax="meters-hitos" aria-label="Ver hitos y marcas de metros">${I.chevron}</button>
+        ${unknown ? `<p class="ax-caption ax-caption--muted">${I.info}<span>${plural(unknown, 'ascensión', 'ascensiones')} sin longitud verificada: cuentan como ascensión pero no suman metros.</span></p>` : ''}
       </div>
-      ${known && st.next ? `<div class="ax-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(st.pct)}" aria-label="Progreso hacia ${esc(st.next.short)}"><i style="width:${st.pct.toFixed(1)}%"></i></div>` : ''}
-      ${nextTxt ? `<p class="ax-caption">${nextTxt}</p>` : ''}
-      ${unknown ? `<p class="ax-caption ax-caption--muted">${plural(unknown, 'ascensión', 'ascensiones')} sin longitud verificada no ${unknown === 1 ? 'suma' : 'suman'} metros</p>` : ''}
     </article>`;
     celebrate(rng, st);
   }
@@ -654,10 +644,7 @@
       ${tabs}
       ${chart}
       ${v === 'vol' ? '<div class="ax-legend"><span class="lg lg-main">Encadenadas</span><span class="lg lg-try">Intentos</span></div>' : ''}
-      <div class="ax-duo">
-        <div class="ax-stat ax-stat--sm"><div class="ax-stat-top"><strong class="ax-stat-val ${cmp.pct > 0 ? 'is-up' : cmp.pct < 0 ? 'is-down' : ''}">${cmp.pct == null ? '—' : (cmp.pct > 0 ? '+' : '') + cmp.pct + '%'}</strong>${statIcon(I.trend)}</div><span class="ax-stat-lbl">${esc(cmp.prevTxt)}</span></div>
-        <div class="ax-stat ax-stat--sm"><div class="ax-stat-top"><strong class="ax-stat-val">${cmp.cur}</strong>${statIcon(I.bars)}</div><span class="ax-stat-lbl">${esc(cmp.curTxt)}</span></div>
-      </div>
+      <p class="ax-evo-sum"><strong class="${cmp.pct > 0 ? 'is-up' : cmp.pct < 0 ? 'is-down' : ''}">${cmp.pct == null ? '—' : (cmp.pct > 0 ? '+' : '') + cmp.pct + '%'}</strong> ${esc(cmp.prevTxt)}<span class="ax-sep" aria-hidden="true">·</span><strong>${cmp.cur}</strong> ${esc(cmp.curTxt)}</p>
     </article>`;
   }
 
@@ -681,14 +668,15 @@
     const el = $('ax-pyramid');
     if (!el) return;
     const view = S.pyrView;
-    const tabs = seg('pyr-view', view, [['send', 'Vías encadenadas'], ['try', 'Intentos']], 'Qué contar en la pirámide');
+    const tabs = '';
+    const pick = select('pyr-view', view, [['send', 'Encadenadas'], ['try', 'Intentos']], 'Qué contar en la pirámide');
     const counts = pyramidCounts(view);
     const sends = view === 'send' ? counts : pyramidCounts('send');
     // Grado consolidado: el más alto con al menos 5 vías encadenadas (regla original)
     const conso = Object.keys(sends).sort((a, b) => rank(b) - rank(a)).find(g => sends[g].n >= 5);
     const ranks = Object.keys(counts).map(rank);
     if (!ranks.length) {
-      el.innerHTML = `<article class="ax-panel">${panelHead('Pirámide de grados')}${tabs}<p class="ax-empty">${view === 'send' ? 'Sin ascensiones encadenadas todavía.' : 'Sin intentos registrados.'}</p></article><span id="act-consolidated-grade" hidden>${conso || '-'}</span>`;
+      el.innerHTML = `<article class="ax-panel">${panelHead('Pirámide de grados', pick)}<p class="ax-empty">${view === 'send' ? 'Sin ascensiones encadenadas todavía.' : 'Sin intentos registrados.'}</p></article><span id="act-consolidated-grade" hidden>${conso || '-'}</span>`;
       return;
     }
     // Todos los grados entre el más bajo y el más alto, también los que tienen 0
@@ -698,8 +686,7 @@
     for (let r = hi; r >= lo; r--) { const g = scale(r); if (counts[g] || !/^\d\+?$/.test(g)) rows.push(g); }
     const max = Math.max(...rows.map(g => counts[g]?.n || 0));
     el.innerHTML = `<article class="ax-panel">
-      ${panelHead('Pirámide de grados')}
-      ${tabs}
+      ${panelHead('Pirámide de grados', pick)}
       <div id="act-pyramid-roca" class="ax-pyr">${rows.map(g => {
         const c = counts[g] || { n: 0, flash: 0 };
         const w = c.n ? Math.max(3, Math.round((c.n / max) * 100)) : 0;
@@ -805,7 +792,7 @@
     if (!el) return;
     const h = heatHTML(S.gym, S.hmGymYear, 'gym');
     el.innerHTML = `<article class="ax-panel">
-      ${panelHead('Consistencia · Rocódromo', select('hm-gym-year', String(S.hmGymYear), yearOpts(S.gym), 'Año del mapa de rocódromo'))}
+      ${panelHead('Consistencia', select('hm-gym-year', String(S.hmGymYear), yearOpts(S.gym), 'Año del mapa de rocódromo'))}
       ${S.gym.length ? h.html : '<p class="ax-empty">Sin sesiones de rocódromo registradas.</p>'}
       <div class="ax-hm-foot"><span>${plural(h.days, 'día', 'días')} de rocódromo</span>${heatLegend}</div>
     </article>`;
@@ -874,10 +861,11 @@
     const shown = S.recMore ? cards : cards.slice(0, 4);
     el.innerHTML = `<article class="ax-panel">
       ${panelHead('Tus mejores marcas', cards.length > 4 ? moreBtn('rec-more', S.recMore) : '')}
-      <div class="ax-stat-grid">${shown.map(([l, v, s, ic, tone, id]) => `<div class="ax-stat ax-stat--rec">
-        <div class="ax-stat-top"><strong class="ax-stat-val"${id ? ` id="${id}"` : ''}>${esc(v)}</strong>${statIcon(ic, tone)}</div>
-        <span class="ax-stat-lbl">${l}</span>${s ? `<span class="ax-stat-sub">${esc(s)}</span>` : ''}
-      </div>`).join('')}</div>
+      <ul class="ax-rec-list">${shown.map(([l, v, s, ic, tone, id]) => `<li class="ax-rec-row">
+        <span class="ax-rec-ico${tone ? ' is-' + tone : ''}">${ic}</span>
+        <span class="ax-rec-text"><span class="ax-rec-lbl">${l}</span>${s ? `<span class="ax-rec-sub">${esc(s)}</span>` : ''}</span>
+        <strong class="ax-rec-val"${id ? ` id="${id}"` : ''}>${esc(v)}</strong>
+      </li>`).join('')}</ul>
     </article>`;
   }
 
@@ -909,7 +897,7 @@
         const known = knownSchool(p.schoolId);
         const tag = known ? `button type="button" data-ax="place-go" data-school="${esc(p.schoolId)}"` : 'div';
         return `<${tag} class="ax-place">
-          <span class="ax-thumb"${photoAttr(p.schoolId, sector)}>${I.peak}</span>
+          <span class="ax-thumb ax-thumb--opt"${photoAttr(p.schoolId, sector)}></span>
           <span class="ax-place-text"><strong>${esc(p.name)}</strong><span>${S.placesTab === 'sector' && p.school ? esc(p.school) + ' · ' : ''}${plural(p.routes.size, 'vía', 'vías')} · ${plural(p.n, 'ascensión', 'ascensiones')}</span></span>
           <span class="ax-rank" aria-label="Puesto ${idx + 1}">${idx + 1}</span>
         </${known ? 'button' : 'div'}>`;
@@ -941,7 +929,7 @@
 
   function sessionCard(g, i, kind) {
     return `<button type="button" class="ax-sess" data-ax="sess-open" data-kind="${kind}" data-i="${i}">
-      <span class="ax-thumb ax-thumb--lg"${kind === 'rock' ? photoAttr(g.schoolId, g.sector) : ''}>${I.peak}</span>
+      <span class="ax-thumb ax-thumb--lg ax-datetile"${kind === 'rock' ? photoAttr(g.schoolId, g.sector) : ''}>${g.d ? `<b>${g.d.getDate()}</b><small>${MONTHS[g.d.getMonth()]}</small>` : ''}</span>
       <span class="ax-sess-text">
         <small>${g.d ? fmtDayYear(g.d) : ''}${g.school && g.sector ? ' · ' + esc(g.school) : ''}</small>
         <strong>${esc(g.sector || g.school || 'Sesión')}</strong>
@@ -1081,13 +1069,11 @@
       case 'meters-hitos': hitosSheet(); break;
       case 'evo-view': S.evoView = v; renderEvolution(); break;
       case 'evo-bar': S.evoSel = parseInt(t.dataset.i, 10); renderEvolution(); break;
-      case 'pyr-view': S.pyrView = v; renderPyramid(); break;
       case 'pyr-row': pyramidSheet(t.dataset.g); break;
       case 'hm-filter': S.hmFilter = v; renderConsistency(); break;
       case 'hm-day': daySheet(t.dataset.k, t.dataset.hm); break;
       case 'rec-more': S.recMore = !S.recMore; renderRecords(); break;
       case 'place-go': closeSheet(true); if (typeof _navigateToGymOnMap === 'function') _navigateToGymOnMap(t.dataset.school); break;
-      case 'proj-next': S.projIdx++; renderProject(); break;
       case 'goto-map': if (typeof switchView === 'function') switchView('map-view'); break;
       case 'sess-open': sessionSheet(t.dataset.kind, parseInt(t.dataset.i, 10)); break;
       case 'sess-more': S.sessShown += 10; renderSessions(); break;
@@ -1107,6 +1093,7 @@
       case 'hm-year': S.hmYear = parseInt(v, 10); renderConsistency(); break;
       case 'hm-gym-year': S.hmGymYear = parseInt(v, 10); renderGymConsistency(); break;
       case 'places-tab': S.placesTab = v; renderPlaces(); break;
+      case 'pyr-view': S.pyrView = v; renderPyramid(); break;
     }
   }
 
