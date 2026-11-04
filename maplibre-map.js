@@ -519,7 +519,7 @@ function addMapControls() {
     unit: 'metric'
   }), 'bottom-left');
 
-  // Botón de filtro por grado (esquina superior derecha)
+  // Botón de filtro por grado (columna inferior derecha)
   addGradeFilterButton();
 
   // Botón de información / leyenda
@@ -10535,8 +10535,11 @@ function addGradeFilterButton() {
     toggleGradeFilterPanel();
   });
 
-  // Junto al buscador, en la barra superior del mapa
-  (document.getElementById('map-topbar') || container).appendChild(btn);
+  // Columna de controles de abajo a la derecha; su aspecto y su orden, en app_2.css
+  btn.classList.add('maplibregl-ctrl');   // la columna de MapLibre solo deja pasar los toques a sus controles
+  const stack = mlMap.getContainer().querySelector('.maplibregl-ctrl-bottom-right');
+  if (stack) stack.insertBefore(btn, stack.firstChild);
+  else (document.getElementById('map-topbar') || container).appendChild(btn);
 
   // Panel desplegable
   const panel = document.createElement('div');
