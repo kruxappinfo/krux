@@ -29751,9 +29751,9 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 }
 
 /* ---------- Metros escalados ---------- */
-#activity-view .ax-meters.has-photo { display: grid; grid-template-columns: 38% 1fr; gap: 16px; align-items: stretch; }
-#activity-view .ax-meters-photo { width: 100%; height: 100%; min-height: 180px; object-fit: cover; border-radius: 18px; }
-#activity-view .ax-meters-body { min-width: 0; }
+#activity-view .ax-meters-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+#activity-view .ax-meters-body { min-width: 0; flex: 1; }
+#activity-view .ax-meters-photo { flex: none; width: auto; height: 132px; max-width: 46%; object-fit: contain; object-position: right bottom; filter: drop-shadow(0 10px 14px rgba(32, 43, 39, 0.18)); }
 #activity-view .ax-meters-num { font-size: 3.25rem; line-height: 1; font-weight: 800; letter-spacing: -0.045em; color: var(--ax-deep); font-variant-numeric: tabular-nums; }
 #activity-view .ax-meters-num span { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
 #activity-view .ax-meters-eq { margin: 10px 0 6px; font-size: 1.0625rem; line-height: 1.4; color: var(--ax-ink); }
@@ -30054,3 +30054,6 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 #activity-view .roco-card-stats { border: 0; }
 #activity-view .gp-proj-section .gp-empty { text-align: left; padding: 6px 0; color: var(--ax-muted); }
 .ax-sheet-overlay .ax-mini span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.ax-sheet-overlay .ax-hito-img { flex: none; width: 52px; height: 52px; object-fit: contain; object-position: center bottom; }
+.ax-sheet-overlay .ax-hito:not(.is-reached) .ax-hito-img { filter: grayscale(1); }
