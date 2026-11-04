@@ -1122,11 +1122,10 @@ async function followUser(targetUserId) {
 
         // 5. Create notification for the target user
         if (typeof window.createNotification === 'function') {
-            const myName = currentUser.displayName || 'Alguien';
             await window.createNotification(
                 targetUserId,
                 'follow',
-                `<strong>${myName}</strong> ha empezado a seguirte`
+                'ha empezado a seguirte'
             );
         }
 
