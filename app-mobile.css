@@ -781,11 +781,11 @@ body.pwa-standalone .feed-header {
   bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
   width: auto !important;
   max-width: 560px !important;
-  min-height: var(--kx-nav-h, 60px) !important;
+  min-height: var(--kx-nav-h, 64px) !important;
   margin: 0 auto !important;
-  padding: 5px 4px !important;
+  padding: 6px 4px !important;
   border: 1px solid rgba(255, 255, 255, 0.66) !important;
-  border-radius: 24px !important;
+  border-radius: 26px !important;
   background: rgba(250, 249, 245, 0.74) !important;
   -webkit-backdrop-filter: blur(24px) saturate(1.6) !important;
   backdrop-filter: blur(24px) saturate(1.6) !important;
@@ -795,10 +795,10 @@ body.pwa-standalone .feed-header {
 .platform-mobile .bottom-nav .nav-item {
   flex: 1 !important;
   min-width: 0 !important;
-  min-height: 46px !important;
-  padding: 2px 2px !important;
+  min-height: 50px !important;
+  padding: 3px 2px !important;
   gap: 2px !important;
-  border-radius: 17px !important;
+  border-radius: 18px !important;
   color: var(--kx-ink-3, #5A665F) !important;
   background: transparent !important;
 }
@@ -808,10 +808,10 @@ body.pwa-standalone .feed-header {
   font-size: 0.6875rem !important;
 }
 
-/* Mismo tamaño que en web: icono de 20px dentro de su cápsula */
+/* Mismo tamaño que en web: icono de 21px dentro de su cápsula */
 .platform-mobile .bottom-nav .nav-item svg {
-  width: 20px !important;
-  height: 20px !important;
+  width: 21px !important;
+  height: 21px !important;
 }
 
 .platform-mobile .bottom-nav .nav-item.active {
@@ -832,7 +832,7 @@ body.pwa-standalone .feed-header {
 }
 
 .platform-mobile #feed-view.view.active .feed-container {
-  padding-bottom: calc(var(--kx-nav-h, 60px) + 40px + env(safe-area-inset-bottom, 0px)) !important;
+  padding-bottom: calc(var(--kx-nav-h, 64px) + 40px + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 /* Perfil, actividad y descubrir: más espacio inferior por la barra flotante */
