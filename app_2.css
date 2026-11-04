@@ -29706,8 +29706,10 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
   background: #174C40 var(--ax-photo, none) center / cover no-repeat;
   box-shadow: 0 12px 32px rgba(23, 76, 64, 0.22);
 }
-/* Velo solo cuando hay foto, para que el texto se lea */
-#activity-view .ax-project.has-photo::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(8, 24, 20, 0.45) 0%, rgba(8, 24, 20, 0.12) 45%, rgba(8, 24, 20, 0.72) 100%); }
+/* Sin foto de sector: escalador de reserva */
+#activity-view .ax-project:not(.has-photo) { background: #174C40 url('assets/activity/proyecto-escalador.jpg') center 53% / cover no-repeat; }
+/* Velo para que el texto se lea */
+#activity-view .ax-project::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(8, 24, 20, 0.45) 0%, rgba(8, 24, 20, 0.12) 45%, rgba(8, 24, 20, 0.72) 100%); }
 #activity-view .ax-project > * { position: relative; }
 #activity-view .ax-project-body { padding: 14px 18px 8px; min-height: 0; display: flex; flex-direction: column; }
 #activity-view .ax-project-eyebrow { font-size: var(--kx-fs-caption); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; opacity: .88; }
