@@ -480,7 +480,7 @@
           <p class="ax-meters-eq">${eq}</p>
           ${prevR.total > 0 && known ? trend(delta(total, prevR.total), ` vs ${PREV_TXT[p]}`) : ''}
         </div>
-        ${photo ? `<img class="ax-meters-photo" src="${photo}" alt="${esc(ref.short)}" width="${ref.kind === 'montana' || ref.id === 'capitan' ? 150 : 84}" height="120" decoding="async">` : ''}
+        ${photo ? `<img class="ax-meters-photo${ref.kind === 'montana' || ref.id === 'capitan' ? '' : ' is-tall'}" src="${photo}" alt="${esc(ref.short)}" width="${ref.kind === 'montana' || ref.id === 'capitan' ? 150 : 84}" height="120" decoding="async">` : ''}
       </div>
       <div class="ax-meters-row">
         <div class="ax-meters-prog">
