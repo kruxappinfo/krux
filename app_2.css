@@ -30096,8 +30096,7 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
    La ortofoto manda; los controles son piezas pequeñas de piedra clara.
    Cristal solo en el buscador y la navegación; los botones van casi opacos
    para leerse igual sobre bosque, roca o campo.
-   Tamaños visuales: buscador 44, filtro/leyenda 42, controles laterales 40.
-   Las zonas táctiles se amplían con ::before hasta ~44 sin cambiar el aspecto.
+   Tamaños: buscador 44, filtro/leyenda 44 y controles de la columna derecha 44 (zona táctil cómoda).
    ==================================================================== */
 body.map-active {
   --map-glass: rgba(250, 249, 245, 0.8);
@@ -30112,9 +30111,9 @@ body.map-active {
   --map-gap: 12px;                /* margen al borde de la pantalla */
   --map-space: 6px;               /* separación entre controles */
   --map-search-h: 44px;
-  --map-btn: 42px;
-  --map-ctrl: 40px;
-  --map-r: 13px;
+  --map-btn: 44px;
+  --map-ctrl: 44px;
+  --map-r: 14px;
   --map-top: calc(env(safe-area-inset-top, 0px) + 12px);
   --map-bottom: calc(env(safe-area-inset-bottom, 0px) + 86px);   /* 12 px por encima de la navegación flotante */
 }
@@ -30127,12 +30126,8 @@ body.map-active {
   }
 }
 
-/* Origen de los paneles: bajo la barra y, si está visible, bajo «Volver a vista general» */
+/* Origen de los paneles: justo bajo la barra superior */
 body.map-active #map-view {
-  --map-panel-top: calc(var(--map-top) + var(--map-search-h) + var(--map-space) + var(--map-btn) + 8px);
-}
-
-body.map-active #map-view:not(:has(.reset-view-btn[style*="flex"])) {
   --map-panel-top: calc(var(--map-top) + var(--map-search-h) + 8px);
 }
 
@@ -30218,8 +30213,7 @@ body.map-active #map-view {
 
 /* Filtro y leyenda: cuadrados de 42 px */
 #map-view #btn-grade-filter,
-#map-view #btn-info-legend,
-#map-view .reset-view-btn {
+#map-view #btn-info-legend {
   position: relative !important;
   inset: auto;
   flex: none;
@@ -30243,34 +30237,20 @@ body.map-active #map-view {
 }
 
 #map-view #btn-grade-filter svg,
-#map-view #btn-info-legend svg,
-#map-view .reset-view-btn svg {
-  width: 18px;
-  height: 18px;
+#map-view #btn-info-legend svg {
+  width: 20px;
+  height: 20px;
   stroke: currentColor;
 }
 
-/* Zona táctil de 44 px sin cambiar el tamaño visual */
-#map-view #btn-grade-filter::before,
-#map-view #btn-info-legend::before,
-#map-view .reset-view-btn::before,
-#map-view .kx-ctrl-3d::before,
-#map-view .maplibregl-ctrl-group > button::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-}
-
 #map-view #btn-grade-filter:hover,
-#map-view #btn-info-legend:hover,
-#map-view .reset-view-btn:hover {
+#map-view #btn-info-legend:hover {
   background: #FFFFFF !important;
   transform: none !important;
 }
 
 #map-view #btn-grade-filter:active,
-#map-view #btn-info-legend:active,
-#map-view .reset-view-btn:active {
+#map-view #btn-info-legend:active {
   background: rgba(240, 239, 233, 0.96) !important;
   transform: scale(0.96) !important;
 }
@@ -30296,14 +30276,6 @@ body.map-active #map-view {
   margin-left: auto;
 }
 
-/* Volver a vista general: bajo la leyenda, en la misma columna */
-body.map-active #map-view .reset-view-btn {
-  position: absolute !important;
-  top: calc(var(--map-top) + var(--map-search-h) + var(--map-space)) !important;
-  right: var(--map-gap) !important;
-  z-index: 4;
-}
-
 /* Paneles anclados bajo la barra: altura acotada y scroll interno */
 body.map-active #map-view .grade-filter-panel,
 body.map-active #map-view .legend-panel {
@@ -30325,7 +30297,7 @@ body.map-active #map-view .grade-filter-panel {
 
 body.map-active #map-view:has(.maplibregl-compact-show) .grade-filter-panel,
 body.map-active #map-view:has(.maplibregl-compact-show) .legend-panel {
-  max-height: calc(100% - var(--map-panel-top) - var(--map-bottom) - 70px);
+  max-height: calc(100% - var(--map-panel-top) - var(--map-bottom) - 76px);   /* atribución desplegada (hasta 4 líneas) */
 }
 
 /* Leyenda: cabecera y pestañas fijas; solo se desplaza la lista */
@@ -30374,12 +30346,6 @@ body.map-active #map-view .legend-panel .lp-pane {
 #map-view .maplibregl-ctrl-bottom-left {
   left: var(--map-gap);
   bottom: var(--map-bottom);
-  transition: bottom 0.25s var(--kx-ease);
-}
-
-/* Mientras la atribución está desplegada ocupa el ancho: la escala sube por encima */
-#map-view:has(.maplibregl-compact-show) .maplibregl-ctrl-bottom-left {
-  bottom: calc(var(--map-bottom) + 40px);
 }
 
 #map-view .maplibregl-ctrl-bottom-right > .maplibregl-ctrl,
@@ -30396,12 +30362,15 @@ body.map-active #map-view .legend-panel .lp-pane {
   backdrop-filter: blur(16px) saturate(1.4);
   box-shadow: var(--map-shadow) !important;
   overflow: visible;
+  box-sizing: border-box;
+  width: var(--map-ctrl);
+  height: var(--map-ctrl);
 }
 
 #map-view .maplibregl-ctrl-group button {
   position: relative;
-  width: var(--map-ctrl) !important;
-  height: var(--map-ctrl) !important;
+  width: 100% !important;
+  height: 100% !important;
   min-height: 0;
   padding: 0;
   border: 0;
@@ -30427,8 +30396,8 @@ body.map-active #map-view .legend-panel .lp-pane {
 #map-view .maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
   background-image: none !important;
   background-color: var(--map-ink);
-  -webkit-mask: var(--map-icon) center / 20px 20px no-repeat;
-  mask: var(--map-icon) center / 20px 20px no-repeat;
+  -webkit-mask: var(--map-icon) center / 22px 22px no-repeat;
+  mask: var(--map-icon) center / 22px 22px no-repeat;
 }
 
 #map-view .maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
@@ -30490,7 +30459,9 @@ body.map-active #map-view .legend-panel .lp-pane {
   color: #FFFFFF;
 }
 
-/* Atribución compacta: una «i» discreta al pie de la pila */
+/* Atribución compacta: una «i» discreta al pie de la pila.
+   La «i» ocupa siempre todo el contenedor (sin franjas de otro tono) y la escala nunca se desplaza:
+   desplegada, la tira se acorta para no pasar sobre la escala y se parte en líneas */
 #map-view .maplibregl-ctrl-attrib {
   background: var(--map-glass) !important;
   -webkit-backdrop-filter: blur(12px);
@@ -30500,14 +30471,21 @@ body.map-active #map-view .legend-panel .lp-pane {
 }
 
 #map-view .maplibregl-ctrl-attrib.maplibregl-compact {
-  min-height: 24px;
-  border-radius: 12px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 14px;
   box-shadow: 0 1px 2px rgba(20, 28, 24, 0.12);
 }
 
+#map-view .maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) {
+  width: 28px;
+  height: 28px;
+}
+
 #map-view .maplibregl-ctrl-attrib.maplibregl-compact-show {
-  max-width: calc(100vw - 2 * var(--map-gap));
-  padding: 3px 28px 3px 10px;
+  box-sizing: border-box;
+  max-width: calc(100vw - 2 * var(--map-gap) - 158px);   /* 158 = escala (hasta 150) + hueco */
+  padding: 5px 32px 5px 12px;
 }
 
 #map-view .maplibregl-ctrl-attrib a {
@@ -30516,12 +30494,23 @@ body.map-active #map-view .legend-panel .lp-pane {
   text-underline-offset: 2px;
 }
 
-#map-view .maplibregl-ctrl-attrib-button {
-  opacity: 0.72;
+#map-view .maplibregl-ctrl-attrib-button,
+#map-view .maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  height: auto;
   min-height: 0;
   padding: 0;
   border: 0;
+  border-radius: 14px;
+  background-color: transparent !important;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 22px 22px;
   box-shadow: none;
+  opacity: 0.72;
   transform: none;
 }
 
@@ -30549,15 +30538,15 @@ body.map-active #map-view .legend-panel .lp-pane {
   box-shadow: var(--map-shadow);
 }
 
-/* Herramienta Spotter (solo admin/spotter): encabeza la pila de la derecha, separada del resto.
-   El fondo no lleva !important para que los colores de cada modo (en línea) sigan mandando */
-#map-view .kx-ctrl-edit {
+/* Edición (solo admin/spotter) y volver a centrar: mismo módulo que la ubicación (44 px, hueco de 6 px).
+   Encabezan la columna: edición arriba; centrar encima de la ubicación.
+   El fondo no lleva !important para que los colores de cada modo de edición (en línea) sigan mandando */
+#map-view .kx-ctrl-edit,
+#map-view .reset-view-btn {
   position: relative;
-  order: -1;
   width: var(--map-ctrl) !important;
   height: var(--map-ctrl) !important;
   min-height: 0 !important;
-  margin: 0 0 var(--map-space) !important;   /* doble separación: herramienta aparte de la navegación */
   padding: 0 !important;
   align-items: center;
   justify-content: center;
@@ -30576,9 +30565,22 @@ body.map-active #map-view .legend-panel .lp-pane {
   transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease) !important;
 }
 
-#map-view .kx-ctrl-edit svg {
-  width: 18px;
-  height: 18px;
+#map-view .kx-ctrl-edit {
+  order: -1;
+}
+
+/* La regla antigua de .reset-view-btn (posición absoluta, fondo blanco y márgenes del móvil) ya no aplica */
+#map-view .reset-view-btn {
+  inset: auto !important;
+  background: var(--map-solid) !important;
+  color: var(--map-ink) !important;
+}
+
+#map-view .kx-ctrl-edit svg,
+#map-view .reset-view-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
   stroke-width: 1.75;
 }
 
@@ -30586,25 +30588,17 @@ body.map-active #map-view .legend-panel .lp-pane {
   background: #FFFFFF;
 }
 
-#map-view .kx-ctrl-edit::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
+#map-view .reset-view-btn:hover {
+  background: #FFFFFF !important;
+}
+
+#map-view .reset-view-btn:active {
+  background: rgba(240, 239, 233, 0.96) !important;
 }
 
 #map-view .kx-ctrl-edit:focus-visible {
   outline: 2px solid var(--map-accent);
   outline-offset: 2px;
-}
-
-/* Mientras MapLibre crea la pila, el botón espera en la misma columna */
-#map-view #map > #btn-dev-editor {
-  position: absolute !important;
-  top: auto !important;
-  left: auto !important;
-  right: var(--map-gap) !important;
-  bottom: calc(var(--map-bottom) + 270px) !important;
-  z-index: 2;
 }
 
 /* Escritorio: el buscador no se estira de lado a lado */
