@@ -1606,6 +1606,12 @@ function initGlobalSearch() {
     else closeFeedSheet(sheet);
   });
 
+  // El buscador del mapa abre la misma búsqueda (escuelas y vías llevan de vuelta al mapa)
+  document.getElementById('map-search-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openSearchSheet();
+  });
+
   categories?.addEventListener('click', (e) => {
     const chip = e.target.closest('.kx-chip');
     if (chip && chip.dataset.type !== currentType) setCategory(chip.dataset.type);

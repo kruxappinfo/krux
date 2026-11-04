@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=120" />
+  <link rel="stylesheet" href="./app_2.css?v=122" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -95,12 +95,12 @@
 
   <script defer src="./maplibre-config.js?v=3"></script>
 
-  <script defer src="./maplibre-map.js?v=18"></script>
+  <script defer src="./maplibre-map.js?v=19"></script>
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=100"></script>
+  <script defer src="./app_3.js?v=101"></script>
   <script defer src="./activity-ui.js?v=6"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -202,6 +202,17 @@
       <!-- VISTA 2: MAPA -->
       <div id="map-view" class="view hidden">
         <div id="map"></div>
+        <!-- Barra superior flotante: buscador (abre la búsqueda global); el filtro y la leyenda los añade maplibre-map.js -->
+        <div class="map-topbar" id="map-topbar">
+          <button type="button" class="map-search" id="map-search-btn" aria-label="Buscar escuelas o vías">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <line x1="20" y1="20" x2="16.2" y2="16.2"></line>
+            </svg>
+            <span>Buscar escuelas o vías</span>
+          </button>
+        </div>
         <!-- Admin: floating toolbar for drag-to-edit geometry -->
         <div id="admin-edit-toolbar" class="hidden" style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(15,23,42,0.92);border-radius:12px;padding:10px 16px;display:flex;gap:10px;align-items:center;pointer-events:auto;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
           <span style="color:white;font-size:13px;font-weight:600;">✏️ Arrastra los marcadores</span>
