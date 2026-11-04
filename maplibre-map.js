@@ -527,6 +527,9 @@ function addMapControls() {
 }
 
 // Estado del modo 3D
+// El botón 3D está desactivado por decisión de producto: el código del modo 3D se conserva y
+// basta poner esta constante en true para recuperarlo (sin él no hay forma de entrar en 3D)
+const MAP_3D_BUTTON_ENABLED = false;
 let is3DMode = false;
 const MIN_ZOOM_FOR_3D = 14;
 const MAX_PITCH_3D = 80; // Inclinación máxima en modo 3D (85%)
@@ -655,6 +658,14 @@ function add3DToggleButton() {
   }
 
   const isNative = window.Capacitor !== undefined;
+
+  if (!MAP_3D_BUTTON_ENABLED) {
+    // Sin botón 3D, pero la carga automática de la escuela al acercarse se mantiene
+    mlMap.on('moveend', checkAndLoadSchoolOnZoom);
+    mlMap.on('zoomend', checkAndLoadSchoolOnZoom);
+    console.log('[3D] Botón 3D desactivado');
+    return;
+  }
 
   const btn = document.createElement('button');
   btn.id = 'btn-3d-toggle';
@@ -6889,8 +6900,14 @@ function setupResetViewButton() {
   btn.className = 'map-control-btn reset-view-btn';
   btn.title = 'Volver a vista general';
   btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Volver a vista general');
+  btn.classList.add('maplibregl-ctrl');   // la columna de controles de MapLibre solo deja pasar los toques a sus controles
 
-  container.appendChild(btn);
+  // Columna de controles de abajo a la derecha (encima de la ubicación); su aspecto, en app_2.css
+  const stack = mlMap.getContainer().querySelector('.maplibregl-ctrl-bottom-right');
+  if (stack) stack.insertBefore(btn, stack.firstChild);
+  else container.appendChild(btn);
 
   // Función para actualizar visibilidad según zoom
   const updateVisibility = () => {
