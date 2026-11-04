@@ -21233,7 +21233,7 @@ body.plan-editor-open { overflow: hidden; }
   --kx-shadow-card: 0 1px 2px rgba(32, 41, 35, 0.04), 0 10px 28px rgba(32, 41, 35, 0.06);
   --kx-shadow-pop: 0 14px 36px rgba(32, 41, 35, 0.2);
   --kx-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --kx-nav-h: 64px;
+  --kx-nav-h: 60px;
 }
 
 /* ---------- Navegador: selección y barras de la vista del feed ---------- */
@@ -22187,6 +22187,8 @@ body.plan-editor-open { overflow: hidden; }
 
 /* ====================================================================
    NAVEGACIÓN INFERIOR — cristal flotante (móvil y tablet)
+   Piedra clara translúcida; la sección activa se marca con una cápsula
+   verde tras el icono y la etiqueta en verde bosque.
    ==================================================================== */
 @media (max-width: 1024px) {
   .bottom-nav,
@@ -22198,23 +22200,23 @@ body.plan-editor-open { overflow: hidden; }
     max-width: 560px !important;
     min-height: var(--kx-nav-h) !important;
     margin: 0 auto !important;
-    padding: 6px !important;
-    border: 1px solid rgba(255, 255, 255, 0.7) !important;
-    border-radius: 28px !important;
-    background: rgba(247, 246, 240, 0.78) !important;
-    -webkit-backdrop-filter: blur(22px) saturate(1.5) !important;
-    backdrop-filter: blur(22px) saturate(1.5) !important;
-    box-shadow: 0 0 0 1px rgba(32, 41, 35, 0.06), 0 12px 32px rgba(32, 41, 35, 0.14) !important;
+    padding: 5px 4px !important;
+    border: 1px solid rgba(255, 255, 255, 0.66) !important;
+    border-radius: 24px !important;
+    background: rgba(250, 249, 245, 0.74) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(1.6) !important;
+    backdrop-filter: blur(24px) saturate(1.6) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 0 0 1px rgba(32, 41, 35, 0.05), 0 10px 30px rgba(20, 28, 24, 0.16) !important;
   }
 
   .bottom-nav .nav-item,
   body.map-active .bottom-nav .nav-item {
     flex: 1 !important;
     min-width: 0 !important;
-    min-height: 52px !important;
-    padding: 6px 4px !important;
-    gap: 3px !important;
-    border-radius: 20px !important;
+    min-height: 46px !important;
+    padding: 2px 2px !important;
+    gap: 2px !important;
+    border-radius: 17px !important;
     color: var(--kx-ink-3) !important;
     background: transparent !important;
   }
@@ -22222,33 +22224,52 @@ body.plan-editor-open { overflow: hidden; }
   .bottom-nav .nav-item span {
     font-size: 0.6875rem !important;
     font-weight: 500 !important;
+    line-height: 1.2;
     letter-spacing: 0.01em;
   }
 
+  /* El icono lleva su propia cápsula (transparente salvo en la sección activa) */
   .bottom-nav .nav-item svg {
-    width: 26px !important;
-    height: 26px !important;
+    box-sizing: content-box;
+    width: 20px !important;
+    height: 20px !important;
+    padding: 3px clamp(7px, 4.2vw - 2px, 16px);
+    border-radius: 999px;
     stroke: currentColor !important;
     stroke-width: 1.75px !important;
+    transition: background-color 0.25s var(--kx-ease), color 0.25s var(--kx-ease);
+  }
+
+  .bottom-nav .nav-item .nav-avatar-placeholder {
+    width: auto !important;
+    height: auto !important;
+    background: transparent;
+    overflow: visible;
   }
 
   .bottom-nav .nav-item:hover,
-  .bottom-nav .nav-item:active {
-    background: rgba(32, 41, 35, 0.05) !important;
+  .bottom-nav .nav-item:active,
+  body.map-active .bottom-nav .nav-item:hover {
+    background: transparent !important;
     color: var(--kx-ink) !important;
+  }
+
+  .bottom-nav .nav-item:active svg {
+    background: rgba(32, 41, 35, 0.06);
   }
 
   .bottom-nav .nav-item.active,
   body.map-active .bottom-nav .nav-item.active {
-    background: var(--kx-sage) !important;
+    background: transparent !important;
     color: var(--kx-forest) !important;
   }
 
   .bottom-nav .nav-item.active span {
-    font-weight: 600 !important;
+    font-weight: 700 !important;
   }
 
   .bottom-nav .nav-item.active svg {
+    background: var(--kx-sage);
     stroke: currentColor !important;
     stroke-width: 2px !important;
   }
@@ -30065,3 +30086,549 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 
 .ax-sheet-overlay .ax-hito-img { flex: none; width: 52px; height: 52px; object-fit: contain; object-position: center bottom; }
 .ax-sheet-overlay .ax-hito:not(.is-reached) .ax-hito-img { filter: grayscale(1); }
+
+/* ====================================================================
+   MAPA — FASE 1: mapa a sangre, controles flotantes y barra superior
+   La ortofoto manda; los controles son piezas pequeñas de piedra clara.
+   Cristal solo en el buscador y la navegación; los botones van casi opacos
+   para leerse igual sobre bosque, roca o campo.
+   Tamaños visuales: buscador 44, filtro/leyenda 42, controles laterales 40.
+   Las zonas táctiles se amplían con ::before hasta ~44 sin cambiar el aspecto.
+   ==================================================================== */
+body.map-active {
+  --map-glass: rgba(250, 249, 245, 0.8);
+  --map-solid: rgba(250, 249, 245, 0.94);
+  --map-edge: rgba(255, 255, 255, 0.72);
+  --map-line: rgba(32, 41, 35, 0.09);
+  --map-ink: var(--kx-granite);
+  --map-ink-2: #5A665F;
+  --map-accent: #5B6BE6;          /* azul-violeta: modos técnicos activos (3D, seguimiento) */
+  --map-press: rgba(32, 41, 35, 0.06);
+  --map-shadow: 0 1px 2px rgba(20, 28, 24, 0.10), 0 5px 16px rgba(20, 28, 24, 0.15);
+  --map-gap: 12px;                /* margen al borde de la pantalla */
+  --map-space: 6px;               /* separación entre controles */
+  --map-search-h: 44px;
+  --map-btn: 42px;
+  --map-ctrl: 40px;
+  --map-r: 13px;
+  --map-top: calc(env(safe-area-inset-top, 0px) + 12px);
+  --map-bottom: calc(env(safe-area-inset-bottom, 0px) + 82px);   /* por encima de la navegación flotante */
+}
+
+@media (min-width: 1025px) {
+  body.map-active {
+    --map-gap: 20px;
+    --map-top: 20px;
+    --map-bottom: 20px;
+  }
+}
+
+/* Origen de los paneles: bajo la barra y, si está visible, bajo «Volver a vista general» */
+body.map-active #map-view {
+  --map-panel-top: calc(var(--map-top) + var(--map-search-h) + var(--map-space) + var(--map-btn) + 8px);
+}
+
+body.map-active #map-view:not(:has(.reset-view-btn[style*="flex"])) {
+  --map-panel-top: calc(var(--map-top) + var(--map-search-h) + 8px);
+}
+
+/* --- Mapa de borde a borde: la navegación flota encima, sin reservar espacio --- */
+body.map-active .content,
+body.map-active #app,
+body.map-active #map-view {
+  padding-bottom: 0 !important;
+}
+
+body.map-active #map-view {
+  font-family: var(--kx-font);
+  overflow: hidden;
+}
+
+/* --- Barra superior: buscador, filtro y leyenda --- */
+#map-view .map-topbar {
+  position: absolute;
+  z-index: 5;
+  top: var(--map-top);
+  left: var(--map-gap);
+  right: var(--map-gap);
+  display: flex;
+  align-items: center;
+  gap: var(--map-space);
+  pointer-events: none;
+}
+
+#map-view .map-topbar > * {
+  pointer-events: auto;
+}
+
+#map-view .map-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--map-search-h);
+  min-height: 0;
+  margin: 0;
+  padding: 0 14px 0 13px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--map-edge);
+  border-radius: 15px;
+  background: var(--map-glass);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow: var(--map-shadow);
+  color: var(--map-ink-2);
+  font: 500 0.9rem/1 var(--kx-font);
+  letter-spacing: 0;
+  text-align: left;
+  cursor: pointer;
+  transform: none;
+  will-change: auto;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.2s var(--kx-ease);
+}
+
+#map-view .map-search svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--map-ink);
+}
+
+#map-view .map-search span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#map-view .map-search:hover {
+  transform: none;
+  box-shadow: var(--map-shadow);
+  background: var(--map-solid);
+}
+
+#map-view .map-search:active {
+  background: rgba(240, 239, 233, 0.94);
+}
+
+/* Filtro y leyenda: cuadrados de 42 px */
+#map-view #btn-grade-filter,
+#map-view #btn-info-legend,
+#map-view .reset-view-btn {
+  position: relative !important;
+  inset: auto;
+  flex: none;
+  width: var(--map-btn) !important;
+  height: var(--map-btn) !important;
+  min-height: 0 !important;
+  margin: 0;
+  padding: 0 !important;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--map-edge) !important;
+  border-radius: 14px !important;
+  background: var(--map-solid) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--map-shadow) !important;
+  color: var(--map-ink) !important;
+  transform: none !important;
+  will-change: auto !important;
+  transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease) !important;
+}
+
+#map-view #btn-grade-filter svg,
+#map-view #btn-info-legend svg,
+#map-view .reset-view-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
+/* Zona táctil de 44 px sin cambiar el tamaño visual */
+#map-view #btn-grade-filter::before,
+#map-view #btn-info-legend::before,
+#map-view .reset-view-btn::before,
+#map-view .kx-ctrl-3d::before,
+#map-view .maplibregl-ctrl-group > button:only-child::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+}
+
+#map-view #btn-grade-filter:hover,
+#map-view #btn-info-legend:hover,
+#map-view .reset-view-btn:hover {
+  background: #FFFFFF !important;
+  transform: none !important;
+}
+
+#map-view #btn-grade-filter:active,
+#map-view #btn-info-legend:active,
+#map-view .reset-view-btn:active {
+  background: rgba(240, 239, 233, 0.96) !important;
+  transform: scale(0.96) !important;
+}
+
+/* Panel abierto: piedra salvia; filtro aplicado: verde de selección */
+#map-view #btn-grade-filter.active,
+#map-view:has(#legend-panel.open) #btn-info-legend {
+  background: var(--kx-sage) !important;
+  color: var(--kx-forest) !important;
+}
+
+#map-view #btn-grade-filter.has-filter {
+  background: var(--kx-forest) !important;
+  border-color: var(--kx-forest) !important;
+  color: #FFFFFF !important;
+}
+
+#map-view #btn-grade-filter.has-filter svg {
+  stroke: currentColor;
+}
+
+#map-view #btn-info-legend {
+  margin-left: auto;
+}
+
+/* Volver a vista general: bajo la leyenda, en la misma columna */
+body.map-active #map-view .reset-view-btn {
+  position: absolute !important;
+  top: calc(var(--map-top) + var(--map-search-h) + var(--map-space)) !important;
+  right: var(--map-gap) !important;
+  z-index: 4;
+}
+
+/* Paneles anclados bajo la barra: altura acotada y scroll interno */
+body.map-active #map-view .grade-filter-panel,
+body.map-active #map-view .legend-panel {
+  top: var(--map-panel-top) !important;
+  right: calc(var(--map-gap) + var(--map-ctrl) + 8px) !important;   /* deja libre la columna de controles */
+  width: min(300px, calc(100vw - 2 * var(--map-gap) - var(--map-ctrl) - 8px));
+  max-height: calc(100% - var(--map-panel-top) - var(--map-bottom) - 30px);   /* hasta la escala, sin pisar la navegación */
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(20, 28, 24, 0.08), 0 16px 40px rgba(20, 28, 24, 0.22);
+  transform-origin: top right;
+}
+
+body.map-active #map-view .grade-filter-panel {
+  width: min(270px, calc(100vw - 2 * var(--map-gap) - var(--map-ctrl) - 8px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.map-active #map-view:has(.maplibregl-compact-show) .grade-filter-panel,
+body.map-active #map-view:has(.maplibregl-compact-show) .legend-panel {
+  max-height: calc(100% - var(--map-panel-top) - var(--map-bottom) - 70px);
+}
+
+/* Leyenda: cabecera y pestañas fijas; solo se desplaza la lista */
+body.map-active #map-view .legend-panel {
+  display: flex;
+  flex-direction: column;
+  transform: translateY(-6px) scale(0.97);
+}
+
+body.map-active #map-view .legend-panel.open {
+  transform: none;
+}
+
+body.map-active #map-view .legend-panel .lp-header,
+body.map-active #map-view .legend-panel .lp-tabs {
+  flex: none;
+}
+
+body.map-active #map-view .legend-panel .lp-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overscroll-behavior: contain;
+}
+
+/* Escritorio: mismo criterio (junto a la columna de controles); la atribución es una tira de ~28 px abajo a la derecha */
+@media (min-width: 1025px) {
+  body.map-active #map-view .grade-filter-panel,
+  body.map-active #map-view .legend-panel,
+  body.map-active #map-view:has(.maplibregl-compact-show) .grade-filter-panel,
+  body.map-active #map-view:has(.maplibregl-compact-show) .legend-panel {
+    max-height: calc(100% - var(--map-panel-top) - var(--map-bottom) - 40px);
+  }
+}
+
+/* --- Pila inferior derecha: 3D, brújula, zoom, ubicación y atribución --- */
+#map-view .maplibregl-ctrl-bottom-right {
+  right: var(--map-gap);
+  bottom: var(--map-bottom);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--map-space);
+}
+
+#map-view .maplibregl-ctrl-bottom-left {
+  left: var(--map-gap);
+  bottom: var(--map-bottom);
+  transition: bottom 0.25s var(--kx-ease);
+}
+
+/* Mientras la atribución está desplegada ocupa el ancho: la escala sube por encima */
+#map-view:has(.maplibregl-compact-show) .maplibregl-ctrl-bottom-left {
+  bottom: calc(var(--map-bottom) + 40px);
+}
+
+#map-view .maplibregl-ctrl-bottom-right > .maplibregl-ctrl,
+#map-view .maplibregl-ctrl-bottom-left > .maplibregl-ctrl {
+  float: none;
+  margin: 0 !important;
+}
+
+#map-view .maplibregl-ctrl-group {
+  border: 1px solid var(--map-edge);
+  border-radius: var(--map-r) !important;
+  background: var(--map-solid) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--map-shadow) !important;
+  overflow: visible;
+}
+
+#map-view .maplibregl-ctrl-group button {
+  position: relative;
+  width: var(--map-ctrl) !important;
+  height: var(--map-ctrl) !important;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  will-change: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#map-view .maplibregl-ctrl-group button:first-child {
+  border-radius: calc(var(--map-r) - 1px) calc(var(--map-r) - 1px) 0 0;
+}
+
+#map-view .maplibregl-ctrl-group button:last-child {
+  border-radius: 0 0 calc(var(--map-r) - 1px) calc(var(--map-r) - 1px);
+}
+
+#map-view .maplibregl-ctrl-group button:only-child {
+  border-radius: calc(var(--map-r) - 1px);
+}
+
+/* Zoom + y −: dos botones juntos; se ensancha la zona táctil a los lados */
+#map-view .maplibregl-ctrl-group > button:not(:only-child)::before {
+  content: '';
+  position: absolute;
+  inset: 0 -3px;
+}
+
+#map-view .maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--map-line);
+}
+
+#map-view .maplibregl-ctrl-group button:not(:disabled):hover {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+  transform: none;
+  box-shadow: none;
+}
+
+#map-view .maplibregl-ctrl-group button:not(:disabled):active {
+  background-color: var(--map-press) !important;
+}
+
+/* Iconos propios de trazo 1.75 (máscara: el color sigue al estado) */
+#map-view .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+#map-view .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon,
+#map-view .maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
+  background-image: none !important;
+  background-color: var(--map-ink);
+  -webkit-mask: var(--map-icon) center / 20px 20px no-repeat;
+  mask: var(--map-icon) center / 20px 20px no-repeat;
+}
+
+#map-view .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon {
+  --map-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round'%3E%3Cpath d='M12 5.5v13M5.5 12h13'/%3E%3C/svg%3E");
+}
+
+#map-view .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+  --map-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round'%3E%3Cpath d='M5.5 12h13'/%3E%3C/svg%3E");
+}
+
+#map-view .maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
+  --map-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='6.5'/%3E%3Ccircle cx='12' cy='12' r='2.25' fill='%23000' stroke='none'/%3E%3Cpath d='M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3'/%3E%3C/svg%3E");
+}
+
+#map-view .maplibregl-ctrl-group button:disabled .maplibregl-ctrl-icon {
+  opacity: 0.3;
+}
+
+/* Ubicación: siguiendo = acento; en segundo plano = acento suave; error = peligro */
+#map-view .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active .maplibregl-ctrl-icon {
+  background-color: var(--map-accent);
+}
+
+#map-view .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-background .maplibregl-ctrl-icon {
+  background-color: rgba(91, 107, 230, 0.6);
+}
+
+#map-view .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active-error .maplibregl-ctrl-icon,
+#map-view .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-background-error .maplibregl-ctrl-icon {
+  background-color: var(--kx-danger);
+}
+
+/* Brújula: aguja con el norte en carbón (MapLibre la gira con transform) */
+#map-view .maplibregl-ctrl-compass .maplibregl-ctrl-icon {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3.5 15.25 12h-6.5z' fill='%23202923'/%3E%3Cpath d='M12 20.5 8.75 12h6.5z' fill='none' stroke='%238A938E' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-size: 20px 20px;
+}
+
+/* Vista 3D: mismo módulo que la pila; activo en azul-violeta */
+#map-view .kx-ctrl-3d {
+  position: relative;
+  width: var(--map-ctrl) !important;
+  height: var(--map-ctrl) !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--map-edge) !important;
+  border-radius: var(--map-r) !important;
+  background: var(--map-solid) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--map-shadow) !important;
+  color: var(--map-ink);
+  font: 700 0.75rem/1 var(--kx-font);
+  letter-spacing: 0.02em;
+  font-variant-numeric: lining-nums;
+  cursor: pointer;
+  transform: none !important;
+  will-change: auto !important;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease) !important;
+}
+
+#map-view .kx-ctrl-3d:hover {
+  background: #FFFFFF !important;
+}
+
+#map-view .kx-ctrl-3d.is-active {
+  background: var(--map-accent) !important;
+  border-color: var(--map-accent) !important;
+  color: #FFFFFF;
+}
+
+/* Atribución compacta: una «i» discreta al pie de la pila */
+#map-view .maplibregl-ctrl-attrib {
+  background: var(--map-glass) !important;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: var(--map-ink-2);
+  font: 500 0.625rem/1.5 var(--kx-font) !important;
+}
+
+#map-view .maplibregl-ctrl-attrib.maplibregl-compact {
+  min-height: 24px;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(20, 28, 24, 0.12);
+}
+
+#map-view .maplibregl-ctrl-attrib.maplibregl-compact-show {
+  max-width: calc(100vw - 2 * var(--map-gap));
+  padding: 3px 28px 3px 10px;
+}
+
+#map-view .maplibregl-ctrl-attrib a {
+  color: var(--map-ink-2) !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+#map-view .maplibregl-ctrl-attrib-button {
+  opacity: 0.72;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+/* Escala: regla fina en carbón sobre piedra translúcida */
+#map-view .maplibregl-ctrl-scale {
+  padding: 1px 6px !important;
+  border: 1.5px solid var(--map-ink) !important;
+  border-top: 0 !important;
+  border-radius: 0 0 4px 4px !important;
+  background: var(--map-glass) !important;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--map-ink);
+  font: 600 0.6875rem/1.4 var(--kx-font) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Foco de teclado visible en todos los controles del mapa */
+#map-view .map-topbar button:focus-visible,
+#map-view .reset-view-btn:focus-visible,
+#map-view .kx-ctrl-3d:focus-visible,
+#map-view .maplibregl-ctrl button:focus-visible {
+  outline: 2px solid var(--map-accent);
+  outline-offset: 2px;
+  box-shadow: var(--map-shadow);
+}
+
+/* Herramienta Spotter: abajo a la izquierda, sobre la escala, sin tapar la pila derecha */
+body.map-active #btn-dev-editor {
+  top: auto !important;
+  right: auto !important;
+  left: var(--map-gap) !important;
+  bottom: calc(var(--map-bottom) + 34px) !important;
+}
+
+body.map-active:has(.maplibregl-compact-show) #btn-dev-editor {
+  bottom: calc(var(--map-bottom) + 74px) !important;
+}
+
+/* Escritorio: el buscador no se estira de lado a lado */
+@media (min-width: 1025px) {
+  #map-view .map-search {
+    flex: 0 1 420px;
+  }
+}
+
+/* Escritorio: la navegación lateral sobre el mapa también es de piedra translúcida */
+@media (min-width: 1025px) {
+  body.map-active .bottom-nav {
+    border: 1px solid rgba(255, 255, 255, 0.66);
+    border-radius: 22px;
+    background: rgba(250, 249, 245, 0.8);
+    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    backdrop-filter: blur(24px) saturate(1.6);
+    box-shadow: 0 0 0 1px rgba(32, 41, 35, 0.05), 0 10px 30px rgba(20, 28, 24, 0.16);
+  }
+
+  body.map-active .bottom-nav .nav-item {
+    color: var(--kx-ink-3);
+  }
+
+  body.map-active .bottom-nav .nav-item:hover {
+    color: var(--kx-ink);
+  }
+
+  body.map-active .bottom-nav .nav-item.active {
+    background: var(--kx-sage);
+    color: var(--kx-forest);
+    border-radius: 14px;
+  }
+
+  body.map-active .bottom-nav .nav-item.active svg {
+    stroke: currentColor;
+  }
+}

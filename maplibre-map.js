@@ -494,16 +494,8 @@ function addMapTilerLabels(style) {
  * Añade controles al mapa
  */
 function addMapControls() {
-  // Control de navegación (zoom + rotación)
-  mlMap.addControl(new maplibregl.NavigationControl({
-    visualizePitch: true
-  }), 'bottom-right');
-
-  // Control de escala
-  mlMap.addControl(new maplibregl.ScaleControl({
-    maxWidth: 150,
-    unit: 'metric'
-  }), 'bottom-left');
+  // Las esquinas inferiores apilan cada control nuevo encima del anterior.
+  // Orden final (de arriba abajo): 3D, brújula, zoom, geolocalización y atribución.
 
   // Control de geolocalización
   const geolocateControl = new maplibregl.GeolocateControl({
@@ -514,6 +506,23 @@ function addMapControls() {
     showUserHeading: true
   });
   mlMap.addControl(geolocateControl, 'bottom-right');
+
+  // Zoom + y − (sin brújula: va en su propio botón)
+  mlMap.addControl(new maplibregl.NavigationControl({
+    showCompass: false
+  }), 'bottom-right');
+
+  // Brújula (rotación e inclinación)
+  mlMap.addControl(new maplibregl.NavigationControl({
+    showZoom: false,
+    visualizePitch: true
+  }), 'bottom-right');
+
+  // Control de escala
+  mlMap.addControl(new maplibregl.ScaleControl({
+    maxWidth: 150,
+    unit: 'metric'
+  }), 'bottom-left');
 
   // Botón de filtro por grado (esquina superior derecha)
   addGradeFilterButton();
@@ -654,37 +663,21 @@ function add3DToggleButton() {
 
   const btn = document.createElement('button');
   btn.id = 'btn-3d-toggle';
-  btn.className = 'map-control-btn';
+  btn.type = 'button';
+  btn.className = 'map-control-btn maplibregl-ctrl kx-ctrl-3d';
   btn.innerHTML = '3D';
   btn.title = 'Activar vista 3D';
-
-  // Estilo que coincide con los controles nativos de MapLibre
-  // Posición: encima del botón de ubicación (bottom-right)
-  btn.style.cssText = `
-    position: absolute;
-    bottom: ${isNative ? '250px' : '250px'};
-    right: 10px;
-    width: 36px;
-    height: 36px;
-    background: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #333;
-    cursor: pointer;
-    z-index: 1000;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  `;
+  btn.setAttribute('aria-label', 'Activar vista 3D');
+  btn.setAttribute('aria-pressed', 'false');
+  // Aspecto en app_2.css (MAPA — CONTROLES); la visibilidad la decide update3DButtonVisibility
+  btn.style.display = 'none';
 
   btn.addEventListener('click', toggle3DMode);
 
-  document.getElementById('map').appendChild(btn);
+  // Encabeza la pila de controles de la esquina inferior derecha
+  const stack = mlMap.getContainer().querySelector('.maplibregl-ctrl-bottom-right');
+  if (stack) stack.insertBefore(btn, stack.firstChild);
+  else document.getElementById('map').appendChild(btn);
 
   // Mostrar/ocultar según proximidad a escuela
   mlMap.on('zoom', update3DButtonVisibility);
@@ -1015,8 +1008,8 @@ function enable3DMode() {
 
   const btn = document.getElementById('btn-3d-toggle');
   if (btn) {
-    btn.style.background = '#4A90D9';
-    btn.style.color = 'white';
+    btn.classList.add('is-active');
+    btn.setAttribute('aria-pressed', 'true');
     btn.title = 'Desactivar vista 3D';
   }
 
@@ -1059,8 +1052,8 @@ function disable3DMode() {
 
   const btn = document.getElementById('btn-3d-toggle');
   if (btn) {
-    btn.style.background = 'white';
-    btn.style.color = '#333';
+    btn.classList.remove('is-active');
+    btn.setAttribute('aria-pressed', 'false');
     btn.title = 'Activar vista 3D';
   }
 
@@ -10521,34 +10514,19 @@ function addGradeFilterButton() {
   btn.id = 'btn-grade-filter';
   btn.className = 'map-control-btn';
   btn.title = 'Filtrar por grado';
-  btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>`;
-  btn.style.cssText = `
-    position: absolute;
-    top: 58px;
-    right: 10px;
-    width: 40px;
-    height: 40px;
-    background: white;
-    border: none;
-    border-radius: 10px;
-    color: #333;
-    cursor: pointer;
-    z-index: 1000;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-    transition: background 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  `;
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Filtrar por grado');
+  btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"></line><line x1="7" y1="12" x2="17" y2="12"></line><line x1="10" y1="17" x2="14" y2="17"></line></svg>`;
+  // Aspecto en app_2.css (MAPA — CONTROLES); la visibilidad la decide updateFilterVisibility
+  btn.style.display = 'none';
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleGradeFilterPanel();
   });
 
-  container.appendChild(btn);
+  // Junto al buscador, en la barra superior del mapa
+  (document.getElementById('map-topbar') || container).appendChild(btn);
 
   // Panel desplegable
   const panel = document.createElement('div');
@@ -11100,34 +11078,18 @@ function addInfoLegendButton() {
   btn.id = 'btn-info-legend';
   btn.className = 'map-control-btn info-legend-btn';
   btn.title = 'Leyenda del mapa';
-  btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8.5" r="0.5" fill="currentColor" stroke="none"/></svg>`;
-  btn.style.cssText = `
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 40px;
-    height: 40px;
-    background: white;
-    border: none;
-    border-radius: 10px;
-    color: #333;
-    cursor: pointer;
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-    transition: background 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  `;
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Leyenda del mapa');
+  btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="16" x2="12" y2="11.5"/><circle cx="12" cy="8.25" r="0.6" fill="currentColor" stroke="none"/></svg>`;
+  // Aspecto en app_2.css (MAPA — CONTROLES)
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleLegendPanel();
   });
 
-  container.appendChild(btn);
+  // Esquina superior derecha de la barra del mapa
+  (document.getElementById('map-topbar') || container).appendChild(btn);
 
   // Panel de leyenda anclado al botón "i"
   const panel = document.createElement('div');
@@ -11144,10 +11106,6 @@ function addInfoLegendButton() {
       closeLegendPanel();
     }
   });
-
-  // El botón "i" siempre en top: 10px — no se mueve
-  btn.style.top = '10px';
-  panel.style.top = '10px';
 }
 
 function buildLegendPanelHTML() {
