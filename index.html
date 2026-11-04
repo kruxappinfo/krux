@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=110" />
+  <link rel="stylesheet" href="./app_2.css?v=111" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -100,7 +100,7 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=96"></script>
+  <script defer src="./app_3.js?v=97"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
   <script defer src="./train-profile.js?v=3"></script>
@@ -3938,6 +3938,10 @@
           <div class="session-timer-top">
             <span class="session-set-chip" id="session-set-chip"></span>
             <span class="session-timer-label" id="session-timer-label"></span>
+            <button type="button" class="session-auto-btn" id="session-auto-btn" aria-pressed="true" aria-label="Modo manos libres: el entrenamiento avanza solo y te habla">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>
+              <span>Manos libres</span>
+            </button>
           </div>
           <div class="session-ring-wrap">
             <svg viewBox="0 0 120 120" aria-hidden="true">
