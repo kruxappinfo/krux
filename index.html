@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=111" />
+  <link rel="stylesheet" href="./app_2.css?v=113" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -100,7 +100,8 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=98"></script>
+  <script defer src="./app_3.js?v=99"></script>
+  <script defer src="./activity-ui.js?v=2"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
   <script defer src="./train-profile.js?v=3"></script>
@@ -454,309 +455,79 @@
       <div id="activity-view" class="view hidden">
         <div class="activity-scroll-container">
 
-          <!-- Header con toggle -->
-          <header class="activity-header">
-            <h1 class="activity-title">Actividad</h1>
-            <div class="act-mode-toggle" id="activity-mode-toggle">
-              <button class="act-mode-btn active" id="btn-roca" data-mode="roca">Roca</button>
-              <button class="act-mode-btn" id="btn-rocodromo" data-mode="rocodromo">Rocódromo</button>
+          <!-- Cabecera: título, nueva ascensión y selector Roca / Rocódromo -->
+          <header class="activity-header ax-header">
+            <div class="ax-header-row">
+              <h1 class="activity-title ax-title">Actividad</h1>
+              <button class="ax-add" id="new-ascent-btn" type="button" aria-label="Nueva ascensión">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </div>
+            <div class="act-mode-toggle ax-mode" id="activity-mode-toggle" role="group" aria-label="Tipo de escalada">
+              <button class="act-mode-btn active" id="btn-roca" data-mode="roca" type="button" aria-pressed="true">Roca</button>
+              <button class="act-mode-btn" id="btn-rocodromo" data-mode="rocodromo" type="button" aria-pressed="false">Rocódromo</button>
             </div>
           </header>
 
           <!-- MODO ROCA -->
           <div id="content-roca">
+            <section class="ax-sec" id="ax-project" aria-label="Proyecto activo"></section>
+            <section class="ax-sec" id="ax-perf" aria-label="Tu rendimiento"></section>
+            <section class="ax-sec" id="ax-meters" aria-label="Metros escalados"></section>
+            <section class="ax-sec" id="ax-evolution" aria-label="Evolución"></section>
+            <section class="ax-sec" id="ax-pyramid" aria-label="Pirámide de grados"></section>
+            <section class="ax-sec" id="ax-consistency" aria-label="Consistencia anual"></section>
+            <section class="ax-sec" id="ax-records" aria-label="Tus mejores marcas"></section>
+            <section class="ax-sec" id="ax-places" aria-label="Tus lugares favoritos"></section>
 
-            <!-- Hero Card -->
-            <div class="act-hero">
-              <div class="act-hero-left">
-                <div class="act-hero-label">Proyecto activo</div>
-                <div class="act-hero-grade" id="hero-project-grade">-</div>
-                <div class="act-hero-sub" id="hero-project-name">Sin proyecto activo</div>
-                <div class="act-hero-badges" id="hero-badges-roca"></div>
+            <section class="ax-sec" aria-label="Últimas sesiones">
+              <div class="ax-bare-head"><h2 class="ax-h2 ax-h2--lg">Últimas sesiones</h2></div>
+              <div class="ax-seg ax-seg--chips act-timeline-filters" id="act-timeline-filters" role="group" aria-label="Filtrar sesiones">
+                <button class="ax-seg-btn act-tf is-active active" data-filter="all" type="button" aria-pressed="true">Todo</button>
+                <button class="ax-seg-btn act-tf" data-filter="flash" type="button" aria-pressed="false">Flash</button>
+                <button class="ax-seg-btn act-tf" data-filter="redpoint" type="button" aria-pressed="false">Encadenadas</button>
+                <button class="ax-seg-btn act-tf" data-filter="project" type="button" aria-pressed="false">Proyectos</button>
               </div>
-              <div class="act-hero-right">
-                <div class="act-hero-compare" id="hero-compare-roca">Cargando datos...</div>
-                <svg class="act-sparkline" id="hero-sparkline-roca" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>
-              </div>
-              <div class="act-hero-milestone" id="hero-milestone">
-                <div class="act-hero-milestone-row">
-                  <span class="act-hero-milestone-current">
-                    <strong id="hero-meters">0 m</strong>
-                    <span id="hero-milestone-name"></span>
-                  </span>
-                  <span class="act-hero-milestone-next" id="hero-milestone-next"></span>
-                </div>
-                <div class="act-hero-progress-track">
-                  <div class="act-hero-progress-fill" id="hero-progress-fill"></div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Progress Cards -->
-            <div class="pc-wrap">
-              <div class="pc-header">
-                <div class="act-histogram-tabs" id="pc-tabs">
-                  <button class="act-htab" data-pc="week">Semana</button>
-                  <button class="act-htab active" data-pc="month">Mes</button>
-                  <button class="act-htab" data-pc="year">Año</button>
-                  <button class="act-htab" data-pc="custom">Personalizado</button>
-                </div>
-                <select id="pc-time-nav" class="pc-time-nav"></select>
-              </div>
-              <div class="pc-custom-banner hidden" id="pc-custom-banner">
-                <span id="pc-banner-text"></span>
-                <span class="pc-banner-clear" id="pc-banner-clear">Limpiar</span>
-              </div>
-              <div class="pc-nav" id="pc-nav">
-                <button class="pc-nav-arrow pc-nav-arrow-prev" id="pc-arrow-prev" aria-label="Anterior">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-                <div class="pc-carousel-outer" id="pc-carousel-outer">
-                  <div class="pc-carousel" id="pc-carousel"></div>
-                </div>
-                <button class="pc-nav-arrow pc-nav-arrow-next" id="pc-arrow-next" aria-label="Siguiente">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-              </div>
-              <div class="pc-carousel-dots" id="pc-carousel-dots"></div>
-            </div>
-
-            <!-- Custom date popup -->
-            <div class="pc-overlay hidden" id="pc-overlay">
-              <div class="pc-popup">
-                <div class="pc-popup-title">Rango personalizado</div>
-                <div class="pc-popup-sub">Selecciona el periodo a analizar</div>
-                <div class="pc-preset-row">
-                  <button class="pc-preset" data-days="7">Últimos 7 días</button>
-                  <button class="pc-preset" data-days="30">Últimos 30 días</button>
-                  <button class="pc-preset" data-days="90">Últimos 3 meses</button>
-                </div>
-                <div class="pc-date-row">
-                  <div class="pc-date-field">
-                    <label>Desde</label>
-                    <input type="date" id="pc-date-from" />
-                  </div>
-                  <div class="pc-date-field">
-                    <label>Hasta</label>
-                    <input type="date" id="pc-date-to" />
-                  </div>
-                </div>
-                <div class="pc-popup-actions">
-                  <button class="pc-btn-cancel" id="pc-btn-cancel">Cancelar</button>
-                  <button class="pc-btn-apply" id="pc-btn-apply">Aplicar</button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Pirámide de grados -->
-            <div class="act-section-title">Pirámide de grados</div>
-            <div class="act-pyramid-wrap">
-              <div class="act-pyramid-subtitle">Grado encadenado (nº vías)</div>
-              <div id="act-pyramid-roca"></div>
-              <div class="act-pyramid-footer">Grado consolidado: <span id="act-consolidated-grade">-</span> · ≥5 vías encadenadas</div>
-            </div>
-
-            <!-- Heatmap -->
-            <div class="act-section-title">Consistencia anual</div>
-            <div class="act-heatmap-wrap">
-              <div class="act-heatmap-months" id="act-heatmap-months-roca"></div>
-              <div class="act-heatmap-grid">
-                <div class="act-heatmap-days">
-                  <div class="act-heatmap-day-label">L</div>
-                  <div class="act-heatmap-day-label">M</div>
-                  <div class="act-heatmap-day-label">X</div>
-                  <div class="act-heatmap-day-label">J</div>
-                  <div class="act-heatmap-day-label">V</div>
-                  <div class="act-heatmap-day-label">S</div>
-                  <div class="act-heatmap-day-label">D</div>
-                </div>
-                <div class="act-heatmap-weeks" id="act-heatmap-weeks-roca"></div>
-              </div>
-              <div class="act-heatmap-legend">
-                <span>Menos</span>
-                <div class="act-hl-cell hm-0"></div>
-                <div class="act-hl-cell hm-r1"></div>
-                <div class="act-hl-cell hm-r2"></div>
-                <div class="act-hl-cell hm-r3"></div>
-                <div class="act-hl-cell hm-r4"></div>
-                <span>Más</span>
-              </div>
-            </div>
-
-            <!-- Récords -->
-            <div class="act-section-title">Récords personales</div>
-            <div class="act-records-grid">
-              <div class="act-rec-card">
-                <div class="act-rec-label">Grado máximo</div>
-                <div class="act-rec-value" id="record-highest-grade">-</div>
-                <div class="act-rec-sub" id="record-highest-route">-</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Flash más alto</div>
-                <div class="act-rec-value" id="record-highest-flash">-</div>
-                <div class="act-rec-sub" id="record-flash-route">-</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Mejor racha</div>
-                <div class="act-rec-value" id="record-streak">-</div>
-                <div class="act-rec-sub">Días escalando</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Más vías en un día</div>
-                <div class="act-rec-value" id="record-most-day">-</div>
-                <div class="act-rec-sub" id="record-most-date">-</div>
-              </div>
-            </div>
-
-            <!-- Histograma de progreso (oculto - mantener para futura reactivación) -->
-            <!--
-            <div class="act-histogram-header">
-              <div class="act-section-title" id="histogram-title">Progreso mensual</div>
-              <div class="act-histogram-tabs">
-                <button class="act-htab" data-histogram="week">Semana</button>
-                <button class="act-htab active" data-histogram="month">Mes</button>
-                <button class="act-htab" data-histogram="year">Año</button>
-              </div>
-            </div>
-            <div class="act-histogram-card">
-              <div class="histogram-legend">
-                <div class="legend-item"><span class="legend-bar"></span><span class="legend-text">Nº ascensiones</span></div>
-                <div class="legend-item"><span class="legend-line legend-line-avg"></span><span class="legend-text">Grado medio</span></div>
-                <div class="legend-item"><span class="legend-line legend-line-max"></span><span class="legend-text">Grado máximo</span></div>
-                <div class="legend-item"><span class="legend-line legend-line-min"></span><span class="legend-text">Grado mínimo</span></div>
-              </div>
-              <div class="combined-histogram-container" id="combined-histogram-container">
-                <div class="histogram-bar-labels-row">
-                  <div class="histogram-x-axis-spacer"></div>
-                  <div class="histogram-bar-labels" id="histogram-bar-labels"></div>
-                  <div class="histogram-x-axis-spacer"></div>
-                </div>
-                <div class="histogram-wrapper">
-                  <div class="histogram-y-axis histogram-y-axis-left" id="histogram-grade-axis"></div>
-                  <div class="histogram-chart-area" id="histogram-chart-area">
-                    <svg class="histogram-grid" id="histogram-grid" preserveAspectRatio="none"></svg>
-                    <div class="histogram-bars" id="histogram-bars"></div>
-                    <svg class="histogram-lines" id="histogram-lines" preserveAspectRatio="none"></svg>
-                  </div>
-                  <div class="histogram-y-axis histogram-y-axis-right" id="histogram-ascent-axis"></div>
-                </div>
-                <div class="histogram-x-axis-row">
-                  <div class="histogram-x-axis-spacer"></div>
-                  <div class="histogram-x-axis" id="histogram-x-axis"></div>
-                  <div class="histogram-x-axis-spacer"></div>
-                </div>
-                <div id="histogram-tooltip" class="histogram-tooltip hidden"></div>
-              </div>
-            </div>
-            -->
-
-
-
-            <!-- Timeline de ascensiones -->
-            <div class="act-section-title">Últimas sesiones</div>
-            <div class="act-timeline-filters" id="act-timeline-filters">
-              <button class="act-tf active" data-filter="all">Todo</button>
-              <button class="act-tf" data-filter="flash">Flash ⚡</button>
-              <button class="act-tf" data-filter="redpoint">Encadenadas 🔴</button>
-              <button class="act-tf" data-filter="project">Proyectos 🎯</button>
-            </div>
-            <div class="activity-list" id="activity-list">
-              <div class="activity-empty-state" id="activity-empty">
-                <div class="empty-icon">
-                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <circle cx="12" cy="8" r="4"></circle>
-                    <path d="M12 14l-4 8h8l-4-8z"></path>
-                    <path d="M8 22l2-4"></path>
-                    <path d="M16 22l-2-4"></path>
-                  </svg>
-                </div>
-                <h3>Sin ascensiones registradas</h3>
-                <p>¡Comienza a registrar tus ascensiones!</p>
-              </div>
-            </div>
-
+              <div class="activity-list ax-sess-list" id="activity-list"></div>
+            </section>
           </div><!-- /content-roca -->
 
           <!-- MODO ROCÓDROMO -->
           <div id="content-rocodromo" style="display:none;">
 
-            <!-- Mis rocódromos -->
-            <div id="gym-mis-rocodromos"></div>
-
-            <!-- Test Header Rocódromo -->
-            <div id="test-header-root"></div>
-
-            <!-- Hero Card Rocódromo -->
-            <div class="act-hero act-hero-gym">
-              <div class="act-hero-left">
-                <div class="act-hero-label">Esta semana</div>
-                <div class="act-hero-grade act-hero-grade-gym" id="hero-gym-week-routes">- vías</div>
-                <div class="act-hero-sub" id="hero-gym-goal">Registra sesiones para ver tu progreso</div>
-                <div class="act-hero-badges" id="hero-badges-gym"></div>
-              </div>
-              <div class="act-hero-right">
-                <div class="act-hero-compare" id="hero-compare-gym">Registra sesiones de rocódromo para ver estadísticas.</div>
-                <svg class="act-sparkline act-sparkline-gym" id="hero-sparkline-gym" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>
-              </div>
-            </div>
-
-            <!-- Pirámide de grados Rocódromo -->
-            <div id="gym-pyramid-wrap"></div>
-
-            <!-- Heatmap Rocódromo -->
-            <div class="act-section-title">Consistencia anual</div>
-            <div id="gym-activity-heatmap"></div>
-
-            <!-- Stats Rocódromo -->
-            <div class="act-section-title">Estadísticas de entrenamiento</div>
-            <div class="act-records-grid">
-              <div class="act-rec-card">
-                <div class="act-rec-label">Sesiones / semana</div>
-                <div class="act-rec-value act-rec-gym" id="gym-sessions-week">-</div>
-                <div class="act-rec-sub">Media últimas 8 semanas</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Flash rate</div>
-                <div class="act-rec-value act-rec-gym" id="gym-flash-rate">-</div>
-                <div class="act-rec-sub">En rocódromo</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Grado máximo</div>
-                <div class="act-rec-value act-rec-gym" id="gym-max-grade">-</div>
-                <div class="act-rec-sub">En rocódromo</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Total sesiones</div>
-                <div class="act-rec-value act-rec-gym" id="gym-total-sessions">-</div>
-                <div class="act-rec-sub">Registradas</div>
-              </div>
-            </div>
-
-            <!-- Timeline Rocódromo -->
-            <div class="act-section-title">Últimas sesiones</div>
-            <div class="activity-list" id="activity-list-gym">
-              <div class="activity-empty-state">
-                <div class="empty-icon">
-                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <circle cx="12" cy="8" r="4"></circle>
-                    <path d="M12 14l-4 8h8l-4-8z"></path>
-                  </svg>
+            <!-- 1. Resumen de entrenamiento -->
+            <section class="ax-sec" aria-label="Resumen de entrenamiento">
+              <article class="ax-panel">
+                <header class="ax-panel-head"><h2 class="ax-h2">Resumen de entrenamiento</h2></header>
+                <div class="ax-stat-grid">
+                <div class="ax-stat"><div class="ax-stat-top"><strong class="ax-stat-val" id="gym-sessions-week">-</strong><span class="ax-ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M10 20V4M15 20v-7M20 20v-11"/></svg></span></div><span class="ax-stat-lbl">sesiones/semana</span><span class="ax-stat-sub">media de 8 semanas</span></div>
+                <div class="ax-stat"><div class="ax-stat-top"><strong class="ax-stat-val" id="gym-flash-rate">-</strong><span class="ax-ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></span></div><span class="ax-stat-lbl">flash rate</span></div>
+                <div class="ax-stat"><div class="ax-stat-top"><strong class="ax-stat-val" id="gym-max-grade">-</strong><span class="ax-ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 20 7-14 4 8 2-3 5 9z"/></svg></span></div><span class="ax-stat-lbl">grado máximo</span></div>
+                <div class="ax-stat"><div class="ax-stat-top"><strong class="ax-stat-val" id="gym-total-sessions">-</strong><span class="ax-ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M16 3v4M8 3v4M4 10h16"/></svg></span></div><span class="ax-stat-lbl">sesiones totales</span></div>
                 </div>
-                <h3>Sin sesiones en rocódromo</h3>
-                <p>Añade "Rocódromo" al registrar una ascensión</p>
-              </div>
-            </div>
+              </article>
+            </section>
+
+            <!-- 2. Tests de rendimiento -->
+            <div id="test-header-root" class="ax-sec"></div>
+
+            <!-- 3. Evolución física -->
+            <section class="ax-sec" id="ax-physical" aria-label="Evolución física"></section>
+
+            <!-- 4. Consistencia anual -->
+            <section class="ax-sec" id="ax-gym-consistency" aria-label="Consistencia anual"></section>
+
+            <!-- 5. Últimas sesiones -->
+            <section class="ax-sec" aria-label="Últimas sesiones de rocódromo">
+              <div class="ax-bare-head"><h2 class="ax-h2 ax-h2--lg">Últimas sesiones</h2></div>
+              <div class="activity-list ax-sess-list" id="activity-list-gym"></div>
+            </section>
+
+            <!-- Pirámide y rocódromos visitados -->
+            <div id="gym-pyramid-wrap" class="ax-sec"></div>
+            <div id="gym-mis-rocodromos" class="ax-sec"></div>
 
           </div><!-- /content-rocodromo -->
-
-          <!-- FAB Nueva Ascensión -->
-          <button class="act-fab" id="new-ascent-btn">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            Nueva ascensión
-          </button>
 
           <!-- Nodos legacy que el JS aún puede referenciar (ocultos) -->
           <div style="display:none;">

@@ -14044,8 +14044,9 @@ function initActivityView() {
   document.querySelectorAll('.act-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       currentActivityMode = btn.dataset.mode;
-      document.querySelectorAll('.act-mode-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.act-mode-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       document.getElementById('content-roca').style.display = currentActivityMode === 'roca' ? '' : 'none';
       document.getElementById('content-rocodromo').style.display = currentActivityMode === 'rocodromo' ? '' : 'none';
     });
@@ -14054,9 +14055,10 @@ function initActivityView() {
   // Timeline filter chips
   document.querySelectorAll('.act-tf').forEach(chip => {
     chip.addEventListener('click', () => {
-      document.querySelectorAll('.act-tf').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      filterActivitySessions(chip.dataset.filter);
+      document.querySelectorAll('.act-tf').forEach(c => { c.classList.remove('active', 'is-active'); c.setAttribute('aria-pressed', 'false'); });
+      chip.classList.add('active', 'is-active');
+      chip.setAttribute('aria-pressed', 'true');
+      if (window.KruxActivity) KruxActivity.setSessionFilter(chip.dataset.filter);
     });
   });
 
@@ -14067,7 +14069,9 @@ function initActivityView() {
       if (currentActivityMode === 'rocodromo') {
         openNewGymAscent();
       } else {
-        showToast('Funcionalidad de nueva ascensión próximamente', 'info');
+        // Las ascensiones de roca se registran sobre una vía concreta: se lleva al mapa
+        showToast('Elige una vía en el mapa y pulsa el check para registrarla', 'info');
+        switchView('map-view');
       }
     });
   }
@@ -14957,6 +14961,7 @@ async function loadActivityData() {
       if (emptyState) emptyState.style.display = 'flex';
       resetAllStats();
       buildGymMisRocodromos([]);
+      if (window.KruxActivity) KruxActivity.render([]);
       return;
     }
 
@@ -14994,33 +14999,19 @@ async function loadActivityData() {
     }
     calculateAndUpdateStats(statsAscents);
 
-    // Build new activity components from real data
+    // Interfaz nueva (activity-ui.js) con los mismos datos ya cargados
     requestAnimationFrame(() => {
-      buildActivityHeroCard(allAscents, yearAscents);
-      buildActivityPyramid(allAscents);
-      buildGymPyramid(allAscents);
-      buildActivityHeatmap(allAscents);
       buildGymStats(allAscents);
       buildGymMisRocodromos(allAscents);
-      updateActivityRecords(allAscents);
-      updateCombinedHistogram(allAscents);
-      renderProgressCards(_pcCurrentPeriod || 'month', allAscents);
-      updatePcTimeNav(_pcCurrentPeriod || 'month');
+      buildGymPyramid(allAscents);
+      if (window.KruxActivity) KruxActivity.render(allAscents);
       const activeChartTab = document.querySelector('.chart-tab.active');
       updateActivityChart(activeChartTab ? activeChartTab.dataset.chart : 'week');
     });
 
-    // Activity list grouped by session
-    renderActivityList(allAscents.slice(0, 100));
-
-    // Show/hide empty state
-    const emptyState = document.getElementById('activity-empty');
-    if (emptyState) {
-      emptyState.style.display = allAscents.length === 0 ? 'flex' : 'none';
-    }
-
   } catch (error) {
     console.error('Error loading activity data:', error);
+    if (window.KruxActivity) KruxActivity.showError();
   }
 }
 
@@ -15381,348 +15372,6 @@ async function detectGymByGPS() {
   );
 }
 
-const HERO_MILESTONES = [
-  { m: 33,    name: 'Coloso de Rodas',         emoji: '🗿' },
-  { m: 93,    name: 'Estatua de la Libertad',  emoji: '🗽' },
-  { m: 138,   name: 'Pirámide de Guiza',       emoji: '🔺' },
-  { m: 172,   name: 'Sagrada Familia',         emoji: '⛪' },
-  { m: 324,   name: 'Torre Eiffel',            emoji: '🗼' },
-  { m: 443,   name: 'Empire State',            emoji: '🏙️' },
-  { m: 508,   name: 'Taipei 101',              emoji: '🏢' },
-  { m: 828,   name: 'Burj Khalifa',            emoji: '🏗️' },
-  { m: 914,   name: 'El Capitán',              emoji: '🧗' },
-  { m: 2428,  name: 'Peñalara',                emoji: '🗻' },
-  { m: 2519,  name: 'Naranjo de Bulnes',       emoji: '⛰️' },
-  { m: 3478,  name: 'Mulhacén',                emoji: '🏔️' },
-  { m: 3718,  name: 'Teide',                   emoji: '🌋' },
-  { m: 4810,  name: 'Mont Blanc',              emoji: '🏔️' },
-  { m: 5895,  name: 'Kilimanjaro',             emoji: '🌍' },
-  { m: 6962,  name: 'Aconcagua',               emoji: '🏔️' },
-  { m: 8091,  name: 'Annapurna',               emoji: '❄️' },
-  { m: 8611,  name: 'K2',                      emoji: '⛏️' },
-  { m: 8848,  name: 'Everest',                 emoji: '🏔️' },
-  { m: 12000, name: 'Troposfera',              emoji: '☁️' },
-  { m: 50000, name: 'Estratosfera',            emoji: '🌌' },
-  { m: 85000, name: 'Mesoesfera',              emoji: '🌠' },
-  { m: 408000,name: 'ISS',                     emoji: '🛰️' },
-];
-
-function estimateRouteMeters(grade) {
-  if (!grade) return 20;
-  const g = String(grade).toLowerCase();
-  if (g.startsWith('3') || g.startsWith('4')) return 15;
-  if (g.startsWith('5')) return 18;
-  if (g.startsWith('6')) return 22;
-  if (g.startsWith('7')) return 25;
-  return 28;
-}
-
-function buildActivityHeroMilestone(allAscents) {
-  const rockAscents = allAscents.filter(a => !isGymAscent(a) && a.grade && a.style !== 'project');
-  const totalMeters = rockAscents.reduce((sum, a) => {
-    const fromRoute = parseFloat(a.routeLength || a.long1);
-    const m = !isNaN(fromRoute) && fromRoute > 0 ? fromRoute : estimateRouteMeters(a.grade);
-    return sum + m;
-  }, 0);
-
-  const metersEl = document.getElementById('hero-meters');
-  if (metersEl) metersEl.textContent = `${Math.round(totalMeters).toLocaleString('es-ES')} m`;
-
-  let currentIdx = -1;
-  for (let i = HERO_MILESTONES.length - 1; i >= 0; i--) {
-    if (totalMeters >= HERO_MILESTONES[i].m) { currentIdx = i; break; }
-  }
-  const current = currentIdx >= 0 ? HERO_MILESTONES[currentIdx] : null;
-  const next = HERO_MILESTONES[currentIdx + 1] || null;
-
-  const nameEl = document.getElementById('hero-milestone-name');
-  const fillEl = document.getElementById('hero-progress-fill');
-  const nextEl = document.getElementById('hero-milestone-next');
-
-  if (totalMeters === 0) {
-    if (nameEl) nameEl.textContent = '· registra vías para ver hitos';
-    if (fillEl) fillEl.style.width = '0%';
-    if (nextEl) nextEl.textContent = '';
-    return;
-  }
-
-  if (nameEl) {
-    nameEl.innerHTML = current
-      ? `· ${current.emoji} <strong>${current.name}</strong>`
-      : `· camino al primer hito`;
-  }
-
-  if (next) {
-    const baseM = current ? current.m : 0;
-    const pct = Math.max(0, Math.min(100, ((totalMeters - baseM) / (next.m - baseM)) * 100));
-    if (fillEl) fillEl.style.width = `${pct}%`;
-    const remaining = Math.max(0, Math.round(next.m - totalMeters));
-    if (nextEl) nextEl.innerHTML = `Próximo: ${next.emoji} <strong>${next.name}</strong> · faltan <strong>${remaining.toLocaleString('es-ES')} m</strong>`;
-  } else {
-    if (fillEl) fillEl.style.width = '100%';
-    if (nextEl) nextEl.innerHTML = '🎉 Todos los hitos alcanzados';
-  }
-}
-
-function buildActivityHeroCard(allAscents, yearAscents) {
-  buildActivityHeroMilestone(allAscents);
-  const rockAscents = allAscents.filter(a => !isGymAscent(a));
-  const rockYear = yearAscents.filter(a => !isGymAscent(a));
-
-  // Max grade as "proyecto activo" (highest grade attempted this year)
-  const grades = rockYear.map(a => a.grade).filter(Boolean);
-  const maxGrade = findMaxGrade(grades) || '-';
-  const gradeEl = document.getElementById('hero-project-grade');
-  if (gradeEl) gradeEl.textContent = maxGrade;
-
-  // Route name of that grade
-  const topAscent = rockYear.find(a => a.grade && a.grade.toLowerCase() === (maxGrade || '').toLowerCase());
-  const nameEl = document.getElementById('hero-project-name');
-  if (nameEl) {
-    const loc = [topAscent?.routeName, topAscent?.sectorName || topAscent?.sector, topAscent?.schoolName || topAscent?.school].filter(Boolean).join(' · ');
-    nameEl.textContent = loc || (maxGrade !== '-' ? 'Mejor encadenamiento del año' : 'Sin ascensiones este año');
-  }
-
-  // Streak
-  const streak = calculateStreak(rockAscents);
-  const flashCount = rockYear.filter(a => a.style === 'flash' || a.style === 'onsight').length;
-  const flashRate = rockYear.length > 0 ? Math.round((flashCount / rockYear.length) * 100) : 0;
-
-  const badgesEl = document.getElementById('hero-badges-roca');
-  if (badgesEl) {
-    badgesEl.innerHTML = [
-      streak > 2 ? `<span class="act-badge act-badge-orange">🔥 Racha ${streak} días</span>` : '',
-      rockYear.length > 0 ? `<span class="act-badge act-badge-blue">${rockYear.length} vías este año</span>` : '',
-      flashRate > 0 ? `<span class="act-badge act-badge-green">Flash ${flashRate}%</span>` : '',
-    ].join('');
-  }
-
-  // Comparison vs previous year
-  const now = new Date();
-  const prevYear = now.getFullYear() - 1;
-  const prevYearAscents = allAscents.filter(a => {
-    const d = parseAscentDate(a.date);
-    return d && d.getFullYear() === prevYear && !isGymAscent(a);
-  });
-  const compareEl = document.getElementById('hero-compare-roca');
-  if (compareEl) {
-    if (prevYearAscents.length > 0 && rockYear.length > 0) {
-      const pct = Math.round(((rockYear.length - prevYearAscents.length) / prevYearAscents.length) * 100);
-      const sign = pct >= 0 ? '+' : '';
-      const prevMax = findMaxGrade(prevYearAscents.map(a => a.grade).filter(Boolean));
-      compareEl.innerHTML = `Vs. ${prevYear}:<br><strong>${sign}${pct}% vías</strong><br>Grado máximo: <strong>${prevMax || '-'} → ${maxGrade}</strong>`;
-    } else if (rockYear.length > 0) {
-      compareEl.innerHTML = `<strong>${rockYear.length} vías</strong> este año<br>Flash rate: <strong>${flashRate}%</strong>`;
-    } else {
-      compareEl.innerHTML = 'Registra ascensiones<br>para ver tu progreso.';
-    }
-  }
-
-  // Sparkline — últimas 30 sesiones agrupadas por día
-  buildSparkline(rockAscents, 'hero-sparkline-roca', '#6366f1', '#e0e7ff');
-}
-
-function buildSparkline(ascents, svgId, strokeColor, fillColor) {
-  const svgEl = document.getElementById(svgId);
-  if (!svgEl) return;
-
-  const byDay = {};
-  ascents.slice(0, 210).forEach(a => {
-    const d = parseAscentDate(a.date);
-    if (!d) return;
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    byDay[key] = (byDay[key] || 0) + 1;
-  });
-
-  const days = Object.values(byDay).slice(0, 30).reverse();
-  if (days.length < 2) { svgEl.innerHTML = ''; return; }
-
-  const maxV = Math.max(...days);
-  const w = 200, h = 48, pad = 4;
-  const pts = days.map((v, i) => {
-    const x = (i / (days.length - 1)) * w;
-    const y = h - pad - ((v / maxV) * (h - pad * 2));
-    return `${x},${y}`;
-  }).join(' ');
-
-  svgEl.innerHTML = `
-    <polyline points="${pts}" fill="none" stroke="${strokeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    <polyline points="${pts} ${w},${h} 0,${h}" fill="${fillColor}" stroke="none" opacity="0.5"/>
-  `;
-}
-
-function buildActivityPyramid(allAscents) {
-  const el = document.getElementById('act-pyramid-roca');
-  if (!el) return;
-
-  const rockAscents = allAscents.filter(a => !isGymAscent(a) && a.style !== 'project' && a.grade);
-
-  const gradeCounts = {};
-  rockAscents.forEach(a => {
-    const g = a.grade.toLowerCase();
-    if (GRADE_ORDER.includes(g)) gradeCounts[g] = (gradeCounts[g] || 0) + 1;
-  });
-
-  const sorted = GRADE_ORDER
-    .filter(g => gradeCounts[g] > 0)
-    .reverse();
-
-  if (sorted.length === 0) {
-    el.innerHTML = '<div style="text-align:center;padding:1rem;font-size:12px;color:var(--text-muted)">Sin ascensiones encadenadas</div>';
-    const consolidatedEl = document.getElementById('act-consolidated-grade');
-    if (consolidatedEl) consolidatedEl.textContent = '-';
-    return;
-  }
-
-  const maxCount = Math.max(...sorted.map(g => gradeCounts[g]));
-
-  el.innerHTML = sorted.map(grade => {
-    const count = gradeCounts[grade];
-    const pct = Math.max(8, Math.round((count / maxCount) * 100));
-    const bg = typeof getGradeColor === 'function' ? getGradeColor(grade) : '#818cf8';
-    return `<div class="act-pyramid-row">
-      <div class="act-pyramid-label">${grade}</div>
-      <div class="act-pyramid-bar-wrap">
-        <div class="act-pyramid-bar" style="width:${pct}%;background:${bg};"></div>
-        <div class="act-pyramid-count">${count}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // Consolidated grade: highest grade with ≥5 ascents
-  const consolidated = sorted.find(g => gradeCounts[g] >= 5);
-  const consolidatedEl = document.getElementById('act-consolidated-grade');
-  if (consolidatedEl) consolidatedEl.textContent = consolidated || '-';
-}
-
-function buildActivityHeatmap(allAscents) {
-  buildHeatmapFor(allAscents.filter(a => !isGymAscent(a)), 'act-heatmap-weeks-roca', 'act-heatmap-months-roca', 'hm-r');
-
-  const gymAscents = allAscents.filter(a => isGymAscent(a));
-  if (window._gymActivityHeatmap) window._gymActivityHeatmap.destroy();
-  window._gymActivityHeatmap = new ActivityHeatmap('gym-activity-heatmap');
-  window._gymActivityHeatmap.initWithData(gymAscents);
-}
-
-function getHmTooltip() {
-  let tip = document.getElementById('hm-tooltip');
-  if (!tip) {
-    tip = document.createElement('div');
-    tip.id = 'hm-tooltip';
-    tip.className = 'hm-tooltip';
-    document.body.appendChild(tip);
-  }
-  return tip;
-}
-
-function buildHeatmapFor(ascents, weeksId, monthsId, colorPrefix) {
-  const weeksEl = document.getElementById(weeksId);
-  const monthsEl = document.getElementById(monthsId);
-  if (!weeksEl || !monthsEl) return;
-  weeksEl.innerHTML = '';
-  monthsEl.innerHTML = '';
-
-  const dayCount = {};
-  ascents.forEach(a => {
-    const d = parseAscentDate(a.date);
-    if (!d) return;
-    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    dayCount[key] = (dayCount[key] || 0) + 1;
-  });
-
-  const today = new Date();
-  const year = today.getFullYear();
-  const months = ['E','F','M','A','M','J','J','A','S','O','N','D'];
-  const currentMonth = today.getMonth();
-
-  // Render each month as its own block of week-columns, with empty cells
-  // padding the start/end so each month shows EXACTLY its real days.
-  for (let m = 0; m <= currentMonth; m++) {
-    const firstDay = new Date(year, m, 1);
-    const daysInMonth = new Date(year, m + 1, 0).getDate();
-    const fdDow = firstDay.getDay();
-    const fdGridDay = fdDow === 0 ? 6 : fdDow - 1; // 0=Mon..6=Sun
-    const totalCells = fdGridDay + daysInMonth;
-    const weeksInMonth = Math.ceil(totalCells / 7);
-
-    for (let w = 0; w < weeksInMonth; w++) {
-      const weekDiv = document.createElement('div');
-      weekDiv.className = 'act-heatmap-week';
-      if (w === 0 && m > 0) weekDiv.classList.add('hm-month-start');
-
-      for (let d = 0; d < 7; d++) {
-        const dayOfMonth = w * 7 + d - fdGridDay + 1;
-        const inMonth = dayOfMonth >= 1 && dayOfMonth <= daysInMonth;
-        const cell = document.createElement('div');
-
-        if (!inMonth) {
-          cell.className = 'act-heatmap-cell hm-empty';
-        } else {
-          const date = new Date(year, m, dayOfMonth);
-          const afterToday = date > today;
-          if (afterToday) {
-            cell.className = 'act-heatmap-cell hm-empty';
-          } else {
-            const key = `${year}-${String(m).padStart(2,'0')}-${String(dayOfMonth).padStart(2,'0')}`;
-            const count = dayCount[key] || 0;
-            const level = count === 0 ? 0 : count <= 2 ? 1 : count <= 4 ? 2 : count <= 7 ? 3 : 4;
-            cell.className = `act-heatmap-cell ${level === 0 ? 'hm-0' : colorPrefix + level}`;
-            if (count > 0) {
-              const label = `${count} ${count === 1 ? 'vía' : 'vías'} · ${date.toLocaleDateString('es-ES', { day:'numeric', month:'short' })}`;
-              cell.addEventListener('mouseenter', e => {
-                const tip = getHmTooltip();
-                tip.textContent = label;
-                const r = cell.getBoundingClientRect();
-                tip.style.left = `${r.left + r.width / 2}px`;
-                tip.style.top = `${r.top - 8}px`;
-                tip.style.transform = 'translateX(-50%) translateY(-100%)';
-                tip.classList.add('visible');
-              });
-              cell.addEventListener('mouseleave', () => {
-                getHmTooltip().classList.remove('visible');
-              });
-            }
-          }
-        }
-        weekDiv.appendChild(cell);
-      }
-      weeksEl.appendChild(weekDiv);
-
-      const span = document.createElement('div');
-      span.className = 'act-heatmap-month';
-      span.textContent = (w === 0) ? months[m] : '';
-      monthsEl.appendChild(span);
-    }
-  }
-}
-
-function calculateStreak(ascents) {
-  if (!ascents || ascents.length === 0) return 0;
-  const days = new Set();
-  ascents.forEach(a => {
-    const d = parseAscentDate(a.date);
-    if (d) days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
-  });
-
-  const sorted = Array.from(days).sort().reverse();
-  let streak = 0;
-  const today = new Date();
-  let cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-  for (const dayKey of sorted) {
-    const [y, m, d] = dayKey.split('-').map(Number);
-    const dayDate = new Date(y, m, d);
-    const diff = Math.round((cursor - dayDate) / 86400000);
-    if (diff <= 1) {
-      streak++;
-      cursor = dayDate;
-    } else {
-      break;
-    }
-  }
-  return streak;
-}
-
 // ============================================
 // PIRÁMIDE DE GRADOS — Rocódromo
 // ============================================
@@ -15912,7 +15561,7 @@ function buildGymStats(allAscents) {
     const d = parseAscentDate(a.date);
     return d ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : null;
   }).filter(Boolean));
-  const sessionsPerWeek = gymDays.size > 0 ? (gymDays.size / 8).toFixed(1) : '-';
+  const sessionsPerWeek = gymDays.size > 0 ? (gymDays.size / 8).toFixed(1).replace('.', ',') : '-';
 
   // Max grade in gym
   const gymGrades = gymAscents.map(a => a.grade).filter(Boolean);
@@ -15930,11 +15579,6 @@ function buildGymStats(allAscents) {
   setVal('gym-max-grade', gymMaxGrade);
   setVal('gym-total-sessions', allGymDays.size > 0 ? allGymDays.size : '-');
 
-  // Sparkline gym
-  buildSparkline(gymAscents, 'hero-sparkline-gym', '#7c3aed', '#ede9fe');
-
-  // Gym timeline
-  renderGymTimeline(gymAscents.slice(0, 50));
 }
 
 // ============================================================
@@ -16179,6 +15823,7 @@ let _gthUnsubMeasures = null;
 let _gthDefs = [];
 let _gthMeasures = [];
 let _gthAuthHooked = false;
+let _gthSeeding = false;
 
 // Built-in test templates (9 tests imprescindibles — Lattice/Eva López/Beastmaker)
 const _GTH_TEMPLATES = [
@@ -16217,9 +15862,12 @@ function initTestHeader() {
     _gthUnsubDefs = defsRef.onSnapshot(
       async (snap) => {
         _gthDefs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Seed defaults if the user has never had any test definitions
-        if (_gthDefs.length === 0) {
-          await _gthSeedDefaults(defsRef);
+        // Seed defaults if the user has never had any test definitions.
+        // Con la caché local el primer snapshot llega vacío antes de confirmarse el servidor: sin
+        // este cerrojo se sembraban los tests dos veces y la pantalla los mostraba duplicados.
+        if (_gthDefs.length === 0 && !snap.metadata.fromCache && !_gthSeeding) {
+          _gthSeeding = true;
+          try { await _gthSeedDefaults(defsRef); } finally { _gthSeeding = false; }
         }
         _gthRender();
       },
@@ -16337,11 +15985,19 @@ function _gthBuildCardState(def, allMeasures) {
   }
   const daysSince = Math.floor((new Date(now) - new Date(latest._iso)) / MS);
   const sparkline = sorted.slice(-8).map(m => m.value);
-  return { def, latest, previous, delta, daysSince, sparkline };
+  // Mejor resultado histórico según la dirección del test
+  const useGrade = def.unit === 'grade';
+  const score = m => useGrade ? _rocoGradeIndex(m.gradeValue) : m.value;
+  let best = sorted[0];
+  sorted.forEach(m => {
+    const a = score(m), b = score(best);
+    if (def.progressDirection === 'higher_is_better' ? a > b : a < b) best = m;
+  });
+  return { def, latest, previous, delta, daysSince, sparkline, best, count: sorted.length };
 }
 
 function _gthCardHTML(state) {
-  const { def, latest, delta, daysSince, sparkline } = state;
+  const { def, latest, delta, daysSince, sparkline, best, count } = state;
   const unit = _gthUnitLabel(def);
   const ctx = def.defaults && def.defaults.edgeMm
     ? `${def.defaults.edgeMm}mm`
@@ -16368,9 +16024,16 @@ function _gthCardHTML(state) {
 
   const daysStr = _gthFormatDays(daysSince);
 
+  let bestStr = '';
+  if (best && latest && count > 1) {
+    const bv = def.unit === 'grade' ? best.gradeValue : `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(best.value)}${unit ? ' ' + unit : ''}`;
+    const bd = new Date(best._iso);
+    bestStr = `<div class="gth-card-best">Mejor: <strong>${bv}</strong> · ${bd.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</div>`;
+  }
+
   return `<article class="gth-card" data-test-id="${def.id}" role="button" tabindex="0" aria-label="${def.name}: ${numStr} ${unitStr}">
     <div class="gth-card-top">
-      <span class="gth-card-name">${def.name.toUpperCase()}</span>
+      <span class="gth-card-name">${def.name}</span>
       ${ctx ? `<span class="gth-card-ctx">${ctx}</span>` : ''}
     </div>
     <div class="gth-card-value">${numStr}${unitStr ? `<span class="gth-card-unit"> ${unitStr}</span>` : ''}</div>
@@ -16378,7 +16041,9 @@ function _gthCardHTML(state) {
       <span class="gth-badge ${badgeClass}">${badgeText}</span>
       ${daysStr ? `<span class="gth-card-days">${daysStr}</span>` : ''}
     </div>
+    ${bestStr}
     ${_gthSparkline(sparkline)}
+    <svg class="gth-card-go" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
   </article>`;
 }
 
@@ -16386,9 +16051,12 @@ function _gthRender() {
   const root = document.getElementById('test-header-root');
   if (!root) return;
 
+  // Un test por plantilla: si quedaron definiciones repetidas de siembras anteriores, solo se muestra la primera
+  const seenKeys = new Set();
   const pinned = _gthDefs
     .filter(d => d.pinned)
-    .sort((a, b) => (a.order || 0) - (b.order || 0));
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .filter(d => { const k = d.templateKey || d.id; if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
 
   const cardsHTML = pinned.map(def => {
     const state = _gthBuildCardState(def, _gthMeasures);
@@ -16399,18 +16067,18 @@ function _gthRender() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
       <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
     </svg>
-    <span class="gth-add-card-label">Añadir test<br>al header</span>
+    <span class="gth-add-card-label">Añadir test</span>
   </button>`;
 
   root.innerHTML = `<div class="gth-root">
     <div class="gth-header-row">
-      <p class="gth-section-title">TESTS DE RENDIMIENTO</p>
+      <h2 class="gth-section-title">Tests de rendimiento</h2>
       <button class="gth-btn-outline" id="btn-gth-configure">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
-        Configurar tests
+        Configurar
       </button>
     </div>
     <div class="gth-grid">
@@ -16434,6 +16102,7 @@ function _gthRender() {
   root.querySelectorAll('.gth-card').forEach(card => {
     card.addEventListener('click', () => _gthOpenRecord(card.dataset.testId));
   });
+  if (window.KruxActivity) KruxActivity.renderPhysical();
 }
 
 // ============================================================
@@ -16539,7 +16208,9 @@ function _gthOpenRecord(preselectedTestId) {
   const user = firebase.auth().currentUser;
   if (!user) return;
 
-  const pinned = _gthDefs.filter(d => d.pinned).sort((a, b) => (a.order || 0) - (b.order || 0));
+  const seenKeys = new Set();
+  const pinned = _gthDefs.filter(d => d.pinned).sort((a, b) => (a.order || 0) - (b.order || 0))
+    .filter(d => { const k = d.templateKey || d.id; if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
   if (pinned.length === 0) {
     showToast('Primero configura algún test desde «Configurar tests»', 'warning');
     return;
@@ -16654,57 +16325,6 @@ function _gthOpenRecord(preselectedTestId) {
     }
   };
 }
-
-function renderGymTimeline(ascents) {
-  const listEl = document.getElementById('activity-list-gym');
-  if (!listEl) return;
-  if (ascents.length === 0) return;
-  listEl.innerHTML = '';
-  renderSessionCards(ascents, listEl, true);
-}
-
-function updateActivityRecords(allAscents) {
-  const rockAscents = allAscents.filter(a => !isGymAscent(a));
-  if (rockAscents.length === 0) return;
-
-  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-
-  // Highest grade
-  const grades = rockAscents.map(a => a.grade).filter(Boolean);
-  const maxGrade = findMaxGrade(grades) || '-';
-  setEl('record-highest-grade', maxGrade);
-  const topAscent = rockAscents.find(a => a.grade && a.grade.toLowerCase() === maxGrade.toLowerCase());
-  setEl('record-highest-route', [topAscent?.routeName, topAscent?.schoolName || topAscent?.school].filter(Boolean).join(' · ') || '-');
-
-  // Highest flash
-  const flashAscents = rockAscents.filter(a => a.style === 'flash' || a.style === 'onsight');
-  const flashGrades = flashAscents.map(a => a.grade).filter(Boolean);
-  const maxFlash = findMaxGrade(flashGrades) || '-';
-  setEl('record-highest-flash', maxFlash);
-  const topFlash = flashAscents.find(a => a.grade && a.grade.toLowerCase() === maxFlash.toLowerCase());
-  setEl('record-flash-route', [topFlash?.routeName, topFlash?.schoolName || topFlash?.school].filter(Boolean).join(' · ') || '-');
-
-  // Streak
-  const streak = calculateStreak(rockAscents);
-  setEl('record-streak', streak > 0 ? streak + ' días' : '-');
-
-  // Most routes in a day
-  const dayMap = {};
-  rockAscents.forEach(a => {
-    const d = parseAscentDate(a.date);
-    if (!d) return;
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    if (!dayMap[key]) dayMap[key] = { count: 0, date: d };
-    dayMap[key].count++;
-  });
-  const bestDay = Object.values(dayMap).sort((a, b) => b.count - a.count)[0];
-  if (bestDay) {
-    setEl('record-most-day', bestDay.count);
-    setEl('record-most-date', bestDay.date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }));
-  }
-}
-
-// ========================================
 
 function resetAllStats() {
   // Reset to empty state when user has no ascents
@@ -16911,91 +16531,6 @@ function findMaxGrade(grades) {
 
   return maxGrade;
 }
-
-let _allActivityAscents = [];
-
-function filterActivitySessions(filter) {
-  if (!_allActivityAscents.length) return;
-  const filtered = filter === 'all'
-    ? _allActivityAscents
-    : _allActivityAscents.filter(a => a.style === filter);
-  const listEl = document.getElementById('activity-list');
-  if (!listEl) return;
-  listEl.innerHTML = '';
-  if (filtered.length === 0) {
-    listEl.innerHTML = '<div class="activity-empty-state"><h3>Sin ascensiones para este filtro</h3></div>';
-    return;
-  }
-  renderSessionCards(filtered, listEl, false);
-}
-
-function renderSessionCards(ascents, container, isGym) {
-  const styleMap = { flash: 'F', redpoint: 'R', onsight: 'O', project: 'P', toprope: 'T' };
-  const styleDot = { flash: 'act-sd-yellow', redpoint: 'act-sd-red', onsight: 'act-sd-blue', project: 'act-sd-gray', toprope: 'act-sd-gray' };
-
-  const sessions = {};
-  ascents.forEach(a => {
-    const d = parseAscentDate(a.date);
-    const dateKey = d
-      ? d.getFullYear() + '-' + String(d.getMonth()).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0')
-      : 'unknown';
-    const sector = a.sectorName || a.sector || 'Sector desconocido';
-    const key = dateKey + '__' + sector;
-    if (!sessions[key]) sessions[key] = { date: d, sector, school: a.schoolName || a.school || '', ascents: [] };
-    sessions[key].ascents.push(a);
-  });
-
-  Object.values(sessions).forEach(function(session) {
-    const grades = session.ascents.map(a => a.grade).filter(Boolean);
-    const topGrade = findMaxGrade(grades) || '-';
-    const styles = [...new Set(session.ascents.map(a => a.style).filter(Boolean))];
-    const dateStr = session.date
-      ? session.date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
-      : '';
-    const locationStr = [dateStr, session.school, session.sector].filter(Boolean).join(' · ');
-
-    let avgGrade = '-';
-    if (grades.length > 0) {
-      const avgIdx = Math.round(grades.reduce(function(acc, g) { return acc + (GRADE_ORDER.indexOf(g.toLowerCase()) || 0); }, 0) / grades.length);
-      avgGrade = GRADE_ORDER[avgIdx] || '-';
-    }
-
-    const dotsHtml = styles.map(s =>
-      '<div class="act-style-dot ' + (styleDot[s] || 'act-sd-gray') + '" title="' + s + '">' + (styleMap[s] || '?') + '</div>'
-    ).join('');
-
-    const card = document.createElement('div');
-    card.className = 'act-session-card';
-    card.innerHTML =
-      '<div class="act-session-left">' +
-        '<div class="act-session-date">' + locationStr + '</div>' +
-        '<div class="act-session-sector">' + session.sector + '</div>' +
-        '<div class="act-session-meta">' + session.ascents.length + ' vía' + (session.ascents.length !== 1 ? 's' : '') + ' · Grado medio ' + avgGrade + '</div>' +
-      '</div>' +
-      '<div class="act-session-right">' +
-        '<div class="act-session-grade">' + topGrade + '</div>' +
-        '<div class="act-session-styles">' + dotsHtml + '</div>' +
-      '</div>';
-    container.appendChild(card);
-  });
-}
-
-function renderActivityList(ascents) {
-  _allActivityAscents = ascents.filter(a => !isGymAscent(a));
-  const activityList = document.getElementById('activity-list');
-  if (!activityList) return;
-
-  const emptyState = activityList.querySelector('.activity-empty-state');
-  activityList.innerHTML = '';
-
-  if (_allActivityAscents.length === 0) {
-    if (emptyState) activityList.appendChild(emptyState);
-    return;
-  }
-
-  renderSessionCards(_allActivityAscents, activityList, false);
-}
-
 
 // ========================================
 // ASCENT LOGBOOK
@@ -17361,7 +16896,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initViewPostModal();
   initActivityView();
   initLogbook();
-  initProgressCards();
   initTrainView();
 });
 
@@ -18998,353 +18532,7 @@ firebase.auth().onAuthStateChanged(user => {
   }
 });
 
-// ========== PROGRESS CARDS ==========
-let _pcAscents = [];
-let _pcCurrentPeriod = 'month';
-let _pcCurrentSlide = 0;
-let _pcPageCount = 1;
-let _pcNavContext = null; // {year} for month, {year, month} for week, {year} for year
 
-function updatePcTimeNav(period) {
-  const sel = document.getElementById('pc-time-nav');
-  if (!sel) return;
-  sel.innerHTML = '';
-
-  const now = new Date();
-  const monthLabels = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-
-  if (period === 'month') {
-    const years = [...new Set(_pcAscents.map(a => {
-      const d = parseAscentDate(a.date);
-      return d ? d.getFullYear() : null;
-    }).filter(Boolean))].sort((a,b) => b - a);
-    if (!years.length) years.push(now.getFullYear());
-    years.forEach(y => {
-      const opt = document.createElement('option');
-      opt.value = y;
-      opt.textContent = y;
-      if (y === (_pcNavContext?.year ?? now.getFullYear())) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    sel.style.display = '';
-    _pcNavContext = { year: parseInt(sel.value) };
-
-  } else if (period === 'week') {
-    const monthsSet = new Set();
-    _pcAscents.forEach(a => {
-      const d = parseAscentDate(a.date);
-      if (d) monthsSet.add(`${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`);
-    });
-    const sortedMonths = [...monthsSet].sort().reverse();
-    if (!sortedMonths.length) sortedMonths.push(`${now.getFullYear()}-${String(now.getMonth()).padStart(2,'0')}`);
-    sortedMonths.forEach(key => {
-      const [y, m] = key.split('-').map(Number);
-      const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = `${monthLabels[m]} ${y}`;
-      const curKey = `${_pcNavContext?.year ?? now.getFullYear()}-${String(_pcNavContext?.month ?? now.getMonth()).padStart(2,'0')}`;
-      if (key === curKey) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    sel.style.display = '';
-    const [y, m] = sel.value.split('-').map(Number);
-    _pcNavContext = { year: y, month: m };
-
-  } else {
-    sel.style.display = 'none';
-    _pcNavContext = null;
-  }
-}
-
-function initProgressCards() {
-  const tabs = document.querySelectorAll('[data-pc]');
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const period = tab.dataset.pc;
-      if (period === 'custom') {
-        openProgressCardCustom();
-        return;
-      }
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      _pcCurrentPeriod = period;
-      _pcNavContext = null;
-      document.getElementById('pc-custom-banner')?.classList.add('hidden');
-      updatePcTimeNav(period);
-      renderProgressCards(period, _pcAscents);
-    });
-  });
-
-  document.getElementById('pc-time-nav')?.addEventListener('change', e => {
-    const val = e.target.value;
-    if (_pcCurrentPeriod === 'month') {
-      _pcNavContext = val ? { year: parseInt(val) } : null;
-    } else if (_pcCurrentPeriod === 'week') {
-      if (val) { const [y, m] = val.split('-').map(Number); _pcNavContext = { year: y, month: m }; }
-      else _pcNavContext = null;
-    }
-    renderProgressCards(_pcCurrentPeriod, _pcAscents);
-  });
-
-  document.getElementById('pc-overlay')?.addEventListener('click', e => {
-    if (e.target === document.getElementById('pc-overlay')) closePcPopup();
-  });
-  document.getElementById('pc-btn-cancel')?.addEventListener('click', closePcPopup);
-  document.getElementById('pc-btn-apply')?.addEventListener('click', applyPcCustom);
-  document.getElementById('pc-banner-clear')?.addEventListener('click', clearPcCustom);
-
-  document.querySelectorAll('.pc-preset').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const days = parseInt(btn.dataset.days);
-      const today = new Date();
-      const from = new Date();
-      from.setDate(from.getDate() - days);
-      document.getElementById('pc-date-from').value = from.toISOString().split('T')[0];
-      document.getElementById('pc-date-to').value = today.toISOString().split('T')[0];
-    });
-  });
-
-  // Swipe support — listeners attached once, handlers read up-to-date globals
-  const outer = document.getElementById('pc-carousel-outer');
-  if (outer) {
-    let startX = 0;
-    outer.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, { passive: true });
-    outer.addEventListener('touchend', e => {
-      const dx = e.changedTouches[0].clientX - startX;
-      if (Math.abs(dx) > 40) {
-        goPcSlide(Math.max(0, Math.min(_pcPageCount - 1, _pcCurrentSlide + (dx < 0 ? 1 : -1))));
-      }
-    }, { passive: true });
-  }
-
-  document.getElementById('pc-arrow-prev')?.addEventListener('click', () => {
-    if (_pcCurrentSlide > 0) goPcSlide(_pcCurrentSlide - 1);
-  });
-  document.getElementById('pc-arrow-next')?.addEventListener('click', () => {
-    if (_pcCurrentSlide < _pcPageCount - 1) goPcSlide(_pcCurrentSlide + 1);
-  });
-}
-
-function openProgressCardCustom() {
-  const today = new Date().toISOString().split('T')[0];
-  const from = new Date(); from.setMonth(from.getMonth() - 1);
-  document.getElementById('pc-date-from').value = from.toISOString().split('T')[0];
-  document.getElementById('pc-date-to').value = today;
-  document.getElementById('pc-overlay').classList.remove('hidden');
-}
-
-function closePcPopup() {
-  document.getElementById('pc-overlay')?.classList.add('hidden');
-}
-
-function applyPcCustom() {
-  const from = document.getElementById('pc-date-from').value;
-  const to = document.getElementById('pc-date-to').value;
-  if (!from || !to || from > to) return;
-  closePcPopup();
-
-  document.querySelectorAll('[data-pc]').forEach(t => t.classList.remove('active'));
-  const banner = document.getElementById('pc-custom-banner');
-  if (banner) {
-    banner.classList.remove('hidden');
-    document.getElementById('pc-banner-text').textContent = `${fmtPcDate(from)} – ${fmtPcDate(to)}`;
-  }
-  renderProgressCards('custom', _pcAscents, from, to);
-}
-
-function clearPcCustom() {
-  document.getElementById('pc-custom-banner')?.classList.add('hidden');
-  const monthTab = document.querySelector('[data-pc="month"]');
-  if (monthTab) {
-    document.querySelectorAll('[data-pc]').forEach(t => t.classList.remove('active'));
-    monthTab.classList.add('active');
-  }
-  _pcCurrentPeriod = 'month';
-  renderProgressCards('month', _pcAscents);
-}
-
-function fmtPcDate(s) {
-  const [y, m, d] = s.split('-');
-  const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-  return `${parseInt(d)} ${months[parseInt(m) - 1]}`;
-}
-
-function renderProgressCards(period, ascents, customFrom, customTo) {
-  if (ascents) _pcAscents = ascents;
-  const carouselEl = document.getElementById('pc-carousel');
-  const dotsEl = document.getElementById('pc-carousel-dots');
-  if (!carouselEl) return;
-
-  const cards = buildPcCardData(_pcAscents, period, customFrom, customTo, _pcNavContext);
-
-  if (!cards.length) {
-    carouselEl.innerHTML = `<div class="pc-carousel-slide"><div class="pc-cards-grid"><div class="pc-empty-card" style="grid-column:1/-1">Sin ascensiones en este periodo</div></div></div>`;
-    if (dotsEl) dotsEl.innerHTML = '';
-    _pcPageCount = 1;
-    return;
-  }
-
-  const maxIdx = Math.max(...cards.map(c => getGradeIndex(c.max)).filter(i => i >= 0));
-
-  // Chunk cards into pages of 4
-  const pages = [];
-  for (let i = 0; i < cards.length; i += 4) pages.push(cards.slice(i, i + 4));
-  _pcPageCount = pages.length;
-
-  carouselEl.innerHTML = pages.map(page =>
-    `<div class="pc-carousel-slide"><div class="pc-cards-grid">${
-      page.map(c => makePcCard(c, getGradeIndex(c.max) === maxIdx && c.count > 0)).join('')
-    }</div></div>`
-  ).join('');
-
-  if (dotsEl) {
-    dotsEl.innerHTML = pages.length > 1
-      ? pages.map((_, i) => `<button class="pc-carousel-dot" data-pc-slide="${i}"></button>`).join('')
-      : '';
-    dotsEl.querySelectorAll('.pc-carousel-dot').forEach(dot =>
-      dot.addEventListener('click', () => goPcSlide(parseInt(dot.dataset.pcSlide)))
-    );
-  }
-
-  const target = Math.min(getPcInitialSlide(period, cards), pages.length - 1);
-  goPcSlide(target, false);
-}
-
-function getPcInitialSlide(period, cards) {
-  const now = new Date();
-  if (period === 'week') {
-    const dow = now.getDay();
-    const dayIndex = dow === 0 ? 6 : dow - 1; // 0=Mon..6=Sun
-    return Math.floor(dayIndex / 4);
-  }
-  if (period === 'month') {
-    return Math.floor(now.getMonth() / 4);
-  }
-  if (period === 'year') {
-    const currentYear = String(now.getFullYear());
-    const idx = cards.findIndex(c => c.label === currentYear);
-    return idx >= 0 ? Math.floor(idx / 4) : Math.max(0, Math.floor((cards.length - 1) / 4));
-  }
-  return 0;
-}
-
-function goPcSlide(index, animate = true) {
-  _pcCurrentSlide = index;
-  const carouselEl = document.getElementById('pc-carousel');
-  if (!carouselEl) return;
-  if (!animate) {
-    carouselEl.style.transition = 'none';
-    carouselEl.style.transform = `translateX(-${index * 100}%)`;
-    carouselEl.offsetHeight; // force reflow
-    carouselEl.style.transition = '';
-  } else {
-    carouselEl.style.transform = `translateX(-${index * 100}%)`;
-  }
-  document.querySelectorAll('.pc-carousel-dot').forEach((d, i) =>
-    d.classList.toggle('active', i === index)
-  );
-  const onlyOne = _pcPageCount <= 1;
-  document.getElementById('pc-arrow-prev')?.classList.toggle('pc-arrow-hidden', onlyOne || index === 0);
-  document.getElementById('pc-arrow-next')?.classList.toggle('pc-arrow-hidden', onlyOne || index >= _pcPageCount - 1);
-}
-
-
-function buildPcCardData(ascents, period, customFrom, customTo, navContext) {
-  const now = new Date();
-  const monthLabels = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const dayLabels = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-  let groups = [];
-
-  if (period === 'week') {
-    const selYear = navContext?.year ?? now.getFullYear();
-    const selMonth = navContext?.month ?? now.getMonth();
-    const daysInMonth = new Date(selYear, selMonth + 1, 0).getDate();
-    for (let startDay = 1; startDay <= daysInMonth; startDay += 7) {
-      const endDay = Math.min(startDay + 6, daysInMonth);
-      const from = new Date(selYear, selMonth, startDay, 0, 0, 0, 0);
-      const to = new Date(selYear, selMonth, endDay, 23, 59, 59, 999);
-      const weekAscents = ascents.filter(a => {
-        const d = parseAscentDate(a.date);
-        return d && d >= from && d <= to;
-      });
-      if (weekAscents.length) groups.push({ label: `${startDay}–${endDay} ${monthLabels[selMonth]}`, ascents: weekAscents });
-    }
-
-  } else if (period === 'month') {
-    const selYear = navContext?.year ?? now.getFullYear();
-    for (let m = 0; m < 12; m++) {
-      const monthAscents = ascents.filter(a => {
-        const d = parseAscentDate(a.date);
-        return d && d.getFullYear() === selYear && d.getMonth() === m;
-      });
-      if (monthAscents.length) groups.push({ label: monthLabels[m], ascents: monthAscents });
-    }
-
-  } else if (period === 'year') {
-    const allYears = [...new Set(ascents.map(a => {
-      const d = parseAscentDate(a.date);
-      return d ? d.getFullYear() : null;
-    }).filter(Boolean))].sort();
-    const filteredYears = navContext?.year ? allYears.filter(y => y === navContext.year) : allYears;
-    filteredYears.forEach(y => {
-      const yAscents = ascents.filter(a => {
-        const d = parseAscentDate(a.date);
-        return d && d.getFullYear() === y;
-      });
-      if (yAscents.length) groups.push({ label: String(y), ascents: yAscents });
-    });
-
-  } else if (period === 'custom' && customFrom && customTo) {
-    const from = new Date(customFrom);
-    const to = new Date(customTo);
-    to.setHours(23,59,59,999);
-    const rangeAscents = ascents.filter(a => {
-      const d = parseAscentDate(a.date);
-      return d && d >= from && d <= to;
-    });
-    if (rangeAscents.length) groups.push({ label: `${fmtPcDate(customFrom)} – ${fmtPcDate(customTo)}`, ascents: rangeAscents });
-  }
-
-  return groups.map(g => {
-    const grades = g.ascents.map(a => getGradeIndex(a.grade)).filter(i => i >= 0);
-    if (!grades.length) return null;
-    const maxGrade = getGradeFromIndex(Math.max(...grades));
-    const minGrade = getGradeFromIndex(Math.min(...grades));
-    const avgGrade = getGradeFromIndex(Math.round(grades.reduce((a,b) => a+b,0) / grades.length));
-    return { label: g.label, count: g.ascents.length, max: maxGrade, min: minGrade, avg: avgGrade };
-  }).filter(Boolean);
-}
-
-function makePcCard(d, isTop) {
-  const total = HISTOGRAM_GRADE_ORDER.length - 1;
-  const maxI = getGradeIndex(d.max);
-  const minI = getGradeIndex(d.min);
-  const avgI = getGradeIndex(d.avg);
-  const isPoint = maxI === minI;
-  const leftPct = Math.round((minI / total) * 100);
-  const widthPct = isPoint ? 0 : Math.max(4, Math.round(((maxI - minI) / total) * 100));
-  const avgPct = Math.round((avgI / total) * 100);
-
-  return `<div class="pc-card${isTop ? ' pc-card-top' : ''}">
-    <div class="pc-card-head">
-      <span class="pc-card-period">${d.label}</span>
-      <span class="pc-card-count${isTop ? ' pc-card-count-top' : ''}">${d.count} ${d.count === 1 ? 'vía' : 'vías'}</span>
-    </div>
-    <div class="pc-grade-labels">
-      <span class="pc-grade-min">${d.min}</span>
-      <span class="pc-grade-max">${d.max}</span>
-    </div>
-    <div class="pc-prog-track">
-      ${!isPoint ? `<div class="pc-prog-range" style="left:${leftPct}%;width:${widthPct}%"></div>` : ''}
-      <div class="pc-prog-avg" style="left:${avgPct}%"></div>
-    </div>
-    <div class="pc-card-footer">
-      <span class="pc-avg-label">Grado medio</span>
-      <span class="pc-avg-val">${d.avg}</span>
-    </div>
-  </div>`;
-}
-// ========== END PROGRESS CARDS ==========
 
 // Reutiliza el diálogo de confirmación con un botón propio (no destructivo por defecto).
 // Se muestra por encima de las pantallas de Entrena (sesión, planes, biblioteca).
