@@ -499,8 +499,9 @@ function addMapTilerLabels(style) {
  * Añade controles al mapa
  */
 function addMapControls() {
-  // Las esquinas inferiores apilan cada control nuevo encima del anterior.
-  // Orden final (de arriba abajo): 3D, brújula, zoom, geolocalización y atribución.
+  // La esquina inferior derecha apila cada control nuevo encima del anterior.
+  // Orden final (de arriba abajo): edición (solo admin/spotter), 3D, geolocalización y atribución.
+  // Sin botones de zoom ni brújula: el zoom, el desplazamiento y la rotación se hacen por gestos.
 
   // Control de geolocalización
   const geolocateControl = new maplibregl.GeolocateControl({
@@ -511,17 +512,6 @@ function addMapControls() {
     showUserHeading: true
   });
   mlMap.addControl(geolocateControl, 'bottom-right');
-
-  // Zoom + y − (sin brújula: va en su propio botón)
-  mlMap.addControl(new maplibregl.NavigationControl({
-    showCompass: false
-  }), 'bottom-right');
-
-  // Brújula (rotación e inclinación)
-  mlMap.addControl(new maplibregl.NavigationControl({
-    showZoom: false,
-    visualizePitch: true
-  }), 'bottom-right');
 
   // Control de escala
   mlMap.addControl(new maplibregl.ScaleControl({
