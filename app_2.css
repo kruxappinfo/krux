@@ -23729,6 +23729,7 @@ h1, h2, h3 {
 }
 
 .kx-sheet-tools {
+  flex: none;
   padding: 0 16px 12px;
 }
 
@@ -23771,6 +23772,7 @@ h1, h2, h3 {
 
 /* Filtros de notificaciones */
 .kx-chips {
+  flex: none;
   display: flex;
   gap: 8px;
   overflow-x: auto;

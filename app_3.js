@@ -3726,6 +3726,8 @@ function initNotifications() {
       // Use notification ID directly - Firestore IDs are safe for HTML attributes
       const notificationId = String(n.id);
       const fromName = escapeHtmlMention(n.fromUserName || 'Usuario');
+      // Las notificaciones de seguimiento antiguas ya traen el nombre dentro del texto
+      const bodyText = String(n.text || '').replace(/^\s*<strong>[^<]*<\/strong>\s*/, '');
 
       return `${groupHeader}
         <div class="notification-item ${unreadClass}" data-id="${notificationId}" data-notification-id="${notificationId}">
@@ -3735,7 +3737,7 @@ function initNotifications() {
               <span class="notification-type" aria-hidden="true">${getNotificationIcon(n.type)}</span>
             </span>
             <div class="notification-content">
-              <div class="notification-text"><strong>${fromName}</strong> ${n.text}</div>
+              <div class="notification-text"><strong>${fromName}</strong> ${bodyText}</div>
               <div class="notification-time">${timeAgo}${n.read ? '' : '<span class="kx-visually-hidden">, sin leer</span>'}</div>
             </div>
           </div>
