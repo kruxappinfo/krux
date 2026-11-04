@@ -424,10 +424,10 @@
     return { idx, cur, next, base, pct, missing: next ? Math.max(0, Math.ceil(next.m - meters)) : 0 };
   }
 
-  // Fotos reales de los hitos: se añaden a assets/activity/hitos/<id>.jpg y su id aquí.
-  // Sin foto, la tarjeta es solo tipográfica (no se dibujan siluetas ni se inventan imágenes).
-  const HITO_PHOTOS = new Set([]);
-  const hitoPhoto = m => (m && HITO_PHOTOS.has(m.id) ? `assets/activity/hitos/${m.id}.jpg` : null);
+  // Fotos de los hitos: recortes con fondo transparente en assets/activity/hitos/<id>.webp.
+  // Se añade el id aquí al incorporar una foto nueva; sin foto (hoy, el Everest), la tarjeta es solo tipográfica.
+  const HITO_PHOTOS = new Set(['pisa', 'libertad', 'bigben', 'eiffel', 'empire', 'burj', 'capitan', 'naranjo', 'mulhacen', 'teide', 'montblanc', 'kili', 'aconcagua', 'k2']);
+  const hitoPhoto = m => (m && HITO_PHOTOS.has(m.id) ? `assets/activity/hitos/${m.id}.webp` : null);
 
   function celebrate(rng, st) {
     // Una vez por hito y periodo con fecha fija (no cada vez que se abre la pantalla).
@@ -470,23 +470,26 @@
       ? `<strong>${Math.round(st.pct)}%</strong> hacia ${esc(st.next.name)} · faltan ${nf.format(st.missing)} m`
       : (known ? 'Has superado todos los hitos' : '');
 
-    const photo = hitoPhoto(st.cur || st.next);
-    el.innerHTML = `<article class="ax-panel ax-meters${photo ? ' has-photo' : ''}">
-      ${photo ? `<img class="ax-meters-photo" src="${photo}" alt="${esc((st.cur || st.next).short)}" loading="lazy">` : ''}
-      <div class="ax-meters-body">
-        ${panelHead('Metros escalados', sel)}
-        <div class="ax-meters-num">${nf.format(meters)}<span> m</span></div>
-        <p class="ax-meters-eq">${eq}</p>
-        ${prevR.total > 0 && known ? trend(delta(total, prevR.total), ` vs ${PREV_TXT[p]}`) : ''}
-        <div class="ax-meters-row">
-          <div class="ax-meters-prog">
-            ${known && st.next ? `<div class="ax-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(st.pct)}" aria-label="Progreso hacia ${esc(st.next.short)}"><i style="width:${st.pct.toFixed(1)}%"></i></div>` : ''}
-            ${nextTxt ? `<p class="ax-caption">${nextTxt}</p>` : ''}
-          </div>
-          <button type="button" class="ax-round" data-ax="meters-hitos" aria-label="Ver hitos y marcas de metros">${I.chevron}</button>
+    const ref = st.cur || st.next;
+    const photo = hitoPhoto(ref);
+    el.innerHTML = `<article class="ax-panel ax-meters">
+      ${panelHead('Metros escalados', sel)}
+      <div class="ax-meters-top">
+        <div class="ax-meters-body">
+          <div class="ax-meters-num">${nf.format(meters)}<span> m</span></div>
+          <p class="ax-meters-eq">${eq}</p>
+          ${prevR.total > 0 && known ? trend(delta(total, prevR.total), ` vs ${PREV_TXT[p]}`) : ''}
         </div>
-        ${unknown ? `<p class="ax-caption ax-caption--muted">${I.info}<span>${plural(unknown, 'ascensión', 'ascensiones')} sin longitud verificada: cuentan como ascensión pero no suman metros.</span></p>` : ''}
+        ${photo ? `<img class="ax-meters-photo" src="${photo}" alt="${esc(ref.short)}" width="${ref.kind === 'montana' || ref.id === 'capitan' ? 150 : 84}" height="120" decoding="async">` : ''}
       </div>
+      <div class="ax-meters-row">
+        <div class="ax-meters-prog">
+          ${known && st.next ? `<div class="ax-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(st.pct)}" aria-label="Progreso hacia ${esc(st.next.short)}"><i style="width:${st.pct.toFixed(1)}%"></i></div>` : ''}
+          ${nextTxt ? `<p class="ax-caption">${nextTxt}</p>` : ''}
+        </div>
+        <button type="button" class="ax-round" data-ax="meters-hitos" aria-label="Ver hitos y marcas de metros">${I.chevron}</button>
+      </div>
+      ${unknown ? `<p class="ax-caption ax-caption--muted">${I.info}<span>${plural(unknown, 'ascensión', 'ascensiones')} sin longitud verificada: cuentan como ascensión pero no suman metros.</span></p>` : ''}
     </article>`;
     celebrate(rng, st);
   }
@@ -522,6 +525,7 @@
       const reached = all >= m.m;
       return `<li class="ax-hito${reached ? ' is-reached' : ''}">
         <span class="ax-hito-mark">${reached ? I.check : ''}</span>
+        ${hitoPhoto(m) ? `<img class="ax-hito-img" src="${hitoPhoto(m)}" alt="" loading="lazy" decoding="async">` : '<span class="ax-hito-img"></span>'}
         <div class="ax-hito-text"><strong>${esc(m.short)}</strong><span>${nf.format(m.m)} m · ${KIND[m.kind]}</span><small>${esc(m.note)}</small></div>
         <span class="ax-hito-x">${all > 0 ? fmtTimes(all / m.m) + '×' : ''}</span>
       </li>`;
