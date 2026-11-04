@@ -1502,9 +1502,11 @@ function initGlobalSearch() {
     });
   }
 
-  async function openOnMap(item) {
-    sheet.classList.add('hidden');
-    switchView('map-view');
+  async function openOnMap(item, { stayOnMap = false } = {}) {
+    if (!stayOnMap) {
+      sheet.classList.add('hidden');
+      switchView('map-view');
+    }
     const ready = await waitForMap();
     if (!ready || typeof mlLoadSchool !== 'function') {
       showToast('El mapa todavía no está listo. Inténtalo de nuevo.', 'info');
@@ -1554,6 +1556,25 @@ function initGlobalSearch() {
     rememberResult(item);
     openOnMap(target);
   }
+
+  // API para el buscador del mapa (map-search.js): mismo índice de lugares y misma apertura de destinos,
+  // sin personas; desde el mapa no se cambia de vista
+  window.KruxPlaces = {
+    load: loadPlacesIndex,
+    matchPlaces,
+    matchRoutes,
+    norm,
+    open: async (item) => {
+      await openOnMap(item, { stayOnMap: true });
+      // Una escuela se abre acercándose a ella (zoom propio de su configuración); sectores y vías ya vuelan a su sitio
+      if (item.kind === 'school' && typeof MAPLIBRE_SCHOOLS !== 'undefined' && MAPLIBRE_SCHOOLS[item.id] && typeof mlMap !== 'undefined' && mlMap) {
+        const school = MAPLIBRE_SCHOOLS[item.id];
+        mlMap.flyTo({ center: school.center, zoom: school.zoom || 14, essential: true });
+      }
+    },
+    remember: rememberResult,
+    recent: () => getRecent().filter(it => it.type !== 'user')
+  };
 
   // Desde fuera del buscador (p. ej. el grado de una ascensión publicada): localiza la vía y la abre en el mapa
   window.kxOpenAscentOnMap = async function (ascent) {
@@ -1606,11 +1627,6 @@ function initGlobalSearch() {
     else closeFeedSheet(sheet);
   });
 
-  // El buscador del mapa abre la misma búsqueda (escuelas y vías llevan de vuelta al mapa)
-  document.getElementById('map-search-btn')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openSearchSheet();
-  });
 
   categories?.addEventListener('click', (e) => {
     const chip = e.target.closest('.kx-chip');
