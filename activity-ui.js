@@ -683,11 +683,8 @@
       el.innerHTML = `<article class="ax-panel">${panelHead('Pirámide de grados', pick)}<p class="ax-empty">${view === 'send' ? 'Sin ascensiones encadenadas todavía.' : 'Sin intentos registrados.'}</p></article><span id="act-consolidated-grade" hidden>${conso || '-'}</span>`;
       return;
     }
-    // Todos los grados entre el más bajo y el más alto, también los que tienen 0
-    const hi = Math.max(...ranks), lo = Math.min(...ranks);
-    // (los grados sin letra de la escala de rocódromo, como 5+, solo salen si tienen datos)
-    const rows = [];
-    for (let r = hi; r >= lo; r--) { const g = scale(r); if (counts[g] || !/^\d\+?$/.test(g)) rows.push(g); }
+    // Solo los grados escalados, del más alto al más bajo
+    const rows = Object.keys(counts).sort((a, b) => rank(b) - rank(a));
     const max = Math.max(...rows.map(g => counts[g]?.n || 0));
     el.innerHTML = `<article class="ax-panel">
       ${panelHead('Pirámide de grados', pick)}
