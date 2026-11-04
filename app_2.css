@@ -29751,9 +29751,12 @@ html.cw-lock, html.cw-lock body { overflow: hidden; }
 }
 
 /* ---------- Metros escalados ---------- */
-#activity-view .ax-meters-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
-#activity-view .ax-meters-body { min-width: 0; flex: 1; }
-#activity-view .ax-meters-photo { flex: none; width: auto; height: 132px; max-width: 46%; object-fit: contain; object-position: right bottom; filter: drop-shadow(0 10px 14px rgba(32, 43, 39, 0.18)); }
+#activity-view .ax-meters-top { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); grid-template-areas: "num photo" "eq eq" "trend trend"; align-items: end; column-gap: 12px; }
+#activity-view .ax-meters-body { display: contents; }
+#activity-view .ax-meters-num { grid-area: num; align-self: center; }
+#activity-view .ax-meters-eq { grid-area: eq; }
+#activity-view .ax-meters-body > :not(.ax-meters-num):not(.ax-meters-eq) { grid-area: trend; }
+#activity-view .ax-meters-photo { grid-area: photo; justify-self: center; align-self: center; width: auto; height: 120px; max-width: 100%; object-fit: contain; filter: drop-shadow(0 10px 14px rgba(32, 43, 39, 0.18)); }
 #activity-view .ax-meters-num { font-size: 3.25rem; line-height: 1; font-weight: 800; letter-spacing: -0.045em; color: var(--ax-deep); font-variant-numeric: tabular-nums; }
 #activity-view .ax-meters-num span { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
 #activity-view .ax-meters-eq { margin: 10px 0 6px; font-size: 1.0625rem; line-height: 1.4; color: var(--ax-ink); }
