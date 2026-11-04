@@ -27932,6 +27932,22 @@ body.session-open #confirm-modal.modal { z-index: 100010; }
 }
 .session-timer-block.is-rest .session-set-chip { background: var(--tr-surface); }
 
+.session-auto-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--tr-fill);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tr-ink-2);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.session-auto-btn[aria-pressed="true"] { background: var(--tr-green-ink); border-color: var(--tr-green-ink); color: #fff; }
+
 .session-timer-label {
   font-size: 0.8125rem;
   font-weight: 700;

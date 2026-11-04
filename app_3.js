@@ -19431,9 +19431,53 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
   function getAudioCtx() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     // Reanudar si fue suspendido por política de autoplay
-    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
     return audioCtx;
   }
+
+  // iOS solo deja sonar el audio si el contexto se crea y se reanuda dentro de un toque:
+  // se llama en cada toque de la sesión, así los pitidos del cronómetro (que salen de un
+  // setInterval, sin gesto) siguen sonando
+  function unlockAudio() {
+    try {
+      const ctx = getAudioCtx();
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch (_) { /* sin audio */ }
+  }
+
+  // Modo manos libres: el cronómetro avanza solo y una voz anuncia cada paso
+  const AUTO_KEY = 'krux_session_handsfree';
+  function loadAuto() {
+    try { return localStorage.getItem(AUTO_KEY) !== '0'; } catch (_) { return true; }
+  }
+  let autoMode = loadAuto();
+  let autoTimer = null;
+  const clearAuto = () => { clearTimeout(autoTimer); autoTimer = null; };
+
+  function speak(text) {
+    if (!autoMode || !('speechSynthesis' in window)) return;
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'es-ES';
+      u.rate = 1.05;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    } catch (_) { /* sin voz */ }
+  }
+
+  // Wake Lock: con la pantalla apagada el navegador detiene el cronómetro
+  let wakeLock = null;
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (_) { wakeLock = null; }
+  }
+  function releaseAwake() { try { wakeLock?.release(); } catch (_) { /* ya liberado */ } wakeLock = null; }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && run) { keepAwake(); if (audioCtx?.state !== 'running') audioCtx?.resume().catch(() => {}); }
+  });
 
   function beep({ freq = 880, duration = 0.08, volume = 0.4, type = 'sine', delay = 0 } = {}) {
     try {
@@ -19460,6 +19504,10 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     beep({ freq: 880,  duration: 0.1, volume: 0.6, delay: 0.0 });
     beep({ freq: 1100, duration: 0.1, volume: 0.6, delay: 0.13 });
     beep({ freq: 1320, duration: 0.18, volume: 0.7, delay: 0.26 });
+  }
+  // Aviso de arranque del trabajo
+  function soundGo() {
+    beep({ freq: 1320, duration: 0.22, volume: 0.6 });
   }
   // Pitido suave al terminar el descanso
   function soundRestEnd() {
@@ -19532,6 +19580,9 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
 
     modal.classList.remove('hidden');
     document.body.classList.add('session-open');
+    unlockAudio();
+    keepAwake();
+    syncAutoBtn();
 
     $('session-elapsed').textContent = hms(0);
     elapsedId = setInterval(() => {
@@ -19549,6 +19600,9 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
   function close() {
     clearInterval(intervalId);
     clearInterval(elapsedId);
+    clearAuto();
+    releaseAwake();
+    try { speechSynthesis.cancel(); } catch (_) { /* sin voz */ }
     const modal = $('session-modal');
     if (modal) modal.classList.add('hidden');
     document.body.classList.remove('session-open');
@@ -19701,6 +19755,7 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     block.classList.toggle('is-rest', m === 'rest');
     block.classList.toggle('is-between', m === 'between');
     time.classList.remove('is-urgent');
+    clearAuto();
     $('session-btn-reset').disabled = m === 'between';
     $('session-btn-set').disabled = m === 'between';
 
@@ -19713,12 +19768,23 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
         $('session-ring-lbl').textContent = ex.reps > 0 ? 'repeticiones' : 'serie libre';
         setMainBtn(SVG.check, 'Serie hecha');
       }
+      autoStartWork(ex);
+    } else if (m === 'ready') {
+      $('session-timer-label').textContent = 'Prepárate';
+      timerSec = READY_SEC; targetSec = READY_SEC;
+      showBig(timerSec, 'para empezar');
+      setRing(1);
+      setMainBtn(SVG.skip, 'Empezar ya', false);
+      $('session-btn-main').setAttribute('aria-label', 'Empezar ahora');
+      intervalId = setInterval(tickReady, 1000);
     } else if (m === 'work') {
       $('session-timer-label').textContent = 'Trabajo';
       timerSec = 0; targetSec = ex.workSec;
       showBig(targetSec);
       setMainBtn(SVG.pause, 'Pausar');
       intervalId = setInterval(tickWork, 1000);
+      soundGo();
+      speak(timerSec === 0 && setsDone === 0 ? 'Ya' : `Serie ${setsDone + 1}. Ya`);
     } else if (m === 'rest') {
       $('session-timer-label').textContent = 'Descanso';
       timerSec = ex.restSec; targetSec = ex.restSec;
@@ -19727,6 +19793,7 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
       setMainBtn(SVG.skip, 'Saltar', false);
       $('session-btn-main').setAttribute('aria-label', 'Saltar descanso');
       intervalId = setInterval(tickRest, 1000);
+      speak(`Descanso, ${dur(ex.restSec)}`);
     } else if (m === 'between') {
       const last = exIdx + 1 >= EXERCISES().length;
       $('session-timer-label').textContent = 'Ejercicio completado';
@@ -19734,10 +19801,43 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
       time.textContent = String(ex.sets);
       $('session-ring-lbl').textContent = ex.sets === 1 ? 'serie hecha' : 'series hechas';
       setMainBtn(last ? SVG.flag : SVG.skip, last ? 'Terminar' : 'Siguiente');
+      if (autoMode) {
+        const next = EXERCISES()[exIdx + 1];
+        speak(next ? `Ejercicio completado. Siguiente: ${next.name}` : 'Último ejercicio completado');
+        autoTimer = setTimeout(() => { if (mode === 'between') nextExercise(); }, next ? 5000 : 4000);
+      }
     }
     renderDots();
     renderMetrics();
     renderHistory();
+  }
+
+  const READY_SEC = 5;
+
+  // Manos libres: en series con tiempo, el trabajo arranca solo (con cuenta atrás al empezar
+  // un ejercicio). Las series por repeticiones esperan al toque porque no hay forma de medirlas
+  function autoStartWork(ex) {
+    if (!autoMode || !(ex.workSec > 0)) {
+      if (autoMode) speak(ex.reps > 0 ? `${ex.name}. ${ex.reps} repeticiones. Pulsa cuando termines` : `${ex.name}. Pulsa cuando termines`);
+      return;
+    }
+    if (setsDone === 0) {
+      speak(`${ex.name}. ${ex.sets > 1 ? `${ex.sets} series de ` : ''}${dur(ex.workSec)}. Prepárate`);
+      setMode('ready');
+    } else {
+      setMode('work');
+    }
+  }
+
+  function tickReady() {
+    timerSec--;
+    setRing(timerSec / targetSec);
+    showBig(Math.max(0, timerSec), 'para empezar');
+    if (timerSec <= 3 && timerSec > 0) {
+      $('session-ring-time').classList.add('is-urgent');
+      soundUrgent();
+    }
+    if (timerSec <= 0) { clearInterval(intervalId); setMode('work'); }
   }
 
   function tickWork() {
@@ -19752,6 +19852,7 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     } else if (remaining > 3) {
       soundTick();
     }
+    if (targetSec >= 40 && remaining === Math.floor(targetSec / 2)) speak('Mitad');
     if (timerSec >= targetSec) completeSet();
   }
 
@@ -19767,14 +19868,17 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     if (timerSec <= 0) {
       clearInterval(intervalId);
       soundRestEnd();
-      setMode('idle');
+      setMode('idle');   // con manos libres, 'idle' arranca el trabajo solo
       announce(`Fin del descanso. Serie ${setsDone + 1}.`);
     }
   }
 
   function toggleTimer() {
     const ex = EXERCISES()[exIdx];
-    if (mode === 'idle') {
+    if (mode === 'ready') {
+      clearInterval(intervalId);
+      setMode('work');
+    } else if (mode === 'idle') {
       if (ex.workSec > 0) setMode('work'); else completeSet();
     } else if (mode === 'work') {
       clearInterval(intervalId);
@@ -19790,6 +19894,7 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     } else if (mode === 'rest') {
       setMode('idle');
     } else if (mode === 'between') {
+      clearAuto();
       nextExercise();
     }
   }
@@ -19830,6 +19935,22 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     renderExercise();
   }
 
+  function syncAutoBtn() {
+    const b = $('session-auto-btn');
+    if (b) b.setAttribute('aria-pressed', String(autoMode));
+  }
+
+  function toggleAuto() {
+    autoMode = !autoMode;
+    try { localStorage.setItem(AUTO_KEY, autoMode ? '1' : '0'); } catch (_) { /* sin almacenamiento */ }
+    syncAutoBtn();
+    if (!autoMode) { clearAuto(); try { speechSynthesis.cancel(); } catch (_) { /* sin voz */ } }
+    const msg = autoMode ? 'Manos libres activado: avanza solo y te habla' : 'Manos libres desactivado';
+    if (typeof showToast === 'function') showToast(msg, 'info');
+    announce(msg);
+    if (autoMode && mode === 'idle') autoStartWork(EXERCISES()[exIdx]);
+  }
+
   function changeLoad(delta) {
     const ex = EXERCISES()[exIdx];
     // Solo cambia la copia de esta sesión: el plan original no se toca
@@ -19852,6 +19973,10 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
   function showCompletion() {
     clearInterval(intervalId);
     clearInterval(elapsedId);
+    clearAuto();
+    releaseAwake();
+    soundDone();
+    speak('Entrenamiento terminado');
     const screen = $('session-screen');
     if (!screen) return;
 
@@ -19998,6 +20123,7 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
     TEMPLATE = screen.innerHTML;
 
     modal.addEventListener('click', e => {
+      unlockAudio();
       const rpe = e.target.closest('#session-rpe-dots [data-rpe]');
       if (rpe) { setRpe(parseInt(rpe.dataset.rpe, 10)); return; }
       const btn = e.target.closest('button[id]');
@@ -20006,6 +20132,7 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
         case 'session-close-btn': requestClose(); break;
         case 'session-finish-btn': requestFinish(); break;
         case 'session-btn-main': toggleTimer(); break;
+        case 'session-auto-btn': toggleAuto(); break;
         case 'session-btn-reset': setMode('idle'); announce('Cronómetro reiniciado'); break;
         case 'session-btn-set': completeSet(); break;
         case 'session-skip-btn': nextExercise(); break;
