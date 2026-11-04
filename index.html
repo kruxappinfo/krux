@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=113" />
+  <link rel="stylesheet" href="./app_2.css?v=114" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -101,7 +101,7 @@
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
   <script defer src="./app_3.js?v=99"></script>
-  <script defer src="./activity-ui.js?v=2"></script>
+  <script defer src="./activity-ui.js?v=3"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
   <script defer src="./train-profile.js?v=3"></script>
@@ -458,14 +458,17 @@
           <!-- Cabecera: título, nueva ascensión y selector Roca / Rocódromo -->
           <header class="activity-header ax-header">
             <div class="ax-header-row">
-              <h1 class="activity-title ax-title">Actividad</h1>
+              <div class="ax-title-wrap">
+                <span class="ax-wordmark" aria-hidden="true">KRUX</span>
+                <h1 class="activity-title ax-title">Actividad</h1>
+              </div>
               <button class="ax-add" id="new-ascent-btn" type="button" aria-label="Nueva ascensión">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
               </button>
             </div>
             <div class="act-mode-toggle ax-mode" id="activity-mode-toggle" role="group" aria-label="Tipo de escalada">
-              <button class="act-mode-btn active" id="btn-roca" data-mode="roca" type="button" aria-pressed="true">Roca</button>
-              <button class="act-mode-btn" id="btn-rocodromo" data-mode="rocodromo" type="button" aria-pressed="false">Rocódromo</button>
+              <button class="act-mode-btn active" id="btn-roca" data-mode="roca" type="button" aria-pressed="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 19 6.5-11 4 6.5 2.5-3.5 5 8z"/></svg>Roca</button>
+              <button class="act-mode-btn" id="btn-rocodromo" data-mode="rocodromo" type="button" aria-pressed="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></svg>Rocódromo</button>
             </div>
           </header>
 
@@ -499,11 +502,11 @@
             <section class="ax-sec" aria-label="Resumen de entrenamiento">
               <article class="ax-panel">
                 <header class="ax-panel-head"><h2 class="ax-h2">Resumen de entrenamiento</h2></header>
-                <div class="ax-stat-grid">
-                <div class="ax-stat"><div class="ax-stat-top"><strong class="ax-stat-val" id="gym-sessions-week">-</strong><span class="ax-ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M10 20V4M15 20v-7M20 20v-11"/></svg></span></div><span class="ax-stat-lbl">sesiones/semana</span><span class="ax-stat-sub">media de 8 semanas</span></div>
-                <div class="ax-stat"><div class="ax-stat-top"><strong class="ax-stat-val" id="gym-flash-rate">-</strong><span class="ax-ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></span></div><span class="ax-stat-lbl">flash rate</span></div>
-                <div class="ax-stat"><div class="ax-stat-top"><strong class="ax-stat-val" id="gym-max-grade">-</strong><span class="ax-ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 20 7-14 4 8 2-3 5 9z"/></svg></span></div><span class="ax-stat-lbl">grado máximo</span></div>
-                <div class="ax-stat"><div class="ax-stat-top"><strong class="ax-stat-val" id="gym-total-sessions">-</strong><span class="ax-ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M16 3v4M8 3v4M4 10h16"/></svg></span></div><span class="ax-stat-lbl">sesiones totales</span></div>
+                <div class="ax-metrics">
+                  <div class="ax-metric"><strong class="ax-metric-val" id="gym-sessions-week">-</strong><span class="ax-metric-lbl">Sesiones por semana <small>(últimas 8)</small></span></div>
+                  <div class="ax-metric"><strong class="ax-metric-val" id="gym-flash-rate">-</strong><span class="ax-metric-lbl">Flash rate</span></div>
+                  <div class="ax-metric"><strong class="ax-metric-val" id="gym-max-grade">-</strong><span class="ax-metric-lbl">Grado máximo</span></div>
+                  <div class="ax-metric"><strong class="ax-metric-val" id="gym-total-sessions">-</strong><span class="ax-metric-lbl">Sesiones totales</span></div>
                 </div>
               </article>
             </section>
