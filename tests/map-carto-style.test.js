@@ -2,7 +2,7 @@
 // Fija las dos tablas originales (capa nativa de vías y fichas/variantes/ticks) y comprueba que los estilos
 // nuevos de vías y sectores las reutilizan, sin paletas propias.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import vm from 'node:vm';
 
 const CONFIG = readFileSync(new URL('../maplibre-config.js', import.meta.url), 'utf8');
@@ -308,6 +308,7 @@ describe('selección de sectores', () => {
   const layersPresent = new Set(['sectores-hit-layer', 'sectores-labels-layer', 'vias-layer', 'school-markers-layer']);
   ctx.mlMap = {
     getLayer: id => (layersPresent.has(id) ? {} : null),
+    getSource: () => null,
     queryRenderedFeatures: (geom, opts) => {
       queries.push({ geom, layers: opts.layers });
       const key = opts.layers.join(',');
@@ -329,6 +330,8 @@ describe('selección de sectores', () => {
     extractConst(MAP, 'KX_PRIORITY_LAYERS', '[', ']').replace("KX_ROUTE_LAYERS.concat(", "KX_ROUTE_LAYERS.concat(") ,
     MAP.match(/const KX_LABEL_TAP_PAD = [^;]+;/)[0],
     'let kxSectorChooser = null;',
+    extractConst(MAP, 'KX_LINE_SOURCE_OF'),
+    extractFunction(MAP, 'kxLineFeatureProps'),
     extractFunction(MAP, 'kxOpenSectorFeature'),
     extractFunction(MAP, 'kxSectorKey'),
     extractFunction(MAP, 'kxHandleSectorTap'),
@@ -399,5 +402,111 @@ describe('selección de sectores', () => {
     reset(); results({});
     ctx.tap(tapEvent([]));
     expect(opened).toEqual([]);
+  });
+});
+
+// ---------- Etiquetas de sector al lateral, en el lado contrario a las vías ----------
+describe('etiquetas de sector: lateral sin vías', () => {
+  const ctx = vm.createContext({});
+  vm.runInContext([
+    extractConst(MAP, 'KX_LABEL_NEAR_M', '[', ']'),
+    extractConst(MAP, 'KX_LABEL_ANCHORS', '[', ']'),
+    extractFunction(MAP, 'kxLabelAnchorFor'),
+    extractFunction(MAP, 'kxSectorLabelPlacement'),
+    'this.api = { kxLabelAnchorFor, kxSectorLabelPlacement };'
+  ].join('\n'), ctx);
+  const { kxLabelAnchorFor: anchorFor, kxSectorLabelPlacement: place } = ctx.api;
+  const m = 1 / 111320 / Math.cos(40 * Math.PI / 180);   // 1 m en grados de longitud a 40° N
+  const mLat = 1 / 110540;
+  // Línea oeste → este de 100 m a 40° N
+  const horizontal = [[[-2, 40], [-2 + 100 * m, 40]]];
+  // Línea sur → norte de 100 m
+  const vertical = [[[-2, 40], [-2, 40 + 100 * mLat]]];
+
+  it('el ancla deja la píldora hacia la dirección pedida', () => {
+    expect(anchorFor(0)).toBe('left');        // etiqueta a la derecha de la línea
+    expect(anchorFor(90)).toBe('bottom');     // encima
+    expect(anchorFor(180)).toBe('right');     // a la izquierda
+    expect(anchorFor(-90)).toBe('top');       // debajo
+    expect(anchorFor(45)).toBe('bottom-left');
+    expect(anchorFor(400)).toBe('bottom-left');   // normaliza ángulos
+  });
+
+  it('vías al sur de una línea horizontal → la etiqueta va al norte', () => {
+    const routes = [[-2 + 50 * m, 40 - 8 * mLat], [-2 + 45 * m, 40 - 10 * mLat], [-2 + 55 * m, 40 - 6 * mLat]];
+    const p = place(horizontal, routes);
+    expect(anchorFor(p.angle)).toBe('bottom');
+  });
+
+  it('vías al norte → la etiqueta va al sur', () => {
+    const routes = [[-2 + 50 * m, 40 + 8 * mLat], [-2 + 52 * m, 40 + 5 * mLat]];
+    expect(anchorFor(place(horizontal, routes).angle)).toBe('top');
+  });
+
+  it('vías al este de una línea vertical → la etiqueta va al oeste', () => {
+    const routes = [[-2 + 6 * m, 40 + 50 * mLat], [-2 + 9 * m, 40 + 48 * mLat]];
+    expect(anchorFor(place(vertical, routes).angle)).toBe('right');
+  });
+
+  it('gana el lado con menos vías aunque haya vías en los dos', () => {
+    const routes = [[-2 + 50 * m, 40 - 8 * mLat], [-2 + 48 * m, 40 - 6 * mLat], [-2 + 52 * m, 40 + 7 * mLat]];
+    expect(anchorFor(place(horizontal, routes).angle)).toBe('bottom');   // 2 al sur, 1 al norte → norte
+  });
+
+  it('sin vías cerca (o muy lejos) la etiqueta va hacia arriba', () => {
+    expect(anchorFor(place(horizontal, []).angle)).toBe('bottom');
+    expect(anchorFor(place(horizontal, [[-2 + 50 * m, 40 + 500 * mLat]]).angle)).toBe('bottom');
+  });
+
+  it('el punto de la etiqueta está a mitad del recorrido de la línea, sobre ella', () => {
+    const p = place(horizontal, []);
+    expect(p.point[0]).toBeCloseTo(-2 + 50 * m, 9);
+    expect(p.point[1]).toBeCloseTo(40, 9);
+  });
+
+  it('en un sector con varios tramos usa el más largo y no falla con tramos vacíos', () => {
+    const p = place([[[-2, 40]], [], horizontal[0]], []);
+    expect(p.point[0]).toBeCloseTo(-2 + 50 * m, 9);
+    expect(place([[], [[-2, 40]]], [])).toBeNull();
+  });
+});
+
+// ---------- Iconos de puntos de interés (pack «KRUX POI matte») ----------
+describe('iconos de puntos de interés', () => {
+  const files = (() => {
+    const src = extractConst(MAP, 'POI_SVG_FILES');
+    const ctx = vm.createContext({});
+    vm.runInContext(src + '; this.f = POI_SVG_FILES;', ctx);
+    return { ...ctx.f };
+  })();
+  const PACK = ['agua', 'albergue', 'arroyo', 'banco', 'bar', 'bomberos', 'camping', 'correos', 'cueva', 'cumbre', 'ducha', 'ermita',
+    'escalera', 'farmacia', 'fuente', 'gasolinera', 'hospital', 'hotel', 'iglesia', 'informacion', 'merendero', 'mirador', 'parking',
+    'peligro', 'piscina', 'policia', 'puente', 'refugio', 'restaurante', 'rio', 'ruina', 'telefono', 'tienda', 'vivac', 'wc'];
+
+  it('los 35 tipos del pack tienen su propio icono, uno por tipo', () => {
+    PACK.forEach(t => expect(files[t], t).toBe(`assets/poi-icons/${t}.svg`));
+    expect(PACK).toHaveLength(35);
+  });
+
+  it('cada fichero existe, es un SVG de 48×48 y no lleva scripts ni imágenes incrustadas', () => {
+    for (const [tipo, path] of Object.entries(files)) {
+      const abs = new URL(`../${path}`, import.meta.url);
+      expect(existsSync(abs), `${tipo}: ${path}`).toBe(true);
+      const svg = readFileSync(abs, 'utf8');
+      expect(svg).toContain('viewBox="0 0 48 48"');
+      expect(svg).not.toMatch(/<script|<image|href=|onload|<foreignObject/i);
+    }
+  });
+
+  it('el alias «bombero» usa el icono de bomberos', () => {
+    expect(files.bombero).toBe('assets/poi-icons/bomberos.svg');
+  });
+
+  it('los iconos son discos mates con borde blanco (sin degradados ni sombras)', () => {
+    for (const t of PACK) {
+      const svg = readFileSync(new URL(`../assets/poi-icons/${t}.svg`, import.meta.url), 'utf8');
+      expect(svg, t).toContain('stroke="#FFFFFF"');
+      expect(svg, t).not.toMatch(/Gradient|<filter|feDropShadow/i);
+    }
   });
 });

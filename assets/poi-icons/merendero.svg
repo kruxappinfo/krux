@@ -1,11 +1,11 @@
-<?xml version="1.0" encoding="utf-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
-  <g transform="matrix(0.047509, 0, 0, -0.047509, -73.913727, 408.961395)" fill="#E6BB03" fill-rule="evenodd" stroke="none" style="">
-    <ellipse style="stroke: rgb(0, 0, 0); fill: rgb(255, 255, 255);" cx="6835.84" cy="-4467.1" rx="2791.03" ry="2696.7" transform="matrix(1, 0, 0, -1, 0, 0)"/>
-  </g>
-  <g transform="matrix(0.06829, 0, 0, -0.06829, -223.250519, 501.255066)" fill="#1FA5BB" fill-rule="evenodd" stroke="none" style="">
-    <path fill-rule="evenodd" d="M6835 6983 c-310 -11 -689 -104 -970 -237 -349 -166 -661 -414 -906 -721 -404 -505 -602 -1179 -534 -1815 22 -214 82 -458 156 -640 79 -197 100 -244 179 -405 302 -611 794 -1291 1316 -1820 265 -268 605 -572 721 -645 52 -33 62 -35 137 -35 102 0 140 20 299 153 871 732 1608 1693 1997 2602 270 630 298 1215 90 1844 -129 388 -341 720 -646 1016 -495 479 -1142 727 -1839 703z m325 -764 c115 -12 258 -47 388 -95 706 -263 1164 -921 1165 -1674 0 -298 -61 -549 -201 -825 -100 -198 -315 -451 -505 -593 -217 -163 -504 -290 -772 -343 -94 -19 -484 -19 -580 -1 -403 77 -738 258 -1016 548 -238 249 -396 565 -460 919 -33 185 -32 443 5 627 46 239 132 450 260 643 323 485 829 776 1406 809 67 3 183 -2 310 -15z"/>
-    <path fill-rule="evenodd" d="M6044 5195 c-18 -7 -86 -77 -170 -175 -156 -184 -163 -193 -156 -226 l4 -24 1219 0 1219 0 0 34 c0 30 -17 55 -112 168 -62 73 -136 157 -164 186 l-52 53 -879 -2 c-683 -1 -886 -4 -909 -14z"/>
-    <path fill-rule="evenodd" d="M5868 4242 c-2 -258 -2 -476 0 -485 3 -14 16 -17 68 -17 58 0 65 2 73 23 4 12 14 177 21 367 6 190 14 366 17 393 l5 48 49 -4 c27 -2 53 -7 57 -11 4 -4 8 -113 10 -242 l3 -234 27 -1 c39 -2 56 2 63 13 4 6 10 81 13 167 4 86 9 191 12 234 l6 77 644 0 c507 0 645 -3 649 -12 2 -7 9 -112 15 -233 11 -226 15 -241 55 -245 58 -6 55 -21 55 233 0 127 4 237 8 243 7 12 65 17 93 8 19 -5 23 -60 40 -509 6 -174 14 -294 21 -302 6 -8 34 -13 74 -13 l64 0 -2 483 -3 482 -1067 3 -1068 2 -2 -468z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+  <title id="title">merendero</title>
+  <!-- Subtle dark keyline for visibility on bright orthophoto -->
+  <circle cx="24" cy="24" r="22.3" fill="#263A34"/>
+  <!-- Matte category disc and crisp white separation ring -->
+  <circle cx="24" cy="24" r="21.1" fill="#8A805F" stroke="#FFFFFF" stroke-width="2.4"/>
+  <!-- White pictogram, enlarged for readability -->
+  <g transform="translate(3.5 3.5) scale(0.85)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 24h32M12 24l-3 15m27-15 3 15M15 24l-2-8h22l-2 8" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 15V8m0 0c-7 0-8 7 0 7m0-7c7 0 8 7 0 7" fill="none" stroke="white" stroke-width="2.8" stroke-linecap="round"/>
   </g>
 </svg>

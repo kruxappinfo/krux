@@ -346,7 +346,170 @@ function kxAddSectorHitLayer(sourceId, layerId, minzoom, sourceLayer) {
   kxBindSectorEvents(layerId);
 }
 
-// Etiqueta de sector: píldora a lo largo de la línea, horizontal, sin solaparse (colisión nativa)
+// ---- Etiquetas de sector al lateral de la línea, en el lado contrario a las vías ----
+// Cada sector tiene un punto de etiqueta en la mitad de su trazado (fuente de puntos propia, ligera: uno por sector).
+// La píldora se ancla a ese punto hacia el lado de la línea con menos vías cerca, así nombre y vías no se pisan.
+const KX_LABEL_SOURCE_OF = { 'sectores-source': 'sectores-labels-source', 'sectores-usuarios-source': 'sectores-usuarios-labels-source' };
+const KX_LINE_SOURCE_OF = { 'sectores-labels-source': 'sectores-source', 'sectores-usuarios-labels-source': 'sectores-usuarios-source' };
+const KX_LABEL_LAYER_OF = { 'sectores-source': 'sectores-labels-layer', 'sectores-usuarios-source': 'sectores-usuarios-labels-layer' };
+const KX_LABEL_NEAR_M = [35, 90];   // radios (m) en los que se cuentan las vías a cada lado, de cerca a lejos
+const _kxLabelPoints = new Map();   // fuente de línea → features de etiqueta (para reorientarlas al girar el mapa)
+
+// Ancla de la píldora según la dirección (grados en pantalla, 0 = derecha, 90 = arriba) hacia la que debe quedar
+const KX_LABEL_ANCHORS = ['left', 'bottom-left', 'bottom', 'bottom-right', 'right', 'top-right', 'top', 'top-left'];
+// Separación (em) desde la línea: más en horizontal porque la píldora tiene más relleno a los lados
+const KX_LABEL_OFFSETS = { left: 1.7, right: 1.7, top: 0.85, bottom: 0.85, 'top-left': 1.3, 'top-right': 1.3, 'bottom-left': 1.3, 'bottom-right': 1.3 };
+
+function kxLabelAnchorFor(screenAngle) {
+  const a = ((screenAngle % 360) + 360) % 360;
+  return KX_LABEL_ANCHORS[Math.round(a / 45) % 8];
+}
+
+/**
+ * Punto y lado de la etiqueta de un sector. lines: [[lng, lat], ...][]; routes: [lng, lat][].
+ * Devuelve { point, angle } con angle = dirección (grados geográficos, 0 = este, 90 = norte) hacia la que va la etiqueta.
+ */
+function kxSectorLabelPlacement(lines, routes) {
+  const longest = lines.filter(l => l && l.length >= 2).sort((a, b) => b.length - a.length)[0];
+  if (!longest) return null;
+  const lat0 = longest[0][1] * Math.PI / 180;
+  const kx = 111320 * Math.cos(lat0), ky = 110540;   // grados → metros (aprox. local, suficiente a escala de escuela)
+  const P = longest.map(([x, y]) => [x * kx, y * ky]);
+  let total = 0;
+  const seg = [];
+  for (let i = 1; i < P.length; i++) { const d = Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]); seg.push(d); total += d; }
+  if (!total) return null;
+  // Punto a mitad de recorrido y dirección del tramo en ese punto
+  let acc = 0, k = 0;
+  while (k < seg.length - 1 && acc + seg[k] < total / 2) { acc += seg[k]; k++; }
+  const t = seg[k] ? (total / 2 - acc) / seg[k] : 0;
+  const M = [P[k][0] + (P[k + 1][0] - P[k][0]) * t, P[k][1] + (P[k + 1][1] - P[k][1]) * t];
+  const tx = (P[k + 1][0] - P[k][0]) / (seg[k] || 1), ty = (P[k + 1][1] - P[k][1]) / (seg[k] || 1);
+  const n = [-ty, tx];   // normal izquierda
+  // Lado con menos vías cerca del punto de etiqueta (primero muy cerca; si no hay ninguna, un poco más lejos)
+  let side = 0;
+  for (const R of KX_LABEL_NEAR_M) {
+    let left = 0, right = 0;
+    for (const [rx, ry] of routes) {
+      const dx = rx * kx - M[0], dy = ry * ky - M[1];
+      if (dx * dx + dy * dy > R * R) continue;
+      if (dx * n[0] + dy * n[1] >= 0) left++; else right++;
+    }
+    if (left !== right) { side = left < right ? 1 : -1; break; }
+  }
+  // Sin vías cerca (o empate): hacia arriba en pantalla, que es donde menos estorba
+  if (!side) side = n[1] >= 0 ? 1 : -1;
+  const dir = [n[0] * side, n[1] * side];
+  return { point: [M[0] / kx, M[1] / ky], angle: Math.atan2(dir[1], dir[0]) * 180 / Math.PI };
+}
+
+function kxRoutePoints() {
+  const pts = [];
+  const add = g => {
+    if (!g) return;
+    if (g.type === 'Point') pts.push(g.coordinates);
+    else if (g.type === 'MultiPoint') g.coordinates.forEach(c => pts.push(c));
+  };
+  ['vias-source', 'vias-usuarios-source'].forEach(id => {
+    const src = mlMap.getSource(id);
+    const data = src && src.serialize && src.serialize().data;
+    if (data && data.features) data.features.forEach(f => add(f.geometry));
+  });
+  // Las variantes se quitan de vias-source y se pintan como anillos: también cuentan
+  for (const group of mlVariantGroups.values()) group.forEach(gf => { if (gf.coords) pts.push(gf.coords); });
+  return pts;
+}
+
+function kxOrientLabels(features) {
+  const bearing = mlMap ? mlMap.getBearing() : 0;
+  features.forEach(f => {
+    const anchor = kxLabelAnchorFor(f.properties.kxAng + bearing);
+    f.properties.kxAnchor = anchor;
+    f.properties.kxOff = KX_LABEL_OFFSETS[anchor];
+  });
+}
+
+/**
+ * (Re)calcula los puntos de etiqueta de una fuente de sectores y crea su capa si no existe.
+ * Se llama al terminar de cargar la escuela (cuando ya están las vías) y en cada actualización de sectores de usuarios.
+ */
+function kxRefreshSectorLabels(lineSourceId) {
+  const labelSourceId = KX_LABEL_SOURCE_OF[lineSourceId];
+  const layerId = KX_LABEL_LAYER_OF[lineSourceId];
+  const src = mlMap && mlMap.getSource(lineSourceId);
+  const data = src && src.serialize && src.serialize().data;
+  if (!labelSourceId || !data || !data.features) return;
+  const routes = kxRoutePoints();
+  const features = [];
+  data.features.forEach((f, i) => {
+    const g = f.geometry;
+    const lines = !g ? [] : g.type === 'MultiLineString' ? g.coordinates : g.type === 'LineString' ? [g.coordinates] : [];
+    const place = kxSectorLabelPlacement(lines, routes);
+    if (!place) return;
+    // Mismo id que la línea (generateId numera por orden): así la selección oculta también esta etiqueta
+    features.push({ type: 'Feature', id: i, geometry: { type: 'Point', coordinates: place.point },
+      properties: { nombre: f.properties.nombre, kxc: f.properties.kxc, kxAng: place.angle } });
+  });
+  kxOrientLabels(features);
+  _kxLabelPoints.set(lineSourceId, features);
+  const fc = { type: 'FeatureCollection', features };
+  if (mlMap.getSource(labelSourceId)) mlMap.getSource(labelSourceId).setData(fc);
+  else { mlMap.addSource(labelSourceId, { type: 'geojson', data: fc }); mlLoadedSources.add(labelSourceId); }
+  if (!mlMap.getLayer(layerId)) {
+    const school = mlCurrentSchool ? MAPLIBRE_SCHOOLS[mlCurrentSchool] : null;
+    kxAddSectorPointLabels(labelSourceId, layerId, (school && school.zoomLevels && school.zoomLevels.sectorNames) || 16);
+  }
+  kxEnsureLabelRotationSync();
+}
+
+function kxAddSectorPointLabels(sourceId, layerId, minzoom) {
+  kxEnsureLabelPill();
+  const layer = {
+    id: layerId,
+    type: 'symbol',
+    source: sourceId,
+    minzoom,
+    layout: {
+      ...kxLabelLayout(['interpolate', ['linear'], ['zoom'], 16, 11, 19, 12.5]),
+      'text-anchor': ['get', 'kxAnchor'],
+      'text-radial-offset': ['get', 'kxOff'],
+      'text-justify': 'auto',
+      'text-rotation-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport',
+      'text-pitch-alignment': 'viewport'
+    },
+    // El sector seleccionado ya lleva su etiqueta flotante: se oculta la del mapa para no duplicarla
+    paint: { ...kxLabelPaint(), 'text-opacity': ['case', _kxSel, 0, 1], 'icon-opacity': ['case', _kxSel, 0, 1] }
+  };
+  // Por debajo de las vías: el nombre nunca tapa un punto
+  const before = mlMap.getLayer('vias-shadow-layer') ? 'vias-shadow-layer' : (mlMap.getLayer('vias-layer') ? 'vias-layer' : undefined);
+  mlMap.addLayer(layer, before);
+  kxBindSectorEvents(layerId);
+}
+
+// Al girar el mapa, los anclajes se recalculan para que la etiqueta siga en el mismo lado de la línea
+let _kxLabelRotationBound = false;
+function kxEnsureLabelRotationSync() {
+  if (_kxLabelRotationBound || !mlMap) return;
+  _kxLabelRotationBound = true;
+  mlMap.on('rotateend', () => {
+    for (const [lineSourceId, features] of _kxLabelPoints) {
+      const src = mlMap.getSource(KX_LABEL_SOURCE_OF[lineSourceId]);
+      if (!src) continue;
+      kxOrientLabels(features);
+      src.setData({ type: 'FeatureCollection', features });
+    }
+  });
+}
+
+// Etiqueta de un sector (para la etiqueta flotante del seleccionado): mismo punto y mismo lado que la del mapa
+function kxLabelPointFor(lineSourceId, id) {
+  const list = _kxLabelPoints.get(lineSourceId);
+  return list ? list.find(f => f.id === id) : null;
+}
+
+// Etiqueta de sector: píldora a lo largo de la línea, horizontal, sin solaparse (colisión nativa).
+// Solo para teselas vectoriales (sin datos en memoria para calcular el lateral).
 function kxAddSectorLabels(sourceId, layerId, minzoom, sourceLayer) {
   if (!mlMap || mlMap.getLayer(layerId) || !mlMap.getSource(sourceId)) return;
   kxEnsureLabelPill();
@@ -370,9 +533,7 @@ function kxAddSectorLabels(sourceId, layerId, minzoom, sourceLayer) {
   // Por debajo de las vías: el nombre nunca tapa un punto
   const before = mlMap.getLayer('vias-shadow-layer') ? 'vias-shadow-layer' : (mlMap.getLayer('vias-layer') ? 'vias-layer' : undefined);
   mlMap.addLayer(layer, before);
-  // Las consultas por punto sobre capas de texto no son fiables en MapLibre (devuelven la etiqueta en cualquier punto):
-  // por eso el clic solo reenvía al gestor común, que comprueba la etiqueta con una caja, y no hay cursor propio
-  kxBindSectorEvents(layerId, { cursor: false });
+  kxBindSectorEvents(layerId);
 }
 
 function kxLabelLayout(size) {
@@ -477,7 +638,11 @@ function kxSetFeatureState(ref, state) {
 }
 
 function kxClearSectorSelection() {
-  if (kxSelectedSector) kxSetFeatureState(kxSelectedSector, { selected: false });
+  if (kxSelectedSector) {
+    kxSetFeatureState(kxSelectedSector, { selected: false });
+    const ls = KX_LABEL_SOURCE_OF[kxSelectedSector.source];
+    if (ls) kxSetFeatureState({ source: ls, id: kxSelectedSector.id }, { selected: false });
+  }
   kxSelectedSector = null;
   if (kxSectorLabelMarker) { kxSectorLabelMarker.remove(); kxSectorLabelMarker = null; }
 }
@@ -486,16 +651,26 @@ function kxSelectSector(feature, lngLat) {
   kxClearSectorSelection();
   kxCloseSectorChooser();
   if (!feature || feature.id == null) return;
-  kxSelectedSector = { source: feature.source, sourceLayer: feature.sourceLayer, id: feature.id };
+  // Una etiqueta del mapa representa a su línea: se selecciona la línea
+  const lineSource = KX_LINE_SOURCE_OF[feature.source] || feature.source;
+  kxSelectedSector = { source: lineSource, sourceLayer: feature.sourceLayer, id: feature.id };
   kxSetFeatureState(kxSelectedSector, { selected: true });
+  const ls = KX_LABEL_SOURCE_OF[lineSource];
+  if (ls) kxSetFeatureState({ source: ls, id: feature.id }, { selected: true });
   const name = feature.properties && feature.properties.nombre;
   if (name && lngLat) {
     const el = document.createElement('div');
     el.className = 'kx-map-label kx-map-label--selected';
     el.textContent = name;
     el.style.setProperty('--kx-sector', kxSectorColorOf(feature));
-    kxSectorLabelMarker = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -12] })
-      .setLngLat(lngLat)
+    // Mismo punto y mismo lateral que su etiqueta del mapa (lejos de las vías); si no hay, sobre el toque
+    const lp = kxLabelPointFor(lineSource, feature.id);
+    const anchor = lp ? lp.properties.kxAnchor : 'bottom';
+    const gap = 9;
+    const off = { left: [gap, 0], right: [-gap, 0], top: [0, gap], bottom: [0, -gap],
+      'top-left': [gap * 0.7, gap * 0.7], 'top-right': [-gap * 0.7, gap * 0.7], 'bottom-left': [gap * 0.7, -gap * 0.7], 'bottom-right': [-gap * 0.7, -gap * 0.7] }[anchor];
+    kxSectorLabelMarker = new maplibregl.Marker({ element: el, anchor, offset: off })
+      .setLngLat(lp ? lp.geometry.coordinates : lngLat)
       .addTo(mlMap);
   }
 }
@@ -534,8 +709,24 @@ function kxBindSectorEvents(layerId, { cursor = true } = {}) {
 
 // Abre la ficha de siempre según el origen del sector (estático o aportado por usuarios)
 function kxOpenSectorFeature(f, lngLat) {
-  if (f.source === 'sectores-usuarios-source') return mlOpenUserSector(f.properties, lngLat);
+  const source = KX_LINE_SOURCE_OF[f.source] || f.source;
+  if (source === 'sectores-usuarios-source') {
+    // La etiqueta solo lleva nombre y color: la ficha de usuario necesita las propiedades completas de su línea
+    const full = kxLineFeatureProps(source, f.id);
+    return mlOpenUserSector(full || f.properties, lngLat);
+  }
+  if (source !== f.source) {
+    const full = kxLineFeatureProps(source, f.id);
+    return mlOpenStaticSector(full || f.properties, lngLat);
+  }
   return mlOpenStaticSector(f.properties, lngLat);
+}
+
+function kxLineFeatureProps(lineSourceId, id) {
+  const src = mlMap && mlMap.getSource(lineSourceId);
+  const data = src && src.serialize && src.serialize().data;
+  const f = data && data.features && data.features[id];
+  return f ? f.properties : null;
 }
 
 function kxSectorKey(f) {
@@ -578,7 +769,7 @@ function kxHandleSectorTap(e) {
     seen.add(key);
     candidates.push(f);
   }
-  // Sin candidatos en el área táctil no se abre nada (e.features puede venir de una capa de etiquetas y no sirve)
+  // Sin sectores en el área táctil no se abre nada
   if (!candidates.length) return true;
 
   if (candidates.length === 1) {
@@ -704,13 +895,6 @@ function kxSchoolLabelLayer(id, sourceId) {
     },
     paint: { ...kxLabelPaint(), 'text-color': KX_MAP.forest }
   };
-}
-
-function kxParkingSVG() {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28">
-    <rect x="2.5" y="2.5" width="23" height="23" rx="7.5" fill="${KX_MAP.info}" stroke="#ffffff" stroke-width="2"/>
-    <path d="M11 20V8.5h4.1c2.4 0 3.9 1.4 3.9 3.6s-1.5 3.6-3.9 3.6H11" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>`;
 }
 
 function kxPOISVG(poiType) {
@@ -2358,7 +2542,6 @@ async function mlLoadSchoolGeoJSON(school) {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: kxSectorLinePaint()
       });
-      kxAddSectorLabels('sectores-source', 'sectores-labels-layer', school.zoomLevels.sectorNames || 16);
       kxAddSectorHitLayer('sectores-source', 'sectores-hit-layer', school.zoomLevels.sectores);
       console.log(`Capa sectores cargada: ${geojson.features?.length || 0} elementos`);
       // La interacción se registra aquí, cuando la capa ya existe (la carga de vías corre en paralelo)
@@ -2398,6 +2581,12 @@ async function mlLoadSchoolGeoJSON(school) {
     school.geojson.rutasAcceso ? mlLoadRutasAcceso(school.geojson.rutasAcceso) : Promise.resolve(),
     ...firestoreLoads
   ]);
+
+  // Con sectores y vías ya cargados, cada nombre se coloca al lado de su línea donde no hay vías
+  if (mlCurrentSchool === school.id) {
+    kxRefreshSectorLabels('sectores-source');
+    if (mlMap.getSource('sectores-usuarios-source')) kxRefreshSectorLabels('sectores-usuarios-source');
+  }
 }
 
 /**
@@ -2497,50 +2686,47 @@ const POI_SVG_MAP = {
 };
 
 // Versión de los iconos (incrementar al actualizar para forzar recarga del cache)
-const POI_ICONS_VERSION = '15';
+const POI_ICONS_VERSION = '16';
 
-// Mapa de POIs que tienen icono PNG externo disponible (los PNGs originales del diseñador)
+// Iconos de puntos de interés (pack «KRUX POI matte»): disco mate de la categoría, borde blanco y pictograma blanco.
+// Un SVG propio por tipo; la paleta de los POI es independiente de la de grados y sectores.
 const POI_SVG_FILES = {
-  // Alojamientos
-  'camping': 'assets/poi-icons/camping.svg',
-  'vivac': 'assets/poi-icons/camping.svg',
+  'albergue': 'assets/poi-icons/albergue.svg',
   'hotel': 'assets/poi-icons/hotel.svg',
   'refugio': 'assets/poi-icons/refugio.svg',
-  'albergue': 'assets/poi-icons/refugio.svg',
-  // Estado / urgencias
-  'bomberos': 'assets/poi-icons/bomberos.svg',
-  'bombero': 'assets/poi-icons/bomberos.svg',
-  'farmacia': 'assets/poi-icons/farmacia.svg',
+  'vivac': 'assets/poi-icons/vivac.svg',
+  'camping': 'assets/poi-icons/camping.svg',
+  'peligro': 'assets/poi-icons/peligro.svg',
   'hospital': 'assets/poi-icons/hospital.svg',
+  'bomberos': 'assets/poi-icons/bomberos.svg',
+  'farmacia': 'assets/poi-icons/farmacia.svg',
   'policia': 'assets/poi-icons/policia.svg',
-  // Naturaleza
-  'cueva': 'assets/poi-icons/cueva.svg',
   'cumbre': 'assets/poi-icons/cumbre.svg',
   'rio': 'assets/poi-icons/rio.svg',
+  'arroyo': 'assets/poi-icons/arroyo.svg',
+  'agua': 'assets/poi-icons/agua.svg',
   'fuente': 'assets/poi-icons/fuente.svg',
-  // Servicios
-  'banco': 'assets/poi-icons/banco.svg',
-  'bar': 'assets/poi-icons/bar.svg',
-  'correos': 'assets/poi-icons/correos.svg',
-  'gasolinera': 'assets/poi-icons/gasolinera.svg',
+  'cueva': 'assets/poi-icons/cueva.svg',
   'restaurante': 'assets/poi-icons/restaurante.svg',
+  'gasolinera': 'assets/poi-icons/gasolinera.svg',
+  'bar': 'assets/poi-icons/bar.svg',
   'merendero': 'assets/poi-icons/merendero.svg',
   'tienda': 'assets/poi-icons/tienda.svg',
-  // Infraestructura
-  'parking': 'assets/poi-icons/parking.svg',
-  'escalera': 'assets/poi-icons/escalera.svg',
   'puente': 'assets/poi-icons/puente.svg',
-  // Patrimonio
-  'iglesia': 'assets/poi-icons/iglesia.svg',
-  'ermita': 'assets/poi-icons/iglesia.svg',
-  'ruina': 'assets/poi-icons/ruina.svg',
-  // Instalaciones
-  'wc': 'assets/poi-icons/bano.svg',
-  'ducha': 'assets/poi-icons/ducha.svg',
-  'piscina': 'assets/poi-icons/zona-de-bano.svg',
-  // Otros
+  'escalera': 'assets/poi-icons/escalera.svg',
   'mirador': 'assets/poi-icons/mirador.svg',
-  'informacion': 'assets/poi-icons/info.svg',
+  'parking': 'assets/poi-icons/parking.svg',
+  'correos': 'assets/poi-icons/correos.svg',
+  'informacion': 'assets/poi-icons/informacion.svg',
+  'iglesia': 'assets/poi-icons/iglesia.svg',
+  'ermita': 'assets/poi-icons/ermita.svg',
+  'ruina': 'assets/poi-icons/ruina.svg',
+  'wc': 'assets/poi-icons/wc.svg',
+  'ducha': 'assets/poi-icons/ducha.svg',
+  'piscina': 'assets/poi-icons/piscina.svg',
+  'telefono': 'assets/poi-icons/telefono.svg',
+  'banco': 'assets/poi-icons/banco.svg',
+  'bombero': 'assets/poi-icons/bomberos.svg',   // alias
 };
 
 /**
@@ -2564,7 +2750,7 @@ function _mlPrewarmPOIIcons() {
   const schedule = typeof requestIdleCallback !== 'undefined'
     ? (cb) => requestIdleCallback(cb, { timeout: 5000 })
     : (cb) => setTimeout(cb, 2000);
-  schedule(() => { types.forEach(t => createSVGPinImage(t, 50).catch(() => {})); });
+  schedule(() => { types.forEach(t => createSVGPinImage(t).catch(() => {})); });
 }
 
 /**
@@ -2575,85 +2761,40 @@ function _mlPrewarmPOIIcons() {
 // DPR del dispositivo, limitado a 3 para no desperdiciar memoria
 const _mlDPR = Math.min(Math.ceil(window.devicePixelRatio || 1), 3);
 
-function createSVGPinImage(poiType, size = 50) {
+function createSVGPinImage(poiType) {
   const cacheKey = (poiType || '').toLowerCase().trim() || '__default__';
   if (_mlPoiIconCache.has(cacheKey)) return Promise.resolve(_mlPoiIconCache.get(cacheKey));
-  return _createSVGPinImageRaw(poiType, size).then(img => {
+  return _createSVGPinImageRaw(poiType).then(img => {
     _mlPoiIconCache.set(cacheKey, img);
     return img;
   });
 }
 
-// Fase 2: los POI se dibujan como insignias circulares planas (color de su categoría + pictograma blanco).
-// Los SVG del diseñador siguen en assets/poi-icons; basta con poner esto a true para volver a ellos.
-const POI_USE_DESIGNER_FILES = false;
+// Los POI son insignias circulares: se rasterizan a 32 px CSS (a la densidad real de la pantalla) y se anclan por el centro
+const POI_ICON_CSS_SIZE = 32;
 
-function _createSVGPinImageRaw(poiType, size = 50) {
+function _createSVGPinImageRaw(poiType) {
   const desc = (poiType || '').toLowerCase().trim();
-  if (!POI_USE_DESIGNER_FILES) return _kxPOIBadgeImage(desc);
-  const externalSvg = POI_SVG_FILES[desc];
-  // Renderizar a tamaño físico (size × DPR) para pantallas Retina/HiDPI
-  const physicalSize = size * _mlDPR;
-
-  return new Promise((resolve, reject) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = physicalSize;
-    canvas.height = physicalSize;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, physicalSize, physicalSize);
-
-    const renderImg = (src, cropToContent = false) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onerror = () => reject(new Error(`Failed to load image for POI type "${poiType}"`));
-      img.onload = () => {
-        try {
-          // Contain: escalar manteniendo proporción original, centrado en el canvas
-          const scale = Math.min(physicalSize / img.width, physicalSize / img.height);
-          const drawW = img.width * scale;
-          const drawH = img.height * scale;
-          const dx = (physicalSize - drawW) / 2;
-          const dy = (physicalSize - drawH) / 2;
-          ctx.drawImage(img, dx, dy, drawW, drawH);
-          void cropToContent;
-          resolve({ data: ctx.getImageData(0, 0, physicalSize, physicalSize).data, width: physicalSize, height: physicalSize });
-        } catch (e) { reject(e); }
-      };
-      img.src = src;
-    };
-
-    if (externalSvg) {
-      // Recortar al bbox del contenido no transparente para centrar el pin
-      renderImg(externalSvg + '?v=' + POI_ICONS_VERSION, true);
-    } else {
-      // Generar pin programáticamente con icono inline
-      const poiData = getPOISVG(poiType);
-      const svgString = `
-        <svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <filter id="shadow">
-              <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.4"/>
-            </filter>
-          </defs>
-          <g filter="url(#shadow)">
-            <circle cx="25" cy="22" r="18" fill="${poiData.color}"/>
-            <path d="M25 40L18 28C18 28 22 20 25 20C28 20 32 28 32 28L25 40Z" fill="${poiData.color}"/>
-            <g transform="translate(25, 22) scale(0.9)">
-              <svg viewBox="0 0 20 20" width="18" height="18" x="-9" y="-9">
-                ${poiData.svg}
-              </svg>
-            </g>
-          </g>
-        </svg>`;
-      renderImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString));
-    }
-  });
+  const file = POI_SVG_FILES[desc];
+  // Tipo sin icono propio: insignia genérica dibujada en código (color de categoría o gris)
+  const src = file
+    ? file + '?v=' + POI_ICONS_VERSION
+    : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(kxPOISVG(desc));
+  return _kxPOIBadgeImage(desc, src);
 }
 
-function _kxPOIBadgeImage(poiType) {
-  const css = 26, px = css * _mlDPR;
+// Los iconos llegan después de crear la capa: sin este refresco, un icono que llega tarde deja el genérico en pantalla
+function kxReloadSourceData(sourceId) {
+  const src = mlMap && mlMap.getSource(sourceId);
+  const data = src && src.serialize && src.serialize().data;
+  if (data) src.setData(data);
+}
+
+function _kxPOIBadgeImage(poiType, src) {
+  const px = Math.round(POI_ICON_CSS_SIZE * _mlDPR);
   return new Promise((resolve, reject) => {
-    const img = new Image(px, px);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onerror = () => reject(new Error(`Failed to load image for POI type "${poiType}"`));
     img.onload = () => {
       try {
@@ -2664,7 +2805,7 @@ function _kxPOIBadgeImage(poiType) {
         resolve({ data: ctx.getImageData(0, 0, px, px).data, width: px, height: px });
       } catch (e) { reject(e); }
     };
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(kxPOISVG(poiType));
+    img.src = src;
   });
 }
 
@@ -2725,13 +2866,13 @@ async function mlLoadPuntosInteres(url) {
     if (!mlMap.hasImage('poi-svg-default')) typesToLoad.push('');
     Promise.all(typesToLoad.map(async poiType => {
       try {
-        const img = await createSVGPinImage(poiType, 50);
+        const img = await createSVGPinImage(poiType);
         const imgId = poiType === '' ? 'poi-svg-default' : 'poi-svg-' + poiType;
         if (!mlMap.hasImage(imgId)) mlMap.addImage(imgId, img, { sdf: false, pixelRatio: _mlDPR });
       } catch (err) {
         console.warn(`Error creating SVG for POI type "${poiType}":`, err);
       }
-    }));
+    })).then(() => { if (typesToLoad.length) kxReloadSourceData(sourceId); });
 
     // Interactividad: mostrar popup con descripción al hacer click
     let mlPoiPopup = null;
@@ -2882,7 +3023,7 @@ async function mlLoadGeoJSONLayer(layerId, url, type, paint, minzoom = 0, layout
  */
 function mlClearSchoolLayers() {
   const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-shadow-layer', 'vias-layer', 'sectores-hit-layer', 'sectores-usuarios-hit-layer', 'sectores-labels-layer', 'sectores-usuarios-labels-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'escuelas-usuarios-layer', 'escuelas-usuarios-labels-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
-  const sourceIds = ['vias-ticks-source', 'vias-source', 'sectores-source', 'parkings-source', 'rutas-acceso-source', 'puntos-interes-source', 'vias-variant-connector-source', 'vias-usuarios-source', 'poi-usuarios-source', 'sectores-usuarios-source', 'escuelas-usuarios-source', 'pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source', 'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source'];
+  const sourceIds = ['vias-ticks-source', 'vias-source', 'sectores-labels-source', 'sectores-usuarios-labels-source', 'sectores-source', 'parkings-source', 'rutas-acceso-source', 'puntos-interes-source', 'vias-variant-connector-source', 'vias-usuarios-source', 'poi-usuarios-source', 'sectores-usuarios-source', 'escuelas-usuarios-source', 'pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source', 'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source'];
 
   // Cancelar listeners realtime antes de eliminar capas/sources
   mlClearApprovedListeners();
@@ -2902,6 +3043,7 @@ function mlClearSchoolLayers() {
 
   // Selección visual de sector (el feature-state muere con la fuente)
   kxClearSectorSelection();
+  _kxLabelPoints.clear();
   kxCloseSectorChooser();
 
   // Limpiar estado de variantes
@@ -6187,8 +6329,10 @@ function mlOpenStaticSector(props, coords) {
  * Carga icono de parking
  */
 function loadParkingIcon() {
-  // P azul plana con borde blanco (antes: pin del diseñador)
-  return kxLoadSVGImage('parking-icon', kxParkingSVG(), 28);
+  // Mismo icono del pack que el POI «parking»
+  return createSVGPinImage('parking').then(img => {
+    if (mlMap && !mlMap.hasImage('parking-icon')) mlMap.addImage('parking-icon', img, { pixelRatio: _mlDPR });
+  }).catch(e => console.warn('Icono de parking no disponible:', e));
 }
 
 // ============================================
@@ -9640,13 +9784,13 @@ async function loadApprovedPOIFromFirestore(schoolId) {
           if (!mlMap.hasImage('poi-svg-default')) typesToLoad.push('');
           Promise.all(typesToLoad.map(async poiType => {
             try {
-              const img = await createSVGPinImage(poiType, 50);
+              const img = await createSVGPinImage(poiType);
               const imgId = poiType === '' ? 'poi-svg-default' : 'poi-svg-' + poiType;
               if (!mlMap.hasImage(imgId)) mlMap.addImage(imgId, img, { sdf: false, pixelRatio: _mlDPR });
             } catch (e) {
               console.warn('[ApprovedPOI] Error creando icono para', poiType, e);
             }
-          }));
+          })).then(() => { if (typesToLoad.length) kxReloadSourceData(sourceId); });
 
           const geojson = { type: 'FeatureCollection', features };
 
@@ -9813,7 +9957,6 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
               layout: { 'line-cap': 'round', 'line-join': 'round' },
               paint: kxSectorLinePaint()
             });
-            kxAddSectorLabels(sourceId, 'sectores-usuarios-labels-layer', school?.zoomLevels?.sectorNames || 16);
             kxAddSectorHitLayer(sourceId, 'sectores-usuarios-hit-layer', sectorMinZoom);
 
             if (!mlUserSectorsInteractionAttached) {
@@ -9821,6 +9964,7 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
               mlUserSectorsInteractionAttached = true;
             }
           }
+          kxRefreshSectorLabels(sourceId);
         } catch (err) {
           console.error('[ApprovedSectors] Error procesando snapshot:', err);
         }
@@ -9996,7 +10140,7 @@ async function loadMyPendingPOIFromFirestore(schoolId) {
           for (const poiType of usedTypes2) {
             const imgId = 'poi-svg-' + poiType;
             if (!mlMap.hasImage(imgId)) {
-              try { mlMap.addImage(imgId, await createSVGPinImage(poiType, 50), { sdf: false, pixelRatio: _mlDPR }); } catch (e) {}
+              try { mlMap.addImage(imgId, await createSVGPinImage(poiType), { sdf: false, pixelRatio: _mlDPR }); } catch (e) {}
             }
           }
 
@@ -10416,7 +10560,7 @@ async function loadAllPendingForAdmin(schoolId, minZoom = 14) {
       for (const poiType of usedTypesAdmin) {
         const imgId = 'poi-svg-' + poiType;
         if (!mlMap.hasImage(imgId)) {
-          try { mlMap.addImage(imgId, await createSVGPinImage(poiType, 50), { sdf: false, pixelRatio: _mlDPR }); } catch (e) {}
+          try { mlMap.addImage(imgId, await createSVGPinImage(poiType), { sdf: false, pixelRatio: _mlDPR }); } catch (e) {}
         }
       }
       const geojson = { type: 'FeatureCollection', features };

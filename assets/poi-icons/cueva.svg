@@ -1,10 +1,11 @@
-<?xml version="1.0" encoding="utf-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
-  <g transform="matrix(0.047509, 0, 0, -0.047509, -73.913727, 408.961395)" fill="#E6BB03" fill-rule="evenodd" stroke="none" style="">
-    <ellipse style="stroke: rgb(0, 0, 0); fill: rgb(255, 255, 255);" cx="6835.84" cy="-4467.1" rx="2791.03" ry="2696.7" transform="matrix(1, 0, 0, -1, 0, 0)"/>
-  </g>
-  <g transform="matrix(0.126913, 0, 0, -0.126913, -174.534073, 462.977203)" fill="#1D964E" fill-rule="evenodd" stroke="none" style="">
-    <path fill-rule="evenodd" d="M3145 3355 c-503 -92 -886 -475 -981 -983 -23 -121 -15 -365 15 -477 65 -244 246 -586 459 -865 198 -259 565 -626 670 -669 54 -22 97 -2 209 96 373 328 673 709 857 1087 131 269 166 402 166 621 0 204 -36 357 -127 539 -176 353 -484 583 -872 651 -100 18 -299 18 -396 0z m424 -371 c410 -106 690 -536 617 -951 -47 -270 -211 -499 -444 -621 -154 -80 -220 -96 -392 -97 -175 0 -253 19 -403 98 -206 109 -365 314 -428 552 -28 106 -30 269 -5 380 47 207 183 408 355 525 205 138 450 178 700 114z"/>
-    <path fill-rule="evenodd" d="M3311 2733 c-28 -27 -91 -155 -91 -186 0 -22 -11 -47 -21 -47 -4 0 -25 11 -46 26 -40 27 -73 26 -106 -3 -62 -57 -234 -566 -253 -752 -10 -92 -13 -91 196 -91 l178 0 6 35 c16 86 71 172 128 201 84 43 182 -42 219 -190 l11 -46 177 0 c124 0 181 4 189 12 21 21 13 80 -32 259 -62 242 -108 370 -154 422 -27 30 -68 22 -97 -20 -14 -21 -25 -43 -25 -49 0 -6 -7 -18 -16 -25 -23 -19 -39 7 -54 89 -31 178 -92 341 -142 376 -30 21 -33 21 -67 -11z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+  <title id="title">cueva</title>
+  <!-- Subtle dark keyline for visibility on bright orthophoto -->
+  <circle cx="24" cy="24" r="22.3" fill="#263A34"/>
+  <!-- Matte category disc and crisp white separation ring -->
+  <circle cx="24" cy="24" r="21.1" fill="#657E72" stroke="#FFFFFF" stroke-width="2.4"/>
+  <!-- White pictogram, enlarged for readability -->
+  <g transform="translate(3.5 3.5) scale(0.85)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 35c1-13 7-23 16-23s15 10 16 23H8Z" fill="white"/><path d="M17 35c1-8 3-13 7-13s6 5 7 13H17Z" fill="#657E72"/>
   </g>
 </svg>
