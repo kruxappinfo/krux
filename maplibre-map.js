@@ -167,6 +167,492 @@ function generateSectorCasingColorExpression() {
 }
 
 // ============================================
+// CARTOGRAFÍA 2D — ESTILO (Fase 2)
+// ============================================
+// Vista cenital plana: sectores como líneas verdes con borde claro, vías como círculos con el color de grado
+// original (generateGradeColorExpression / getGradeColor, sin tocar), iconos planos y etiquetas en píldora.
+// Todo con capas nativas de MapLibre; los estados (seleccionado, hover) van por feature-state, sin redibujar fuentes.
+const KX_MAP = {
+  forest: '#153E35',        // --kx-forest
+  forestBright: '#2E9A63',  // verde luminoso del sector seleccionado (derivado de --kx-forest)
+  sage: '#DCE9DF',          // --kx-sage
+  halo: '#A8E3BF',          // halo del seleccionado
+  chalk: '#F7F6F0',         // --kx-chalk
+  granite: '#202923',       // --kx-granite
+  coral: '#FF8D67',         // --kx-coral
+  info: '#2F6FB3',          // --kx-info (parkings)
+  access: '#F07A22',        // rutas de acceso
+  shadow: 'rgba(16, 28, 23, 0.38)'
+};
+
+const _kxSel = ['boolean', ['feature-state', 'selected'], false];
+
+// Radio de las vías (px) por zoom. Lo comparten la capa de vías, la sombra, los ticks y los anillos de variantes.
+const KX_ROUTE_RADIUS = {
+  mobile:  [[14, 2],   [16, 3.5], [17, 4.5], [18, 6], [19, 7.5], [20, 9]],
+  desktop: [[14, 3],   [16, 5],   [17, 6],   [18, 8], [19, 10],  [20, 13]]
+};
+const KX_ROUTE_STROKE = 1.5;
+
+function kxRouteRadiusStops() {
+  return KX_ROUTE_RADIUS[isMobileDevice() ? 'mobile' : 'desktop'];
+}
+
+function kxZoomExpr(stops, map = v => v) {
+  const expr = ['interpolate', ['linear'], ['zoom']];
+  stops.forEach(([z, v]) => expr.push(z, map(v)));
+  return expr;
+}
+
+// Círculo plano de vía: color de grado original + borde blanco fino
+function kxRoutePaint(strokeColor = '#ffffff') {
+  return {
+    'circle-radius': kxZoomExpr(kxRouteRadiusStops()),
+    'circle-color': generateGradeColorExpression('grado1'),
+    'circle-stroke-color': strokeColor,
+    'circle-stroke-width': KX_ROUTE_STROKE,
+    'circle-opacity': 1
+  };
+}
+
+// Sombra de contacto (sin desplazamiento, no simula altura): separa el borde blanco de la roca clara
+function kxRouteShadowPaint() {
+  return {
+    'circle-radius': kxZoomExpr(kxRouteRadiusStops(), r => r + KX_ROUTE_STROKE + 1.2),
+    'circle-color': KX_MAP.shadow,
+    'circle-blur': 0.45,
+    'circle-opacity': 0.9
+  };
+}
+
+// Sector: doble trazo fino. Debajo, un borde blanco (≈5 px, 90 %); encima, la línea del color propio del sector
+// (2,5–3,25 px). El seleccionado engorda ambos trazos y conserva su color. Sin sombras, halos ni animación.
+// Paleta pastel mate, asignada de forma determinista y estable por sector (ver kxAssignSectorColors).
+const KX_SECTOR_PALETTE = [
+  '#83B982',  // verde salvia
+  '#72C3B7',  // turquesa suave
+  '#78B8DC',  // azul cielo apagado
+  '#A99ACF',  // lavanda
+  '#E8A06B',  // terracota suave
+  '#E5C36D'   // mostaza claro
+];
+
+function kxSectorHash(name) {
+  // FNV-1a de 32 bits: estable entre sesiones y dispositivos
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+
+/**
+ * Asigna a cada sector un índice de color (properties.kxc) a partir de su nombre. Mismo nombre → mismo color,
+ * siempre. Si dos sectores vecinos (cajas envolventes a menos de ~40 m) coinciden, el segundo, por orden de
+ * nombre, pasa al siguiente color libre de la paleta. Solo añade una propiedad en memoria: no toca geometrías,
+ * identificadores ni datos guardados.
+ */
+function kxAssignSectorColors(features) {
+  const n = KX_SECTOR_PALETTE.length;
+  const PAD = 0.0004;
+  const boxes = features.map(f => {
+    const g = f.geometry;
+    const lines = !g ? [] : g.type === 'MultiLineString' ? g.coordinates : g.type === 'LineString' ? [g.coordinates] : [];
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    lines.forEach(l => l.forEach(([x, y]) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }));
+    return { x0: x0 - PAD, y0: y0 - PAD, x1: x1 + PAD, y1: y1 + PAD };
+  });
+  const near = (a, b) => a.x0 <= b.x1 && a.x1 >= b.x0 && a.y0 <= b.y1 && a.y1 >= b.y0;
+  const nameOf = (f, i) => String((f.properties && (f.properties.nombre || f.properties.name)) || `sector-${i}`);
+  const order = features.map((_, i) => i).sort((a, b) => {
+    const na = nameOf(features[a], a), nb = nameOf(features[b], b);
+    return na < nb ? -1 : na > nb ? 1 : a - b;
+  });
+  const assigned = new Map();
+  for (const i of order) {
+    const pref = kxSectorHash(nameOf(features[i], i)) % n;
+    const used = new Set();
+    for (const [j, c] of assigned) if (near(boxes[i], boxes[j])) used.add(c);
+    let pick = pref;
+    for (let k = 0; k < n; k++) { const c = (pref + k) % n; if (!used.has(c)) { pick = c; break; } }
+    assigned.set(i, pick);
+    features[i].properties = features[i].properties || {};
+    features[i].properties.kxc = pick;
+  }
+  return features;
+}
+
+// Color del sector: el índice asignado (kxc) o, si la fuente no lo trae (teselas vectoriales), un reparto estable por fid
+function kxSectorColorExpr() {
+  const idx = ['coalesce', ['to-number', ['get', 'kxc'], -1], ['%', ['to-number', ['get', 'fid'], 0], KX_SECTOR_PALETTE.length]];
+  const expr = ['match', idx];
+  KX_SECTOR_PALETTE.forEach((c, i) => expr.push(i, c));
+  expr.push(KX_SECTOR_PALETTE[0]);
+  return expr;
+}
+
+function kxSectorLinePaint() {
+  return {
+    'line-color': kxSectorColorExpr(),
+    'line-width': ['interpolate', ['linear'], ['zoom'],
+      12, ['case', _kxSel, 3, 2],
+      14, ['case', _kxSel, 3.75, 2.5],
+      16, ['case', _kxSel, 4.25, 3],
+      18, ['case', _kxSel, 4.5, 3.25],
+      20, ['case', _kxSel, 5, 4]],
+    'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.6, 13, 1],
+    'line-width-transition': { duration: 200 }
+  };
+}
+
+function kxSectorCasingPaint() {
+  return {
+    'line-color': '#FFFFFF',
+    'line-width': ['interpolate', ['linear'], ['zoom'],
+      12, ['case', _kxSel, 5, 3.75],
+      14, ['case', _kxSel, 6, 4.5],
+      16, ['case', _kxSel, 6.75, 5.25],
+      18, ['case', _kxSel, 7.25, 5.5],
+      20, ['case', _kxSel, 8, 6.5]],
+    'line-opacity': ['interpolate', ['linear'], ['zoom'],
+      12, ['case', _kxSel, 0.65, 0.5],
+      13, ['case', _kxSel, 1, 0.9]],
+    'line-width-transition': { duration: 200 }
+  };
+}
+
+// Etiqueta de sector: píldora a lo largo de la línea, horizontal, sin solaparse (colisión nativa)
+function kxAddSectorLabels(sourceId, layerId, minzoom, sourceLayer) {
+  if (!mlMap || mlMap.getLayer(layerId) || !mlMap.getSource(sourceId)) return;
+  kxEnsureLabelPill();
+  const layer = {
+    id: layerId,
+    type: 'symbol',
+    source: sourceId,
+    minzoom,
+    layout: {
+      ...kxLabelLayout(['interpolate', ['linear'], ['zoom'], 16, 11, 19, 12.5]),
+      'symbol-placement': 'line-center',
+      'text-rotation-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport',
+      'text-pitch-alignment': 'viewport',
+      'text-keep-upright': true
+    },
+    // El sector seleccionado ya lleva su etiqueta flotante: se oculta la del mapa para no duplicarla
+    paint: { ...kxLabelPaint(), 'text-opacity': ['case', _kxSel, 0, 1], 'icon-opacity': ['case', _kxSel, 0, 1] }
+  };
+  if (sourceLayer) layer['source-layer'] = sourceLayer;
+  // Por debajo de las vías: el nombre nunca tapa un punto
+  const before = mlMap.getLayer('vias-shadow-layer') ? 'vias-shadow-layer' : (mlMap.getLayer('vias-layer') ? 'vias-layer' : undefined);
+  mlMap.addLayer(layer, before);
+}
+
+function kxLabelLayout(size) {
+  return {
+    'text-field': ['get', 'nombre'],
+    'text-font': ['Noto Sans Bold'],
+    'text-size': size,
+    'text-max-width': 12,
+    'text-padding': 4,
+    'icon-image': 'kx-label-pill',
+    'icon-text-fit': 'both',
+    'icon-text-fit-padding': [3, 9, 3, 14],
+    'icon-allow-overlap': false,
+    'text-allow-overlap': false,
+    'text-optional': false
+  };
+}
+
+function kxLabelPaint() {
+  return { 'text-color': KX_MAP.granite, 'icon-opacity': 1, 'text-opacity': 1 };
+}
+
+// Fondo de etiqueta: blanco cálido translúcido, borde finísimo, sombra suave y punto verde a la izquierda.
+// Imagen estirable (stretchX/Y) para que MapLibre la ajuste al texto con icon-text-fit.
+function kxEnsureLabelPill(id = 'kx-label-pill', withDot = true) {
+  if (!mlMap || mlMap.hasImage(id)) return;
+  const d = _mlDPR, W = 46, H = 30, m = 3;
+  const c = document.createElement('canvas');
+  c.width = W * d; c.height = H * d;
+  const ctx = c.getContext('2d');
+  ctx.scale(d, d);
+  const r = (H - 2 * m) / 2;
+  const pill = () => {
+    ctx.beginPath();
+    ctx.moveTo(m + r, m); ctx.lineTo(W - m - r, m);
+    ctx.arc(W - m - r, H / 2, r, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(m + r, H - m);
+    ctx.arc(m + r, H / 2, r, Math.PI / 2, -Math.PI / 2);
+    ctx.closePath();
+  };
+  ctx.shadowColor = withDot ? 'rgba(32, 41, 35, 0.22)' : 'rgba(32, 41, 35, 0.14)'; ctx.shadowBlur = withDot ? 3 : 2; ctx.shadowOffsetY = 1;
+  pill(); ctx.fillStyle = 'rgba(247, 246, 240, 0.95)'; ctx.fill();
+  ctx.shadowColor = 'transparent';
+  pill(); ctx.strokeStyle = 'rgba(32, 41, 35, 0.10)'; ctx.lineWidth = 1; ctx.stroke();
+  if (withDot) { ctx.beginPath(); ctx.arc(m + 11, H / 2, 3, 0, Math.PI * 2); ctx.fillStyle = KX_MAP.forestBright; ctx.fill(); }
+  const img = ctx.getImageData(0, 0, c.width, c.height);
+  mlMap.addImage(id, { width: c.width, height: c.height, data: new Uint8Array(img.data.buffer) }, {
+    pixelRatio: d,
+    stretchX: withDot ? [[22 * d, 30 * d]] : [[16 * d, 30 * d]],
+    stretchY: [[14 * d, 16 * d]],
+    content: withDot ? [20 * d, 7 * d, 36 * d, 23 * d] : [14 * d, 7 * d, 32 * d, 23 * d]
+  });
+}
+
+// SVG → imagen nítida (a la densidad real de la pantalla) para iconos de capas symbol
+function kxLoadSVGImage(imageId, svgString, cssWidth, cssHeight = cssWidth) {
+  return new Promise(resolve => {
+    if (!mlMap || mlMap.hasImage(imageId)) { resolve(); return; }
+    const pw = Math.round(cssWidth * _mlDPR), ph = Math.round(cssHeight * _mlDPR);
+    const img = new Image(pw, ph);
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = pw; c.height = ph;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, pw, ph);
+        const data = ctx.getImageData(0, 0, pw, ph);
+        if (!mlMap.hasImage(imageId)) mlMap.addImage(imageId, { width: pw, height: ph, data: new Uint8Array(data.data.buffer) }, { pixelRatio: _mlDPR });
+      } catch (e) { console.warn('Icono no disponible:', imageId, e); }
+      resolve();
+    };
+    img.onerror = () => { console.warn('Error cargando icono:', imageId); resolve(); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+  });
+}
+
+// Sombra de contacto bajo las vías: misma fuente y mismo filtro que vias-layer (applyGradeFilter la sincroniza)
+function kxAddRouteShadow(sourceId, minzoom, sourceLayer) {
+  if (!mlMap || !mlMap.getLayer('vias-layer') || mlMap.getLayer('vias-shadow-layer')) return;
+  const layer = { id: 'vias-shadow-layer', type: 'circle', source: sourceId, minzoom, paint: kxRouteShadowPaint() };
+  if (sourceLayer) layer['source-layer'] = sourceLayer;
+  mlMap.addLayer(layer, 'vias-layer');
+  const f = mlMap.getFilter('vias-layer');
+  if (f) mlMap.setFilter('vias-shadow-layer', f);
+}
+
+// --- Estado de selección (feature-state) ---
+let kxSelectedSector = null;   // { source, sourceLayer, id }
+let kxSectorLabelMarker = null;
+let kxSectorChooser = null;
+let kxSelectedSchool = null;   // id de la escuela seleccionada
+let kxFocusedSchool = null;    // id de la escuela con foco (búsqueda, navegación…); independiente de la selección
+let kxFocusTimer = null;
+
+function kxSetFeatureState(ref, state) {
+  if (!ref || !mlMap || !mlMap.getSource(ref.source)) return;
+  try {
+    const target = { source: ref.source, id: ref.id };
+    if (ref.sourceLayer) target.sourceLayer = ref.sourceLayer;
+    mlMap.setFeatureState(target, state);
+  } catch (_) {}
+}
+
+function kxClearSectorSelection() {
+  if (kxSelectedSector) kxSetFeatureState(kxSelectedSector, { selected: false });
+  kxSelectedSector = null;
+  if (kxSectorLabelMarker) { kxSectorLabelMarker.remove(); kxSectorLabelMarker = null; }
+}
+
+function kxSelectSector(feature, lngLat) {
+  kxClearSectorSelection();
+  kxCloseSectorChooser();
+  if (!feature || feature.id == null) return;
+  kxSelectedSector = { source: feature.source, sourceLayer: feature.sourceLayer, id: feature.id };
+  kxSetFeatureState(kxSelectedSector, { selected: true });
+  const name = feature.properties && feature.properties.nombre;
+  if (name && lngLat) {
+    const el = document.createElement('div');
+    el.className = 'kx-map-label kx-map-label--selected';
+    el.textContent = name;
+    kxSectorLabelMarker = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -12] })
+      .setLngLat(lngLat)
+      .addTo(mlMap);
+  }
+}
+
+function kxCloseSectorChooser() {
+  if (kxSectorChooser) { kxSectorChooser.remove(); kxSectorChooser = null; }
+}
+
+const KX_SECTOR_LAYERS = ['sectores-layer', 'sectores-usuarios-layer'];
+const KX_ROUTE_LAYERS = ['vias-layer', 'vias-usuarios-layer', 'vias-ticks-circle-layer', 'pending-my-routes-layer', 'admin-pending-routes-layer'];
+
+/**
+ * Toque sobre un sector: detecta los sectores cercanos al punto. Si hay uno, lo selecciona y abre su ficha;
+ * si hay varios, deja elegir. Si bajo el dedo hay una vía, la vía tiene prioridad (su propio handler la abre).
+ * Devuelve true si el evento ya se ha gestionado (o lo gestiona otro), para que el handler de la capa no siga.
+ */
+function kxHandleSectorTap(e, open) {
+  const oe = e.originalEvent || {};
+  if (oe._kxSectorHandled) return true;
+  oe._kxSectorHandled = true;
+
+  const routeLayers = KX_ROUTE_LAYERS.filter(id => mlMap.getLayer(id));
+  if (routeLayers.length && mlMap.queryRenderedFeatures(e.point, { layers: routeLayers }).length) return true;
+
+  const layers = KX_SECTOR_LAYERS.filter(id => mlMap.getLayer(id));
+  const tol = isMobileDevice() ? 14 : 8;
+  const box = [[e.point.x - tol, e.point.y - tol], [e.point.x + tol, e.point.y + tol]];
+  const seen = new Set();
+  const candidates = [];
+  for (const f of mlMap.queryRenderedFeatures(box, { layers })) {
+    const key = f.source + '|' + (f.id != null ? f.id : f.properties.nombre);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(f);
+  }
+  // El que está justo bajo el dedo va primero
+  const hit = e.features && e.features[0];
+  if (hit) candidates.sort((a, b) => (b.id === hit.id && b.source === hit.source) - (a.id === hit.id && a.source === hit.source));
+
+  if (candidates.length <= 1) {
+    const f = candidates[0] || hit;
+    kxSelectSector(f, e.lngLat);
+    open(f.properties, e.lngLat, f);
+    return true;
+  }
+
+  kxCloseSectorChooser();
+  kxClearSectorSelection();
+  const wrap = document.createElement('div');
+  wrap.className = 'kx-sector-chooser';
+  wrap.setAttribute('role', 'listbox');
+  wrap.setAttribute('aria-label', 'Elige un sector');
+  const title = document.createElement('p');
+  title.className = 'kx-sector-chooser__title';
+  title.textContent = `${candidates.length} sectores aquí`;
+  wrap.appendChild(title);
+  candidates.slice(0, 6).forEach(f => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'kx-sector-chooser__item';
+    b.setAttribute('role', 'option');
+    b.textContent = f.properties.nombre || 'Sector sin nombre';
+    b.addEventListener('mouseenter', () => kxSetFeatureState({ source: f.source, sourceLayer: f.sourceLayer, id: f.id }, { selected: true }));
+    b.addEventListener('mouseleave', () => kxSetFeatureState({ source: f.source, sourceLayer: f.sourceLayer, id: f.id }, { selected: false }));
+    b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      kxSetFeatureState({ source: f.source, sourceLayer: f.sourceLayer, id: f.id }, { selected: false });
+      kxSelectSector(f, e.lngLat);
+      open(f.properties, e.lngLat, f);
+    });
+    wrap.appendChild(b);
+  });
+  kxSectorChooser = new maplibregl.Popup({ closeButton: false, closeOnClick: true, offset: 14, maxWidth: '240px', className: 'kx-sector-chooser-popup' })
+    .setLngLat(e.lngLat)
+    .setDOMContent(wrap)
+    .addTo(mlMap);
+  kxSectorChooser.on('close', () => { kxSectorChooser = null; });
+  return true;
+}
+
+// --- Iconos planos ---
+// Marcador de escuela: pin circular con punta inferior, montaña blanca y contorno blanco. Sin texto, sin sombras.
+// Los estados comparten silueta, proporciones y montaña; solo cambia el relleno. Con icon-anchor 'bottom' y un
+// icon-offset de KX_SCHOOL_PIN_TIP_GAP, la punta visible queda exactamente sobre la coordenada.
+const KX_SCHOOL_PIN = { normal: '#398C62', selected: '#27A866', pending: '#F59E0B' };
+// El SVG original es de 96×112; se rasteriza a 48×56 px CSS (a la densidad real de la pantalla)
+const KX_SCHOOL_PIN_W = 48, KX_SCHOOL_PIN_H = 56;
+const KX_SCHOOL_PIN_HALF_W = 22.5;   // semiancho del pin con su contorno
+const KX_SCHOOL_PIN_BODY_UP = 30.75; // del extremo visible de la punta al centro del círculo
+const KX_SCHOOL_PIN_TIP_GAP = 1.25;  // la punta redondeada queda 1,25 px por encima del borde inferior de la imagen
+// Escala del pin por zoom (icon-size sobre la imagen de 48 px de ancho)
+const KX_SCHOOL_SCALE = [[5, 0.55], [8, 0.68], [10, 0.78], [12, 0.85]];
+
+// SVG original de KRUX (sin cambios de geometría): solo varía el relleno según el estado
+function kxSchoolPinSVG(fill) {
+  return `<svg xmlns="http://www.w3.org/2000/svg"
+     width="96" height="112"
+     viewBox="0 0 96 112">
+  <path
+    d="M48 5
+       C24.3 5 5 24.3 5 48
+       C5 66 16 78 29 88
+       L44 105
+       Q48 110 52 105
+       L67 88
+       C80 78 91 66 91 48
+       C91 24.3 71.7 5 48 5Z"
+    fill="${fill}"
+    stroke="#FFFFFF"
+    stroke-width="4"
+    stroke-linejoin="round"/>
+
+  <path
+    d="M22 57 L39 32 L49 45 L59 29 L77 57 Z"
+    fill="#FFFFFF"/>
+
+  <path
+    d="M22 57 L39 32 L49 45"
+    fill="none"
+    stroke="#EAF3ED"
+    stroke-width="1.5"
+    stroke-linejoin="round"/>
+</svg>`;
+}
+
+function kxSchoolScaleAt(z) {
+  const st = KX_SCHOOL_SCALE;
+  if (z <= st[0][0]) return st[0][1];
+  for (let i = 1; i < st.length; i++) {
+    if (z <= st[i][0]) return st[i - 1][1] + (st[i][1] - st[i - 1][1]) * (z - st[i - 1][0]) / (st[i][0] - st[i - 1][0]);
+  }
+  return st[st.length - 1][1];
+}
+
+// Etiqueta del nombre, a la derecha del pin y a la altura de su círculo (independiente del SVG)
+function kxSchoolLabelLayer(id, sourceId) {
+  kxEnsureLabelPill('kx-school-label', false);
+  const sizes = { 7: 11, 10: 12, 12: 13 };
+  const offset = ['interpolate', ['linear'], ['zoom']];
+  Object.entries(sizes).forEach(([z, size]) => {
+    const sc = kxSchoolScaleAt(+z);
+    // El borde visible de la píldora queda 15 px a la izquierda del texto (relleno 4 + 11 del margen de la imagen)
+    offset.push(+z, ['literal', [+((KX_SCHOOL_PIN_HALF_W * sc + 4 + 15) / size).toFixed(3), -+((KX_SCHOOL_PIN_BODY_UP * sc) / size).toFixed(3)]]);
+  });
+  return {
+    id,
+    type: 'symbol',
+    source: sourceId,
+    minzoom: 7,
+    maxzoom: 12,
+    layout: {
+      ...kxLabelLayout(['interpolate', ['linear'], ['zoom'], 7, 11, 10, 12, 12, 13]),
+      'icon-image': 'kx-school-label',
+      'icon-text-fit-padding': [0, 4, 0, 4],
+      'text-anchor': 'left',
+      'text-justify': 'left',
+      'text-offset': offset,
+      'text-max-width': 10
+    },
+    paint: { ...kxLabelPaint(), 'text-color': KX_MAP.forest }
+  };
+}
+
+function kxParkingSVG() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28">
+    <rect x="2.5" y="2.5" width="23" height="23" rx="7.5" fill="${KX_MAP.info}" stroke="#ffffff" stroke-width="2"/>
+    <path d="M11 20V8.5h4.1c2.4 0 3.9 1.4 3.9 3.6s-1.5 3.6-3.9 3.6H11" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function kxPOISVG(poiType) {
+  const poi = getPOISVG(poiType);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28">
+    <circle cx="14" cy="14" r="11.5" fill="${poi.color}" stroke="#ffffff" stroke-width="2"/>
+    <svg x="6.5" y="6.5" width="15" height="15" viewBox="0 0 20 20">
+      <g fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${poi.svg}</g>
+    </svg>
+  </svg>`;
+}
+
+function kxTickBadgeSVG() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+    <circle cx="8" cy="8" r="6.6" fill="${KX_MAP.forest}" stroke="#ffffff" stroke-width="1.6"/>
+    <path d="M5 8.3 L7.1 10.3 L11 6" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+// ============================================
 // CONFIGURACIÓN DE GESTOS TÁCTILES
 // ============================================
 
@@ -1608,7 +2094,8 @@ async function mlLoadSchoolVectorTiles(school) {
       type: 'vector',
       tiles: [window.location.origin + '/' + school.tiles.sectores],
       minzoom: school.zoomLevels.sectores,
-      maxzoom: 20
+      maxzoom: 20,
+      promoteId: { sectores: 'fid' }
     });
     mlLoadedSources.add('sectores-source');
 
@@ -1623,17 +2110,7 @@ async function mlLoadSchoolVectorTiles(school) {
         'line-cap': 'round',
         'line-join': 'round'
       },
-      paint: {
-        'line-color': generateSectorCasingColorExpression(),
-        'line-width': [
-          'interpolate', ['linear'], ['zoom'],
-          14, 6,
-          16, 10,
-          18, 14,
-          20, 18
-        ],
-        'line-opacity': 0.9
-      }
+      paint: kxSectorCasingPaint()
     });
 
     // Capa principal - color dinámico por sector
@@ -1647,18 +2124,9 @@ async function mlLoadSchoolVectorTiles(school) {
         'line-cap': 'round',
         'line-join': 'round'
       },
-      paint: {
-        'line-color': generateSectorColorExpression(),
-        'line-width': [
-          'interpolate', ['linear'], ['zoom'],
-          14, 4,
-          16, 7,
-          18, 10,
-          20, 14
-        ],
-        'line-opacity': 1
-      }
+      paint: kxSectorLinePaint()
     });
+    kxAddSectorLabels('sectores-source', 'sectores-labels-layer', school.zoomLevels.sectorNames || 16, 'sectores');
   }
 
   // Cargar vías (círculos)
@@ -1677,20 +2145,9 @@ async function mlLoadSchoolVectorTiles(school) {
       source: 'vias-source',
       'source-layer': 'vias',
       minzoom: school.zoomLevels.vias,
-      paint: {
-        'circle-radius': [
-          'interpolate', ['linear'], ['zoom'],
-          14, isMobileDevice() ? 1.5 : 2,
-          16, isMobileDevice() ? 2.5 : 3.5,
-          18, isMobileDevice() ? 4 : 5.5,
-          20, isMobileDevice() ? 6 : 9
-        ],
-        'circle-color': generateGradeColorExpression('grado1'),
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': isMobileDevice() ? 1 : 1.5,
-        'circle-opacity': 0.95
-      }
+      paint: kxRoutePaint()
     });
+    kxAddRouteShadow('vias-source', school.zoomLevels.vias, 'vias');
 
     // Añadir interactividad
     setupViasInteraction();
@@ -1731,7 +2188,7 @@ async function mlLoadSchoolVectorTiles(school) {
       minzoom: school.zoomLevels.parkings,
       layout: {
         'icon-image': 'parking-icon',
-        'icon-size': 0.75,
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 15, 0.82, 18, 1],
         'icon-allow-overlap': true
       }
     });
@@ -1805,30 +2262,24 @@ async function mlLoadSchoolGeoJSON(school) {
             f.properties.fid = Math.abs(hash);
           }
         });
+        kxAssignSectorColors(geojson.features);
       }
 
-      mlMap.addSource('sectores-source', { type: 'geojson', data: geojson });
+      mlMap.addSource('sectores-source', { type: 'geojson', data: geojson, generateId: true });
       mlLoadedSources.add('sectores-source');
       mlMap.addLayer({
         id: 'sectores-casing-layer', type: 'line', source: 'sectores-source',
         minzoom: school.zoomLevels.sectores,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': generateSectorCasingColorExpression(),
-          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 6, 16, 10, 18, 14, 20, 18],
-          'line-opacity': 0.9
-        }
+        paint: kxSectorCasingPaint()
       });
       mlMap.addLayer({
         id: 'sectores-layer', type: 'line', source: 'sectores-source',
         minzoom: school.zoomLevels.sectores,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': generateSectorColorExpression(),
-          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 4, 16, 7, 18, 10, 20, 14],
-          'line-opacity': 1
-        }
+        paint: kxSectorLinePaint()
       });
+      kxAddSectorLabels('sectores-source', 'sectores-labels-layer', school.zoomLevels.sectorNames || 16);
       console.log(`Capa sectores cargada: ${geojson.features?.length || 0} elementos`);
       // La interacción se registra aquí, cuando la capa ya existe (la carga de vías corre en paralelo)
       setupSectoresInteraction();
@@ -1841,17 +2292,10 @@ async function mlLoadSchoolGeoJSON(school) {
   const viasLoad = school.geojson.vias ? (async () => {
     await mlLoadGeoJSONLayer(
       'vias', school.geojson.vias, 'circle',
-      {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'],
-          14, isMobileDevice() ? 2 : 3, 16, isMobileDevice() ? 3.5 : 5,
-          18, isMobileDevice() ? 5.5 : 8, 20, isMobileDevice() ? 9 : 14],
-        'circle-color': generateGradeColorExpression('grado1'),
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': isMobileDevice() ? 1 : 1.5,
-        'circle-opacity': 0.95
-      },
+      kxRoutePaint(),
       school.zoomLevels.vias, {}, mlProcessVariantsForGeoJSON
     );
+    kxAddRouteShadow('vias-source', school.zoomLevels.vias);
     setupViasInteraction();
   })() : Promise.resolve();
 
@@ -1860,7 +2304,7 @@ async function mlLoadSchoolGeoJSON(school) {
     await mlLoadGeoJSONLayer(
       'parkings', school.geojson.parkings, 'symbol', {},
       school.zoomLevels.parkings,
-      { 'icon-image': 'parking-icon', 'icon-size': 0.75, 'icon-allow-overlap': true }
+      { 'icon-image': 'parking-icon', 'icon-size': ['interpolate', ['linear'], ['zoom'], 15, 0.82, 18, 1], 'icon-allow-overlap': true }
     );
     setupParkingsInteraction();
   })() : Promise.resolve();
@@ -1911,16 +2355,16 @@ async function mlLoadRutasAcceso(url) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#FF6B00',  // Naranja
+        'line-color': KX_MAP.access,  // Naranja
         'line-width': [
           'interpolate', ['linear'], ['zoom'],
-          12, 2,
-          14, 3,
-          16, 4,
-          18, 5
+          12, 1.6,
+          14, 2.2,
+          16, 3,
+          18, 3.6
         ],
-        'line-opacity': 0.9,
-        'line-dasharray': [2, 2]  // Línea intermitente (dash, gap)
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.7, 13.5, 0.95],
+        'line-dasharray': [1.4, 1.6]  // Línea intermitente (dash, gap)
       }
     });
 
@@ -2060,8 +2504,13 @@ function createSVGPinImage(poiType, size = 50) {
   });
 }
 
+// Fase 2: los POI se dibujan como insignias circulares planas (color de su categoría + pictograma blanco).
+// Los SVG del diseñador siguen en assets/poi-icons; basta con poner esto a true para volver a ellos.
+const POI_USE_DESIGNER_FILES = false;
+
 function _createSVGPinImageRaw(poiType, size = 50) {
   const desc = (poiType || '').toLowerCase().trim();
+  if (!POI_USE_DESIGNER_FILES) return _kxPOIBadgeImage(desc);
   const externalSvg = POI_SVG_FILES[desc];
   // Renderizar a tamaño físico (size × DPR) para pantallas Retina/HiDPI
   const physicalSize = size * _mlDPR;
@@ -2121,6 +2570,24 @@ function _createSVGPinImageRaw(poiType, size = 50) {
   });
 }
 
+function _kxPOIBadgeImage(poiType) {
+  const css = 26, px = css * _mlDPR;
+  return new Promise((resolve, reject) => {
+    const img = new Image(px, px);
+    img.onerror = () => reject(new Error(`Failed to load image for POI type "${poiType}"`));
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = px; c.height = px;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, px, px);
+        resolve({ data: ctx.getImageData(0, 0, px, px).data, width: px, height: px });
+      } catch (e) { reject(e); }
+    };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(kxPOISVG(poiType));
+  });
+}
+
 /**
  * Carga los puntos de interés con pins SVG diferenciados por tipo y color.
  */
@@ -2166,16 +2633,10 @@ async function mlLoadPuntosInteres(url) {
       minzoom: 14,
       layout: {
         'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-        'icon-size': [
-          'interpolate', ['linear'], ['zoom'],
-          14, 0.55,
-          16, 0.72,
-          18, 0.88,
-          20, 1.05
-        ],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.78, 16, 0.9, 18, 1, 20, 1.12],
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
-        'icon-anchor': 'bottom'
+        'icon-anchor': 'center'
       }
     });
 
@@ -2340,7 +2801,7 @@ async function mlLoadGeoJSONLayer(layerId, url, type, paint, minzoom = 0, layout
  * Limpia las capas de la escuela actual
  */
 function mlClearSchoolLayers() {
-  const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'escuelas-usuarios-layer', 'escuelas-usuarios-labels-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
+  const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-shadow-layer', 'vias-layer', 'sectores-labels-layer', 'sectores-usuarios-labels-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'escuelas-usuarios-layer', 'escuelas-usuarios-labels-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
   const sourceIds = ['vias-ticks-source', 'vias-source', 'sectores-source', 'parkings-source', 'rutas-acceso-source', 'puntos-interes-source', 'vias-variant-connector-source', 'vias-usuarios-source', 'poi-usuarios-source', 'sectores-usuarios-source', 'escuelas-usuarios-source', 'pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source', 'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source'];
 
   // Cancelar listeners realtime antes de eliminar capas/sources
@@ -2358,6 +2819,10 @@ function mlClearSchoolLayers() {
 
   // Cancel any active geometry edit
   mlCancelPendingEdit();
+
+  // Selección visual de sector (el feature-state muere con la fuente)
+  kxClearSectorSelection();
+  kxCloseSectorChooser();
 
   // Limpiar estado de variantes
   mlClearVariantMarkers();
@@ -2465,26 +2930,22 @@ function updateAscentTicksLayer() {
         data: tickGeoJSON
       });
 
-      // Círculo de fondo con el color del grado de la vía
+      // La vía encadenada conserva su círculo con el color de grado (mismo tamaño que el resto de vías)
       mlMap.addLayer({
         id: 'vias-ticks-circle-layer',
         type: 'circle',
         source: tickSourceId,
         minzoom: 16,
         paint: {
-          'circle-radius': [
-            'interpolate', ['linear'], ['zoom'],
-            16, isMobileDevice() ? 5 : 7,
-            18, isMobileDevice() ? 8 : 11,
-            20, isMobileDevice() ? 12 : 15
-          ],
+          'circle-radius': kxZoomExpr(kxRouteRadiusStops()),
           'circle-color': ['get', 'gradeColor'],
           'circle-stroke-color': 'white',
-          'circle-stroke-width': 1.5
+          'circle-stroke-width': KX_ROUTE_STROKE
         }
       });
 
-      // Check blanco encima del círculo
+      // Check discreto: insignia verde bosque en el borde superior derecho, sin tapar el color de la vía
+      const tickStops = kxRouteRadiusStops().filter(([z]) => z >= 16);
       mlMap.addLayer({
         id: tickLayerId,
         type: 'symbol',
@@ -2492,16 +2953,13 @@ function updateAscentTicksLayer() {
         minzoom: 16,
         layout: {
           'icon-image': 'tick-icon',
-          'icon-size': [
-            'interpolate', ['linear'], ['zoom'],
-            16, isMobileDevice() ? 0.22 : 0.28,
-            18, isMobileDevice() ? 0.34 : 0.44,
-            20, isMobileDevice() ? 0.48 : 0.60
-          ],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 16, 0.62, 18, 0.78, 20, 1],
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
-          'icon-anchor': 'center',
-          'icon-offset': [0, 0]
+          'icon-anchor': 'center'
+        },
+        paint: {
+          'icon-translate': kxZoomExpr(tickStops, r => ['literal', [+(r * 0.85).toFixed(2), -(r * 0.85).toFixed(2)]])
         }
       });
     });
@@ -2512,32 +2970,7 @@ function updateAscentTicksLayer() {
  * Carga el icono de tick/check para la capa de vías completadas
  */
 function loadTickIcon() {
-  return new Promise((resolve) => {
-    if (mlMap.hasImage('tick-icon')) {
-      resolve();
-      return;
-    }
-
-    const size = 48;
-    const svgIcon = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48">
-        <polyline points="10,26 20,36 38,14" fill="none" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    `;
-
-    const img = new Image(size, size);
-    img.onload = () => {
-      if (!mlMap.hasImage('tick-icon')) {
-        mlMap.addImage('tick-icon', img);
-      }
-      resolve();
-    };
-    img.onerror = () => {
-      console.warn('Error cargando tick-icon');
-      resolve();
-    };
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgIcon);
-  });
+  return kxLoadSVGImage('tick-icon', kxTickBadgeSVG(), 16);
 }
 
 // Escuchar eventos de movimiento del mapa para actualizar ticks
@@ -2841,7 +3274,7 @@ function mlGenerateVariantMarkerSVG(gradeColors, pixelDiameter) {
   // Convertir px reales → unidades de viewBox.
   // Borde exterior = mismo grosor que circle-stroke-width de puntos simples.
   // Gap entre anillos se reduce con más variantes para dejar más espacio al color.
-  const strokePx = isMobileDevice() ? 1 : 1.5;
+  const strokePx = KX_ROUTE_STROKE;
   const pxToVB   = VB / pixelDiameter;
   const STROKE_W = strokePx * pxToVB;
   const gapFactor = N <= 1 ? 1.0 : N === 2 ? 0.6 : 0.4;
@@ -2883,10 +3316,7 @@ function mlGenerateVariantMarkerSVG(gradeColors, pixelDiameter) {
  */
 function mlGetViasRadius() {
   const zoom = mlMap.getZoom();
-  const mobile = isMobileDevice();
-  const stops = mobile
-    ? [[14, 2], [16, 3.5], [18, 5.5], [20, 9]]
-    : [[14, 3], [16, 5],   [18, 8],   [20, 14]];
+  const stops = kxRouteRadiusStops();
 
   if (zoom <= stops[0][0]) return stops[0][1];
   if (zoom >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
@@ -2970,7 +3400,7 @@ function mlCreateVariantMarkers() {
       const minZoom = school ? school.zoomLevels.vias : 17;
       const visible = mlMap.getZoom() >= minZoom;
 
-      const strokeW      = isMobileDevice() ? 1 : 1.5;
+      const strokeW      = KX_ROUTE_STROKE;
       const baseDiameter = Math.round(mlGetViasRadius() * 2 + strokeW * 2);
       const sizeChanged  = baseDiameter !== lastDiameter;
       lastDiameter = baseDiameter;
@@ -2991,6 +3421,8 @@ function mlCreateVariantMarkers() {
         }
       }
     };
+    // Un solo listener vivo: se retira al limpiar la escuela (antes se acumulaba uno por carga)
+    mlVariantZoomHandler = updateMarkers;
     mlMap.on('zoom', updateMarkers);
     updateMarkers(); // estado inicial
   }
@@ -3001,9 +3433,11 @@ function mlCreateVariantMarkers() {
 /**
  * Elimina todos los marcadores HTML de variantes del mapa.
  */
+let mlVariantZoomHandler = null;
 function mlClearVariantMarkers() {
   for (const entry of mlVariantMarkers) entry.marker.remove();
   mlVariantMarkers = [];
+  if (mlVariantZoomHandler && mlMap) { mlMap.off('zoom', mlVariantZoomHandler); mlVariantZoomHandler = null; }
 }
 
 /**
@@ -3075,6 +3509,11 @@ function setupViasInteraction() {
     }
 
     // --- Comportamiento estándar (sin variantes) ---
+    // Resaltado breve sobre la vía tocada (sus coordenadas reales)
+    const g = feature.geometry;
+    const point = g && (g.type === 'MultiPoint' ? g.coordinates[0] : g.type === 'Point' ? g.coordinates : null);
+    if (point) mlApplyRouteHighlight(point, props.id);
+
     if (isMobileDevice()) {
       adaptiveMapPanForBottomSheet(coords);
       showRouteBottomSheet(props, coords);
@@ -5248,66 +5687,45 @@ function mlApplyRouteHighlight(coords, routeId) {
     }
   });
 
-  // Radios base ajustados a plataforma
-  const baseRadius = mobile ? 16 : 20;
-  const maxRadius = mobile ? 28 : 35;
-  const innerRadius = mobile ? 10 : 12;
+  // Resaltado breve y estático (sin pulso continuo): halo salvia + anillo verde bosque alrededor del punto.
+  // El anillo crece suavemente desde el tamaño de la vía (transición nativa de MapLibre).
+  const r = mlGetViasRadius() + KX_ROUTE_STROKE;
+  const ringRadius = r + (mobile ? 5 : 6);
 
-  // Capa de anillo exterior (pulso)
   mlMap.addLayer({
     id: highlightPulseLayerId,
     type: 'circle',
     source: highlightSourceId,
     paint: {
-      'circle-radius': baseRadius,
-      'circle-color': 'transparent',
-      'circle-stroke-color': '#f59e0b',
-      'circle-stroke-width': mobile ? 2.5 : 3,
-      'circle-stroke-opacity': 0.8
+      'circle-radius': r,
+      'circle-radius-transition': { duration: 240 },
+      'circle-color': KX_MAP.halo,
+      'circle-opacity': 0.42,
+      'circle-blur': 0.35
     }
   });
 
-  // Capa de punto interior (resaltado sólido)
   mlMap.addLayer({
     id: highlightLayerId,
     type: 'circle',
     source: highlightSourceId,
     paint: {
-      'circle-radius': innerRadius,
-      'circle-color': '#f59e0b',
-      'circle-opacity': 0.35,
-      'circle-stroke-color': '#f59e0b',
+      'circle-radius': r,
+      'circle-radius-transition': { duration: 240 },
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-color': KX_MAP.forest,
       'circle-stroke-width': 2.5,
       'circle-stroke-opacity': 1
     }
   });
 
-  // Animación de pulso con requestAnimationFrame (más fluido que setInterval)
-  const startTime = performance.now();
-  const cycleDuration = 1200; // ms por ciclo completo
-
-  function animatePulse(now) {
-    if (!mlMap || !mlMap.getLayer(highlightPulseLayerId)) return;
-
-    const elapsed = (now - startTime) % cycleDuration;
-    const progress = elapsed / cycleDuration;
-
-    // Curva sinusoidal suave para el radio
-    const t = Math.sin(progress * Math.PI);
-    const currentRadius = baseRadius + (maxRadius - baseRadius) * t;
-    const currentOpacity = 0.8 - 0.5 * t;
-
+  mlPulseAnimId = requestAnimationFrame(() => {
+    mlPulseAnimId = null;
     try {
-      mlMap.setPaintProperty(highlightPulseLayerId, 'circle-radius', currentRadius);
-      mlMap.setPaintProperty(highlightPulseLayerId, 'circle-stroke-opacity', currentOpacity);
-    } catch (e) {
-      return; // layer removed
-    }
-
-    mlPulseAnimId = requestAnimationFrame(animatePulse);
-  }
-
-  mlPulseAnimId = requestAnimationFrame(animatePulse);
+      mlMap.setPaintProperty(highlightPulseLayerId, 'circle-radius', ringRadius + 6);
+      mlMap.setPaintProperty(highlightLayerId, 'circle-radius', ringRadius);
+    } catch (e) {}
+  });
 
   // Auto-eliminar el highlight después de 5 segundos
   mlHighlightTimer = setTimeout(() => {
@@ -5625,6 +6043,10 @@ function showSectorPopup(props, coords, extraHTML = '') {
       maxWidth: '360px',
       className: 'ml-sector-popup-container'
     });
+    // remove()/addTo() también disparan 'close' al reabrir otra ficha: solo se limpia si de verdad no queda ninguna abierta
+    mlSectorPopup.on('close', () => setTimeout(() => {
+      if (!(mlSectorPopup && mlSectorPopup.isOpen()) && secBsCurrentState === 'hidden') kxClearSectorSelection();
+    }, 0));
   }
 
   mlSectorPopup
@@ -5668,11 +6090,14 @@ function setupSectoresInteraction() {
   mlMap.on('click', 'sectores-layer', (e) => {
     if (mlMap.getCanvas().style.cursor === 'crosshair') return;
     if (!e.features || e.features.length === 0) return;
+    kxHandleSectorTap(e, (props, coords, f) => {
+      if (f && f.source === 'sectores-usuarios-source') return mlOpenUserSector(props, coords);
+      mlOpenStaticSector(props, coords);
+    });
+  });
+}
 
-    const feature = e.features[0];
-    const props = feature.properties;
-    const coords = e.lngLat;
-
+function mlOpenStaticSector(props, coords) {
     if (isMobileDevice()) {
       // En móvil, usar bottom sheet
       if (mlSectorPopup) mlSectorPopup.remove();
@@ -5690,7 +6115,6 @@ function setupSectoresInteraction() {
       });
       showSectorPopup(props, [coords.lng, coords.lat]);
     }
-  });
 }
 
 // ============================================
@@ -5701,39 +6125,8 @@ function setupSectoresInteraction() {
  * Carga icono de parking
  */
 function loadParkingIcon() {
-  const size = 64;
-  const physicalSize = size * _mlDPR;
-  const externalSvg = POI_SVG_FILES['parking'];
-  if (!externalSvg) return;
-
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = physicalSize;
-    canvas.height = physicalSize;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, physicalSize, physicalSize);
-
-    ctx.shadowColor = 'white';
-    ctx.shadowBlur = 4 * _mlDPR;
-    const scale = Math.min(physicalSize / img.width, physicalSize / img.height);
-    const drawW = img.width * scale;
-    const drawH = img.height * scale;
-    const dx = (physicalSize - drawW) / 2;
-    const dy = (physicalSize - drawH) / 2;
-    ctx.drawImage(img, dx, dy, drawW, drawH);
-    ctx.shadowBlur = 0;
-
-    const imageData = ctx.getImageData(0, 0, physicalSize, physicalSize);
-    if (!mlMap.hasImage('parking-icon')) {
-      mlMap.addImage('parking-icon',
-        { data: new Uint8Array(imageData.data), width: physicalSize, height: physicalSize },
-        { pixelRatio: _mlDPR }
-      );
-    }
-  };
-  img.src = externalSvg + '?v=' + POI_ICONS_VERSION;
+  // P azul plana con borde blanco (antes: pin del diseñador)
+  return kxLoadSVGImage('parking-icon', kxParkingSVG(), 28);
 }
 
 // ============================================
@@ -5963,9 +6356,11 @@ function loadSchoolMarkers() {
   console.log('Cargando markers de escuelas como Symbol Layer:', SCHOOL_MARKERS.length);
 
   // Limpiar source/layers existentes si los hay
-  if (mlMap.getLayer('school-labels-layer')) mlMap.removeLayer('school-labels-layer');
-  if (mlMap.getLayer('school-markers-layer')) mlMap.removeLayer('school-markers-layer');
+  ['school-labels-layer', 'school-markers-selected-layer', 'school-markers-layer', 'school-halo-layer']
+    .forEach(id => { if (mlMap.getLayer(id)) mlMap.removeLayer(id); });
   if (mlMap.getSource('schools-source')) mlMap.removeSource('schools-source');
+  kxSelectedSchool = null;
+  kxFocusedSchool = null;
 
   // Crear popup compartido para escuelas
   if (!mlSchoolPopup) {
@@ -5975,6 +6370,10 @@ function loadSchoolMarkers() {
       maxWidth: '340px',
       className: 'ml-school-popup'
     });
+    // En escritorio la ficha es este popup; en móvil, la hoja inferior (hideBottomSheet limpia la selección)
+    mlSchoolPopup.on('close', () => setTimeout(() => {
+      if (!isMobileDevice() && !(mlSchoolPopup && mlSchoolPopup.isOpen())) kxSelectSchool(null);
+    }, 0));
   }
 
   // Crear GeoJSON con las escuelas
@@ -6000,74 +6399,77 @@ function loadSchoolMarkers() {
   // Añadir source
   mlMap.addSource('schools-source', {
     type: 'geojson',
-    data: schoolsGeoJSON
+    data: schoolsGeoJSON,
+    promoteId: 'id'
   });
 
   // Cargar iconos SVG como imágenes
   loadSchoolIcons().then(() => {
-    // Añadir capa de símbolos (iconos)
+    const scale = kxZoomExpr(KX_SCHOOL_SCALE);
+    const zoomFade = ['interpolate', ['linear'], ['zoom'], 11.4, 1, 12, 0.6];
+    const stateOn = ['any', _kxSel, ['boolean', ['feature-state', 'focus'], false]];
+
+    // Halo del estado «en foco»: círculo verde translúcido y mate, detrás del pin y centrado en su círculo.
+    // Es una capa aparte, así que no altera el anclaje del marcador.
+    mlMap.addLayer({
+      id: 'school-halo-layer',
+      type: 'circle',
+      source: 'schools-source',
+      minzoom: 5,
+      maxzoom: 12,
+      paint: {
+        'circle-radius': kxZoomExpr(KX_SCHOOL_SCALE, sc => +(KX_SCHOOL_PIN_W * 0.8 * sc).toFixed(2)),
+        'circle-translate': kxZoomExpr(KX_SCHOOL_SCALE, sc => ['literal', [0, -+(KX_SCHOOL_PIN_BODY_UP * sc).toFixed(2)]]),
+        'circle-translate-anchor': 'viewport',
+        'circle-pitch-alignment': 'viewport',
+        'circle-color': KX_SCHOOL_PIN.selected,
+        'circle-opacity': ['case', ['boolean', ['feature-state', 'focus'], false], 0.3, 0],
+        'circle-stroke-color': KX_SCHOOL_PIN.selected,
+        'circle-stroke-width': 5,
+        'circle-stroke-opacity': ['case', ['boolean', ['feature-state', 'focus'], false], 0.2, 0],
+        'circle-opacity-transition': { duration: 180 },
+        'circle-stroke-opacity-transition': { duration: 180 }
+      }
+    });
+
+    const pinLayout = icon => ({
+      'icon-image': icon,
+      'icon-size': scale,
+      'icon-anchor': 'bottom',
+      'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'icon-pitch-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport'
+    });
+
+    // Estado normal (todas las escuelas); es la capa interactiva
     mlMap.addLayer({
       id: 'school-markers-layer',
       type: 'symbol',
       source: 'schools-source',
       minzoom: 5,
       maxzoom: 12,
-      layout: {
-        'icon-image': ['case',
-          ['==', ['get', 'nombre'], 'Hoz del Río Gritos'], 'school-icon-green',
-          ['==', ['get', 'nombre'], 'Mora'], 'school-icon-green',
-          ['==', ['get', 'nombre'], 'Toledo'], 'school-icon-green',
-          ['==', ['get', 'nombre'], 'Cuenca'], 'school-icon-green',
-          'school-icon-orange'
-        ],
-        // Tamaño que escala con el zoom
-        'icon-size': [
-          'interpolate', ['linear'], ['zoom'],
-          5, 0.3,
-          8, 0.5,
-          10, 0.7,
-          12, 0.9,
-          14, 1.1
-        ],
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': false,
-        // Badge de desarrollo para escuelas no abiertas
-        'icon-anchor': 'center'
-      },
+      layout: pinLayout('kx-school-pin'),
+      paint: { 'icon-opacity': zoomFade }
+    });
+
+    // Seleccionada o en foco: mismo pin con el verde intenso, superpuesto con exactitud
+    mlMap.addLayer({
+      id: 'school-markers-selected-layer',
+      type: 'symbol',
+      source: 'schools-source',
+      minzoom: 5,
+      maxzoom: 12,
+      layout: pinLayout('kx-school-pin-selected'),
       paint: {
-        'icon-opacity': 1
+        'icon-opacity': ['interpolate', ['linear'], ['zoom'], 11.4, ['case', stateOn, 1, 0], 12, ['case', stateOn, 0.6, 0]],
+        'icon-opacity-transition': { duration: 160 }
       }
     });
 
-    // Añadir capa de etiquetas (texto)
-    mlMap.addLayer({
-      id: 'school-labels-layer',
-      type: 'symbol',
-      source: 'schools-source',
-      minzoom: 7,
-      maxzoom: 12,
-      layout: {
-        'text-field': ['get', 'nombre'],
-        'text-font': ['Noto Sans Bold'],
-        'text-size': [
-          'interpolate', ['linear'], ['zoom'],
-          7, 10,
-          10, 12,
-          12, 14,
-          14, 16
-        ],
-        'text-offset': [0, 2.2],
-        'text-anchor': 'top',
-        'text-max-width': 10,
-        'text-allow-overlap': false
-      },
-      paint: {
-        'text-color': '#1f2937',
-        'text-halo-color': 'rgba(255, 255, 255, 0.95)',
-        'text-halo-width': 2,
-        'text-halo-blur': 0
-      }
-    });
+    // Etiqueta flotante independiente del icono: desde el zoom 7, sin solaparse
+    mlMap.addLayer(kxSchoolLabelLayer('school-labels-layer', 'schools-source'));
 
     // Configurar interactividad
     setupSchoolLayerInteraction();
@@ -6080,42 +6482,37 @@ function loadSchoolMarkers() {
  * Carga los iconos SVG de escuelas como imágenes para MapLibre
  */
 async function loadSchoolIcons() {
-  const iconSize = 96; // Tamaño base del icono (se escalará con icon-size)
-
-  // Icono naranja (escuelas normales)
-  const orangeSVG = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${iconSize}" height="${iconSize}">
-      <circle cx="24" cy="24" r="22" fill="#f59e0b"/>
-      <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
-      <g fill="white">
-        <path d="M24 10 L36 32 L12 32 Z" opacity="0.95"/>
-        <path d="M16 20 L24 32 L8 32 Z" opacity="0.7"/>
-      </g>
-      <g transform="translate(36, 10)">
-        <circle cx="0" cy="0" r="8" fill="#fff" stroke="#f59e0b" stroke-width="1.5"/>
-        <text x="0" y="3" text-anchor="middle" font-size="10" fill="#333">🔨</text>
-      </g>
-    </svg>
-  `;
-
-  // Icono verde (Hoz del Río Gritos - abierta)
-  const greenSVG = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${iconSize}" height="${iconSize}">
-      <circle cx="24" cy="24" r="22" fill="#22c55e"/>
-      <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
-      <g fill="white">
-        <path d="M24 10 L36 32 L12 32 Z" opacity="0.95"/>
-        <path d="M16 20 L24 32 L8 32 Z" opacity="0.7"/>
-      </g>
-    </svg>
-  `;
-
-  // Cargar icono naranja
-  await loadSVGAsImage('school-icon-orange', orangeSVG, iconSize);
-
-  // Cargar icono verde
-  await loadSVGAsImage('school-icon-green', greenSVG, iconSize);
+  // Un único pin con tres rellenos: normal (verde mate), seleccionada (verde intenso) y pendiente de aprobación
+  await kxLoadSVGImage('kx-school-pin', kxSchoolPinSVG(KX_SCHOOL_PIN.normal), KX_SCHOOL_PIN_W, KX_SCHOOL_PIN_H);
+  await kxLoadSVGImage('kx-school-pin-selected', kxSchoolPinSVG(KX_SCHOOL_PIN.selected), KX_SCHOOL_PIN_W, KX_SCHOOL_PIN_H);
+  await kxLoadSVGImage('kx-school-pin-pending', kxSchoolPinSVG(KX_SCHOOL_PIN.pending), KX_SCHOOL_PIN_W, KX_SCHOOL_PIN_H);
 }
+
+// Selección y foco son estados independientes: el pin intenso se muestra con cualquiera de los dos y el halo solo con el foco
+function kxSelectSchool(id) {
+  if (kxSelectedSchool != null) kxSetFeatureState({ source: 'schools-source', id: kxSelectedSchool }, { selected: false });
+  kxSelectedSchool = id;
+  if (id != null) kxSetFeatureState({ source: 'schools-source', id }, { selected: true });
+}
+
+/**
+ * Da el foco a una escuela (o lo quita con null). Lo usan el buscador y la navegación.
+ * opts.untilMoveEnd: el foco se retira al acabar el siguiente movimiento del mapa (o a los 4 s si no hay ninguno).
+ */
+function kxFocusSchool(id, opts = {}) {
+  if (kxFocusTimer) { clearTimeout(kxFocusTimer); kxFocusTimer = null; }
+  if (kxFocusedSchool != null) kxSetFeatureState({ source: 'schools-source', id: kxFocusedSchool }, { focus: false });
+  kxFocusedSchool = id != null ? id : null;
+  if (kxFocusedSchool == null) return;
+  kxSetFeatureState({ source: 'schools-source', id: kxFocusedSchool }, { focus: true });
+  if (opts.untilMoveEnd && mlMap) {
+    const mine = kxFocusedSchool;
+    const release = () => { if (kxFocusedSchool === mine) kxFocusSchool(null); };
+    mlMap.once('movestart', () => { clearTimeout(kxFocusTimer); mlMap.once('moveend', release); });
+    kxFocusTimer = setTimeout(release, 4000);
+  }
+}
+window.kxFocusSchool = kxFocusSchool;
 
 /**
  * Helper para cargar un SVG como imagen en MapLibre
@@ -7418,6 +7815,7 @@ function hideSectorBottomSheet() {
 
   secBsCurrentState = 'hidden';
   secBsCurrentSector = null;
+  kxClearSectorSelection();
 }
 
 // ============================================
@@ -7923,6 +8321,7 @@ function hideBottomSheet() {
   const overlay = document.getElementById('bottom-sheet-overlay');
 
   if (!bottomSheet || !overlay) return;
+  kxSelectSchool(null);
 
   bottomSheet.classList.remove('snap-summary', 'snap-expanded');
   overlay.classList.remove('visible');
@@ -8625,6 +9024,7 @@ setupSchoolLayerInteraction = function () {
 
       showSchoolPopup(school, null);
     }
+    kxSelectSchool(feature.id != null ? feature.id : props.id);
   });
 };
 
@@ -8785,19 +9185,8 @@ async function loadApprovedRoutesFromFirestore(schoolId, minZoom = 14) {
               type: 'circle',
               source: sourceId,
               minzoom: minZoom,
-              paint: {
-                'circle-radius': [
-                  'interpolate', ['linear'], ['zoom'],
-                  14, isMobileDevice() ? 2 : 3,
-                  16, isMobileDevice() ? 3.5 : 5,
-                  18, isMobileDevice() ? 5.5 : 8,
-                  20, isMobileDevice() ? 9 : 14
-                ],
-                'circle-color': generateGradeColorExpression('grado1'),
-                'circle-stroke-color': '#FFD700',
-                'circle-stroke-width': isMobileDevice() ? 2 : 2.5,
-                'circle-opacity': 0.95
-              }
+              // Aporte de la comunidad: mismo círculo, con el borde dorado que lo identifica
+              paint: kxRoutePaint('#FFD700')
             });
             if (!mlUserViasInteractionAttached) {
               setupUserViasInteraction();
@@ -9210,17 +9599,10 @@ async function loadApprovedPOIFromFirestore(schoolId) {
               minzoom: 13,
               layout: {
                 'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-                'icon-size': [
-                  'interpolate', ['linear'], ['zoom'],
-                  13, 0.5,
-                  14, 0.7,
-                  16, 0.9,
-                  18, 1.1,
-                  20, 1.3
-                ],
+                'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 16, 0.9, 18, 1, 20, 1.12],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true,
-                'icon-anchor': 'bottom'
+                'icon-anchor': 'center'
               }
             });
             if (!mlUserPOIInteractionAttached) {
@@ -9250,12 +9632,17 @@ function setupUserSectorsInteraction(lineLayerId) {
   mlMap.on('mouseleave', lineLayerId, () => {
     mlMap.getCanvas().style.cursor = '';
   });
-  mlMap.on('click', lineLayerId, async (e) => {
+  mlMap.on('click', lineLayerId, (e) => {
     if (mlMap.getCanvas().style.cursor === 'crosshair') return;
     if (!e.features || e.features.length === 0) return;
-    const props = e.features[0].properties;
-    const coords = e.lngLat;
+    kxHandleSectorTap(e, (props, coords, f) => {
+      if (f && f.source === 'sectores-source') return mlOpenStaticSector(props, coords);
+      mlOpenUserSector(props, coords);
+    });
+  });
+}
 
+async function mlOpenUserSector(props, coords) {
     const adminRole = await checkAdminRole();
     const adminHTML = adminRole === 'admin' && props.docId ? `
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding:0 4px 4px;">
@@ -9276,7 +9663,6 @@ function setupUserSectorsInteraction(lineLayerId) {
       mlMap.flyTo({ center: coords, zoom: mlMap.getZoom(), speed: 0.8, curve: 1, padding: { top: 450, bottom: 0, left: 0, right: 0 } });
       showSectorPopup(props, [coords.lng, coords.lat], adminHTML);
     }
-  });
 }
 
 async function loadApprovedSectorsFromFirestore(schoolId) {
@@ -9350,12 +9736,13 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
 
           console.log(`%c[ApprovedSectors] Realtime: ${features.length} sectores para ${schoolId} (skippedVertices=${skippedVertices}, skippedSchool=${skippedSchool})`, 'color: #2196F3; font-weight: bold');
 
+          kxAssignSectorColors(features);
           const geojson = { type: 'FeatureCollection', features };
 
           if (mlMap.getSource(sourceId)) {
             mlMap.getSource(sourceId).setData(geojson);
           } else {
-            mlMap.addSource(sourceId, { type: 'geojson', data: geojson });
+            mlMap.addSource(sourceId, { type: 'geojson', data: geojson, generateId: true });
 
             const school = MAPLIBRE_SCHOOLS[schoolId];
             const sectorMinZoom = school?.zoomLevels?.sectores || 12;
@@ -9366,14 +9753,7 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
               source: sourceId,
               minzoom: sectorMinZoom,
               layout: { 'line-cap': 'round', 'line-join': 'round' },
-              paint: {
-                'line-color': generateSectorCasingColorExpression(),
-                'line-width': [
-                  'interpolate', ['linear'], ['zoom'],
-                  12, 4, 14, 6, 16, 10, 18, 14, 20, 18
-                ],
-                'line-opacity': 0.9
-              }
+              paint: kxSectorCasingPaint()
             });
 
             mlMap.addLayer({
@@ -9382,15 +9762,9 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
               source: sourceId,
               minzoom: sectorMinZoom,
               layout: { 'line-cap': 'round', 'line-join': 'round' },
-              paint: {
-                'line-color': generateSectorColorExpression(),
-                'line-width': [
-                  'interpolate', ['linear'], ['zoom'],
-                  12, 2, 14, 4, 16, 7, 18, 10, 20, 14
-                ],
-                'line-opacity': 1
-              }
+              paint: kxSectorLinePaint()
             });
+            kxAddSectorLabels(sourceId, 'sectores-usuarios-labels-layer', school?.zoomLevels?.sectorNames || 16);
 
             if (!mlUserSectorsInteractionAttached) {
               setupUserSectorsInteraction(lineLayerId);
@@ -9591,8 +9965,8 @@ async function loadMyPendingPOIFromFirestore(schoolId) {
               paint: { 'icon-opacity': 0.6 },
               layout: {
                 'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-                'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 16, 0.9, 20, 1.3],
-                'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'bottom'
+                'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 16, 0.9, 18, 1, 20, 1.12],
+                'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
               }
             });
             mlMap.on('click', layerId, (e) => {
@@ -9762,7 +10136,7 @@ async function loadMyPendingSchoolsFromFirestore() {
 
     console.log(`[MyPendingSchools] ${features.length} escuelas pendientes propias`);
 
-    if (!mlMap.hasImage('school-icon-orange')) await loadSchoolIcons();
+    if (!mlMap.hasImage('kx-school-pin-pending')) await loadSchoolIcons();
 
     const sourceId = 'pending-my-schools-source';
     const layerId = 'pending-my-schools-layer';
@@ -9779,14 +10153,16 @@ async function loadMyPendingSchoolsFromFirestore() {
       minzoom: 5,
       maxzoom: 12,
       layout: {
-        'icon-image': 'school-icon-orange',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 8, 0.5, 10, 0.65, 12, 0.75],
+        'icon-image': 'kx-school-pin-pending',
+        'icon-size': kxZoomExpr(KX_SCHOOL_SCALE),
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
+        'icon-anchor': 'bottom',
+        'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP],
         'text-field': ['concat', ['get', 'nombre'], '\n⏳'],
         'text-font': ['Noto Sans Bold'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 7, 10, 12, 13],
-        'text-offset': [0, 2.4],
+        'text-offset': [0, 0.5],
         'text-anchor': 'top'
       },
       paint: {
@@ -10006,8 +10382,8 @@ async function loadAllPendingForAdmin(schoolId, minZoom = 14) {
           paint: { 'icon-opacity': 0.8 },
           layout: {
             'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 16, 0.9, 20, 1.3],
-            'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'bottom'
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 16, 0.9, 18, 1, 20, 1.12],
+            'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
           }
         });
         if (!mlAdminPendingPOIInteractionAttached) {
@@ -10160,7 +10536,7 @@ async function loadAllPendingSchoolsForAdmin() {
     });
     if (!features.length) return;
 
-    if (!mlMap.hasImage('school-icon-orange')) await loadSchoolIcons();
+    if (!mlMap.hasImage('kx-school-pin-pending')) await loadSchoolIcons();
 
     const sourceId = 'admin-pending-schools-source';
     const layerId = 'admin-pending-schools-layer';
@@ -10175,14 +10551,16 @@ async function loadAllPendingSchoolsForAdmin() {
       minzoom: 5,
       maxzoom: 12,
       layout: {
-        'icon-image': 'school-icon-orange',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 8, 0.5, 10, 0.65, 12, 0.75],
+        'icon-image': 'kx-school-pin-pending',
+        'icon-size': kxZoomExpr(KX_SCHOOL_SCALE),
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
+        'icon-anchor': 'bottom',
+        'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP],
         'text-field': ['concat', ['get', 'nombre'], '\n⏳'],
         'text-font': ['Noto Sans Bold'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 7, 10, 12, 13],
-        'text-offset': [0, 2.4],
+        'text-offset': [0, 0.5],
         'text-anchor': 'top'
       },
       paint: {
@@ -10359,7 +10737,7 @@ async function loadApprovedSchoolsFromFirestore() {
     if (mlMap.getSource(sourceId)) mlMap.removeSource(sourceId);
 
     // Esperar a que school-icon-green esté disponible (lo carga loadSchoolIcons)
-    if (!mlMap.hasImage('school-icon-green')) {
+    if (!mlMap.hasImage('kx-school-pin')) {
       await loadSchoolIcons();
     }
 
@@ -10376,43 +10754,17 @@ async function loadApprovedSchoolsFromFirestore() {
       minzoom: 5,
       maxzoom: 12,
       layout: {
-        'icon-image': 'school-icon-green',
-        'icon-size': [
-          'interpolate', ['linear'], ['zoom'],
-          5, 0.3, 8, 0.5, 10, 0.65, 12, 0.75
-        ],
+        'icon-image': 'kx-school-pin',
+        'icon-size': kxZoomExpr(KX_SCHOOL_SCALE),
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
-        'icon-anchor': 'center'
+        'icon-anchor': 'bottom',
+        'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP]
       }
     });
 
-    // Etiqueta de nombre debajo del icono (igual que school-labels-layer)
-    mlMap.addLayer({
-      id: labelLayerId,
-      type: 'symbol',
-      source: sourceId,
-      minzoom: 7,
-      maxzoom: 12,
-      layout: {
-        'text-field': ['get', 'nombre'],
-        'text-font': ['Noto Sans Bold'],
-        'text-size': [
-          'interpolate', ['linear'], ['zoom'],
-          7, 10, 10, 12, 12, 14
-        ],
-        'text-offset': [0, 2.2],
-        'text-anchor': 'top',
-        'text-max-width': 10,
-        'text-allow-overlap': false
-      },
-      paint: {
-        'text-color': '#1f2937',
-        'text-halo-color': 'rgba(255, 255, 255, 0.95)',
-        'text-halo-width': 2,
-        'text-halo-blur': 0
-      }
-    });
+    // Etiqueta de nombre (igual que school-labels-layer)
+    mlMap.addLayer(kxSchoolLabelLayer(labelLayerId, sourceId));
 
     // Interactividad: mismo comportamiento que school-markers-layer
     mlMap.on('mouseenter', layerId, () => {
@@ -10932,6 +11284,7 @@ function applyGradeFilter() {
   }
 
   mlMap.setFilter('vias-layer', combinedFilter);
+  if (mlMap.getLayer('vias-shadow-layer')) mlMap.setFilter('vias-shadow-layer', combinedFilter);
 
   // Sincronizar ticks con filtros:
   // - El filtro "Solo vías hechas" no restringe los ticks (ya son vías hechas por construcción).
