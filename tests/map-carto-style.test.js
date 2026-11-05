@@ -510,3 +510,33 @@ describe('iconos de puntos de interés', () => {
     }
   });
 });
+
+// ---------- Etiquetas de sector: sin solapes ----------
+describe('etiquetas de sector: colisiones', () => {
+  const ctx = vm.createContext({});
+  vm.runInContext([
+    MAP.match(/const KX_LABEL_COLLISION_PAD = [^;]+;/)[0],
+    extractFunction(MAP, 'kxPickVisibleLabels'),
+    'this.pick = kxPickVisibleLabels;'
+  ].join('\n'), ctx);
+  const R = (left, top, w = 80, h = 24) => ({ left, top, right: left + w, bottom: top + h });
+
+  it('dos etiquetas separadas se ven las dos', () => {
+    expect([...ctx.pick([{ rect: R(0, 0) }, { rect: R(200, 0) }])]).toEqual([0, 1]);
+  });
+
+  it('si se solapan, se oculta la segunda', () => {
+    expect([...ctx.pick([{ rect: R(0, 0) }, { rect: R(40, 10) }])]).toEqual([0]);
+  });
+
+  it('el margen de aire cuenta como solape', () => {
+    expect(ctx.pick([{ rect: R(0, 0) }, { rect: R(82, 0) }]).has(1)).toBe(false);   // 2 px < 4 px de aire
+    expect(ctx.pick([{ rect: R(0, 0) }, { rect: R(90, 0) }]).has(1)).toBe(true);
+  });
+
+  it('la seleccionada gana siempre, aunque llegue después', () => {
+    const v = ctx.pick([{ rect: R(0, 0) }, { rect: R(40, 10), selected: true }]);
+    expect(v.has(1)).toBe(true);
+    expect(v.has(0)).toBe(false);
+  });
+});

@@ -123,7 +123,7 @@ const MAPLIBRE_SCHOOLS = {
     // ZOOMS CAPAS ESCUELAS
     zoomLevels: {
       sectores: 12,
-      sectorNames: 16,
+      sectorNames: 17,
       vias: 17,  // desaparecen antes al hacer zoom out
       parkings: 15
     }
@@ -150,7 +150,7 @@ const MAPLIBRE_SCHOOLS = {
     },
     zoomLevels: {
       sectores: 12,
-      sectorNames: 16,
+      sectorNames: 17,
       vias: 17,  // desaparecen antes al hacer zoom out
       parkings: 15
     }
@@ -177,7 +177,7 @@ const MAPLIBRE_SCHOOLS = {
     },
     zoomLevels: {
       sectores: 12,
-      sectorNames: 16,
+      sectorNames: 17,
       vias: 17,  // desaparecen antes al hacer zoom out
       parkings: 15
     }
@@ -204,7 +204,7 @@ const MAPLIBRE_SCHOOLS = {
     },
     zoomLevels: {
       sectores: 12,
-      sectorNames: 16,
+      sectorNames: 17,
       vias: 17,
       parkings: 15
     }
@@ -231,7 +231,7 @@ const MAPLIBRE_SCHOOLS = {
     },
     zoomLevels: {
       sectores: 12,
-      sectorNames: 16,
+      sectorNames: 17,
       vias: 17,
       parkings: 15
     }
@@ -258,7 +258,7 @@ const MAPLIBRE_SCHOOLS = {
     },
     zoomLevels: {
       sectores: 12,
-      sectorNames: 16,
+      sectorNames: 17,
       vias: 17,
       parkings: 15
     }
