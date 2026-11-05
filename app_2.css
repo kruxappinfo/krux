@@ -30822,8 +30822,11 @@ body.map-active #map-view .legend-panel .lp-pane {
 /* Anillos de variantes: misma sombra de contacto que las vías (sin desplazamiento: no simula altura) */
 .variant-marker svg { filter: drop-shadow(0 0 1.2px rgba(16, 28, 23, 0.5)); }
 
-/* Etiqueta flotante del sector seleccionado */
+/* Etiqueta de sector (en reposo y seleccionada es la misma píldora): tipografía de la app y punto del color del sector */
 .kx-map-label {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -30838,8 +30841,9 @@ body.map-active #map-view .legend-panel .lp-pane {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  pointer-events: none;
-  animation: kx-label-in 0.22s var(--kx-ease, ease-out) both;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  animation: kx-label-in 0.22s var(--kx-ease, ease-out) backwards;
 }
 .kx-map-label::before {
   content: '';
@@ -30849,6 +30853,11 @@ body.map-active #map-view .legend-panel .lp-pane {
   border-radius: 50%;
   background: var(--kx-sector, #2E9A63);
 }
+.kx-map-label.is-selected { z-index: 2; }
+/* visibility y no opacity: MapLibre fija la opacidad del marcador en línea */
+.kx-map-label.is-off,
+.kx-map-label.is-hidden { visibility: hidden; pointer-events: none; }
+.kx-map-label:focus-visible { outline: 2px solid var(--kx-forest, #153E35); outline-offset: 2px; }
 /* Solo opacidad: MapLibre coloca el marcador con un transform en línea y una animación de transform lo pisaría */
 @keyframes kx-label-in {
   from { opacity: 0; }
