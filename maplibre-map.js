@@ -1294,6 +1294,7 @@ function initMapLibre() {
     maxWidth: '340px',
     className: 'ml-route-popup'
   });
+  kxWatchRoutePopup(mlRoutePopup);
 
   // Eventos cuando el mapa esté listo
   mlMap.on('load', onMapLoad);
@@ -4213,6 +4214,7 @@ async function mlShowVariantGroupPopup(groupFeatures, startIndex, coords) {
     closeOnClick: false,
     maxWidth: '380px'
   });
+  kxWatchRoutePopup(mlRoutePopup);
 
   mlRoutePopup
     .setLngLat(coords)
@@ -6119,16 +6121,48 @@ function mlApplyRouteHighlight(coords, routeId) {
 
   // En móvil: eliminar también al tocar el mapa
   // En web: eliminar al hacer clic
+  // (se registra en el siguiente ciclo: si no, el propio clic que la crea la borraría al instante)
   const dismissEvent = mobile ? 'touchstart' : 'click';
-  mlMap.once(dismissEvent, () => {
-    mlClearRouteHighlight();
-  });
+  const dismiss = () => mlClearRouteHighlight();
+  mlHighlightDismiss = dismiss;
+  mlHighlightDismissEvent = dismissEvent;
+  setTimeout(() => {
+    if (mlMap && mlHighlightDismiss === dismiss) mlMap.once(dismissEvent, dismiss);
+  }, 0);
 }
 
 /**
  * Elimina las capas y source del highlight de vía.
  */
+// Al cerrar la ficha de una vía (popup o hoja inferior) se quita su marca. El chequeo va diferido: al tocar otra vía,
+// la ficha anterior se cierra y la nueva se abre en el mismo instante, y esa marca nueva no debe borrarse.
+function mlClearHighlightIfRouteClosed() {
+  setTimeout(() => {
+    const popupOpen = typeof mlRoutePopup !== 'undefined' && mlRoutePopup && mlRoutePopup.isOpen();
+    if (!popupOpen && rbsCurrentState === 'hidden') mlClearRouteHighlight();
+  }, 0);
+}
+
+// Solo cuenta como «cierre» el de un popup que de verdad estaba abierto (remove() dispara 'close' aunque no lo esté)
+function kxWatchRoutePopup(popup) {
+  if (popup._kxWatched) return;
+  popup._kxWatched = true;
+  if (popup.isOpen()) popup._kxOpened = true;
+  popup.on('open', () => { popup._kxOpened = true; });
+  popup.on('close', () => {
+    if (!popup._kxOpened) return;
+    popup._kxOpened = false;
+    mlClearHighlightIfRouteClosed();
+  });
+}
+
+// Un solo «cerrar al tocar» vivo: el de la marca anterior no debe borrar la nueva
+let mlHighlightDismiss = null;
+let mlHighlightDismissEvent = null;
+
 function mlClearRouteHighlight() {
+  if (mlHighlightDismiss && mlMap) { mlMap.off(mlHighlightDismissEvent, mlHighlightDismiss); }
+  mlHighlightDismiss = null;
   if (mlHighlightTimer) {
     clearTimeout(mlHighlightTimer);
     mlHighlightTimer = null;
@@ -8550,6 +8584,7 @@ function hideRouteBottomSheet() {
   }
 
   rbsCurrentState = 'hidden';
+  mlClearHighlightIfRouteClosed();
 }
 
 // ============================================
@@ -9806,6 +9841,7 @@ async function showUserRoutePopup(props, coords) {
     .setLngLat(coords)
     .setHTML(html)
     .addTo(mlMap);
+  kxWatchRoutePopup(mlRoutePopup);
 }
 
 // ============================================
