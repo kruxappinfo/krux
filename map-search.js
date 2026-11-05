@@ -75,12 +75,23 @@ function initMapSearch() {
     return loading;
   }
 
+  // Foco en el mapa: la fila resaltada que sea una escuela da el foco a su marcador (estado «en foco»)
+  function focusRow(i) {
+    if (typeof window.kxFocusSchool !== 'function') return;
+    const it = shown[i];
+    window.kxFocusSchool(it && it.kind === 'school' ? it.id : null);
+  }
+
   // ---------- Apertura y cierre ----------
   function setOpen(open) {
     list.hidden = !open;
     input.setAttribute('aria-expanded', String(open));
     wrap.classList.toggle('is-open', open);
-    if (!open) { active = -1; input.removeAttribute('aria-activedescendant'); }
+    if (!open) {
+      active = -1;
+      input.removeAttribute('aria-activedescendant');
+      if (typeof window.kxFocusSchool === 'function') window.kxFocusSchool(null);
+    }
   }
 
   function updateClear() {
@@ -190,6 +201,8 @@ function initMapSearch() {
     updateClear();
     setOpen(false);
     input.blur();
+    // Mientras el mapa viaja a la escuela, su marcador conserva el foco
+    if (target.kind === 'school' && typeof window.kxFocusSchool === 'function') window.kxFocusSchool(target.id, { untilMoveEnd: true });
     api.open(target);
   }
 
@@ -200,6 +213,7 @@ function initMapSearch() {
     const el = document.getElementById(`map-suggest-${active}`);
     input.setAttribute('aria-activedescendant', `map-suggest-${active}`);
     if (el) el.scrollIntoView({ block: 'nearest' });
+    focusRow(active);
   }
 
   // ---------- Eventos ----------
@@ -227,6 +241,12 @@ function initMapSearch() {
   });
   // En escritorio, el campo no pierde el foco al pulsar la lista
   list.addEventListener('mousedown', (e) => e.preventDefault());
+  // Ratón sobre una fila: foco en su marcador; al salir de la lista, se retira
+  list.addEventListener('mouseover', (e) => {
+    const row = e.target.closest('.ms-row');
+    if (row) focusRow(Number(row.dataset.i));
+  });
+  list.addEventListener('mouseleave', () => focusRow(active));
 
   clearBtn.addEventListener('click', () => {
     input.value = '';
