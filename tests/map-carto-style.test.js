@@ -405,72 +405,6 @@ describe('selección de sectores', () => {
   });
 });
 
-// ---------- Etiquetas de sector al lateral, en el lado contrario a las vías ----------
-describe('etiquetas de sector: lateral sin vías', () => {
-  const ctx = vm.createContext({});
-  vm.runInContext([
-    extractConst(MAP, 'KX_LABEL_NEAR_M', '[', ']'),
-    extractConst(MAP, 'KX_LABEL_ANCHORS', '[', ']'),
-    extractFunction(MAP, 'kxLabelAnchorFor'),
-    extractFunction(MAP, 'kxSectorLabelPlacement'),
-    'this.api = { kxLabelAnchorFor, kxSectorLabelPlacement };'
-  ].join('\n'), ctx);
-  const { kxLabelAnchorFor: anchorFor, kxSectorLabelPlacement: place } = ctx.api;
-  const m = 1 / 111320 / Math.cos(40 * Math.PI / 180);   // 1 m en grados de longitud a 40° N
-  const mLat = 1 / 110540;
-  // Línea oeste → este de 100 m a 40° N
-  const horizontal = [[[-2, 40], [-2 + 100 * m, 40]]];
-  // Línea sur → norte de 100 m
-  const vertical = [[[-2, 40], [-2, 40 + 100 * mLat]]];
-
-  it('el ancla deja la píldora hacia la dirección pedida', () => {
-    expect(anchorFor(0)).toBe('left');        // etiqueta a la derecha de la línea
-    expect(anchorFor(90)).toBe('bottom');     // encima
-    expect(anchorFor(180)).toBe('right');     // a la izquierda
-    expect(anchorFor(-90)).toBe('top');       // debajo
-    expect(anchorFor(45)).toBe('bottom-left');
-    expect(anchorFor(400)).toBe('bottom-left');   // normaliza ángulos
-  });
-
-  it('vías al sur de una línea horizontal → la etiqueta va al norte', () => {
-    const routes = [[-2 + 50 * m, 40 - 8 * mLat], [-2 + 45 * m, 40 - 10 * mLat], [-2 + 55 * m, 40 - 6 * mLat]];
-    const p = place(horizontal, routes);
-    expect(anchorFor(p.angle)).toBe('bottom');
-  });
-
-  it('vías al norte → la etiqueta va al sur', () => {
-    const routes = [[-2 + 50 * m, 40 + 8 * mLat], [-2 + 52 * m, 40 + 5 * mLat]];
-    expect(anchorFor(place(horizontal, routes).angle)).toBe('top');
-  });
-
-  it('vías al este de una línea vertical → la etiqueta va al oeste', () => {
-    const routes = [[-2 + 6 * m, 40 + 50 * mLat], [-2 + 9 * m, 40 + 48 * mLat]];
-    expect(anchorFor(place(vertical, routes).angle)).toBe('right');
-  });
-
-  it('gana el lado con menos vías aunque haya vías en los dos', () => {
-    const routes = [[-2 + 50 * m, 40 - 8 * mLat], [-2 + 48 * m, 40 - 6 * mLat], [-2 + 52 * m, 40 + 7 * mLat]];
-    expect(anchorFor(place(horizontal, routes).angle)).toBe('bottom');   // 2 al sur, 1 al norte → norte
-  });
-
-  it('sin vías cerca (o muy lejos) la etiqueta va hacia arriba', () => {
-    expect(anchorFor(place(horizontal, []).angle)).toBe('bottom');
-    expect(anchorFor(place(horizontal, [[-2 + 50 * m, 40 + 500 * mLat]]).angle)).toBe('bottom');
-  });
-
-  it('el punto de la etiqueta está a mitad del recorrido de la línea, sobre ella', () => {
-    const p = place(horizontal, []);
-    expect(p.point[0]).toBeCloseTo(-2 + 50 * m, 9);
-    expect(p.point[1]).toBeCloseTo(40, 9);
-  });
-
-  it('en un sector con varios tramos usa el más largo y no falla con tramos vacíos', () => {
-    const p = place([[[-2, 40]], [], horizontal[0]], []);
-    expect(p.point[0]).toBeCloseTo(-2 + 50 * m, 9);
-    expect(place([[], [[-2, 40]]], [])).toBeNull();
-  });
-});
-
 // ---------- Iconos de puntos de interés (pack «KRUX POI matte») ----------
 describe('iconos de puntos de interés', () => {
   const files = (() => {
@@ -511,32 +445,97 @@ describe('iconos de puntos de interés', () => {
   });
 });
 
-// ---------- Etiquetas de sector: sin solapes ----------
-describe('etiquetas de sector: colisiones', () => {
+// ---------- Etiquetas de sector: candidatos y colocación sin tapar nada ----------
+describe('etiquetas de sector: colocación inteligente', () => {
   const ctx = vm.createContext({});
   vm.runInContext([
-    MAP.match(/const KX_LABEL_COLLISION_PAD = [^;]+;/)[0],
-    extractFunction(MAP, 'kxPickVisibleLabels'),
-    'this.pick = kxPickVisibleLabels;'
+    extractConst(MAP, 'KX_LABEL_NEAR_M', '[', ']'),
+    extractConst(MAP, 'KX_LABEL_FRACTIONS', '[', ']'),
+    MAP.match(/const KX_LABEL_GAP = [^;]+;/)[0],
+    MAP.match(/const KX_LABEL_PAD = [^;]+;/)[0],
+    extractFunction(MAP, 'kxSectorLabelCandidates'),
+    extractFunction(MAP, 'kxRectsOverlap'),
+    extractFunction(MAP, 'kxRectHitsCircle'),
+    extractFunction(MAP, 'kxRectHitsSegment'),
+    extractFunction(MAP, 'kxChooseLabelSpot'),
+    'this.api = { kxSectorLabelCandidates, kxRectsOverlap, kxRectHitsCircle, kxRectHitsSegment, kxChooseLabelSpot };'
   ].join('\n'), ctx);
-  const R = (left, top, w = 80, h = 24) => ({ left, top, right: left + w, bottom: top + h });
+  const { kxSectorLabelCandidates: cands, kxRectHitsCircle: hitC, kxRectHitsSegment: hitS, kxChooseLabelSpot: choose } = ctx.api;
+  const m = 1 / 111320 / Math.cos(40 * Math.PI / 180), mLat = 1 / 110540;
+  const horizontal = [[[-2, 40], [-2 + 100 * m, 40]]];   // línea oeste → este de 100 m
 
-  it('dos etiquetas separadas se ven las dos', () => {
-    expect([...ctx.pick([{ rect: R(0, 0) }, { rect: R(200, 0) }])]).toEqual([0, 1]);
+  describe('candidatos', () => {
+    it('varios puntos del trazado (mitad primero) y los dos lados de cada uno', () => {
+      const c = cands(horizontal, []);
+      expect(c).toHaveLength(10);
+      expect(c[0].point[0]).toBeCloseTo(-2 + 50 * m, 9);          // mitad
+      expect(c[2].point[0]).toBeCloseTo(-2 + 35 * m, 9);          // luego un tercio
+      expect(c[0].dir[1]).toBeCloseTo(-c[1].dir[1], 9);           // lados opuestos
+    });
+    it('el primer lado probado es el que tiene menos vías', () => {
+      const routes = [[-2 + 50 * m, 40 - 8 * mLat], [-2 + 52 * m, 40 - 6 * mLat]];   // vías al sur
+      expect(cands(horizontal, routes)[0].dir[1]).toBeGreaterThan(0);                 // empieza por el norte
+      const north = [[-2 + 50 * m, 40 + 8 * mLat]];
+      expect(cands(horizontal, north)[0].dir[1]).toBeLessThan(0);
+    });
+    it('sin trazado válido no hay candidatos', () => {
+      expect(cands([[], [[-2, 40]]], [])).toEqual([]);
+    });
+    it('no modifica la geometría del sector', () => {
+      const lines = [[[-2, 40], [-2 + 100 * m, 40]]];
+      const copy = JSON.stringify(lines);
+      cands(lines, []);
+      expect(JSON.stringify(lines)).toBe(copy);
+    });
   });
 
-  it('si se solapan, se oculta la segunda', () => {
-    expect([...ctx.pick([{ rect: R(0, 0) }, { rect: R(40, 10) }])]).toEqual([0]);
+  describe('geometría', () => {
+    const R = { left: 0, top: 0, right: 100, bottom: 20 };
+    it('círculo junto al rectángulo', () => {
+      expect(hitC(R, 50, 25, 6)).toBe(true);
+      expect(hitC(R, 50, 30, 6)).toBe(false);
+    });
+    it('segmento que cruza, que roza con margen y que pasa lejos', () => {
+      expect(hitS(R, -10, 10, 110, 10)).toBe(true);
+      expect(hitS(R, -10, 24, 110, 24, 5)).toBe(true);
+      expect(hitS(R, -10, 40, 110, 40, 5)).toBe(false);
+      expect(hitS(R, 50, -50, 50, -5)).toBe(false);
+    });
   });
 
-  it('el margen de aire cuenta como solape', () => {
-    expect(ctx.pick([{ rect: R(0, 0) }, { rect: R(82, 0) }]).has(1)).toBe(false);   // 2 px < 4 px de aire
-    expect(ctx.pick([{ rect: R(0, 0) }, { rect: R(90, 0) }]).has(1)).toBe(true);
-  });
+  describe('elección del hueco', () => {
+    const size = { w: 80, h: 26 };
+    const base = { lineHalf: 4.5, bounds: { left: 0, top: 0, right: 400, bottom: 400 } };
+    // Línea horizontal en y = 200; candidatos encima (dir y-) y debajo (dir y+)
+    const line = [[100, 200, 300, 200]];
+    const c = [{ at: [200, 200], dir: [0, -1] }, { at: [200, 200], dir: [0, 1] }];
 
-  it('la seleccionada gana siempre, aunque llegue después', () => {
-    const v = ctx.pick([{ rect: R(0, 0) }, { rect: R(40, 10), selected: true }]);
-    expect(v.has(1)).toBe(true);
-    expect(v.has(0)).toBe(false);
+    it('se coloca junto a la línea sin pisarla', () => {
+      const spot = choose(c, size, { ...base, segments: line });
+      expect(spot.index).toBe(0);
+      expect(spot.rect.bottom).toBeLessThan(200 - 4.5);
+      expect(spot.rect.bottom).toBeGreaterThan(200 - 20);           // y cerca de su sector
+    });
+    it('si arriba hay vías, se va al otro lado', () => {
+      const circles = [[200, 180, 6]];
+      const spot = choose(c, size, { ...base, segments: line, circles });
+      expect(spot.index).toBe(1);
+      expect(spot.rect.top).toBeGreaterThan(200);
+    });
+    it('evita otras etiquetas ya colocadas', () => {
+      const placed = [{ left: 150, top: 160, right: 250, bottom: 190 }];
+      expect(choose(c, size, { ...base, segments: line, placed }).index).toBe(1);
+    });
+    it('evita las zonas de la interfaz y los bordes de pantalla', () => {
+      expect(choose(c, size, { ...base, segments: line, excl: [{ left: 0, top: 150, right: 400, bottom: 199 }] }).index).toBe(1);
+      expect(choose([{ at: [395, 200], dir: [1, 0] }], size, { ...base })).toBeNull();
+    });
+    it('si no hay sitio, no se coloca (mejor ocultarla que tapar)', () => {
+      const circles = [[200, 180, 6], [200, 220, 6]];
+      expect(choose(c, size, { ...base, segments: line, circles })).toBeNull();
+    });
+    it('conserva la posición anterior si sigue libre (no salta de lado)', () => {
+      expect(choose(c, size, { ...base, segments: line }, 1).index).toBe(1);
+    });
   });
 });
