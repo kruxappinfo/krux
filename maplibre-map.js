@@ -351,55 +351,7 @@ function kxAddSectorHitLayer(sourceId, layerId, minzoom, sourceLayer) {
 // La píldora se ancla a ese punto hacia el lado de la línea con menos vías cerca, así nombre y vías no se pisan.
 const KX_LINE_SOURCE_OF = { 'sectores-labels-source': 'sectores-source', 'sectores-usuarios-labels-source': 'sectores-usuarios-source' };
 const KX_LABEL_NEAR_M = [35, 90];   // radios (m) en los que se cuentan las vías a cada lado, de cerca a lejos
-const _kxLabelPoints = new Map();   // fuente de línea → features de etiqueta (para reorientarlas al girar el mapa)
-
-// Ancla de la píldora según la dirección (grados en pantalla, 0 = derecha, 90 = arriba) hacia la que debe quedar
-const KX_LABEL_ANCHORS = ['left', 'bottom-left', 'bottom', 'bottom-right', 'right', 'top-right', 'top', 'top-left'];
-// Separación (em) desde la línea: más en horizontal porque la píldora tiene más relleno a los lados
-const KX_LABEL_OFFSETS = { left: 1.7, right: 1.7, top: 0.85, bottom: 0.85, 'top-left': 1.3, 'top-right': 1.3, 'bottom-left': 1.3, 'bottom-right': 1.3 };
-
-function kxLabelAnchorFor(screenAngle) {
-  const a = ((screenAngle % 360) + 360) % 360;
-  return KX_LABEL_ANCHORS[Math.round(a / 45) % 8];
-}
-
-/**
- * Punto y lado de la etiqueta de un sector. lines: [[lng, lat], ...][]; routes: [lng, lat][].
- * Devuelve { point, angle } con angle = dirección (grados geográficos, 0 = este, 90 = norte) hacia la que va la etiqueta.
- */
-function kxSectorLabelPlacement(lines, routes) {
-  const longest = lines.filter(l => l && l.length >= 2).sort((a, b) => b.length - a.length)[0];
-  if (!longest) return null;
-  const lat0 = longest[0][1] * Math.PI / 180;
-  const kx = 111320 * Math.cos(lat0), ky = 110540;   // grados → metros (aprox. local, suficiente a escala de escuela)
-  const P = longest.map(([x, y]) => [x * kx, y * ky]);
-  let total = 0;
-  const seg = [];
-  for (let i = 1; i < P.length; i++) { const d = Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]); seg.push(d); total += d; }
-  if (!total) return null;
-  // Punto a mitad de recorrido y dirección del tramo en ese punto
-  let acc = 0, k = 0;
-  while (k < seg.length - 1 && acc + seg[k] < total / 2) { acc += seg[k]; k++; }
-  const t = seg[k] ? (total / 2 - acc) / seg[k] : 0;
-  const M = [P[k][0] + (P[k + 1][0] - P[k][0]) * t, P[k][1] + (P[k + 1][1] - P[k][1]) * t];
-  const tx = (P[k + 1][0] - P[k][0]) / (seg[k] || 1), ty = (P[k + 1][1] - P[k][1]) / (seg[k] || 1);
-  const n = [-ty, tx];   // normal izquierda
-  // Lado con menos vías cerca del punto de etiqueta (primero muy cerca; si no hay ninguna, un poco más lejos)
-  let side = 0;
-  for (const R of KX_LABEL_NEAR_M) {
-    let left = 0, right = 0;
-    for (const [rx, ry] of routes) {
-      const dx = rx * kx - M[0], dy = ry * ky - M[1];
-      if (dx * dx + dy * dy > R * R) continue;
-      if (dx * n[0] + dy * n[1] >= 0) left++; else right++;
-    }
-    if (left !== right) { side = left < right ? 1 : -1; break; }
-  }
-  // Sin vías cerca (o empate): hacia arriba en pantalla, que es donde menos estorba
-  if (!side) side = n[1] >= 0 ? 1 : -1;
-  const dir = [n[0] * side, n[1] * side];
-  return { point: [M[0] / kx, M[1] / ky], angle: Math.atan2(dir[1], dir[0]) * 180 / Math.PI };
-}
+const _kxLabelPoints = new Map();   // fuente de línea → sectores con sus candidatos de etiqueta
 
 function kxRoutePoints() {
   const pts = [];
@@ -418,49 +370,137 @@ function kxRoutePoints() {
   return pts;
 }
 
-function kxOrientLabels(features) {
-  const bearing = mlMap ? mlMap.getBearing() : 0;
-  features.forEach(f => {
-    const anchor = kxLabelAnchorFor(f.properties.kxAng + bearing);
-    f.properties.kxAnchor = anchor;
-    f.properties.kxOff = KX_LABEL_OFFSETS[anchor];
-  });
-}
 
 // Las etiquetas de sector son pequeñas píldoras HTML (una por sector, solo los de la escuela abierta): así usan la
 // tipografía de la app y el color propio de su sector, y se ven igual en reposo que seleccionadas.
-const KX_LABEL_MIN_ZOOM = 17;      // por defecto, si la escuela no define zoomLevels.sectorNames
-const KX_LABEL_GAP = 9;            // px entre la línea y la píldora
-const KX_LABEL_COLLISION_PAD = 4;  // px de aire entre dos etiquetas
-const _kxLabelMarkers = new Map(); // fuente de línea → [{ marker, el, id }]
+const KX_LABEL_MIN_ZOOM = 17;        // por defecto, si la escuela no define zoomLevels.sectorNames
+const KX_LABEL_GAP = 6;              // px entre el borde blanco de la línea y la píldora
+const KX_LABEL_PAD = 4;              // aire mínimo frente a vías, líneas y otras etiquetas
+const KX_LABEL_FRACTIONS = [0.5, 0.35, 0.65, 0.2, 0.8];   // puntos del trazado donde se prueba la etiqueta
+const KX_LABEL_BUDGET_ZOOM = 18;     // por debajo de este zoom se limita el número de etiquetas…
+const KX_LABEL_BUDGET = 8;           // …a las de los sectores con más vías
+const _kxLabelMarkers = new Map();   // fuente de línea → [{ marker, el, pill, id, cands, prio, lines, last, size }]
+let _kxLabelRoutes = [];             // vías y variantes de la escuela (lng, lat), para no taparlas
 
-function kxLabelOffset(anchor) {
-  const g = KX_LABEL_GAP, d = KX_LABEL_GAP * 0.7;
-  return { left: [g, 0], right: [-g, 0], top: [0, g], bottom: [0, -g],
-    'top-left': [d, d], 'top-right': [-d, d], 'bottom-left': [d, -d], 'bottom-right': [-d, -d] }[anchor] || [0, -g];
+/**
+ * Puntos candidatos para la etiqueta de un sector: varios puntos del trazado (mitad, tercios, extremos suaves),
+ * cada uno con la dirección perpendicular hacia la que se coloca (primero el lado con menos vías).
+ * lines: [[lng, lat], ...][]; routes: [lng, lat][]. Devuelve [{ point: [lng, lat], dir: [este, norte] }].
+ */
+function kxSectorLabelCandidates(lines, routes) {
+  const longest = lines.filter(l => l && l.length >= 2).sort((a, b) => b.length - a.length)[0];
+  if (!longest) return [];
+  const lat0 = longest[0][1] * Math.PI / 180;
+  const kx = 111320 * Math.cos(lat0), ky = 110540;
+  const P = longest.map(([x, y]) => [x * kx, y * ky]);
+  const seg = [];
+  let total = 0;
+  for (let i = 1; i < P.length; i++) { const d = Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]); seg.push(d); total += d; }
+  if (!total) return [];
+  const out = [];
+  for (const frac of KX_LABEL_FRACTIONS) {
+    let acc = 0, k = 0;
+    while (k < seg.length - 1 && acc + seg[k] < total * frac) { acc += seg[k]; k++; }
+    const t = seg[k] ? (total * frac - acc) / seg[k] : 0;
+    const M = [P[k][0] + (P[k + 1][0] - P[k][0]) * t, P[k][1] + (P[k + 1][1] - P[k][1]) * t];
+    const len = seg[k] || 1;
+    const n = [-(P[k + 1][1] - P[k][1]) / len, (P[k + 1][0] - P[k][0]) / len];
+    let side = 0;
+    for (const R of KX_LABEL_NEAR_M) {
+      let left = 0, right = 0;
+      for (const [rx, ry] of routes) {
+        const dx = rx * kx - M[0], dy = ry * ky - M[1];
+        if (dx * dx + dy * dy > R * R) continue;
+        if (dx * n[0] + dy * n[1] >= 0) left++; else right++;
+      }
+      if (left !== right) { side = left < right ? 1 : -1; break; }
+    }
+    if (!side) side = n[1] >= 0 ? 1 : -1;
+    const point = [M[0] / kx, M[1] / ky];
+    out.push({ point, dir: [n[0] * side, n[1] * side] }, { point, dir: [-n[0] * side, -n[1] * side] });
+  }
+  return out;
+}
+
+// ---- Geometría en pantalla (puras, sin mapa) ----
+function kxRectsOverlap(a, b, pad = 0) {
+  return a.left < b.right + pad && a.right > b.left - pad && a.top < b.bottom + pad && a.bottom > b.top - pad;
+}
+
+function kxRectHitsCircle(r, cx, cy, radius) {
+  const x = Math.max(r.left, Math.min(cx, r.right)), y = Math.max(r.top, Math.min(cy, r.bottom));
+  return (cx - x) * (cx - x) + (cy - y) * (cy - y) <= radius * radius;
+}
+
+// ¿El segmento a–b cruza el rectángulo (ampliado en pad)? Recorte de Liang–Barsky.
+function kxRectHitsSegment(r, ax, ay, bx, by, pad = 0) {
+  const x0 = r.left - pad, x1 = r.right + pad, y0 = r.top - pad, y1 = r.bottom + pad;
+  const dx = bx - ax, dy = by - ay;
+  let t0 = 0, t1 = 1;
+  const clip = (p, q) => {
+    if (p === 0) return q >= 0;
+    const t = q / p;
+    if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+    else { if (t < t0) return false; if (t < t1) t1 = t; }
+    return true;
+  };
+  return clip(-dx, ax - x0) && clip(dx, x1 - ax) && clip(-dy, ay - y0) && clip(dy, y1 - ay) && t0 <= t1;
 }
 
 /**
- * (Re)calcula los puntos de etiqueta de una fuente de sectores y vuelve a pintar sus píldoras.
+ * Elige el primer hueco libre para una etiqueta. cands: [{ at: [x, y], dir: [dx, dy] }] en pantalla (dir unitario,
+ * y hacia abajo); size: { w, h }; ctx: { lineHalf, bounds, excl[], placed[], circles[[x, y, r]], segments[[ax, ay, bx, by]] }.
+ * Prueba primero el índice `first` (la posición anterior, para que no salte). Devuelve { index, rect } o null.
+ */
+function kxChooseLabelSpot(cands, size, ctx, first = -1) {
+  const order = cands.map((_, i) => i);
+  if (first >= 0 && first < cands.length) { order.splice(first, 1); order.unshift(first); }
+  for (const i of order) {
+    const { at, dir } = cands[i];
+    const ext = Math.abs(dir[0]) * size.w / 2 + Math.abs(dir[1]) * size.h / 2;
+    const d = ctx.lineHalf + KX_LABEL_GAP + ext;
+    const cx = at[0] + dir[0] * d, cy = at[1] + dir[1] * d;
+    const rect = { left: cx - size.w / 2, top: cy - size.h / 2, right: cx + size.w / 2, bottom: cy + size.h / 2 };
+    const b = ctx.bounds;
+    if (rect.left < b.left || rect.top < b.top || rect.right > b.right || rect.bottom > b.bottom) continue;
+    if ((ctx.excl || []).some(e => kxRectsOverlap(rect, e))) continue;
+    if ((ctx.placed || []).some(p => kxRectsOverlap(rect, p, KX_LABEL_PAD))) continue;
+    if ((ctx.circles || []).some(([x, y, rad]) => kxRectHitsCircle(rect, x, y, rad + KX_LABEL_PAD))) continue;
+    if ((ctx.segments || []).some(([ax, ay, bx, by]) => kxRectHitsSegment(rect, ax, ay, bx, by, ctx.lineHalf + 1))) continue;
+    return { index: i, rect };
+  }
+  return null;
+}
+
+/**
+ * (Re)calcula los candidatos de etiqueta de una fuente de sectores y pinta sus píldoras (una por sector).
  * Se llama al terminar de cargar la escuela (cuando ya están las vías) y en cada actualización de sectores de usuarios.
  */
 function kxRefreshSectorLabels(lineSourceId) {
   const src = mlMap && mlMap.getSource(lineSourceId);
   const data = src && src.serialize && src.serialize().data;
   if (!data || !data.features) return;
-  const routes = kxRoutePoints();
-  const features = [];
+  _kxLabelRoutes = kxRoutePoints();
+  // Relevancia: número de vías del sector (para decidir qué nombres se ven cuando falta sitio)
+  const routeCount = new Map();
+  ['vias-source', 'vias-usuarios-source'].forEach(id => {
+    const s2 = mlMap.getSource(id);
+    const d2 = s2 && s2.serialize && s2.serialize().data;
+    (d2 && d2.features || []).forEach(f => {
+      const k = String(f.properties && f.properties.sector || '').trim().toLowerCase();
+      if (k) routeCount.set(k, (routeCount.get(k) || 0) + 1);
+    });
+  });
+  const items = [];
   data.features.forEach((f, i) => {
     const g = f.geometry;
     const lines = !g ? [] : g.type === 'MultiLineString' ? g.coordinates : g.type === 'LineString' ? [g.coordinates] : [];
-    const place = kxSectorLabelPlacement(lines, routes);
-    if (!place) return;
-    // Mismo id que la línea (generateId numera por orden)
-    features.push({ type: 'Feature', id: i, geometry: { type: 'Point', coordinates: place.point },
-      properties: { nombre: f.properties.nombre, kxc: f.properties.kxc, kxAng: place.angle } });
+    const cands = kxSectorLabelCandidates(lines, _kxLabelRoutes);
+    if (!cands.length || !f.properties.nombre) return;
+    items.push({ id: i, props: f.properties, lines, cands,
+      prio: routeCount.get(String(f.properties.nombre).trim().toLowerCase()) || 0 });
   });
-  kxOrientLabels(features);
-  _kxLabelPoints.set(lineSourceId, features);
+  _kxLabelPoints.set(lineSourceId, items);
   kxRenderSectorLabels(lineSourceId);
   kxEnsureLabelSync();
 }
@@ -473,87 +513,155 @@ function kxRemoveSectorLabels(lineSourceId) {
   });
 }
 
+// Crea las píldoras una sola vez; después solo se recolocan (sin volver a crearlas: así no parpadean)
 function kxRenderSectorLabels(lineSourceId) {
   kxRemoveSectorLabels(lineSourceId);
   const list = [];
-  for (const f of _kxLabelPoints.get(lineSourceId) || []) {
-    const name = f.properties.nombre;
-    if (!name) continue;
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.className = 'kx-map-label';
-    el.textContent = name;
-    el.setAttribute('aria-label', `Sector ${name}`);
-    el.style.setProperty('--kx-sector', kxSectorColorOf(f));
-    const lngLat = { lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] };
-    el.addEventListener('click', (ev) => {
+  for (const it of _kxLabelPoints.get(lineSourceId) || []) {
+    const name = it.props.nombre;
+    const root = document.createElement('div');
+    root.className = 'kx-label-marker';
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'kx-map-label is-hidden';
+    pill.setAttribute('aria-label', `Sector ${name}`);
+    pill.title = name;
+    pill.style.setProperty('--kx-sector', kxSectorColorOf({ properties: it.props }));
+    const txt = document.createElement('span');
+    txt.className = 'kx-map-label__txt';
+    txt.textContent = name;
+    pill.appendChild(txt);
+    root.appendChild(pill);
+    const m = { id: it.id, source: lineSourceId, root, el: pill, cands: it.cands, lines: it.lines, prio: it.prio, last: -1, size: null };
+    pill.addEventListener('click', (ev) => {
       ev.stopPropagation();
       if (mlMap.getCanvas().style.cursor === 'crosshair') return;
-      const line = { source: lineSourceId, id: f.id, properties: kxLineFeatureProps(lineSourceId, f.id) || f.properties };
-      kxSelectSector(line, lngLat);
-      kxOpenSectorFeature(line, maplibregl.LngLat.convert(lngLat));
+      const line = { source: lineSourceId, id: it.id, properties: kxLineFeatureProps(lineSourceId, it.id) || it.props };
+      const at = m.marker.getLngLat();
+      kxSelectSector(line, { lng: at.lng, lat: at.lat });
+      kxOpenSectorFeature(line, at);
     });
-    const anchor = f.properties.kxAnchor;
-    const marker = new maplibregl.Marker({ element: el, anchor, offset: kxLabelOffset(anchor) })
-      .setLngLat(f.geometry.coordinates)
+    m.marker = new maplibregl.Marker({ element: root, anchor: 'center', opacityWhenCovered: '1' })
+      .setLngLat(it.cands[0].point)
       .addTo(mlMap);
-    list.push({ marker, el, id: f.id });
+    if (kxSelectedSector && kxSelectedSector.source === lineSourceId && kxSelectedSector.id === it.id) pill.classList.add('is-selected');
+    list.push(m);
   }
   _kxLabelMarkers.set(lineSourceId, list);
-  // Si el sector seleccionado tiene etiqueta, se marca (no se duplica)
-  if (kxSelectedSector && kxSelectedSector.source === lineSourceId) {
-    const m = list.find(x => x.id === kxSelectedSector.id);
-    if (m) m.el.classList.add('is-selected');
-  }
-  kxUpdateSectorLabels();
+  kxPlaceSectorLabels();
+}
+
+function kxLabelSize(m) {
+  const sel = m.el.classList.contains('is-selected');
+  if (!m.size || m.size.sel !== sel) m.size = { w: m.el.offsetWidth, h: m.el.offsetHeight, sel };
+  return m.size;
 }
 
 /**
- * Qué etiquetas se muestran sin solaparse. items: [{ rect: {left, top, right, bottom}, selected }].
- * El seleccionado gana siempre; el resto, por orden. Devuelve el conjunto de índices visibles.
+ * Coloca todas las etiquetas visibles en el hueco libre más cercano a su sector, sin tapar vías, variantes, líneas
+ * de sector ni otras etiquetas, ni quedar bajo el buscador, la barra inferior o los botones. Si no hay hueco, se
+ * oculta (salvo la del sector seleccionado). Solo se ejecuta al terminar un movimiento, zoom o giro.
  */
-function kxPickVisibleLabels(items, pad = KX_LABEL_COLLISION_PAD) {
-  const order = items.map((_, i) => i).sort((a, b) => (items[b].selected ? 1 : 0) - (items[a].selected ? 1 : 0) || a - b);
-  const kept = [];
-  const visible = new Set();
-  for (const i of order) {
-    const r = items[i].rect;
-    const hit = kept.some(k => r.left < k.right + pad && r.right > k.left - pad && r.top < k.bottom + pad && r.bottom > k.top - pad);
-    if (hit && !items[i].selected) continue;
-    kept.push(r);
-    visible.add(i);
-  }
-  return visible;
-}
-
-// Visibilidad: por zoom (a partir de sectorNames) y sin solapes. El seleccionado se ve siempre.
-function kxUpdateSectorLabels({ collisions = true } = {}) {
+function kxPlaceSectorLabels() {
   if (!mlMap) return;
+  const all = [..._kxLabelMarkers.values()].flat();
+  if (!all.length) return;
   const school = mlCurrentSchool ? MAPLIBRE_SCHOOLS[mlCurrentSchool] : null;
   const minZoom = (school && school.zoomLevels && school.zoomLevels.sectorNames) || KX_LABEL_MIN_ZOOM;
-  const zoomOk = mlMap.getZoom() >= minZoom;
-  const all = [..._kxLabelMarkers.values()].flat();
-  all.forEach(m => m.el.classList.toggle('is-off', !zoomOk && !m.el.classList.contains('is-selected')));
-  if (!collisions) return;
-  const candidates = all.filter(m => !m.el.classList.contains('is-off'));
-  candidates.forEach(m => m.el.classList.remove('is-hidden'));
-  const visible = kxPickVisibleLabels(candidates.map(m => ({ rect: m.el.getBoundingClientRect(), selected: m.el.classList.contains('is-selected') })));
-  candidates.forEach((m, i) => { if (!visible.has(i)) m.el.classList.add('is-hidden'); });
+  const zoom = mlMap.getZoom();
+  const canvas = mlMap.getCanvas();
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  const bounds = { left: 6, top: 64, right: W - 6, bottom: H - 130 };   // sin bajar a escala, atribución ni barra inferior
+  const excl = [{ left: W - 64, top: H - 400, right: W, bottom: H }];   // columna de controles
+  const view = { left: -60, top: -60, right: W + 60, bottom: H + 60 };
+
+  // Obstáculos en pantalla
+  const routeR = mlGetViasRadius() + KX_ROUTE_STROKE + 1;
+  const circles = [];
+  if (zoom >= ((school && school.zoomLevels && school.zoomLevels.vias) || 17) - 0.5) {
+    for (const c of _kxLabelRoutes) {
+      const p = mlMap.project(c);
+      if (p.x > view.left && p.x < view.right && p.y > view.top && p.y < view.bottom) circles.push([p.x, p.y, routeR]);
+    }
+  }
+  const segments = [];
+  const onScreen = new Map();
+  for (const m of all) {
+    let visible = false;
+    for (const l of m.lines) {
+      let prev = null;
+      for (const c of l) {
+        const p = mlMap.project(c);
+        if (prev) {
+          segments.push([prev.x, prev.y, p.x, p.y]);
+          if (!visible && kxRectHitsSegment({ left: 0, top: 0, right: W, bottom: H }, prev.x, prev.y, p.x, p.y)) visible = true;
+        }
+        prev = p;
+      }
+    }
+    onScreen.set(m, visible);
+  }
+  const lineHalf = 4.5;   // medio borde blanco del sector
+
+  const selected = all.filter(m => m.el.classList.contains('is-selected'));
+  const rest = all.filter(m => !m.el.classList.contains('is-selected')).sort((a, b) => b.prio - a.prio || a.id - b.id);
+  const zoomOk = zoom >= minZoom;
+  const budget = zoom < KX_LABEL_BUDGET_ZOOM ? KX_LABEL_BUDGET : Infinity;
+  const placed = [];
+  let shown = 0;
+  let selRect = null;
+
+  for (const m of selected.concat(rest)) {
+    const isSel = m.el.classList.contains('is-selected');
+    m.el.classList.remove('is-dimmed');
+    if ((!isSel && (!zoomOk || shown >= budget)) || !onScreen.get(m)) { m.el.classList.add('is-hidden'); continue; }
+    const size = kxLabelSize(m);
+    const cands = m.cands.map(c => {
+      const at = mlMap.project(c.point);
+      const lat = c.point[1] * Math.PI / 180;
+      const q = mlMap.project([c.point[0] + c.dir[0] * 5 / (111320 * Math.cos(lat)), c.point[1] + c.dir[1] * 5 / 110540]);
+      const dx = q.x - at.x, dy = q.y - at.y, len = Math.hypot(dx, dy) || 1;
+      return { at: [at.x, at.y], dir: [dx / len, dy / len] };
+    });
+    let spot = kxChooseLabelSpot(cands, size, { lineHalf, bounds, excl, placed, circles, segments }, m.last);
+    // La del seleccionado se ve siempre: si no hay hueco, en su primera posición
+    if (!spot && isSel) spot = kxChooseLabelSpot(cands, size, { lineHalf, bounds: view }, m.last >= 0 ? m.last : 0);
+    if (!spot) { m.el.classList.add('is-hidden'); continue; }
+    m.last = spot.index;
+    const at = cands[spot.index].at;
+    const cx = (spot.rect.left + spot.rect.right) / 2, cy = (spot.rect.top + spot.rect.bottom) / 2;
+    m.marker.setLngLat(m.cands[spot.index].point).setOffset([cx - at[0], cy - at[1]]);
+    m.el.classList.remove('is-hidden');
+    placed.push(spot.rect);
+    if (isSel) selRect = spot.rect;
+    else shown++;
+  }
+  // Con un sector seleccionado, las etiquetas que tiene muy cerca pierden protagonismo
+  if (selRect) {
+    for (const m of rest) {
+      if (m.el.classList.contains('is-hidden')) continue;
+      const r = m.el.getBoundingClientRect();
+      const c = canvas.getBoundingClientRect();
+      const rr = { left: r.left - c.left, top: r.top - c.top, right: r.right - c.left, bottom: r.bottom - c.top };
+      if (kxRectsOverlap(rr, selRect, 60)) m.el.classList.add('is-dimmed');
+    }
+  }
 }
 
-// Zoom: solo el umbral (barato, en cada fotograma); al parar, colisiones. Al girar, se reorientan los anclajes.
+// Al hacer zoom solo se aplica el umbral (barato); la colocación completa, al terminar cada movimiento, zoom o giro
 let _kxLabelSyncBound = false;
 function kxEnsureLabelSync() {
   if (_kxLabelSyncBound || !mlMap) return;
   _kxLabelSyncBound = true;
-  mlMap.on('zoom', () => kxUpdateSectorLabels({ collisions: false }));
-  mlMap.on('moveend', () => kxUpdateSectorLabels());
-  mlMap.on('rotateend', () => {
-    for (const [lineSourceId, features] of _kxLabelPoints) {
-      kxOrientLabels(features);
-      kxRenderSectorLabels(lineSourceId);
+  mlMap.on('zoom', () => {
+    const school = mlCurrentSchool ? MAPLIBRE_SCHOOLS[mlCurrentSchool] : null;
+    const minZoom = (school && school.zoomLevels && school.zoomLevels.sectorNames) || KX_LABEL_MIN_ZOOM;
+    if (mlMap.getZoom() >= minZoom) return;
+    for (const m of [..._kxLabelMarkers.values()].flat()) {
+      if (!m.el.classList.contains('is-selected')) m.el.classList.add('is-hidden');
     }
   });
+  mlMap.on('moveend', kxPlaceSectorLabels);
 }
 
 function kxLabelMarkerFor(lineSourceId, id) {
@@ -698,7 +806,7 @@ function kxClearSectorSelection() {
   }
   kxSelectedSector = null;
   if (kxSectorLabelMarker) { kxSectorLabelMarker.remove(); kxSectorLabelMarker = null; }
-  kxUpdateSectorLabels();
+  kxPlaceSectorLabels();
 }
 
 function kxSelectSector(feature, lngLat) {
@@ -711,7 +819,7 @@ function kxSelectSector(feature, lngLat) {
   kxSetFeatureState(kxSelectedSector, { selected: true });
   // Su etiqueta es la misma píldora de siempre: solo se marca como seleccionada (se ve aunque falte zoom)
   const own = kxLabelMarkerFor(lineSource, feature.id);
-  if (own) { own.el.classList.add('is-selected'); kxUpdateSectorLabels(); return; }
+  if (own) { own.el.classList.add('is-selected'); kxPlaceSectorLabels(); return; }
   // Sin etiqueta propia (teselas vectoriales): una píldora igual, sobre el toque
   const name = feature.properties && feature.properties.nombre;
   if (name && lngLat) {
@@ -719,7 +827,7 @@ function kxSelectSector(feature, lngLat) {
     el.className = 'kx-map-label is-selected';
     el.textContent = name;
     el.style.setProperty('--kx-sector', kxSectorColorOf(feature));
-    kxSectorLabelMarker = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: kxLabelOffset('bottom') })
+    kxSectorLabelMarker = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -9] })
       .setLngLat(lngLat)
       .addTo(mlMap);
   }

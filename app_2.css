@@ -30822,47 +30822,66 @@ body.map-active #map-view .legend-panel .lp-pane {
 /* Anillos de variantes: misma sombra de contacto que las vías (sin desplazamiento: no simula altura) */
 .variant-marker svg { filter: drop-shadow(0 0 1.2px rgba(16, 28, 23, 0.5)); }
 
-/* Etiqueta de sector (en reposo y seleccionada es la misma píldora): tipografía de la app y punto del color del sector */
+/* Etiqueta de sector: identificador cartográfico compacto. Tipografía de la app, punto del color del sector,
+   fondo cálido algo translúcido, borde sutil y sin sombra marcada. La seleccionada crece un poco y muestra el
+   nombre completo. Las clases van en la píldora, no en la raíz del marcador (MapLibre fija su opacidad en línea). */
+.kx-label-marker { pointer-events: none; }
 .kx-map-label {
   -webkit-appearance: none;
   appearance: none;
+  position: relative;
   margin: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 220px;
-  padding: 5px 10px 5px 8px;
+  gap: 5px;
+  box-sizing: border-box;
+  height: 26px;
+  min-height: 0;
+  min-width: 0;
+  max-width: 136px;
+  padding: 0 9px 0 7px;
   border-radius: 999px;
-  background: rgba(247, 246, 240, 0.94);
-  border: 1px solid rgba(32, 41, 35, 0.08);
-  box-shadow: 0 1px 2px rgba(32, 41, 35, 0.12), 0 6px 16px rgba(32, 41, 35, 0.14);
+  background: rgba(250, 249, 245, 0.86);
+  border: 1px solid rgba(32, 41, 35, 0.10);
+  box-shadow: 0 1px 1.5px rgba(32, 41, 35, 0.10);
   color: var(--kx-granite, #202923);
-  font: 700 12.5px/1.2 var(--kx-font, system-ui, sans-serif);
+  font: 600 12px/1 var(--kx-font, system-ui, sans-serif);
+  letter-spacing: -0.005em;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
+  pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
-  animation: kx-label-in 0.22s var(--kx-ease, ease-out) backwards;
+  transition: opacity 0.15s var(--kx-ease, ease-out);
 }
+/* Área táctil algo mayor que la píldora visible */
+.kx-map-label::after { content: ''; position: absolute; inset: -8px -4px; }
 .kx-map-label::before {
   content: '';
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--kx-sector, #2E9A63);
 }
-.kx-map-label.is-selected { z-index: 2; }
-/* visibility y no opacity: MapLibre fija la opacidad del marcador en línea */
+.kx-map-label__txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kx-map-label.is-selected {
+  z-index: 2;
+  height: 28px;
+  min-height: 0;
+  max-width: none;
+  padding: 0 11px 0 9px;
+  gap: 6px;
+  font-size: 13px;
+  background: rgba(250, 249, 245, 0.97);
+  border-color: rgba(32, 41, 35, 0.16);
+  border-color: color-mix(in srgb, var(--kx-sector, #2E9A63) 55%, transparent);
+}
+.kx-map-label.is-selected::before { width: 7px; height: 7px; }
+.kx-map-label.is-dimmed { opacity: 0.5; }
+/* visibility y no display: así se puede medir la píldora aunque esté oculta */
 .kx-map-label.is-off,
 .kx-map-label.is-hidden { visibility: hidden; pointer-events: none; }
 .kx-map-label:focus-visible { outline: 2px solid var(--kx-forest, #153E35); outline-offset: 2px; }
-/* Solo opacidad: MapLibre coloca el marcador con un transform en línea y una animación de transform lo pisaría */
-@keyframes kx-label-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
 
 /* Selector cuando el toque cae sobre varios sectores próximos */
 .kx-sector-chooser-popup .maplibregl-popup-content {
@@ -30904,4 +30923,4 @@ body.map-active #map-view .legend-panel .lp-pane {
 .kx-sector-chooser__item:active { background: var(--kx-sage, #DCE9DF); }
 @media (hover: hover) { .kx-sector-chooser__item:hover { background: var(--kx-sage-soft, #EBF2EC); } }
 .kx-sector-chooser__item:focus-visible { outline: 2px solid var(--kx-forest, #153E35); outline-offset: -2px; }
-@media (prefers-reduced-motion: reduce) { .kx-map-label { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .kx-map-label { transition: none; } }
