@@ -30847,7 +30847,7 @@ body.map-active #map-view .legend-panel .lp-pane {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #2E9A63;
+  background: var(--kx-sector, #2E9A63);
 }
 /* Solo opacidad: MapLibre coloca el marcador con un transform en línea y una animación de transform lo pisaría */
 @keyframes kx-label-in {
@@ -30890,7 +30890,7 @@ body.map-active #map-view .legend-panel .lp-pane {
   width: 14px;
   height: 4px;
   border-radius: 2px;
-  background: var(--kx-forest, #153E35);
+  background: var(--kx-sector, var(--kx-forest, #153E35));
 }
 .kx-sector-chooser__item:active { background: var(--kx-sage, #DCE9DF); }
 @media (hover: hover) { .kx-sector-chooser__item:hover { background: var(--kx-sage-soft, #EBF2EC); } }
