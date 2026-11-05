@@ -54,7 +54,9 @@ vm.runInContext([
   extractFunction(MAP, 'kxSectorColorExpr'),
   extractFunction(MAP, 'kxSectorLinePaint'),
   extractFunction(MAP, 'kxSectorCasingPaint'),
-  'this.api = { getGradeColor, kxRoutePaint, kxRouteShadowPaint, kxSectorLinePaint, kxSectorCasingPaint, kxAssignSectorColors, kxSectorHash, KX_SECTOR_PALETTE, KX_MAP };'
+  MAP.match(/const KX_SECTOR_HIT_WIDTH = [^;]+;/)[0],
+  extractFunction(MAP, 'kxSectorHitPaint'),
+  'this.api = { getGradeColor, kxRoutePaint, kxRouteShadowPaint, kxSectorLinePaint, kxSectorCasingPaint, kxSectorHitPaint, kxAssignSectorColors, kxSectorHash, KX_SECTOR_PALETTE, KX_MAP };'
 ].join('\n'), mapCtx);
 const api = mapCtx.api;
 
@@ -119,8 +121,8 @@ describe('cartografía 2D: sectores con doble trazo pastel', () => {
   const line = (coords) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
   const sector = (nombre, x, y) => ({ ...line([[x, y], [x + 0.0005, y + 0.0003]]), properties: { nombre } });
 
-  it('la paleta son los seis pasteles mates del diseño', () => {
-    expect([...api.KX_SECTOR_PALETTE]).toEqual(['#83B982', '#72C3B7', '#78B8DC', '#A99ACF', '#E8A06B', '#E5C36D']);
+  it('la paleta son los seis colores mates del diseño', () => {
+    expect([...api.KX_SECTOR_PALETTE]).toEqual(['#579C68', '#299F98', '#438FC5', '#9273B8', '#D98942', '#CC716E']);
   });
 
   it('el color depende solo del nombre: mismo sector, mismo color en cualquier sesión y orden', () => {
@@ -159,23 +161,24 @@ describe('cartografía 2D: sectores con doble trazo pastel', () => {
     const expr = flat(paint['line-color']);
     api.KX_SECTOR_PALETTE.forEach(c => expect(expr).toContain(c));
     expect(expr).not.toContain('feature-state');
-    expect(expr).not.toMatch(/#153E35|#2E9A63/);
+    expect(expr).not.toMatch(/#153E35|#2E9A63/);   // ni el verde bosque ni el verde del antiguo seleccionado
   });
 
-  it('línea de 2,5–3,25 px en reposo y 3,5–4,5 px seleccionada en los zooms de escuela', () => {
+  it('línea interior de 3,5–4 px en reposo y de 5–6 px seleccionada en los zooms de escuela', () => {
     const w = api.kxSectorLinePaint()['line-width'];
     const at = z => w[w.indexOf(z) + 1];
-    for (const z of [14, 16, 18]) {
+    for (const z of [16, 18]) {
       const [, , selected, normal] = at(z);   // ['case', <seleccionado?>, seleccionado, normal]
-      expect(normal).toBeGreaterThanOrEqual(2.5);
-      expect(normal).toBeLessThanOrEqual(3.25);
-      expect(selected).toBeGreaterThanOrEqual(3.5);
-      expect(selected).toBeLessThanOrEqual(4.5);
-      expect(selected).toBeGreaterThan(normal);
+      expect(normal).toBeGreaterThanOrEqual(3.5);
+      expect(normal).toBeLessThanOrEqual(4);
+      expect(selected).toBeGreaterThanOrEqual(5);
+      expect(selected).toBeLessThanOrEqual(6);
     }
+    // Más lejos, más fino: no se vuelve una banda ancha al alejarse
+    expect(at(12)[3]).toBeLessThan(at(16)[3]);
   });
 
-  it('borde exterior blanco (~5 px, 90 %), más ancho que la línea, sin halo ni desenfoque', () => {
+  it('borde exterior blanco de 7–8 px, más grueso al seleccionar, sin halo ni desenfoque', () => {
     const casing = api.kxSectorCasingPaint();
     expect(casing['line-color']).toBe('#FFFFFF');
     expect(casing).not.toHaveProperty('line-blur');
@@ -183,13 +186,27 @@ describe('cartografía 2D: sectores con doble trazo pastel', () => {
     for (let i = 3; i < lw.length; i += 2) {
       expect(cw[i + 1][3]).toBeGreaterThan(lw[i + 1][3]);   // reposo
       expect(cw[i + 1][2]).toBeGreaterThan(lw[i + 1][2]);   // seleccionado
+      expect(cw[i + 1][2]).toBeGreaterThan(cw[i + 1][3]);   // y más grueso que en reposo
     }
-    const z16 = cw[cw.indexOf(16) + 1];
-    expect(z16[3]).toBeGreaterThanOrEqual(4.5);
-    expect(z16[3]).toBeLessThanOrEqual(5.5);
+    for (const z of [16, 18]) {
+      const [, , , normal] = cw[cw.indexOf(z) + 1];
+      expect(normal).toBeGreaterThanOrEqual(7);
+      expect(normal).toBeLessThanOrEqual(8);
+    }
     const op = casing['line-opacity'];
-    expect(op[op.indexOf(13) + 1][3]).toBe(0.9);
+    expect(op[op.indexOf(13) + 1][3]).toBeGreaterThanOrEqual(0.9);
     expect(op[op.indexOf(13) + 1][2]).toBe(1);             // seleccionado: borde más visible
+  });
+
+  it('el área táctil es una capa aparte: 22–26 px, invisible, sin color propio ni sombra', () => {
+    const hit = api.kxSectorHitPaint();
+    expect(hit['line-width']).toBeGreaterThanOrEqual(22);
+    expect(hit['line-width']).toBeLessThanOrEqual(26);
+    expect(hit['line-opacity']).toBe(0);
+    expect(hit).not.toHaveProperty('line-blur');
+    // y ni el trazo visible ni el borde se engordan para facilitar el toque
+    const lw = api.kxSectorLinePaint()['line-width'];
+    for (let i = 3; i < lw.length; i += 2) expect(lw[i + 1][2]).toBeLessThan(8);
   });
 });
 
@@ -274,5 +291,113 @@ describe('marcador de escuelas: un solo pin, tres estados', () => {
     expect(lastState('cuenca', 'focus')).toBe(false);
     expect(lastState('mora', 'focus')).toBe(true);
     api2.kxFocusSchool(null);
+  });
+});
+
+// ---------- Selección de sectores: capa táctil, etiquetas y prioridades ----------
+describe('selección de sectores', () => {
+  const ctx = vm.createContext({});
+  let queries, opened, selected, chooser, flags;
+  const reset = () => { queries = []; opened = []; selected = []; chooser = null; };
+  reset();
+
+  // Fakes mínimos del mapa y del DOM
+  const fakeEl = tag => ({ tag, children: [], style: { setProperty() {} }, className: '', textContent: '', setAttribute() {}, addEventListener() {}, appendChild(c) { this.children.push(c); } });
+  ctx.document = { createElement: fakeEl };
+  ctx.maplibregl = { Popup: class { constructor() { chooser = this; } setLngLat() { return this; } setDOMContent(c) { this.content = c; return this; } addTo() { return this; } on() {} remove() {} } };
+  const layersPresent = new Set(['sectores-hit-layer', 'sectores-labels-layer', 'vias-layer', 'school-markers-layer']);
+  ctx.mlMap = {
+    getLayer: id => (layersPresent.has(id) ? {} : null),
+    queryRenderedFeatures: (geom, opts) => {
+      queries.push({ geom, layers: opts.layers });
+      const key = opts.layers.join(',');
+      return (ctx.__results && ctx.__results[key]) || [];
+    }
+  };
+  ctx.mlOpenStaticSector = (props) => opened.push(props.nombre);
+  ctx.mlOpenUserSector = (props) => opened.push('user:' + props.nombre);
+  ctx.kxSelectSector = (f) => selected.push(f.properties.nombre);
+  ctx.kxClearSectorSelection = () => {};
+  ctx.kxCloseSectorChooser = () => {};
+  ctx.kxSetFeatureState = () => {};
+  ctx.KX_SECTOR_PALETTE = ['#579C68'];
+  ctx.kxSectorColorOf = () => '#579C68';
+  vm.runInContext([
+    "const KX_SECTOR_HIT_LAYERS = ['sectores-hit-layer', 'sectores-usuarios-hit-layer'];",
+    "const KX_SECTOR_LABEL_LAYERS = ['sectores-labels-layer', 'sectores-usuarios-labels-layer'];",
+    extractConst(MAP, 'KX_ROUTE_LAYERS', '[', ']'),
+    extractConst(MAP, 'KX_PRIORITY_LAYERS', '[', ']').replace("KX_ROUTE_LAYERS.concat(", "KX_ROUTE_LAYERS.concat(") ,
+    MAP.match(/const KX_LABEL_TAP_PAD = [^;]+;/)[0],
+    'let kxSectorChooser = null;',
+    extractFunction(MAP, 'kxOpenSectorFeature'),
+    extractFunction(MAP, 'kxSectorKey'),
+    extractFunction(MAP, 'kxHandleSectorTap'),
+    'this.tap = kxHandleSectorTap;'
+  ].join('\n'), ctx);
+
+  const feat = (nombre, id, source = 'sectores-source') => ({ id, source, properties: { nombre }, layer: { id: 'x' } });
+  const tapEvent = (features = []) => ({ point: { x: 100, y: 100 }, lngLat: { lng: 1, lat: 2 }, originalEvent: {}, features });
+  const results = (map) => { ctx.__results = map; };
+
+  it('un único sector dentro del área táctil se selecciona y abre directamente', () => {
+    reset(); results({ 'sectores-hit-layer': [feat('Placas', 1)] });
+    ctx.tap(tapEvent([feat('Placas', 1)]));
+    expect(selected).toEqual(['Placas']);
+    expect(opened).toEqual(['Placas']);
+    expect(chooser).toBeNull();
+  });
+
+  it('se consulta la capa táctil invisible en el punto del toque, no el trazo visible', () => {
+    reset(); results({ 'sectores-hit-layer': [feat('Placas', 1)] });
+    ctx.tap(tapEvent([feat('Placas', 1)]));
+    const q = queries.find(x => x.layers.includes('sectores-hit-layer'));
+    expect(q.layers).toEqual(['sectores-hit-layer']);
+    expect(q.geom).toEqual({ x: 100, y: 100 });
+    expect(queries.some(x => x.layers.includes('sectores-layer') || x.layers.includes('sectores-casing-layer'))).toBe(false);
+  });
+
+  it('varios sectores candidatos: selector con sus nombres y sin abrir ninguno todavía', () => {
+    reset(); results({ 'sectores-hit-layer': [feat('Placas', 1), feat('Fisuras', 2), feat('Placas', 1)] });
+    ctx.tap(tapEvent([feat('Placas', 1)]));
+    expect(opened).toEqual([]);
+    expect(selected).toEqual([]);
+    const names = chooser.content.children.filter(c => c.tag === 'button').map(b => b.textContent);
+    expect(names).toEqual(['Placas', 'Fisuras']);   // sin duplicados
+  });
+
+  it('una vía justo bajo el dedo tiene prioridad: el sector no se abre', () => {
+    reset(); results({ 'vias-layer,school-markers-layer': [feat('Vía', 9)], 'sectores-hit-layer': [feat('Placas', 1)] });
+    // la consulta de prioridad lista vías y escuelas presentes
+    ctx.__results = { [['vias-layer', 'school-markers-layer'].join(',')]: [feat('Vía', 9)], 'sectores-hit-layer': [feat('Placas', 1)] };
+    ctx.tap(tapEvent([feat('Placas', 1)]));
+    expect(opened).toEqual([]);
+    expect(selected).toEqual([]);
+  });
+
+  it('tocar una etiqueta (con margen) abre el sector que representa', () => {
+    reset(); results({ 'sectores-labels-layer': [feat('Fisuras', 2)], 'sectores-hit-layer': [feat('Placas', 1)] });
+    ctx.tap(tapEvent([feat('Placas', 1)]));
+    expect(opened).toEqual(['Fisuras']);
+    const q = queries.find(x => x.layers.includes('sectores-labels-layer'));
+    expect(q.geom).toEqual([[92, 92], [108, 108]]);   // ±8 px
+  });
+
+  it('los sectores aportados por usuarios abren su propia ficha', () => {
+    reset(); results({ 'sectores-hit-layer': [feat('Mío', 5, 'sectores-usuarios-source')] });
+    ctx.tap(tapEvent([feat('Mío', 5, 'sectores-usuarios-source')]));
+    expect(opened).toEqual(['user:Mío']);
+  });
+
+  it('el mismo toque no se gestiona dos veces (handlers de capa duplicados)', () => {
+    reset(); results({ 'sectores-hit-layer': [feat('Placas', 1)] });
+    const e = tapEvent([feat('Placas', 1)]);
+    ctx.tap(e); ctx.tap(e);
+    expect(opened).toEqual(['Placas']);
+  });
+
+  it('sin candidatos en el área táctil, un toque no abre nada', () => {
+    reset(); results({});
+    ctx.tap(tapEvent([]));
+    expect(opened).toEqual([]);
   });
 });

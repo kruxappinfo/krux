@@ -225,17 +225,21 @@ function kxRouteShadowPaint() {
   };
 }
 
-// Sector: doble trazo fino. Debajo, un borde blanco (≈5 px, 90 %); encima, la línea del color propio del sector
-// (2,5–3,25 px). El seleccionado engorda ambos trazos y conserva su color. Sin sombras, halos ni animación.
-// Paleta pastel mate, asignada de forma determinista y estable por sector (ver kxAssignSectorColors).
+// Sector: doble trazo. Debajo, un borde blanco (7–8 px); encima, la línea mate del color propio del sector
+// (3,5–4 px). El seleccionado engorda ambos trazos y conserva su color. Sin sombras, halos ni animación.
+// Colores más vivos que pastel, sin llegar a fluorescentes; asignados de forma estable por sector
+// (ver kxAssignSectorColors).
 const KX_SECTOR_PALETTE = [
-  '#83B982',  // verde salvia
-  '#72C3B7',  // turquesa suave
-  '#78B8DC',  // azul cielo apagado
-  '#A99ACF',  // lavanda
-  '#E8A06B',  // terracota suave
-  '#E5C36D'   // mostaza claro
+  '#579C68',  // verde
+  '#299F98',  // turquesa
+  '#438FC5',  // azul
+  '#9273B8',  // morado
+  '#D98942',  // naranja
+  '#CC716E'   // coral
 ];
+
+// Área táctil invisible alrededor de cada sector (px). Es una capa aparte: el trazo visible no se engorda.
+const KX_SECTOR_HIT_WIDTH = 24;
 
 function kxSectorHash(name) {
   // FNV-1a de 32 bits: estable entre sesiones y dispositivos
@@ -293,12 +297,12 @@ function kxSectorLinePaint() {
   return {
     'line-color': kxSectorColorExpr(),
     'line-width': ['interpolate', ['linear'], ['zoom'],
-      12, ['case', _kxSel, 3, 2],
-      14, ['case', _kxSel, 3.75, 2.5],
-      16, ['case', _kxSel, 4.25, 3],
-      18, ['case', _kxSel, 4.5, 3.25],
-      20, ['case', _kxSel, 5, 4]],
-    'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.6, 13, 1],
+      12, ['case', _kxSel, 4.5, 2.5],
+      14, ['case', _kxSel, 5, 3],
+      16, ['case', _kxSel, 5.25, 3.75],
+      18, ['case', _kxSel, 5.5, 4],
+      20, ['case', _kxSel, 6, 4.5]],
+    'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.7, 13, 1],
     'line-width-transition': { duration: 200 }
   };
 }
@@ -307,16 +311,39 @@ function kxSectorCasingPaint() {
   return {
     'line-color': '#FFFFFF',
     'line-width': ['interpolate', ['linear'], ['zoom'],
-      12, ['case', _kxSel, 5, 3.75],
-      14, ['case', _kxSel, 6, 4.5],
-      16, ['case', _kxSel, 6.75, 5.25],
-      18, ['case', _kxSel, 7.25, 5.5],
-      20, ['case', _kxSel, 8, 6.5]],
+      12, ['case', _kxSel, 7.5, 5.5],
+      14, ['case', _kxSel, 8.5, 6.5],
+      16, ['case', _kxSel, 9, 7.5],
+      18, ['case', _kxSel, 9.5, 8],
+      20, ['case', _kxSel, 10.5, 9]],
     'line-opacity': ['interpolate', ['linear'], ['zoom'],
-      12, ['case', _kxSel, 0.65, 0.5],
-      13, ['case', _kxSel, 1, 0.9]],
+      12, ['case', _kxSel, 0.8, 0.6],
+      13, ['case', _kxSel, 1, 0.95]],
     'line-width-transition': { duration: 200 }
   };
+}
+
+// Capa interactiva: misma fuente y geometría que el sector, invisible (opacidad 0) y ancha. Solo sirve para
+// detectar toques; el dibujo lo hacen las dos capas visibles.
+function kxSectorHitPaint() {
+  return { 'line-color': '#000000', 'line-opacity': 0, 'line-width': KX_SECTOR_HIT_WIDTH };
+}
+
+function kxAddSectorHitLayer(sourceId, layerId, minzoom, sourceLayer) {
+  if (!mlMap || mlMap.getLayer(layerId) || !mlMap.getSource(sourceId)) return;
+  const layer = {
+    id: layerId,
+    type: 'line',
+    source: sourceId,
+    minzoom,
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: kxSectorHitPaint()
+  };
+  if (sourceLayer) layer['source-layer'] = sourceLayer;
+  // Por debajo de las vías: su círculo siempre recibe el toque antes que la línea del sector
+  const before = mlMap.getLayer('vias-shadow-layer') ? 'vias-shadow-layer' : (mlMap.getLayer('vias-layer') ? 'vias-layer' : undefined);
+  mlMap.addLayer(layer, before);
+  kxBindSectorEvents(layerId);
 }
 
 // Etiqueta de sector: píldora a lo largo de la línea, horizontal, sin solaparse (colisión nativa)
@@ -343,6 +370,9 @@ function kxAddSectorLabels(sourceId, layerId, minzoom, sourceLayer) {
   // Por debajo de las vías: el nombre nunca tapa un punto
   const before = mlMap.getLayer('vias-shadow-layer') ? 'vias-shadow-layer' : (mlMap.getLayer('vias-layer') ? 'vias-layer' : undefined);
   mlMap.addLayer(layer, before);
+  // Las consultas por punto sobre capas de texto no son fiables en MapLibre (devuelven la etiqueta en cualquier punto):
+  // por eso el clic solo reenvía al gestor común, que comprueba la etiqueta con una caja, y no hay cursor propio
+  kxBindSectorEvents(layerId, { cursor: false });
 }
 
 function kxLabelLayout(size) {
@@ -463,51 +493,97 @@ function kxSelectSector(feature, lngLat) {
     const el = document.createElement('div');
     el.className = 'kx-map-label kx-map-label--selected';
     el.textContent = name;
+    el.style.setProperty('--kx-sector', kxSectorColorOf(feature));
     kxSectorLabelMarker = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -12] })
       .setLngLat(lngLat)
       .addTo(mlMap);
   }
 }
 
+function kxSectorColorOf(f) {
+  const i = Number(f && f.properties && f.properties.kxc);
+  return KX_SECTOR_PALETTE[Number.isInteger(i) && i >= 0 && i < KX_SECTOR_PALETTE.length ? i : 0];
+}
+
 function kxCloseSectorChooser() {
   if (kxSectorChooser) { kxSectorChooser.remove(); kxSectorChooser = null; }
 }
 
-const KX_SECTOR_LAYERS = ['sectores-layer', 'sectores-usuarios-layer'];
+const KX_SECTOR_HIT_LAYERS = ['sectores-hit-layer', 'sectores-usuarios-hit-layer'];
+const KX_SECTOR_LABEL_LAYERS = ['sectores-labels-layer', 'sectores-usuarios-labels-layer'];
 const KX_ROUTE_LAYERS = ['vias-layer', 'vias-usuarios-layer', 'vias-ticks-circle-layer', 'pending-my-routes-layer', 'admin-pending-routes-layer'];
+// Elementos con su propio toque que el sector nunca debe interceptar (si el dedo cae exactamente sobre ellos)
+const KX_PRIORITY_LAYERS = KX_ROUTE_LAYERS.concat(['school-markers-layer', 'escuelas-usuarios-layer', 'parkings-layer', 'puntos-interes-layer', 'poi-usuarios-layer']);
+const KX_LABEL_TAP_PAD = 8;   // px alrededor de una etiqueta que también cuentan como toque
+
+const _kxBoundSectorLayers = new Set();
+// Los eventos por capa de MapLibre sobreviven a la capa: se registran una sola vez por id, aunque se recargue la escuela
+function kxBindSectorEvents(layerId, { cursor = true } = {}) {
+  if (!mlMap || _kxBoundSectorLayers.has(layerId)) return;
+  _kxBoundSectorLayers.add(layerId);
+  if (cursor) {
+    mlMap.on('mouseenter', layerId, () => { mlMap.getCanvas().style.cursor = 'pointer'; });
+    mlMap.on('mouseleave', layerId, () => { mlMap.getCanvas().style.cursor = ''; });
+  }
+  mlMap.on('click', layerId, (e) => {
+    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    if (!e.features || e.features.length === 0) return;
+    kxHandleSectorTap(e);
+  });
+}
+
+// Abre la ficha de siempre según el origen del sector (estático o aportado por usuarios)
+function kxOpenSectorFeature(f, lngLat) {
+  if (f.source === 'sectores-usuarios-source') return mlOpenUserSector(f.properties, lngLat);
+  return mlOpenStaticSector(f.properties, lngLat);
+}
+
+function kxSectorKey(f) {
+  return f.source + '|' + (f.id != null ? f.id : f.properties && f.properties.nombre);
+}
 
 /**
- * Toque sobre un sector: detecta los sectores cercanos al punto. Si hay uno, lo selecciona y abre su ficha;
- * si hay varios, deja elegir. Si bajo el dedo hay una vía, la vía tiene prioridad (su propio handler la abre).
- * Devuelve true si el evento ya se ha gestionado (o lo gestiona otro), para que el handler de la capa no siga.
+ * Toque sobre un sector o su etiqueta. El área táctil es la capa invisible de 24 px, no el trazo.
+ *  1. Una vía, escuela, parking o POI justo bajo el dedo tiene prioridad (lo gestiona su propio handler).
+ *  2. Una etiqueta (con un margen de 8 px) abre el sector que representa.
+ *  3. Un único sector dentro del área táctil se selecciona y abre; si hay varios, se elige en un selector.
+ * Devuelve true cuando el evento ya está gestionado, para que los demás handlers de sector no lo repitan.
  */
-function kxHandleSectorTap(e, open) {
+function kxHandleSectorTap(e) {
   const oe = e.originalEvent || {};
   if (oe._kxSectorHandled) return true;
   oe._kxSectorHandled = true;
 
-  const routeLayers = KX_ROUTE_LAYERS.filter(id => mlMap.getLayer(id));
-  if (routeLayers.length && mlMap.queryRenderedFeatures(e.point, { layers: routeLayers }).length) return true;
+  const priority = KX_PRIORITY_LAYERS.filter(id => mlMap.getLayer(id));
+  if (priority.length && mlMap.queryRenderedFeatures(e.point, { layers: priority }).length) return true;
 
-  const layers = KX_SECTOR_LAYERS.filter(id => mlMap.getLayer(id));
-  const tol = isMobileDevice() ? 14 : 8;
-  const box = [[e.point.x - tol, e.point.y - tol], [e.point.x + tol, e.point.y + tol]];
+  const labelLayers = KX_SECTOR_LABEL_LAYERS.filter(id => mlMap.getLayer(id));
+  if (labelLayers.length) {
+    const pad = KX_LABEL_TAP_PAD;
+    const box = [[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]];
+    const label = mlMap.queryRenderedFeatures(box, { layers: labelLayers })[0];
+    if (label) {
+      kxSelectSector(label, e.lngLat);
+      kxOpenSectorFeature(label, e.lngLat);
+      return true;
+    }
+  }
+
+  const layers = KX_SECTOR_HIT_LAYERS.filter(id => mlMap.getLayer(id));
   const seen = new Set();
   const candidates = [];
-  for (const f of mlMap.queryRenderedFeatures(box, { layers })) {
-    const key = f.source + '|' + (f.id != null ? f.id : f.properties.nombre);
+  for (const f of mlMap.queryRenderedFeatures(e.point, { layers })) {
+    const key = kxSectorKey(f);
     if (seen.has(key)) continue;
     seen.add(key);
     candidates.push(f);
   }
-  // El que está justo bajo el dedo va primero
-  const hit = e.features && e.features[0];
-  if (hit) candidates.sort((a, b) => (b.id === hit.id && b.source === hit.source) - (a.id === hit.id && a.source === hit.source));
+  // Sin candidatos en el área táctil no se abre nada (e.features puede venir de una capa de etiquetas y no sirve)
+  if (!candidates.length) return true;
 
-  if (candidates.length <= 1) {
-    const f = candidates[0] || hit;
-    kxSelectSector(f, e.lngLat);
-    open(f.properties, e.lngLat, f);
+  if (candidates.length === 1) {
+    kxSelectSector(candidates[0], e.lngLat);
+    kxOpenSectorFeature(candidates[0], e.lngLat);
     return true;
   }
 
@@ -527,13 +603,15 @@ function kxHandleSectorTap(e, open) {
     b.className = 'kx-sector-chooser__item';
     b.setAttribute('role', 'option');
     b.textContent = f.properties.nombre || 'Sector sin nombre';
-    b.addEventListener('mouseenter', () => kxSetFeatureState({ source: f.source, sourceLayer: f.sourceLayer, id: f.id }, { selected: true }));
-    b.addEventListener('mouseleave', () => kxSetFeatureState({ source: f.source, sourceLayer: f.sourceLayer, id: f.id }, { selected: false }));
+    b.style.setProperty('--kx-sector', kxSectorColorOf(f));
+    const ref = { source: f.source, sourceLayer: f.sourceLayer, id: f.id };
+    b.addEventListener('mouseenter', () => kxSetFeatureState(ref, { selected: true }));
+    b.addEventListener('mouseleave', () => kxSetFeatureState(ref, { selected: false }));
     b.addEventListener('click', ev => {
       ev.stopPropagation();
-      kxSetFeatureState({ source: f.source, sourceLayer: f.sourceLayer, id: f.id }, { selected: false });
+      kxSetFeatureState(ref, { selected: false });
       kxSelectSector(f, e.lngLat);
-      open(f.properties, e.lngLat, f);
+      kxOpenSectorFeature(f, e.lngLat);
     });
     wrap.appendChild(b);
   });
@@ -2127,6 +2205,7 @@ async function mlLoadSchoolVectorTiles(school) {
       paint: kxSectorLinePaint()
     });
     kxAddSectorLabels('sectores-source', 'sectores-labels-layer', school.zoomLevels.sectorNames || 16, 'sectores');
+    kxAddSectorHitLayer('sectores-source', 'sectores-hit-layer', school.zoomLevels.sectores, 'sectores');
   }
 
   // Cargar vías (círculos)
@@ -2280,6 +2359,7 @@ async function mlLoadSchoolGeoJSON(school) {
         paint: kxSectorLinePaint()
       });
       kxAddSectorLabels('sectores-source', 'sectores-labels-layer', school.zoomLevels.sectorNames || 16);
+      kxAddSectorHitLayer('sectores-source', 'sectores-hit-layer', school.zoomLevels.sectores);
       console.log(`Capa sectores cargada: ${geojson.features?.length || 0} elementos`);
       // La interacción se registra aquí, cuando la capa ya existe (la carga de vías corre en paralelo)
       setupSectoresInteraction();
@@ -2801,7 +2881,7 @@ async function mlLoadGeoJSONLayer(layerId, url, type, paint, minzoom = 0, layout
  * Limpia las capas de la escuela actual
  */
 function mlClearSchoolLayers() {
-  const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-shadow-layer', 'vias-layer', 'sectores-labels-layer', 'sectores-usuarios-labels-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'escuelas-usuarios-layer', 'escuelas-usuarios-labels-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
+  const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-shadow-layer', 'vias-layer', 'sectores-hit-layer', 'sectores-usuarios-hit-layer', 'sectores-labels-layer', 'sectores-usuarios-labels-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'escuelas-usuarios-layer', 'escuelas-usuarios-labels-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
   const sourceIds = ['vias-ticks-source', 'vias-source', 'sectores-source', 'parkings-source', 'rutas-acceso-source', 'puntos-interes-source', 'vias-variant-connector-source', 'vias-usuarios-source', 'poi-usuarios-source', 'sectores-usuarios-source', 'escuelas-usuarios-source', 'pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source', 'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source'];
 
   // Cancelar listeners realtime antes de eliminar capas/sources
@@ -6075,26 +6155,8 @@ function showSectorPopup(props, coords, extraHTML = '') {
  * Configura interacción de click en sectores
  */
 function setupSectoresInteraction() {
-  if (!mlMap.getLayer('sectores-layer')) return;
-
-  // Cursor pointer al pasar sobre sectores
-  mlMap.on('mouseenter', 'sectores-layer', () => {
-    mlMap.getCanvas().style.cursor = 'pointer';
-  });
-
-  mlMap.on('mouseleave', 'sectores-layer', () => {
-    mlMap.getCanvas().style.cursor = '';
-  });
-
-  // Click en sector
-  mlMap.on('click', 'sectores-layer', (e) => {
-    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
-    if (!e.features || e.features.length === 0) return;
-    kxHandleSectorTap(e, (props, coords, f) => {
-      if (f && f.source === 'sectores-usuarios-source') return mlOpenUserSector(props, coords);
-      mlOpenStaticSector(props, coords);
-    });
-  });
+  // El toque lo recibe la capa invisible de 24 px (y las etiquetas), no la línea visible
+  kxBindSectorEvents('sectores-hit-layer');
 }
 
 function mlOpenStaticSector(props, coords) {
@@ -9625,21 +9687,8 @@ async function loadApprovedPOIFromFirestore(schoolId) {
  * Carga sectores aprobados desde pending_sectors en Firestore y los dibuja en el mapa
  * como líneas (misma lógica que los sectores estáticos de GeoJSON).
  */
-function setupUserSectorsInteraction(lineLayerId) {
-  mlMap.on('mouseenter', lineLayerId, () => {
-    mlMap.getCanvas().style.cursor = 'pointer';
-  });
-  mlMap.on('mouseleave', lineLayerId, () => {
-    mlMap.getCanvas().style.cursor = '';
-  });
-  mlMap.on('click', lineLayerId, (e) => {
-    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
-    if (!e.features || e.features.length === 0) return;
-    kxHandleSectorTap(e, (props, coords, f) => {
-      if (f && f.source === 'sectores-source') return mlOpenStaticSector(props, coords);
-      mlOpenUserSector(props, coords);
-    });
-  });
+function setupUserSectorsInteraction(hitLayerId) {
+  kxBindSectorEvents(hitLayerId);
 }
 
 async function mlOpenUserSector(props, coords) {
@@ -9765,9 +9814,10 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
               paint: kxSectorLinePaint()
             });
             kxAddSectorLabels(sourceId, 'sectores-usuarios-labels-layer', school?.zoomLevels?.sectorNames || 16);
+            kxAddSectorHitLayer(sourceId, 'sectores-usuarios-hit-layer', sectorMinZoom);
 
             if (!mlUserSectorsInteractionAttached) {
-              setupUserSectorsInteraction(lineLayerId);
+              setupUserSectorsInteraction('sectores-usuarios-hit-layer');
               mlUserSectorsInteractionAttached = true;
             }
           }
