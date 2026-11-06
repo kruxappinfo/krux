@@ -32103,3 +32103,15 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 .kxg-dots { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
 .kxg-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(32, 41, 35, 0.22); transition: background var(--kx-dur) var(--kx-ease), width var(--kx-dur) var(--kx-ease); }
 .kxg-dot.is-on { width: 18px; border-radius: 3px; background: var(--kx-forest); }
+
+/* Controles de la cuenta administradora: editar y borrar aportaciones */
+.kxg-adm-group { display: inline-flex; gap: 6px; flex: none; margin-left: auto; }
+.kxg-adm { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 36px; min-height: 36px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: var(--kx-surface); box-shadow: inset 0 0 0 1px var(--kx-line); color: var(--kx-ink-2); cursor: pointer; transform: none; -webkit-tap-highlight-color: transparent; }
+.kxg-adm::before { content: ''; position: absolute; inset: -4px; }
+.kxg-adm:hover, .kxg-adm:active { background: var(--kx-surface); transform: none; box-shadow: inset 0 0 0 1px rgba(32, 41, 35, 0.24); }
+.kxg-adm--del { color: #8E3420; }
+.kxg-adm:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+.kxg-photo-actions { min-height: 0; }
+.kxg-fchip .kxg-adm-group { margin-left: 4px; }
+.kxg-fchip .kxg-adm { width: 32px; min-height: 32px; }
+.kxg-linkrow .kxg-adm-group { margin-left: 0; }
