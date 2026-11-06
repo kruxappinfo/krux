@@ -46,9 +46,9 @@ function kxsSummaryBodyHTML(session, entries) {
   const kcal = kxsEstimateKcal(session.activeMs || kxsActiveMs(session));
   const hasDist = gps.enabled && gps.distanceM > 0;
   const tiles = [
-    kxStatTileHTML({ icon: 'calendarClock', value: kxsFormatDuration(session.activeMs || kxsActiveMs(session)), label: 'Duración' }),
+    kxStatTileHTML({ icon: 'clock', value: kxsFormatDuration(session.activeMs || kxsActiveMs(session)), label: 'Duración' }),
     kxStatTileHTML({ icon: 'mountain', value: String(st.routes), label: 'Vías registradas' }),
-    tile('ruler', st.meters > 0 ? `${st.meters} m` : '', 'Metros escalados'),
+    tile('arrowUpDown', st.meters > 0 ? `${st.meters} m` : '', 'Metros escalados'),
     kxStatTileHTML({ icon: 'circleCheck', value: String(st.sends), label: 'Encadenadas' }),
     tile('flame', kcal > 0 ? `${kcal} kcal` : '', 'Calorías (est.)'),
     tile('route', hasDist ? kxsFormatDistance(gps.distanceM) : '', gps.enabled ? 'Recorrido (GPS)' : 'GPS no utilizado')
@@ -59,11 +59,14 @@ function kxsSummaryBodyHTML(session, entries) {
   if (st.meters > 0 && st.metersUnknown > 0) notes.push(`${kxsPlural(st.metersUnknown, 'vía encadenada no tiene', 'vías encadenadas no tienen')} longitud registrada y no suma metros.`);
   const note = notes.map(n => `<p class="kxs-note">${kxEsc(n)}</p>`).join('');
   const chart = st.routes > 0
-    ? `<div class="kxs-chart" id="kxs-chart">${kxGradeChartHTML(kxGradeStats(st.gradeCounts, { ungraded: st.ungraded }), { id: 'kxs-gchart', title: 'Grados de la sesión' })}</div>` : '';
+    ? `<section class="kxs-chart" id="kxs-chart">
+        <div class="kxs-chart-head"><h3 class="kxs-chart-title">Vías de la sesión</h3>
+          <button type="button" class="kxs-chart-more" data-kxs="to-list" aria-label="Ver la lista de vías">${st.routes}${kxIcon('chevronRight', { size: 18 })}</button></div>
+        ${kxGradeChartHTML(kxGradeStats(st.gradeCounts, { ungraded: st.ungraded }), { id: 'kxs-gchart', title: 'Vías de la sesión' })}</section>` : '';
   const list = entries.length
-    ? kxSectionHTML({ title: 'Vías de la sesión', meta: String(entries.length), body: `<div class="kxs-entries">${entries.map(e => kxsEntryRowHTML(e)).join('')}</div>` })
+    ? kxSectionHTML({ title: 'Lista de vías', meta: String(entries.length), id: 'kxs-list', body: `<div class="kxs-entries">${entries.map(e => kxsEntryRowHTML(e)).join('')}</div>` })
     : `<p class="kxs-empty">No se registró ninguna vía en esta sesión.</p>`;
-  return `<div class="kxs-stats">${tiles.join('')}</div>${note}${chart}${list}`;
+  return `<div class="kxs-stats kxs-stats--sum">${tiles.join('')}</div>${chart}${note}${list}`;
 }
 
 // ============================================
@@ -106,7 +109,10 @@ const KruxSessionUI = (() => {
     const v = VIEWS[name](data);
     const body = el.querySelector('#kx-sess-body');
     const keep = body.scrollTop;
-    el.querySelector('#kx-sess-drag').innerHTML = kxSheetDragHTML({ title: v.title, titleId: 'kx-sess-title', metaHTML: v.meta || '', asideHTML: v.aside || '' });
+    el.querySelector('#kx-sess-drag').innerHTML = v.head
+      ? `<button type="button" class="kx-msheet-grip" aria-label="Ampliar ficha" aria-expanded="false"></button>${v.head}`
+      : kxSheetDragHTML({ title: v.title, titleId: 'kx-sess-title', metaHTML: v.meta || '', asideHTML: v.aside || '' });
+    el.dataset.view = name;   // la hoja reescribe sus clases al cambiar de altura: la vista va en un atributo
     body.innerHTML = v.body;
     el.querySelector('#kx-sess-foot').innerHTML = v.foot || '';
     el.querySelector('#kx-sess-foot').hidden = !v.foot;
@@ -212,12 +218,15 @@ const KruxSessionUI = (() => {
     summary({ item, history = false }) {
       const s = item.session;
       return {
-        title: history ? (s.schoolName || 'Sesión de escalada') : 'Sesión completada',
-        meta: kxEsc([history ? '' : s.schoolName, kxsDate(s.startedAt)].filter(Boolean).join(' · ')),
-        body: kxsSummaryBodyHTML(s, item.entries),
+        // Cabecera centrada con cierre a la izquierda y bloque de portada (icono, título, escuela · fecha)
+        head: `<header class="kxs-sumhead"><button type="button" class="kx-close" data-kx-close aria-label="Cerrar">${kxIcon('x', { size: 20, stroke: 2 })}</button>
+          <h2 class="kxs-sumhead-title" id="kx-sess-title">Sesión de roca</h2><span aria-hidden="true"></span></header>`,
+        body: `<div class="kxs-hero"><h3 class="kxs-hero-title">${kxEsc(history ? (s.schoolName || 'Sesión de escalada') : 'Sesión completada')}</h3>
+          <p class="kxs-hero-meta">${kxEsc([history ? '' : s.schoolName, kxsDate(s.startedAt)].filter(Boolean).join(' · '))}</p></div>
+          ${kxsSummaryBodyHTML(s, item.entries)}`,
         foot: history
           ? kxButtonHTML({ label: 'Cerrar', variant: 'secondary', size: 'lg', attrs: { 'data-kx-close': true } })
-          : kxButtonHTML({ icon: 'activity', label: 'Ver en Actividad', size: 'lg', attrs: { 'data-kxs': 'to-activity' } })
+          : kxButtonHTML({ icon: 'chartBar', label: 'Ver en Actividad', size: 'lg', attrs: { 'data-kxs': 'to-activity' } })
             + kxButtonHTML({ label: 'Cerrar', variant: 'secondary', size: 'lg', attrs: { 'data-kx-close': true } }),
         after(root) {
           const chart = root.querySelector('#kxs-gchart');
@@ -308,6 +317,10 @@ const KruxSessionUI = (() => {
       toast('Ascenso registrado en la sesión', 'success');
     },
 
+    'to-list'() {
+      const list = el.querySelector('#kxs-list');
+      if (list) list.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
     'to-activity'() {
       close();
       const nav = document.getElementById('nav-activity-btn');
