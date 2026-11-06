@@ -8557,8 +8557,8 @@ function renderDonutChart(gradeData) {
 
   const size = 200;
   const center = size / 2;
-  const radius = 75;
-  const strokeWidth = 28;
+  const radius = 76;
+  const strokeWidth = 44;
   const circumference = 2 * Math.PI * radius;
 
   let segments = '';

@@ -216,11 +216,11 @@ describe('ficha de escuela: conserva su donut y su tiempo originales', () => {
     expect(popup).toContain('btn-directions-${school.id}');
     expect(popup).not.toContain('kx-gchart');
   });
-  it('el donut mantiene sus medidas originales y responde también al toque', () => {
+  it('el donut (anillo más grueso por decisión del 6 nov) conserva su lógica y responde también al toque', () => {
     const f = mapSrc.slice(mapSrc.indexOf('function renderDonutChart'), mapSrc.indexOf('// CARGA DE DATOS'));
     expect(f).toMatch(/const size = 200;/);
-    expect(f).toMatch(/const radius = 75;/);
-    expect(f).toMatch(/const strokeWidth = 28;/);
+    expect(f).toMatch(/const radius = 76;/);
+    expect(f).toMatch(/const strokeWidth = 44;/);
     expect(f).toContain("addEventListener('mouseenter'");
     expect(f).toContain("addEventListener('pointerdown'");
   });
