@@ -8645,16 +8645,16 @@ async function kxRenderSchoolCards(school) {
   if (tagSlot && facts) {
     // Exposición solar y aparcamiento como símbolos junto a la roca y las restricciones
     const SUN = {
-      morning: { icon: 'sunrise', label: 'Sol de mañana' },
-      midday: { icon: 'sun', label: 'Sol a mediodía' },
-      afternoon: { icon: 'sunset', label: 'Sol de tarde' },
-      sun: { icon: 'sun', label: 'Sol' },
-      shade: { icon: 'cloud', label: 'Sombra' }
+      morning: { icon: 'sunrise', text: 'Mañana', label: 'Sol de mañana' },
+      midday: { icon: 'sun', text: 'Mediodía', label: 'Sol a mediodía' },
+      afternoon: { icon: 'sunset', text: 'Tarde', label: 'Sol de tarde' },
+      sun: { icon: 'sun', text: 'Sol', label: 'Sol' },
+      shade: { icon: 'shadeDot', text: 'Sombra', label: 'Sombra' }
     };
     const chips = [];
     if (tag) chips.push(kxTagHTML(tag));
-    facts.exposures.forEach(k => chips.push(kxTagHTML({ icon: SUN[k].icon, attrs: { role: 'img', 'aria-label': SUN[k].label, title: SUN[k].label } })));
-    if (facts.parking !== null) chips.push(kxTagHTML({ icon: 'car', text: facts.parking ? 'Sí' : 'No', attrs: { role: 'img', 'aria-label': facts.parking ? 'Con aparcamiento' : 'Sin aparcamiento', title: 'Aparcamiento' } }));
+    facts.exposures.forEach(k => chips.push(kxTagHTML({ icon: SUN[k].icon, text: SUN[k].text, attrs: { title: SUN[k].label } })));
+    if (facts.parking !== null) chips.push(kxTagHTML({ icon: 'car', text: facts.parking ? 'Sí' : 'No', attrs: { title: facts.parking ? 'Con aparcamiento' : 'Sin aparcamiento' } }));
     tagSlot.innerHTML = chips.join('');
   }
 
