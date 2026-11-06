@@ -31601,15 +31601,12 @@ body.map-active #map-view .legend-panel .lp-pane {
   .kx-gbar:hover .kx-gbar-val { display: block; }
   .kx-gchart.has-sel .kx-gbar:hover:not([aria-pressed="true"]) .kx-gbar-fill { opacity: 0.6; }}
 
-/* Grados bajo cada barra; si no caben todos (.is-dense) solo se ve el elegido y las familias */
-.kx-gchart-x, .kx-gchart-fams { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); }
+/* Grados bajo cada barra; si no caben a tamaño normal (.is-dense) se reducen */
+.kx-gchart-x { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); }
 .kx-gchart-x { margin-top: 6px; }
 .kx-gchart-xl { overflow: visible; color: var(--kx-ink-3); font-size: 0.6875rem; font-weight: 600; line-height: 1.2; text-align: center; white-space: nowrap; }
 .kx-gchart-xl.is-sel { color: var(--kx-ink); font-weight: 800; }
-.kx-gchart.is-dense .kx-gchart-xl { visibility: hidden; }
-.kx-gchart.is-dense .kx-gchart-xl.is-sel { visibility: visible; }
-.kx-gchart-fams { margin-top: 6px; }
-.kx-gchart-fam { margin: 0 2px; padding-top: 4px; border-top: 1px solid rgba(32, 41, 35, 0.22); color: var(--kx-ink-2); font-size: 0.75rem; font-weight: 700; text-align: center; }
+.kx-gchart.is-dense .kx-gchart-xl { font-size: 0.625rem; letter-spacing: -0.03em; }
 
 /* Tabla equivalente: todos los valores sin depender del gráfico */
 .kx-gchart-table summary { display: inline-flex; align-items: center; min-height: 36px; color: var(--kx-forest); font-size: var(--kx-fs-meta); font-weight: 600; cursor: pointer; }
