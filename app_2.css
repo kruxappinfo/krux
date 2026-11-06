@@ -32042,10 +32042,10 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 .kxg-fac-opt input { position: absolute; opacity: 0; pointer-events: none; }
 .kxg-fac-opt span { color: var(--kx-ink); font-size: var(--kx-fs-meta); font-weight: 700; line-height: 1.3; }
 .kxg-fac-opt small { color: var(--kx-ink-3); font-size: 0.6875rem; line-height: 1.3; }
-.kxg-fac-opt:has(input:checked) { background: var(--kx-sage-soft); box-shadow: inset 0 0 0 1.5px var(--kx-forest); }
+.kxg-fac-opt { transition: background var(--kx-dur) var(--kx-ease), box-shadow var(--kx-dur) var(--kx-ease); }
+.kxg-fac-opt:has(input:checked) { background: var(--kx-forest); box-shadow: none; }
+.kxg-fac-opt:has(input:checked) span { color: #fff; }
+.kxg-fac-opt:has(input:checked) small { color: rgba(255, 255, 255, 0.78); }
 .kxg-fac-opt:has(input:focus-visible) { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 #kx-gym-sheet .kx-msheet-foot > .kx-btn .kx-ic { flex: none; }
 .kxg-help { margin: 0 2px 10px; color: var(--kx-ink-3); font-size: var(--kx-fs-meta); line-height: 1.4; }
-.kxg-fac-opt { position: relative; padding-right: 40px; }
-.kxg-fac-opt::after { content: ''; position: absolute; top: 50%; right: 12px; width: 20px; height: 20px; margin-top: -10px; border-radius: 6px; background: var(--kx-surface); box-shadow: inset 0 0 0 1.5px rgba(32, 41, 35, 0.3); }
-.kxg-fac-opt:has(input:checked)::after { background: var(--kx-forest) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 14px no-repeat; box-shadow: none; }
