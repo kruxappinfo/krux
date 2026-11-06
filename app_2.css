@@ -31941,3 +31941,38 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 
 /* Resumen de sesión: métrica sin datos (GPS no usado, sin longitud de vías…) */
 .kx-stat.kxs-stat-empty .kx-stat-value { color: var(--kx-ink-3); font-size: var(--kx-fs-body); font-weight: 600; line-height: 1.5; }
+
+/* ---- Resumen de sesión: cabecera centrada, portada, métricas en fila y gráfico en tarjeta ---- */
+.kxs-sumhead { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; padding: 0 16px 4px; }
+.kxs-sumhead .kx-close { margin: 0; }
+.kxs-sumhead-title { margin: 0; color: var(--kx-ink); font-size: var(--kx-fs-lead); font-weight: 700; line-height: 1.25; text-align: center; }
+.kxs-hero { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 4px 0 18px; text-align: center; }
+.kxs-hero-ic { display: grid; place-items: center; width: 88px; height: 88px; margin-bottom: 10px; border-radius: 50%; background: var(--kx-sage-soft); color: var(--kx-forest); }
+.kxs-hero-title { margin: 0; color: var(--kx-ink); font-size: clamp(1.625rem, 7.5vw, 2rem); font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; }
+.kxs-hero-meta { margin: 0; color: var(--kx-ink-3); font-size: var(--kx-fs-body); line-height: 1.4; }
+
+.kxs-stats--sum { gap: 10px; margin-bottom: 14px; }
+.kxs-stats--sum .kx-stat { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 10px; row-gap: 2px; align-items: center; justify-content: stretch; min-height: 76px; padding: 12px; text-align: left; }
+.kxs-stats--sum .kx-stat-icon { grid-row: 1 / 3; margin: 0; color: var(--kx-forest); }
+.kxs-stats--sum .kx-stat-value { align-self: end; font-size: clamp(1.0625rem, 5vw, 1.25rem); font-weight: 800; letter-spacing: -0.01em; }
+.kxs-stats--sum .kx-stat-label { align-self: start; font-size: 0.8125rem; }
+#kx-sess-sheet .kxs-chart + .kxs-note, #kx-sess-sheet .kxs-note + .kx-fsec { margin-top: 14px; }
+.kxs-stats--sum .kx-stat.kxs-stat-empty .kx-stat-value { font-size: var(--kx-fs-body); font-weight: 600; }
+
+#kx-sess-sheet .kxs-chart { margin: 0 0 12px; padding: 16px 16px 14px; border-radius: 18px; background: var(--kx-stone-card); }
+.kxs-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.kxs-chart-title { margin: 0; color: var(--kx-ink); font-size: var(--kx-fs-body); font-weight: 700; }
+.kxs-chart-more { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin: -10px -8px -10px 0; padding: 0 8px; border: 0; border-radius: 12px; background: transparent; box-shadow: none; color: var(--kx-ink); font: inherit; font-size: var(--kx-fs-body); font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; transform: none; }
+.kxs-chart-more:hover { background: var(--kx-stone-hover); transform: none; box-shadow: none; }
+.kxs-chart-more:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+/* Dentro de la tarjeta solo quedan las barras; al pulsar una aparece su recuento */
+.kxs-chart .kx-gchart { gap: 8px; }
+.kxs-chart .kx-gchart-head, .kxs-chart .kx-gchart-table, .kxs-chart .kx-gchart-sum, .kxs-chart .kx-gchart-note { display: none; }
+.kxs-chart .kx-gchart-readout { min-height: 0; }
+.kxs-chart .kx-gchart-readout:empty, .kxs-chart .kx-gchart:not(.has-sel) .kx-gchart-readout { display: none; }
+.kxs-chart .kx-gchart-step { background: var(--kx-surface); }
+#kx-sess-sheet[data-view="summary"] .kx-msheet-foot { flex-direction: column; }
+#kx-sess-sheet[data-view="summary"] .kx-msheet-foot > .kx-btn { flex: none; width: 100%; }
+.kxs-chart .kx-gchart { --kx-gplot-h: clamp(72px, 12vh, 104px); }
+.kxs-chart .kx-gchart-acts { display: none; }
+.kxs-chart .kx-gchart-sel { min-height: 44px; }
