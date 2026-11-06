@@ -75,6 +75,14 @@ function kxsFinish(s, now, { stats = null, distanceM = 0, schoolId, schoolName }
   return done;
 }
 
+// Gasto energético estimado (kcal): MET de escalada de dificultad baja-moderada (5,8, Compendium of Physical
+// Activities) × peso de referencia × horas activas. KRUX no guarda el peso del usuario: es una estimación, no una medida.
+const KXS_MET = 5.8, KXS_REF_KG = 70;
+function kxsEstimateKcal(activeMs) {
+  if (!(activeMs > 0)) return 0;
+  return Math.round(KXS_MET * KXS_REF_KG * (activeMs / 3600000));
+}
+
 function kxsHaversine(a, b) {
   const R = 6371000, rad = Math.PI / 180;
   const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
