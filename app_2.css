@@ -32020,10 +32020,6 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 .kxg-report:focus-visible, .kxg-del:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 
 
-.kxg-facs { list-style: none; margin: 8px 0 0; padding: 0; }
-.kxg-fac { display: flex; align-items: center; gap: 8px; min-height: 48px; border-top: 1px solid var(--kx-line); }
-.kxg-fac:first-child { border-top: 0; }
-.kxg-fac > span:first-child { flex: 1 1 auto; min-width: 0; color: var(--kx-ink); font-size: var(--kx-fs-body); font-weight: 600; }
 
 .kxg-form { margin-top: 16px; }
 .kxg-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 16px; border: 1.5px dashed rgba(32, 41, 35, 0.24); border-radius: 18px; background: var(--kx-stone-card); color: var(--kx-forest); text-align: center; cursor: pointer; }
@@ -32097,3 +32093,14 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 .kxg-pick-opt:has(input:checked) small { color: rgba(255, 255, 255, 0.78); }
 .kxg-pick-opt:has(input:focus-visible) { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 .kxg-photo-actions:empty { display: none; }
+
+/* Instalaciones: páginas de 6 fichas en 2 columnas, que se pasan deslizando (sin botones) */
+.kxg-facs { margin-top: 10px; }
+.kxg-fstage { overflow: hidden; touch-action: pan-y; }
+.kxg-ftrack { display: flex; will-change: transform; }
+.kxg-fpage { display: grid; flex: 0 0 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; align-content: start; gap: 8px; min-width: 0; }
+.kxg-fchip { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 52px; padding: 8px 12px; border-radius: 14px; background: var(--kx-surface); box-shadow: inset 0 0 0 1px var(--kx-line); }
+.kxg-fchip > span { min-width: 0; color: var(--kx-ink); font-size: var(--kx-fs-meta); font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.kxg-dots { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
+.kxg-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(32, 41, 35, 0.22); transition: background var(--kx-dur) var(--kx-ease), width var(--kx-dur) var(--kx-ease); }
+.kxg-dot.is-on { width: 18px; border-radius: 3px; background: var(--kx-forest); }
