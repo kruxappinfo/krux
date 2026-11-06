@@ -32069,18 +32069,22 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 /* Galería de fotos de un rocódromo: una foto cada vez (sin desplazamiento nativo ni botones), deslizar y toque para ampliar */
 .kxg-gallery { margin-top: 10px; }
 .kxg-stage { position: relative; overflow: hidden; border-radius: 16px; background: var(--kx-stone-hover); touch-action: pan-y; }
-.kxg-photo-btn { display: block; width: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; cursor: zoom-in; transform: none; -webkit-tap-highlight-color: transparent; }
+.kxg-track { display: flex; will-change: transform; }
+.kxg-photo-btn { display: block; flex: 0 0 100%; width: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; cursor: zoom-in; transform: none; -webkit-tap-highlight-color: transparent; }
 .kxg-photo-btn:hover, .kxg-photo-btn:active { background: none; box-shadow: none; transform: none; }
 .kxg-photo-btn:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: -2px; }
-.kxg-photo-btn img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; -webkit-user-drag: none; user-select: none; }
+.kxg-photo-btn img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; -webkit-user-drag: none; user-select: none; }
 .kxg-count { position: absolute; right: 10px; bottom: 10px; padding: 3px 10px; border-radius: var(--kx-radius-pill); background: rgba(20, 28, 24, 0.62); color: #fff; font-size: var(--kx-fs-caption); font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; }
 .kxg-photo-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; min-height: 36px; }
 
-.kxg-lb { position: fixed; inset: 0; z-index: 10050; display: grid; place-items: center; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); background: rgba(10, 16, 13, 0.94); touch-action: pan-y; }
-.kxg-lb img { max-width: 100%; max-height: 100%; object-fit: contain; -webkit-user-drag: none; user-select: none; }
+.kxg-lb { position: fixed; inset: 0; z-index: 10050; display: flex; align-items: center; justify-content: center; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); background: #0A100D; touch-action: none; user-select: none; -webkit-user-select: none; }
+.kxg-lb { overflow: hidden; }
+.kxg-lb-track { display: flex; align-self: stretch; width: 100%; height: 100%; will-change: transform; }
+.kxg-lb-slide { display: flex; flex: 0 0 100%; align-items: center; justify-content: center; min-width: 0; height: 100%; }
+.kxg-lb img { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center; will-change: transform; -webkit-user-drag: none; user-select: none; }
 .kxg-lb-close { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; z-index: 2; display: grid; place-items: center; width: 44px; height: 44px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.16); box-shadow: none; color: #fff; cursor: pointer; transform: none; }
 .kxg-lb-close:hover, .kxg-lb-close:active { background: rgba(255, 255, 255, 0.28); transform: none; }
-.kxg-lb .kxg-lb .kxg-lb-count { position: absolute; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); color: #fff; font-size: var(--kx-fs-meta); font-weight: 700; font-variant-numeric: tabular-nums; }
+.kxg-lb-count { position: absolute; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); color: #fff; font-size: var(--kx-fs-meta); font-weight: 700; font-variant-numeric: tabular-nums; }
 .kxg-pick { display: flex; flex-direction: column; gap: 8px; }
 .kxg-pick-opt { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 14px; border-radius: 14px; background: var(--kx-stone-card); box-shadow: inset 0 0 0 1px var(--kx-line); cursor: pointer; transition: background var(--kx-dur) var(--kx-ease); }
 .kxg-pick-opt input { position: absolute; opacity: 0; pointer-events: none; }
