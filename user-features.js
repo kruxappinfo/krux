@@ -1778,6 +1778,8 @@ function renderAscentsStats(ascents) {
  * Compare two climbing grades (helper function if not available globally)
  */
 function compareGradesLocal(gradeA, gradeB) {
+    // El orden común vive en map-ui.js; esta versión solo queda como respaldo si no se ha cargado
+    if (typeof kxCompareGrades === 'function') return kxCompareGrades(gradeA, gradeB);
     const parseGrade = (grade) => {
         const match = grade.match(/(\d+)([a-c])?(\+)?/);
         if (!match) return { num: 0, letter: '', plus: false };

@@ -1292,7 +1292,7 @@ function initMapLibre() {
     closeButton: true,
     closeOnClick: false,
     maxWidth: '340px',
-    className: 'ml-route-popup'
+    className: 'ml-route-popup kx-mpop'
   });
   kxWatchRoutePopup(mlRoutePopup);
 
@@ -3185,6 +3185,10 @@ async function mlLoadGeoJSONLayer(layerId, url, type, paint, minzoom = 0, layout
  * Limpia las capas de la escuela actual
  */
 function mlClearSchoolLayers() {
+  // El filtro de un grado pertenece a la escuela que se deja
+  mlGradeFocus = null;
+  kxUserRoutesBaseFilter = undefined;
+  kxRenderGradeFocusChip();
   const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-shadow-layer', 'vias-layer', 'sectores-hit-layer', 'sectores-usuarios-hit-layer', 'sectores-labels-layer', 'sectores-usuarios-labels-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'escuelas-usuarios-layer', 'escuelas-usuarios-labels-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
   const sourceIds = ['vias-ticks-source', 'vias-source', 'sectores-labels-source', 'sectores-usuarios-labels-source', 'sectores-source', 'parkings-source', 'rutas-acceso-source', 'puntos-interes-source', 'vias-variant-connector-source', 'vias-usuarios-source', 'poi-usuarios-source', 'sectores-usuarios-source', 'escuelas-usuarios-source', 'pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source', 'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source'];
 
@@ -3290,7 +3294,7 @@ function updateAscentTicksLayer() {
       tickFeatures.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: coords },
-        properties: { nombre: routeName, id: routeId, grado1, gradeColor: getGradeColor(grado1 || '') }
+        properties: { nombre: routeName, id: routeId, grado1, sector: feature.properties?.sector || '', gradeColor: getGradeColor(grado1 || '') }
       });
     }
   });
@@ -3775,7 +3779,7 @@ function mlCreateVariantMarkers() {
       }
     });
 
-    mlVariantMarkers.push({ marker, gradeColors });
+    mlVariantMarkers.push({ marker, gradeColors, props: group.map(gf => gf.props || {}) });
   }
 
   // Control de visibilidad, tamaño y regeneración SVG por zoom
@@ -3783,7 +3787,8 @@ function mlCreateVariantMarkers() {
     let lastDiameter = 0;
     const updateMarkers = () => {
       const school = mlCurrentSchool ? MAPLIBRE_SCHOOLS[mlCurrentSchool] : null;
-      const minZoom = school ? school.zoomLevels.vias : 17;
+      const baseZoom = school ? school.zoomLevels.vias : 17;
+      const minZoom = mlGradeFocus ? Math.min(KX_FOCUS_MINZOOM, baseZoom) : baseZoom;
       const visible = mlMap.getZoom() >= minZoom;
 
       const strokeW      = KX_ROUTE_STROKE;
@@ -3798,7 +3803,7 @@ function mlCreateVariantMarkers() {
         const scale = N >= 3 ? 1.25 : N >= 2 ? 1.15 : 1.0;
         const d  = Math.round(baseDiameter * scale);
         const el = entry.marker.getElement();
-        el.style.display = visible ? '' : 'none';
+        el.style.display = visible && kxVariantPassesGradeFilter(entry) ? '' : 'none';
         el.style.width   = d + 'px';
         el.style.height  = d + 'px';
         // Regenerar SVG solo cuando cambia el diámetro base en px
@@ -4212,7 +4217,8 @@ async function mlShowVariantGroupPopup(groupFeatures, startIndex, coords) {
   mlRoutePopup = new maplibregl.Popup({
     closeButton: true,
     closeOnClick: false,
-    maxWidth: '380px'
+    maxWidth: '380px',
+    className: 'ml-route-popup kx-mpop'
   });
   kxWatchRoutePopup(mlRoutePopup);
 
@@ -6271,110 +6277,83 @@ function getExposureIcon(exposicion) {
 }
 
 /**
- * Cuenta las vías por grado para un sector específico
- * @param {string} sectorName - Nombre del sector
- * @returns {Object} Objeto con conteo por grado
+ * ============================================
+ * GRÁFICO DE GRADOS (Fase 3): datos y montaje en fichas y popups
+ * Un solo recuento en todas partes: grado1 del GeoJSON completo de la escuela (en minúsculas)
+ * más las vías aprobadas de spotters de esa escuela; las vías sin grado se cuentan aparte.
+ * ============================================
  */
-function countRoutesByGradeForSector(sectorName) {
-  if (!mlMap) return {};
+const kxRoutesGeojsonCache = new Map();   // url → Promise<features[]>
 
-  const gradeCounts = {};
-  const targetSector = sectorName.toLowerCase().trim();
-
-  const countFromSource = (sourceId, sourceLayer) => {
-    try {
-      const source = mlMap.getSource(sourceId);
-      if (!source) return;
-      let features = [];
-      if (source._data && source._data.features) {
-        features = source._data.features;
-      } else {
-        features = mlMap.querySourceFeatures(sourceId, sourceLayer ? { sourceLayer } : {});
-      }
-      features.forEach(f => {
-        const props = f.properties;
-        if ((props.sector || '').toLowerCase().trim() === targetSector) {
-          const grade = props.grado1 || '?';
-          gradeCounts[grade] = (gradeCounts[grade] || 0) + 1;
-        }
-      });
-    } catch (e) { /* source may not exist */ }
-  };
-
-  countFromSource('vias-source', 'vias');
-  countFromSource('vias-usuarios-source', null);
-
-  return gradeCounts;
-}
-
-/**
- * Ordena grados de escalada
- */
-function sortGrades(grades) {
-  const order = ['3', '4a', '4b', '4c', '4+', '5a', '5b', '5c', '5+', '6a', '6a+', '6b', '6b+', '6c', '6c+', '7a', '7a+', '7b', '7b+', '7c', '7c+', '8a', '8a+', '8b', '8b+', '8c', '8c+', '9a'];
-
-  return grades.sort((a, b) => {
-    const indexA = order.indexOf(a.toLowerCase());
-    const indexB = order.indexOf(b.toLowerCase());
-    if (indexA === -1 && indexB === -1) return a.localeCompare(b);
-    if (indexA === -1) return 1;
-    if (indexB === -1) return -1;
-    return indexA - indexB;
-  });
-}
-
-/**
- * Renderiza el gráfico de barras de grados
- * @param {string} containerId - ID del contenedor
- * @param {Object} gradeCounts - Conteo de vías por grado
- */
-function renderGradeChart(containerId, gradeCounts) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  const grades = sortGrades(Object.keys(gradeCounts));
-  const total = Object.values(gradeCounts).reduce((sum, count) => sum + count, 0);
-
-  if (grades.length === 0) {
-    container.innerHTML = '<p style="color: #888; text-align: center;">No hay vías registradas</p>';
-    return;
+function kxSchoolRouteFeatures(schoolId) {
+  const url = MAPLIBRE_SCHOOLS[schoolId]?.geojson?.vias;
+  if (!url) return Promise.resolve([]);
+  if (!kxRoutesGeojsonCache.has(url)) {
+    kxRoutesGeojsonCache.set(url, fetch(url)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(g => g.features || [])
+      .catch(e => { kxRoutesGeojsonCache.delete(url); throw e; }));
   }
+  return kxRoutesGeojsonCache.get(url);
+}
 
-  const maxCount = Math.max(...Object.values(gradeCounts));
-  const containerWidth = container.clientWidth || 280;
-  const availableWidth = containerWidth - 16;
-  const numGrades = grades.length;
-  const gap = numGrades > 15 ? 1 : numGrades > 10 ? 2 : 3;
-  const barWidth = Math.max(8, Math.min(28, Math.floor((availableWidth - gap * (numGrades - 1)) / numGrades)));
-  const labelFontSize = numGrades > 15 ? 7 : numGrades > 10 ? 8 : 9;
+// Vías de spotters ya cargadas en el mapa, solo si pertenecen a esa escuela (null si no están)
+function kxSpotterRouteFeatures(schoolId) {
+  if (!mlMap || mlCurrentSchool !== schoolId) return null;
+  const src = mlMap.getSource('vias-usuarios-source');
+  return src && src._data && Array.isArray(src._data.features) ? src._data.features : null;
+}
 
-  let html = `
-    <div style="text-align: center; font-weight: 600; color: #374151; margin-bottom: 12px; padding-bottom: 6px;">
-      Vías por Grado <span style="font-weight: 400; color: #6b7280;">(${total} total)</span>
-    </div>
-    <div style="display: flex; align-items: flex-end; justify-content: center; height: 100px; gap: ${gap}px; width: 100%; box-sizing: border-box;">
-  `;
+function kxCountGrades(features, filter, acc = { counts: {}, ungraded: 0 }) {
+  for (const f of features || []) {
+    const p = f.properties || {};
+    if (filter && !filter(p)) continue;
+    const g = String(p.grado1 || '').toLowerCase().trim();
+    if (g) acc.counts[g] = (acc.counts[g] || 0) + 1; else acc.ungraded++;
+  }
+  return acc;
+}
 
-  grades.forEach(grade => {
-    const count = gradeCounts[grade];
-    const height = Math.max(8, (count / maxCount) * 80);
-    const gradeColor = getGradeColor(grade);
+// Sector: se cuenta desde el GeoJSON completo (antes, desde las vías dibujadas: vacío con poco zoom)
+async function kxSectorGradeStats(schoolId, sectorName) {
+  const target = String(sectorName || '').toLowerCase().trim();
+  const inSector = p => String(p.sector || '').toLowerCase().trim() === target;
+  const acc = kxCountGrades(await kxSchoolRouteFeatures(schoolId), inSector);
+  const spot = kxSpotterRouteFeatures(schoolId);
+  if (spot) kxCountGrades(spot, inSector, acc);
+  return kxGradeStats(acc.counts, { ungraded: acc.ungraded });
+}
 
-    html += `
-      <div style="display: flex; flex-direction: column; align-items: center; flex: 0 0 ${barWidth}px; min-width: 0;">
-        <span style="font-size: ${Math.min(10, labelFontSize + 1)}px; color: #374151; font-weight: 600; line-height: 1.2;">${count}</span>
-        <div style="width: 100%; height: ${height}px; background: ${gradeColor}; border-radius: 3px 3px 0 0;"></div>
-        <div style="position: relative; width: ${barWidth}px; height: 12px; margin-top: 2px;">
-          <span style="position: absolute; left: 50%; top: 0; font-size: ${labelFontSize}px; color: #6b7280; white-space: nowrap; transform: translateX(-50%) rotate(-45deg); transform-origin: top center;">${grade}</span>
-        </div>
-      </div>
-    `;
-  });
+let kxPendingChartGrade = null;   // grado que se selecciona al volver al gráfico desde el filtro del mapa
 
-  html += '</div>';
-  // Espacio extra para las etiquetas rotadas
-  html += `<div style="height: ${numGrades > 10 ? 20 : 16}px;"></div>`;
-  container.innerHTML = html;
+function kxMountGradeChart(container, stats, ctx) {
+  container.innerHTML = kxGradeChartHTML(stats, { id: `${container.id || 'kx'}-gc`, title: 'Vías por grado' });
+  const el = container.querySelector('.kx-gchart');
+  const ctl = kxBindGradeChart(el, stats, { onViewRoutes: e => kxFocusGrade({ ...ctx, grade: e.grade, count: e.count }) });
+  const sameCtx = mlGradeFocus && mlGradeFocus.schoolId === ctx.schoolId && (mlGradeFocus.sector || '') === (ctx.sector || '');
+  const want = kxPendingChartGrade || (sameCtx ? mlGradeFocus.grade : null);
+  kxPendingChartGrade = null;
+  if (ctl && want) { const i = stats.entries.findIndex(x => x.grade === want); if (i >= 0) ctl.select(i); }
+  return ctl;
+}
+
+// Carga y monta el gráfico en un contenedor. ctx: { schoolId, sector?, sectorProps?, coords? }
+async function kxLoadGradeChart(container, ctx) {
+  if (!container || !ctx || !ctx.schoolId) return;
+  const token = {};
+  container._kxGcToken = token;
+  container.innerHTML = kxGradeChartStateHTML('loading');
+  try {
+    const stats = await kxSectorGradeStats(ctx.schoolId, ctx.sector);
+    if (container._kxGcToken !== token || !container.isConnected) return;   // ya se abrió otra ficha
+    kxMountGradeChart(container, stats, ctx);
+  } catch (e) {
+    console.warn('Gráfico de grados:', e);
+    if (container._kxGcToken !== token) return;
+    container.innerHTML = kxGradeChartStateHTML('error');
+    const retry = container.querySelector('[data-kx-retry]');
+    if (retry) retry.addEventListener('click', () => kxLoadGradeChart(container, ctx));
+  }
 }
 
 /**
@@ -6460,7 +6439,7 @@ function showSectorPopup(props, coords, extraHTML = '') {
       closeButton: true,
       closeOnClick: false,
       maxWidth: '360px',
-      className: 'ml-sector-popup-container'
+      className: 'ml-sector-popup-container kx-mpop'
     });
     // remove()/addTo() también disparan 'close' al reabrir otra ficha: solo se limpia si de verdad no queda ninguna abierta
     mlSectorPopup.on('close', () => setTimeout(() => {
@@ -6473,11 +6452,8 @@ function showSectorPopup(props, coords, extraHTML = '') {
     .setHTML(html)
     .addTo(mlMap);
 
-  // Renderizar gráfico después de que el popup esté en el DOM
-  setTimeout(() => {
-    const gradeCounts = countRoutesByGradeForSector(sectorName);
-    renderGradeChart(chartId, gradeCounts);
-  }, 100);
+  // Gráfico de grados (mismos datos y componente que la ficha móvil)
+  kxLoadGradeChart(document.getElementById(chartId), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] } });
 
   // Cargar estado del sector asincrónicamente
   const schoolId = mlCurrentSchool || 'valeria';
@@ -6771,7 +6747,7 @@ function loadSchoolMarkers() {
       closeButton: true,
       closeOnClick: false,
       maxWidth: '340px',
-      className: 'ml-school-popup'
+      className: 'ml-school-popup kx-mpop'
     });
     // En escritorio la ficha es este popup; en móvil, la hoja inferior (hideBottomSheet limpia la selección)
     mlSchoolPopup.on('close', () => setTimeout(() => {
@@ -7017,23 +6993,9 @@ async function showSchoolPopup(school, marker) {
  * @returns {number}
  */
 function compareGrades(gradeA, gradeB) {
-  const parseGrade = (grade) => {
-    const match = grade.match(/(\d+)([a-c])?(\+)?/);
-    if (!match) return { num: 0, letter: '', plus: false };
-    return {
-      num: parseInt(match[1]),
-      letter: match[2] || '',
-      plus: !!match[3]
-    };
-  };
-
-  const a = parseGrade(gradeA);
-  const b = parseGrade(gradeB);
-
-  if (a.num !== b.num) return a.num - b.num;
-  if (a.letter !== b.letter) return a.letter.localeCompare(b.letter);
-  if (a.plus !== b.plus) return a.plus ? 1 : -1; // '+' comes after non-'+'
-  return 0;
+  // Orden común de map-ui.js (tabla de colores): «4+» tras 4c, «5» y «7?» al principio de su familia
+  if (typeof kxCompareGrades === 'function') return kxCompareGrades(gradeA, gradeB);
+  return String(gradeA).localeCompare(String(gradeB), 'es', { numeric: true });
 }
 
 /**
@@ -7294,6 +7256,41 @@ function renderWeatherForecast(schoolId, dailyData) {
  */
 async function getSpotterGradeCounts(schoolId) {
   const counts = {};
+  // Intentar leer de la fuente del mapa primero (más rápido), solo si es la de esta escuela
+  if (mlMap && mlCurrentSchool === schoolId) {
+    try {
+      const source = mlMap.getSource('vias-usuarios-source');
+      if (source && source._data?.features?.length > 0) {
+        source._data.features.forEach(f => {
+          const grade = (f.properties?.grado1 || '').toLowerCase().trim();
+          if (grade) counts[grade] = (counts[grade] || 0) + 1;
+        });
+        return counts;
+      }
+    } catch (e) {}
+  }
+  // Fallback: consultar Firestore directamente
+  if (!schoolId || typeof firebase === 'undefined' || !firebase.firestore) return counts;
+  try {
+    const db = firebase.firestore();
+    const snapshot = await db.collection('pending_routes')
+      .where('schoolId', '==', schoolId)
+      .where('status', '==', 'approved')
+      .get();
+    snapshot.forEach(doc => {
+      const grade = (doc.data().grado1 || doc.data().geojsonFeature?.properties?.grado1 || '').toLowerCase().trim();
+      if (grade) counts[grade] = (counts[grade] || 0) + 1;
+    });
+  } catch (e) {}
+  return counts;
+}
+
+/**
+ * Lee las vías aprobadas de Spotters desde Firestore y devuelve { grado: count }
+ * Usa la fuente del mapa si ya está cargada; si no, consulta Firestore directamente.
+ */
+async function getSpotterGradeCounts(schoolId) {
+  const counts = {};
   // Intentar leer de la fuente del mapa primero (más rápido, si ya está cargada)
   if (mlMap) {
     try {
@@ -7483,18 +7480,13 @@ function buildSchoolPopupHtml(school, chartId, gmapsUrl) {
         </div>
       </div>
 
-      <div class='ml-rock-type' id='rock-type-${school.id}'>
-        <span class='ml-rock-icon'>🏔️</span>
-        <span class='ml-rock-text'>${rockType}</span>
+      <div class='ml-rock-type kx-rock-tag' id='rock-type-${school.id}'>
+        ${kxTagHTML({ icon: 'mountain', text: rockType })}
       </div>
 
-      <div class='ml-school-actions'>
-        <button class='ml-school-btn ml-school-btn-directions' id='btn-directions-${school.id}'>
-          ¿Cómo ir?
-        </button>
-        <button class='ml-school-btn ml-school-btn-visit' id='btn-visit-${school.id}'>
-          Visitar escuela
-        </button>
+      <div class='ml-school-actions kx-school-actions'>
+        ${kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary', attrs: { id: `btn-directions-${school.id}` } })}
+        ${kxButtonHTML({ icon: 'map', label: 'Visitar escuela', variant: 'primary', attrs: { id: `btn-visit-${school.id}` } })}
       </div>
     </div>
   `;
@@ -7794,27 +7786,20 @@ window.getGradeColor = getGradeColor;
 // Variables globales del Bottom Sheet
 let bsCurrentSchool = null;
 let bsCurrentState = 'hidden'; // 'hidden', 'summary', 'expanded'
-let bsDragStartY = 0;
-let bsCurrentY = 0;
-let bsIsDragging = false;
 let bsGradeData = null; // Cache de datos de grados
 
 // === Sector Bottom Sheet state ===
 let secBsCurrentSector = null;   // { name, props, coords }
 let secBsCurrentState = 'hidden';
-let secBsDragStartY = 0;
-let secBsCurrentY = 0;
-let secBsIsDragging = false;
 
 // === Route Bottom Sheet state ===
 let rbsCurrentState = 'hidden';
-let rbsDragStartY = 0;
-let rbsCurrentY = 0;
-let rbsIsDragging = false;
 
-// Constantes de snap points (porcentaje de pantalla)
-const BS_SUMMARY_PERCENT = 0.35; // 35% de la pantalla
-const BS_EXPANDED_PERCENT = 0.90; // 90% de la pantalla
+// Controladores de las hojas (map-ui.js: KXMapSheet). Escuela y sector tienen dos alturas
+// reales (resumen y expandida); la vía, una sola con contenido desplazable.
+let kxSchoolSheet = null;
+let kxSectorSheet = null;
+let kxRouteSheet = null;
 
 /**
  * Desplazamiento adaptativo del mapa al abrir un bottom sheet.
@@ -7922,34 +7907,32 @@ function isMobileDevice() {
  */
 function initBottomSheet() {
   const bottomSheet = document.getElementById('school-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  const handle = bottomSheet?.querySelector('.bottom-sheet-handle');
+  const drag = document.getElementById('bs-school-drag');
+  const foot = document.getElementById('bs-school-foot');
 
-  if (!bottomSheet || !overlay || !handle) {
+  if (!bottomSheet || !drag || !foot || typeof KXMapSheet === 'undefined') {
     console.warn('Bottom Sheet elementos no encontrados');
     return;
   }
 
-  // Event listeners para gestos táctiles en el handle
-  handle.addEventListener('touchstart', bsHandleTouchStart, { passive: true });
-  handle.addEventListener('touchmove', bsHandleTouchMove, { passive: false });
-  handle.addEventListener('touchend', bsHandleTouchEnd, { passive: true });
+  // Cabecera y pie con los constructores compartidos (los mismos ids de siempre)
+  drag.innerHTML = kxSheetDragHTML({
+    titleId: 'bs-school-name',
+    metaHTML: kxTagHTML({ icon: 'mountain', textId: 'bs-rock-type', text: 'Caliza' })
+  });
+  foot.innerHTML =
+    kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary', size: 'lg', attrs: { id: 'bs-btn-directions' } }) +
+    kxButtonHTML({ icon: 'map', label: 'Visitar escuela', variant: 'primary', size: 'lg', attrs: { id: 'bs-btn-visit' } });
 
-  // También permitir drag desde el header
-  const header = bottomSheet.querySelector('.bs-header');
-  if (header) {
-    header.addEventListener('touchstart', bsHandleTouchStart, { passive: true });
-    header.addEventListener('touchmove', bsHandleTouchMove, { passive: false });
-    header.addEventListener('touchend', bsHandleTouchEnd, { passive: true });
-  }
-
-  // Mouse events para desktop testing
-  handle.addEventListener('mousedown', bsHandleMouseDown);
-  document.addEventListener('mousemove', bsHandleMouseMove);
-  document.addEventListener('mouseup', bsHandleMouseUp);
-
-  // Click en overlay cierra el Bottom Sheet
-  overlay.addEventListener('click', hideBottomSheet);
+  kxSchoolSheet = KXMapSheet.create(bottomSheet, {
+    snaps: ['summary', 'expanded'],
+    // El resumen llega hasta el final de la tarjeta del donut
+    peek: '#bs-donut-card',
+    peekMax: 0.8,
+    onRequestClose: hideBottomSheet,
+    onStateChange: state => { bsCurrentState = state; }
+  });
+  kxBindScrollCue(bottomSheet);   // si el contenido continúa bajo el pie (móviles bajos), el pie lo indica
 
   // Botón direcciones
   const btnDirections = document.getElementById('bs-btn-directions');
@@ -8034,31 +8017,23 @@ function initBottomSheet() {
  */
 function initSectorBottomSheet() {
   const sheet = document.getElementById('sector-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  const handle = sheet?.querySelector('.bottom-sheet-handle');
+  const drag = document.getElementById('secbs-drag');
+  const foot = document.getElementById('secbs-foot');
 
-  if (!sheet || !overlay || !handle) {
+  if (!sheet || !drag || !foot || typeof KXMapSheet === 'undefined') {
     console.warn('Sector Bottom Sheet elementos no encontrados');
     return;
   }
 
-  // Touch listeners en el handle
-  handle.addEventListener('touchstart', secBsHandleTouchStart, { passive: true });
-  handle.addEventListener('touchmove', secBsHandleTouchMove, { passive: false });
-  handle.addEventListener('touchend', secBsHandleTouchEnd, { passive: true });
+  drag.innerHTML = kxSheetDragHTML({ titleId: 'secbs-sector-name', upper: true });
+  foot.innerHTML = kxButtonHTML({ icon: 'image', label: 'Ver sector', variant: 'primary', size: 'lg', attrs: { id: 'secbs-btn-view' } });
 
-  // Touch listeners en el header (también arrastrable)
-  const header = sheet.querySelector('.bs-header');
-  if (header) {
-    header.addEventListener('touchstart', secBsHandleTouchStart, { passive: true });
-    header.addEventListener('touchmove', secBsHandleTouchMove, { passive: false });
-    header.addEventListener('touchend', secBsHandleTouchEnd, { passive: true });
-  }
-
-  // Mouse events para testing en desktop
-  handle.addEventListener('mousedown', secBsHandleMouseDown);
-  document.addEventListener('mousemove', secBsHandleMouseMove);
-  document.addEventListener('mouseup', secBsHandleMouseUp);
+  kxSectorSheet = KXMapSheet.create(sheet, {
+    snaps: ['summary', 'expanded'],
+    peek: '#secbs-estado-container',
+    onRequestClose: hideSectorBottomSheet,
+    onStateChange: state => { secBsCurrentState = state; }
+  });
 
   // Click en "Ver Sector"
   const btnView = document.getElementById('secbs-btn-view');
@@ -8073,13 +8048,6 @@ function initSectorBottomSheet() {
     });
   }
 
-  // Click en overlay cierra el sector bottom sheet
-  overlay.addEventListener('click', () => {
-    if (secBsCurrentState !== 'hidden') {
-      hideSectorBottomSheet();
-    }
-  });
-
   console.log('Sector Bottom Sheet inicializado');
 }
 
@@ -8090,8 +8058,7 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
   if (!isMobileDevice()) return false;
 
   const sheet = document.getElementById('sector-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  if (!sheet || !overlay) return false;
+  if (!sheet || !kxSectorSheet) return false;
 
   // Cerrar otros bottom sheets si están abiertos
   hideBottomSheet();
@@ -8154,28 +8121,13 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
   const estadoContainer = document.getElementById('secbs-estado-container');
   if (estadoContainer) estadoContainer.innerHTML = '';
 
-  const chartContainer = document.getElementById('secbs-grade-chart');
-  if (chartContainer) {
-    chartContainer.innerHTML = '<div style="text-align: center; color: #888;">Cargando...</div>';
-  }
 
-  // --- Mostrar sheet ---
-  sheet.classList.remove('hidden');
-  overlay.classList.remove('hidden');
-
-  requestAnimationFrame(() => {
-    sheet.classList.add('snap-expanded');
-    overlay.classList.add('visible');
-  });
-
-  secBsCurrentState = 'expanded';
+  // --- Mostrar sheet (abre en resumen; el gesto la expande) ---
+  if (kxSectorSheet) kxSectorSheet.open('summary');
 
   // --- Cargar datos async ---
   // Gráfico de grados
-  setTimeout(() => {
-    const gradeCounts = countRoutesByGradeForSector(sectorName);
-    renderGradeChart('secbs-grade-chart', gradeCounts);
-  }, 150);
+  kxLoadGradeChart(document.getElementById('secbs-grade-chart'), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] } });
 
   // Estado del sector
   const schoolId = mlCurrentSchool || 'valeria';
@@ -8198,18 +8150,8 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
  * Oculta el Sector Bottom Sheet
  */
 function hideSectorBottomSheet() {
-  const sheet = document.getElementById('sector-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  if (!sheet || !overlay) return;
-  if (secBsCurrentState === 'hidden') return;
-
-  sheet.classList.remove('snap-expanded');
-  overlay.classList.remove('visible');
-
-  setTimeout(() => {
-    sheet.classList.add('hidden');
-    overlay.classList.add('hidden');
-  }, 400);
+  if (!kxSectorSheet || secBsCurrentState === 'hidden') return;
+  kxSectorSheet.close();
 
   // Resetear padding del mapa al cerrar el bottom sheet
   if (mlMap) {
@@ -8222,119 +8164,38 @@ function hideSectorBottomSheet() {
 }
 
 // ============================================
-// SECTOR BOTTOM SHEET - GESTOS TÁCTILES
-// ============================================
-
-function secBsHandleTouchStart(e) {
-  secBsIsDragging = true;
-  secBsDragStartY = e.touches[0].clientY;
-  secBsCurrentY = secBsDragStartY;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (sheet) sheet.style.transition = 'none';
-}
-
-function secBsHandleTouchMove(e) {
-  if (!secBsIsDragging) return;
-  e.preventDefault();
-  secBsCurrentY = e.touches[0].clientY;
-  const deltaY = secBsCurrentY - secBsDragStartY;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (!sheet) return;
-  const windowHeight = window.innerHeight;
-  const currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-  sheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function secBsHandleTouchEnd() {
-  if (!secBsIsDragging) return;
-  secBsIsDragging = false;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (!sheet) return;
-  sheet.style.transition = '';
-  sheet.style.transform = '';
-  const deltaY = secBsCurrentY - secBsDragStartY;
-  if (deltaY > 40) {
-    hideSectorBottomSheet();
-  }
-}
-
-function secBsHandleMouseDown(e) {
-  secBsIsDragging = true;
-  secBsDragStartY = e.clientY;
-  secBsCurrentY = secBsDragStartY;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (sheet) sheet.style.transition = 'none';
-  e.preventDefault();
-}
-
-function secBsHandleMouseMove(e) {
-  if (!secBsIsDragging) return;
-  secBsCurrentY = e.clientY;
-  const deltaY = secBsCurrentY - secBsDragStartY;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (!sheet) return;
-  const windowHeight = window.innerHeight;
-  const currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-  sheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function secBsHandleMouseUp() {
-  if (!secBsIsDragging) return;
-  secBsIsDragging = false;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (!sheet) return;
-  sheet.style.transition = '';
-  sheet.style.transform = '';
-  const deltaY = secBsCurrentY - secBsDragStartY;
-  if (deltaY > 40) {
-    hideSectorBottomSheet();
-  }
-}
-
-// ============================================
 // ROUTE BOTTOM SHEET (Vías - solo móvil)
 // ============================================
 
 /**
  * Inicializa el Route Bottom Sheet
  */
-function initRouteBottomSheet() {
-  const sheet = document.getElementById('route-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  const handle = sheet?.querySelector('.bottom-sheet-handle');
+// Escritorio: Escape cierra el popup de ficha abierto (vía, sector o escuela)
+function kxBindPopupEscape() {
+  if (kxBindPopupEscape.done) return;
+  kxBindPopupEscape.done = true;
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (document.body.classList.contains('kx-sheet-open') || document.body.classList.contains('kx-map-sheet-open')) return;
+    if (document.querySelector('.modal:not(.hidden), .ml-contribute-overlay, .sector-image-viewer:not(.hidden)')) return;
+    const open = [mlRoutePopup, mlSectorPopup, mlSchoolPopup].find(p => p && p.isOpen());
+    if (open) { e.preventDefault(); open.remove(); }
+  });
+}
 
-  if (!sheet || !overlay || !handle) {
+function initRouteBottomSheet() {
+  kxBindPopupEscape();
+  const sheet = document.getElementById('route-bottom-sheet');
+
+  if (!sheet || typeof KXMapSheet === 'undefined') {
     console.warn('Route Bottom Sheet elementos no encontrados');
     return;
   }
 
-  // Touch listeners en el handle
-  handle.addEventListener('touchstart', rbsHandleTouchStart, { passive: true });
-  handle.addEventListener('touchmove', rbsHandleTouchMove, { passive: false });
-  handle.addEventListener('touchend', rbsHandleTouchEnd, { passive: true });
-
-  // Touch listeners en el header (también arrastrable)
-  const header = sheet.querySelector('.rbs-header');
-  if (header) {
-    header.addEventListener('touchstart', rbsHandleTouchStart, { passive: true });
-    header.addEventListener('touchmove', rbsHandleTouchMove, { passive: false });
-    header.addEventListener('touchend', rbsHandleTouchEnd, { passive: true });
-  }
-
-  // Mouse events para testing en desktop
-  handle.addEventListener('mousedown', rbsHandleMouseDown);
-  document.addEventListener('mousemove', rbsHandleMouseMove);
-  document.addEventListener('mouseup', rbsHandleMouseUp);
-
-  // Click en overlay cierra el route bottom sheet
-  overlay.addEventListener('click', () => {
-    if (rbsCurrentState !== 'hidden') {
-      hideRouteBottomSheet();
-    }
+  kxRouteSheet = KXMapSheet.create(sheet, {
+    snaps: ['expanded'],
+    onRequestClose: hideRouteBottomSheet,
+    onStateChange: state => { rbsCurrentState = state; }
   });
 
   console.log('Route Bottom Sheet inicializado');
@@ -8347,8 +8208,7 @@ async function showRouteBottomSheet(props, coords) {
   if (!isMobileDevice()) return false;
 
   const sheet = document.getElementById('route-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  if (!sheet || !overlay) return false;
+  if (!sheet || !kxRouteSheet) return false;
 
   // Cerrar otros bottom sheets y popups
   hideBottomSheet();
@@ -8549,15 +8409,7 @@ async function showRouteBottomSheet(props, coords) {
   }
 
   // --- Mostrar sheet ---
-  sheet.classList.remove('hidden');
-  overlay.classList.remove('hidden');
-
-  requestAnimationFrame(() => {
-    sheet.classList.add('snap-expanded');
-    overlay.classList.add('visible');
-  });
-
-  rbsCurrentState = 'expanded';
+  kxRouteSheet.open('expanded');
   return true;
 }
 
@@ -8565,18 +8417,8 @@ async function showRouteBottomSheet(props, coords) {
  * Oculta el Route Bottom Sheet
  */
 function hideRouteBottomSheet() {
-  const sheet = document.getElementById('route-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  if (!sheet || !overlay) return;
-  if (rbsCurrentState === 'hidden') return;
-
-  sheet.classList.remove('snap-expanded');
-  overlay.classList.remove('visible');
-
-  setTimeout(() => {
-    sheet.classList.add('hidden');
-    overlay.classList.add('hidden');
-  }, 400);
+  if (!kxRouteSheet || rbsCurrentState === 'hidden') return;
+  kxRouteSheet.close();
 
   // Resetear padding del mapa al cerrar el bottom sheet
   if (mlMap) {
@@ -8585,80 +8427,6 @@ function hideRouteBottomSheet() {
 
   rbsCurrentState = 'hidden';
   mlClearHighlightIfRouteClosed();
-}
-
-// ============================================
-// ROUTE BOTTOM SHEET - GESTOS TÁCTILES
-// ============================================
-
-function rbsHandleTouchStart(e) {
-  rbsIsDragging = true;
-  rbsDragStartY = e.touches[0].clientY;
-  rbsCurrentY = rbsDragStartY;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (sheet) sheet.style.transition = 'none';
-}
-
-function rbsHandleTouchMove(e) {
-  if (!rbsIsDragging) return;
-  e.preventDefault();
-  rbsCurrentY = e.touches[0].clientY;
-  const deltaY = rbsCurrentY - rbsDragStartY;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (!sheet) return;
-  const windowHeight = window.innerHeight;
-  const currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-  sheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function rbsHandleTouchEnd() {
-  if (!rbsIsDragging) return;
-  rbsIsDragging = false;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (!sheet) return;
-  sheet.style.transition = '';
-  sheet.style.transform = '';
-  const deltaY = rbsCurrentY - rbsDragStartY;
-  if (deltaY > 40) {
-    hideRouteBottomSheet();
-  }
-}
-
-function rbsHandleMouseDown(e) {
-  rbsIsDragging = true;
-  rbsDragStartY = e.clientY;
-  rbsCurrentY = rbsDragStartY;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (sheet) sheet.style.transition = 'none';
-  e.preventDefault();
-}
-
-function rbsHandleMouseMove(e) {
-  if (!rbsIsDragging) return;
-  rbsCurrentY = e.clientY;
-  const deltaY = rbsCurrentY - rbsDragStartY;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (!sheet) return;
-  const windowHeight = window.innerHeight;
-  const currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-  sheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function rbsHandleMouseUp() {
-  if (!rbsIsDragging) return;
-  rbsIsDragging = false;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (!sheet) return;
-  sheet.style.transition = '';
-  sheet.style.transform = '';
-  const deltaY = rbsCurrentY - rbsDragStartY;
-  if (deltaY > 40) {
-    hideRouteBottomSheet();
-  }
 }
 
 /**
@@ -8675,10 +8443,7 @@ function showBottomSheet(school) {
   hideSectorBottomSheet();
   hideRouteBottomSheet();
 
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-
-  if (!bottomSheet || !overlay) {
+  if (!kxSchoolSheet) {
     console.error('Bottom Sheet elementos no encontrados');
     return false;
   }
@@ -8695,18 +8460,8 @@ function showBottomSheet(school) {
   const btnFavorite = document.getElementById('bs-btn-favorite');
   if (btnFavorite) btnFavorite.classList.remove('active');
 
-  // Mostrar elementos
-  bottomSheet.classList.remove('hidden');
-  overlay.classList.remove('hidden');
-
-  // Abrir directamente en estado expandido
-  requestAnimationFrame(() => {
-    bottomSheet.classList.remove('snap-summary');
-    bottomSheet.classList.add('snap-expanded');
-    overlay.classList.add('visible');
-  });
-
-  bsCurrentState = 'expanded';
+  // Abre en resumen (gráfico de barras + acciones); el gesto la expande
+  kxSchoolSheet.open('summary');
 
   // Cargar estadísticas (esto actualiza los gráficos)
   loadBottomSheetStats(school.id);
@@ -8721,19 +8476,9 @@ function showBottomSheet(school) {
  * Oculta el Bottom Sheet
  */
 function hideBottomSheet() {
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-
-  if (!bottomSheet || !overlay) return;
+  if (!kxSchoolSheet) return;
   kxSelectSchool(null);
-
-  bottomSheet.classList.remove('snap-summary', 'snap-expanded');
-  overlay.classList.remove('visible');
-
-  setTimeout(() => {
-    bottomSheet.classList.add('hidden');
-    overlay.classList.add('hidden');
-  }, 400);
+  kxSchoolSheet.close();
 
   // Resetear padding del mapa al cerrar el bottom sheet
   if (mlMap) {
@@ -8749,24 +8494,14 @@ function hideBottomSheet() {
  * Expande el Bottom Sheet a vista completa
  */
 function expandBottomSheet() {
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  bottomSheet.classList.remove('snap-summary');
-  bottomSheet.classList.add('snap-expanded');
-  bsCurrentState = 'expanded';
+  if (kxSchoolSheet && bsCurrentState !== 'hidden') kxSchoolSheet.setState('expanded');
 }
 
 /**
  * Colapsa el Bottom Sheet a vista resumen
  */
 function collapseBottomSheet() {
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  bottomSheet.classList.remove('snap-expanded');
-  bottomSheet.classList.add('snap-summary');
-  bsCurrentState = 'summary';
+  if (kxSchoolSheet && bsCurrentState !== 'hidden') kxSchoolSheet.setState('summary');
 }
 
 /**
@@ -8775,186 +8510,16 @@ function collapseBottomSheet() {
 function updateBottomSheetContent(school) {
   // Título (mayúsculas)
   const titleEl = document.getElementById('bs-school-name');
-  if (titleEl) titleEl.textContent = school.nombre.toUpperCase();
+  if (titleEl) titleEl.textContent = school.nombre;
 
   // Tipo de roca
   const rockEl = document.getElementById('bs-rock-type');
   if (rockEl) rockEl.textContent = school.rockType || 'Caliza';
 
-  // Reset del total (se actualizará con loadBottomSheetStats)
-  const totalEl = document.getElementById('bs-total-vias');
-  if (totalEl) totalEl.textContent = '';
 }
 
 // ============================================
-// GESTOS TÁCTILES
-// ============================================
-
-function bsHandleTouchStart(e) {
-  bsIsDragging = true;
-  bsDragStartY = e.touches[0].clientY;
-  bsCurrentY = bsDragStartY;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (bottomSheet) {
-    bottomSheet.style.transition = 'none';
-  }
-}
-
-function bsHandleTouchMove(e) {
-  if (!bsIsDragging) return;
-  e.preventDefault();
-
-  const deltaY = e.touches[0].clientY - bsDragStartY;
-  bsCurrentY = e.touches[0].clientY;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  // Calcular posición actual como porcentaje
-  const windowHeight = window.innerHeight;
-  let currentPercent;
-
-  if (bsCurrentState === 'summary') {
-    currentPercent = 100 - (BS_SUMMARY_PERCENT * 100);
-  } else {
-    currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  }
-
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-
-  bottomSheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function bsHandleTouchEnd() {
-  if (!bsIsDragging) return;
-  bsIsDragging = false;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  bottomSheet.style.transition = '';
-  bottomSheet.style.transform = '';
-
-  const deltaY = bsCurrentY - bsDragStartY;
-
-  // Swipe down cierra el Bottom Sheet (solo hay un estado: expandido)
-  if (deltaY > 40) {
-    hideBottomSheet();
-  }
-  // Swipe up no hace nada (ya está expandido)
-}
-
-// Mouse events para testing en desktop
-function bsHandleMouseDown(e) {
-  bsIsDragging = true;
-  bsDragStartY = e.clientY;
-  bsCurrentY = bsDragStartY;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (bottomSheet) {
-    bottomSheet.style.transition = 'none';
-  }
-  e.preventDefault();
-}
-
-function bsHandleMouseMove(e) {
-  if (!bsIsDragging) return;
-
-  const deltaY = e.clientY - bsDragStartY;
-  bsCurrentY = e.clientY;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  const windowHeight = window.innerHeight;
-  let currentPercent;
-
-  if (bsCurrentState === 'summary') {
-    currentPercent = 100 - (BS_SUMMARY_PERCENT * 100);
-  } else {
-    currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  }
-
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-
-  bottomSheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function bsHandleMouseUp() {
-  if (!bsIsDragging) return;
-  bsIsDragging = false;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  bottomSheet.style.transition = '';
-  bottomSheet.style.transform = '';
-
-  const deltaY = bsCurrentY - bsDragStartY;
-
-  // Swipe down cierra el Bottom Sheet (solo hay un estado: expandido)
-  if (deltaY > 40) {
-    hideBottomSheet();
-  }
-}
-
-// ============================================
-// GRÁFICO DE BARRAS (Vista Resumen)
-// Colores según mockup: verde → amarillo → naranja → rojo
-// ============================================
-
-/**
- * Renderiza el gráfico de barras de vías por grado
- */
-function renderBarChart(gradeData, total) {
-  const container = document.getElementById('bs-bar-chart');
-  const totalEl = document.getElementById('bs-total-vias');
-
-  if (!container) return;
-
-  // Actualizar total
-  if (totalEl && total > 0) {
-    totalEl.textContent = `(${total} total)`;
-  }
-
-  if (!gradeData || Object.keys(gradeData).length === 0) {
-    container.innerHTML = '<div style="color: #9ca3af; text-align: center; font-size: 13px; width: 100%; padding: 20px;">Cargando datos...</div>';
-    return;
-  }
-
-  // Ordenar grados
-  const sortedGrades = sortGrades(Object.keys(gradeData));
-  const maxCount = Math.max(...Object.values(gradeData));
-  const maxHeight = 90; // px máximo de altura
-
-  let html = '';
-  sortedGrades.forEach((grade, index) => {
-    const count = gradeData[grade];
-    const heightPx = Math.max(8, (count / maxCount) * maxHeight);
-    const color = getGradeColor(grade);
-    const delay = index * 0.03;
-
-    html += `
-      <div class="bs-bar-item">
-        <span class="bs-bar-count">${count}</span>
-        <div class="bs-bar" style="
-          height: ${heightPx}px;
-          background: ${color};
-          --bar-delay: ${delay}s;
-        "></div>
-        <span class="bs-bar-label">${grade}</span>
-      </div>
-    `;
-  });
-
-  container.innerHTML = html;
-}
-
-// ============================================
-// GRÁFICO CIRCULAR DONUT (Vista Expandida)
+// GRÁFICO CIRCULAR DONUT (recuperado del diseño anterior de la ficha de escuela)
 // ============================================
 
 /**
@@ -9029,17 +8594,32 @@ function renderDonutChart(gradeData) {
   const svgSegments = container.querySelectorAll('.bs-donut-segment');
   const centerText = document.getElementById('bs-donut-center');
 
+  const showSegment = (segment) => {
+    const grade = segment.getAttribute('data-grade');
+    const count = segment.getAttribute('data-count');
+    const color = segment.getAttribute('stroke');
+    centerText.innerHTML = `
+      <div class="bs-donut-total" style="color: ${color};">${grade.toUpperCase()}</div>
+      <div class="bs-donut-label">${count} Vías</div>
+    `;
+  };
+
   svgSegments.forEach(segment => {
-    segment.addEventListener('mouseenter', () => {
-      const grade = segment.getAttribute('data-grade');
-      const count = segment.getAttribute('data-count');
-      const color = segment.getAttribute('stroke');
-      centerText.innerHTML = `
-        <div class="bs-donut-total" style="color: ${color};">${grade.toUpperCase()}</div>
-        <div class="bs-donut-label">${count} Vías</div>
-      `;
-    });
+    segment.addEventListener('mouseenter', () => showSegment(segment));
+    // Pantallas táctiles: no hay hover, así que tocar un segmento muestra su grado y sus vías
+    segment.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') showSegment(segment); });
   });
+
+  // Táctil: tocar fuera de los segmentos vuelve al total (el equivalente a sacar el ratón del donut)
+  container._kxDefaultCenter = defaultCenterContent;
+  if (!container._kxTouchBound) {
+    container._kxTouchBound = true;
+    document.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' || !container.isConnected || e.target.closest('.bs-donut-segment')) return;
+      const c = document.getElementById('bs-donut-center');
+      if (c) c.innerHTML = container._kxDefaultCenter;
+    }, true);
+  }
 
   // Restaurar total cuando el ratón sale del SVG (no de cada segmento)
   if (svgEl) {
@@ -9060,22 +8640,18 @@ async function loadBottomSheetStats(schoolId) {
   const schoolConfig = MAPLIBRE_SCHOOLS[schoolId];
 
   // Referencias a elementos
-  const barSkeleton = document.getElementById('bs-bar-skeleton');
-  const barContainer = document.getElementById('bs-bar-chart');
   const donutSkeleton = document.getElementById('bs-donut-skeleton');
   const donutContainer = document.getElementById('bs-donut-chart');
 
   // Mostrar skeletons, ocultar gráficos
-  if (barSkeleton) barSkeleton.classList.remove('hidden');
-  if (barContainer) barContainer.classList.add('hidden');
   if (donutSkeleton) donutSkeleton.classList.remove('hidden');
   if (donutContainer) donutContainer.classList.add('hidden');
 
   if (!schoolConfig) {
     console.warn('Escuela no configurada en MAPLIBRE_SCHOOLS:', schoolId);
     hideSkeletonsShowCharts();
-    renderBarChart({}, 0);
     renderDonutChart({});
+    if (kxSchoolSheet) kxSchoolSheet.refresh();   // la altura de resumen depende de la tarjeta del donut
     return;
   }
 
@@ -9096,8 +8672,8 @@ async function loadBottomSheetStats(schoolId) {
 
     if (!geojson.features || geojson.features.length === 0) {
       hideSkeletonsShowCharts();
-      renderBarChart({}, 0);
-      renderDonutChart({});
+        renderDonutChart({});
+    if (kxSchoolSheet) kxSchoolSheet.refresh();   // la altura de resumen depende de la tarjeta del donut
       return;
     }
 
@@ -9128,14 +8704,14 @@ async function loadBottomSheetStats(schoolId) {
     hideSkeletonsShowCharts();
 
     // Renderizar gráficos
-    renderBarChart(gradeCount, totalVias);
     renderDonutChart(gradeCount);
+    if (kxSchoolSheet) kxSchoolSheet.refresh();   // la altura de resumen depende de la tarjeta del donut
 
   } catch (error) {
     console.warn('Error cargando stats para Bottom Sheet:', error);
     hideSkeletonsShowCharts();
-    renderBarChart({}, 0);
     renderDonutChart({});
+    if (kxSchoolSheet) kxSchoolSheet.refresh();   // la altura de resumen depende de la tarjeta del donut
   }
 }
 
@@ -9143,13 +8719,9 @@ async function loadBottomSheetStats(schoolId) {
  * Oculta los skeletons y muestra los contenedores de gráficos
  */
 function hideSkeletonsShowCharts() {
-  const barSkeleton = document.getElementById('bs-bar-skeleton');
-  const barContainer = document.getElementById('bs-bar-chart');
   const donutSkeleton = document.getElementById('bs-donut-skeleton');
   const donutContainer = document.getElementById('bs-donut-chart');
 
-  if (barSkeleton) barSkeleton.classList.add('hidden');
-  if (barContainer) barContainer.classList.remove('hidden');
   if (donutSkeleton) donutSkeleton.classList.add('hidden');
   if (donutContainer) donutContainer.classList.remove('hidden');
 }
@@ -9596,6 +9168,7 @@ async function loadApprovedRoutesFromFirestore(schoolId, minZoom = 14) {
               setupUserViasInteraction();
               mlUserViasInteractionAttached = true;
             }
+            if (mlGradeFocus || !isFullGradeRange()) applyGradeFilter();
           }
         } catch (err) {
           console.error('[ApprovedRoutes] Error procesando snapshot:', err);
@@ -9836,7 +9409,7 @@ async function showUserRoutePopup(props, coords) {
     closeButton: true,
     closeOnClick: false,
     maxWidth: '340px',
-    className: 'ml-route-popup'
+    className: 'ml-route-popup kx-mpop'
   })
     .setLngLat(coords)
     .setHTML(html)
@@ -11440,6 +11013,8 @@ function setupThumbDrag(thumbEl, which) {
     const maxIdx = ALL_GRADES_ORDERED.length - 1;
     let idx = Math.round(pct * maxIdx);
 
+    if (mlGradeFocus) kxClearGradeFocus({ apply: false });   // mover el rango sustituye al grado elegido
+
     if (which === 'min') {
       idx = Math.min(idx, mlGradeRangeMax);
       mlGradeRangeMin = idx;
@@ -11568,6 +11143,7 @@ function closeGradeFilterPanel() {
  * Reset: mostrar todos los grados (rango completo)
  */
 function resetGradeFilter() {
+  kxClearGradeFocus({ apply: false });
   mlGradeRangeMin = 0;
   mlGradeRangeMax = ALL_GRADES_ORDERED.length - 1;
   mlShowOnlyMyRoutes = false;
@@ -11611,9 +11187,11 @@ function applyGradeFilter() {
 
   const gradeActive = !isFullGradeRange();
 
-  // Construir filtro de grados
+  // Construir filtro de grados (un grado elegido desde el gráfico manda sobre el rango)
   let gradeExpr = null;
-  if (gradeActive) {
+  if (mlGradeFocus) {
+    gradeExpr = kxGradeFocusExpr(mlGradeFocus);
+  } else if (gradeActive) {
     const selectedGrades = ALL_GRADES_ORDERED.slice(mlGradeRangeMin, mlGradeRangeMax + 1);
     gradeExpr = ['in', ['get', 'grado1'], ['literal', selectedGrades]];
   }
@@ -11678,6 +11256,8 @@ function applyGradeFilter() {
 
   mlMap.setFilter('vias-layer', combinedFilter);
   if (mlMap.getLayer('vias-shadow-layer')) mlMap.setFilter('vias-shadow-layer', combinedFilter);
+  kxApplyGradeToUserRoutes(gradeExpr);
+  kxApplyFocusZoom();
 
   // Sincronizar ticks con filtros:
   // - El filtro "Solo vías hechas" no restringe los ticks (ya son vías hechas por construcción).
@@ -11696,6 +11276,145 @@ function applyGradeFilter() {
   }
 }
 
+// ============================================
+// FILTRO DE UN GRADO DESDE EL GRÁFICO («Ver las N vías»)
+// Filtra las vías del mapa por ese grado (y su sector, si viene de una ficha de sector) sin
+// salir del mapa. Mientras está activo, las vías de ese grado se ven desde el zoom de la escuela
+// y una píldora sobre el mapa indica el grado: tocarla vuelve al gráfico; la ✕ quita el filtro.
+// ============================================
+let mlGradeFocus = null;            // { grade, count, schoolId, sector?, sectorProps?, coords? }
+const KX_FOCUS_MINZOOM = 12;        // zoom desde el que se ven las vías filtradas (las demás, desde el de la escuela)
+const KX_FOCUS_LAYERS = ['vias-layer', 'vias-shadow-layer', 'vias-usuarios-layer'];
+let kxUserRoutesBaseFilter;         // filtro propio de vias-usuarios-layer (undefined = aún sin leer)
+
+// Expresión de MapLibre: mismo grado (sin distinguir mayúsculas) y, si hay, mismo sector
+function kxGradeFocusExpr(focus) {
+  const prop = k => ['downcase', ['to-string', ['coalesce', ['get', k], '']]];
+  const byGrade = ['==', prop('grado1'), String(focus.grade).toLowerCase().trim()];
+  return focus.sector ? ['all', byGrade, ['==', prop('sector'), String(focus.sector).toLowerCase().trim()]] : byGrade;
+}
+
+// La misma regla en JavaScript (encuadre y marcadores de variantes)
+function kxRouteMatchesFocus(props, focus) {
+  const p = props || {};
+  if (String(p.grado1 || '').toLowerCase().trim() !== String(focus.grade).toLowerCase().trim()) return false;
+  return !focus.sector || String(p.sector || '').toLowerCase().trim() === String(focus.sector).toLowerCase().trim();
+}
+
+async function kxFocusGrade(ctx) {
+  if (!mlMap || !ctx || !ctx.schoolId || !ctx.grade) return;
+  const known = MAPLIBRE_SCHOOLS[ctx.schoolId] || (typeof mlPendingSchoolsCache !== 'undefined' && mlPendingSchoolsCache.has(ctx.schoolId));
+  if (!known) { if (typeof showToast === 'function') showToast('Esta escuela aún no está disponible', 'info'); return; }
+
+  // El mapa pasa a primer plano: se cierran fichas y popups
+  hideBottomSheet();
+  hideSectorBottomSheet();
+  if (mlSchoolPopup) mlSchoolPopup.remove();
+  if (mlSectorPopup) mlSectorPopup.remove();
+
+  // Se acerca el mapa antes de cargar o filtrar: lejos de la escuela, la carga automática la descargaría enseguida
+  const cfg = MAPLIBRE_SCHOOLS[ctx.schoolId];
+  if (cfg && (mlCurrentSchool !== ctx.schoolId || mlMap.getZoom() < MIN_ZOOM_FOR_AUTO_LOAD)) mlMap.jumpTo({ center: cfg.center, zoom: Math.max(cfg.zoom, MIN_ZOOM_FOR_AUTO_LOAD) });
+  if (mlCurrentSchool !== ctx.schoolId) await mlLoadSchool(ctx.schoolId, true);
+
+  mlGradeFocus = { ...ctx, grade: String(ctx.grade).toLowerCase().trim() };
+  // Un solo filtro de grado a la vez: el rango vuelve a «todos»
+  mlGradeRangeMin = 0;
+  mlGradeRangeMax = ALL_GRADES_ORDERED.length - 1;
+  updateSliderPositions();
+  updateRangeLabels();
+  applyGradeFilter();
+  updateFilterButtonBadge();
+  kxRenderGradeFocusChip();
+  kxFitToGradeFocus();
+}
+
+function kxClearGradeFocus({ apply = true } = {}) {
+  if (!mlGradeFocus) return;
+  mlGradeFocus = null;
+  if (apply && mlMap) {
+    applyGradeFilter();
+    updateFilterButtonBadge();
+  }
+  kxRenderGradeFocusChip();
+}
+
+// Encuadra todas las vías del filtro (las del GeoJSON y las de spotters)
+async function kxFitToGradeFocus() {
+  const focus = mlGradeFocus;
+  if (!focus || !mlMap) return;
+  let feats = [];
+  try { feats = await kxSchoolRouteFeatures(focus.schoolId); } catch (_) {}
+  if (mlGradeFocus !== focus) return;
+  const pts = [...feats, ...(kxSpotterRouteFeatures(focus.schoolId) || [])]
+    .filter(f => kxRouteMatchesFocus(f.properties, focus))
+    .flatMap(kxFeaturePoints);
+  if (!pts.length) return;
+  const b = pts.reduce((m, [x, y]) => [Math.min(m[0], x), Math.min(m[1], y), Math.max(m[2], x), Math.max(m[3], y)], [Infinity, Infinity, -Infinity, -Infinity]);
+  const padding = isMobileDevice() ? { top: 150, bottom: 120, left: 40, right: 40 } : { top: 150, bottom: 90, left: 90, right: 90 };
+  if (b[0] === b[2] && b[1] === b[3]) mlMap.flyTo({ center: [b[0], b[1]], zoom: 18, padding, essential: true });
+  else mlMap.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding, maxZoom: 18.5, duration: 1200, essential: true });
+}
+
+// Las vías filtradas se ven desde más lejos; al quitar el filtro vuelve el zoom de la escuela
+function kxApplyFocusZoom() {
+  if (!mlMap) return;
+  const school = mlCurrentSchool ? MAPLIBRE_SCHOOLS[mlCurrentSchool] : null;
+  const normal = school ? school.zoomLevels.vias : 17;
+  const min = mlGradeFocus ? Math.min(KX_FOCUS_MINZOOM, normal) : normal;
+  for (const id of KX_FOCUS_LAYERS) if (mlMap.getLayer(id)) mlMap.setLayerZoomRange(id, min, 24);
+  if (mlVariantZoomHandler) mlVariantZoomHandler();
+}
+
+// Las vías de spotters reciben el mismo filtro de grado que las demás (antes no se filtraban)
+function kxApplyGradeToUserRoutes(gradeExpr) {
+  if (!mlMap || !mlMap.getLayer('vias-usuarios-layer')) return;
+  if (kxUserRoutesBaseFilter === undefined) kxUserRoutesBaseFilter = mlMap.getFilter('vias-usuarios-layer') || null;
+  const base = kxUserRoutesBaseFilter;
+  mlMap.setFilter('vias-usuarios-layer', gradeExpr ? (base ? ['all', base, gradeExpr] : gradeExpr) : base);
+}
+
+// Marcadores de variantes: se ven si alguna de sus vías cumple el filtro de grado activo
+function kxVariantPassesGradeFilter(entry) {
+  const props = entry.props || [];
+  if (mlGradeFocus) return props.some(p => kxRouteMatchesFocus(p, mlGradeFocus));
+  if (!isFullGradeRange()) {
+    const sel = new Set(ALL_GRADES_ORDERED.slice(mlGradeRangeMin, mlGradeRangeMax + 1));
+    return props.some(p => sel.has(String(p.grado1 || '').toLowerCase().trim()));
+  }
+  return true;
+}
+
+// Píldora del filtro activo sobre el mapa
+function kxRenderGradeFocusChip() {
+  let el = document.getElementById('kx-grade-focus');
+  if (!mlGradeFocus) { if (el) el.remove(); return; }
+  const host = document.getElementById('map');
+  if (!host) return;
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'kx-grade-focus';
+    el.className = 'kx-gfocus';
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-kx-unfocus]')) kxClearGradeFocus();
+      else if (e.target.closest('[data-kx-refocus]')) kxReopenGradeChart();
+    });
+    host.appendChild(el);
+  }
+  const f = mlGradeFocus;
+  const school = MAPLIBRE_SCHOOLS[f.schoolId];
+  el.innerHTML = kxGradeFocusChipHTML({ grade: f.grade, count: f.count, where: [school && school.name, f.sector].filter(Boolean).join(' · ') });
+}
+
+// Vuelve al gráfico de donde salió el filtro, con el grado ya seleccionado
+function kxReopenGradeChart() {
+  const f = mlGradeFocus;
+  if (!f) return;
+  kxPendingChartGrade = f.grade;
+  // El gráfico de grados vive en las fichas de sector; la de escuela conserva su donut
+  if (f.sector && f.sectorProps && f.coords) mlOpenStaticSector(f.sectorProps, f.coords);
+}
+
 /**
  * Actualiza el indicador visual del botón de filtro
  */
@@ -11703,7 +11422,7 @@ function updateFilterButtonBadge() {
   const btn = document.getElementById('btn-grade-filter');
   if (!btn) return;
 
-  if (!isFullGradeRange() || mlShowOnlyMyRoutes || mlShowOnlyProjects) {
+  if (!isFullGradeRange() || mlGradeFocus || mlShowOnlyMyRoutes || mlShowOnlyProjects) {
     btn.classList.add('has-filter');
   } else {
     btn.classList.remove('has-filter');
