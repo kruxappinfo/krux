@@ -1137,7 +1137,7 @@ function initGlobalSearch() {
   let searchTimeout = null;
   let searchSeq = 0;               // descarta respuestas de búsquedas ya superadas
   const userCache = new Map();     // consulta → personas (evita repetir la misma consulta)
-  let placesIndexPromise = null;   // índice de escuelas, sectores y vías (se carga una vez)
+  let placesIndexPromise = null;   // índice de escuelas, rocódromos, sectores y vías (se carga una vez)
 
   const esc = (t) => escapeHtmlMention(String(t ?? ''));
   const norm = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -1146,6 +1146,7 @@ function initGlobalSearch() {
   const recentKey = (it) => {
     if (it.type === 'user') return `u:${it.id}`;
     if (it.type === 'school') return `s:${it.id}`;
+    if (it.type === 'gym') return `g:${it.id}`;
     if (it.type === 'sector') return `c:${it.schoolId}|${it.name}`;
     return `r:${it.schoolId}|${it.name}|${it.sector || ''}`;
   };
@@ -1188,14 +1189,22 @@ function initGlobalSearch() {
   function loadPlacesIndex() {
     if (placesIndexPromise) return placesIndexPromise;
     const schoolsConfig = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS : {};
-    placesIndexPromise = Promise.all(Object.values(schoolsConfig).map(async (school) => {
+    // Rocódromos (capa propia): si no cargan, el resto de la búsqueda sigue funcionando
+    const gymsTask = fetchGeoJSON('Cartografia/Rocodromos/rocodromos.geojson').catch(() => []);
+    placesIndexPromise = Promise.all([gymsTask, Promise.all(Object.values(schoolsConfig).map(async (school) => {
       const [sectorFeatures, routeFeatures] = await Promise.all([
         fetchGeoJSON(school.geojson?.sectores),
         fetchGeoJSON(school.geojson?.vias)
       ]);
       return { school, sectorFeatures, routeFeatures };
-    })).then(perSchool => {
-      const index = { schools: [], sectors: [], routes: [] };
+    }))]).then(([gymFeatures, perSchool]) => {
+      const index = { schools: [], sectors: [], routes: [], gyms: [] };
+      gymFeatures.forEach(f => {
+        const name = f.properties?.nombre;
+        if (!name || !Array.isArray(f.geometry?.coordinates)) return;
+        index.gyms.push({ kind: 'gym', id: f.properties.id || name, name, key: norm(name), props: f.properties, coords: f.geometry.coordinates.slice(0, 2) });
+      });
+      index.gyms.sort((x, y) => x.name.localeCompare(y.name, 'es'));
       perSchool.forEach(({ school, sectorFeatures, routeFeatures }) => {
         index.schools.push({
           kind: 'school', id: school.id, name: school.name, key: norm(school.name),
@@ -1237,6 +1246,12 @@ function initGlobalSearch() {
       .sort((x, y) => rank(x.key, nq) - rank(y.key, nq) || (x.kind === 'school' ? -1 : 1) || x.name.localeCompare(y.name, 'es'));
     return places;
   }
+  function matchGyms(index, q) {
+    const nq = norm(q);
+    return (index.gyms || [])
+      .filter(g => g.key.includes(nq))
+      .sort((x, y) => rank(x.key, nq) - rank(y.key, nq) || x.name.localeCompare(y.name, 'es'));
+  }
   function matchRoutes(index, q) {
     const nq = norm(q);
     // Por nombre o por grado exacto (p. ej. «6a+»)
@@ -1252,6 +1267,7 @@ function initGlobalSearch() {
     chevron: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>',
     user: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
     mountain: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20l6.5-11 4 6.5 2.5-4L21 20z"></path></svg>',
+    gym: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5v11"></path><path d="M17.5 6.5v11"></path><path d="M3 9v6"></path><path d="M21 9v6"></path><path d="M6.5 12h11"></path></svg>',
     sector: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19l4-12 4 6 3-4 5 10z"></path><circle cx="16.5" cy="5.5" r="1.5"></circle></svg>',
     route: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21c0-5 10-6 10-11a4 4 0 0 0-8 0"></path><circle cx="9" cy="10" r="1"></circle><circle cx="17" cy="21" r="0.5"></circle></svg>'
   };
@@ -1318,6 +1334,19 @@ function initGlobalSearch() {
       </div>`;
   }
 
+  function gymRow(g, i) {
+    const tags = [g.props?.pago === 'no' ? 'Gratuito' : g.props?.pago === 'si' ? 'De pago' : ''].filter(Boolean).join(' · ');
+    return `
+      <div class="search-row" role="button" tabindex="0" data-open="gym" data-index="${i}">
+        <span class="search-thumb search-thumb--soft">${ICONS.gym}</span>
+        <div class="search-info">
+          <div class="search-title">${esc(g.name)}</div>
+          <div class="search-meta">Rocódromo${tags ? ` · ${tags}` : ''}</div>
+        </div>
+        <span class="search-chevron">${ICONS.chevron}</span>
+      </div>`;
+  }
+
   function routeRow(r, i) {
     const meta = [r.sector ? `Sector ${esc(r.sector)}` : '', esc(r.schoolName)].filter(Boolean).join(' · ');
     return `
@@ -1342,6 +1371,7 @@ function initGlobalSearch() {
   // Resultados pintados: se guardan para abrirlos al tocar (data-index)
   let shownPlaces = [];
   let shownRoutes = [];
+  let shownGyms = [];
 
   function renderExplore() {
     const recent = getRecent();
@@ -1358,6 +1388,9 @@ function initGlobalSearch() {
         } else if (it.type === 'school') {
           lead = `<span class="search-thumb">${ICONS.mountain}</span>`;
           meta = 'Escuela';
+        } else if (it.type === 'gym') {
+          lead = `<span class="search-thumb search-thumb--soft">${ICONS.gym}</span>`;
+          meta = 'Rocódromo';
         } else if (it.type === 'sector') {
           lead = `<span class="search-thumb search-thumb--soft">${ICONS.sector}</span>`;
           meta = `Sector · ${esc(it.schoolName || '')}`;
@@ -1383,7 +1416,7 @@ function initGlobalSearch() {
       <div class="search-section-head"><h3>Explorar</h3></div>
       <div class="search-explore">
         <button type="button" class="search-explore-tile" data-category="users">${'<span class="search-explore-icon">' + ICONS.user + '</span>'}<span class="search-explore-title">Personas</span><span class="search-explore-desc">Encuentra escaladores</span></button>
-        <button type="button" class="search-explore-tile" data-category="places">${'<span class="search-explore-icon">' + ICONS.mountain + '</span>'}<span class="search-explore-title">Escuelas</span><span class="search-explore-desc">Escuelas y sectores</span></button>
+        <button type="button" class="search-explore-tile" data-category="places">${'<span class="search-explore-icon">' + ICONS.mountain + '</span>'}<span class="search-explore-title">Escuelas</span><span class="search-explore-desc">Escuelas, rocódromos y sectores</span></button>
         <button type="button" class="search-explore-tile" data-category="routes">${'<span class="search-explore-icon">' + ICONS.route + '</span>'}<span class="search-explore-title">Vías</span><span class="search-explore-desc">Por nombre o grado</span></button>
       </div>`;
     resultsContainer.innerHTML = html;
@@ -1445,8 +1478,9 @@ function initGlobalSearch() {
     const index = indexRes.status === 'fulfilled' ? indexRes.value : null;
     const places = index && wantsPlaces ? matchPlaces(index, q) : [];
     const routes = index && wantsRoutes ? matchRoutes(index, q) : [];
+    const gyms = index && wantsPlaces ? matchGyms(index, q) : [];
 
-    if (!users.length && !places.length && !routes.length) {
+    if (!users.length && !places.length && !routes.length && !gyms.length) {
       if (failed) {
         resultsContainer.innerHTML = stateBox('No se pudo completar la búsqueda', 'Revisa tu conexión e inténtalo de nuevo.', '<button type="button" class="kx-btn kx-btn--secondary search-retry">Reintentar</button>');
       } else {
@@ -1461,9 +1495,11 @@ function initGlobalSearch() {
     const limit = (list) => (type === 'all' ? list.slice(0, SECTION_LIMIT) : list);
     shownPlaces = limit(places);
     shownRoutes = limit(routes);
+    shownGyms = limit(gyms);
     let html = '';
     if (users.length) html += sectionHead('Personas', type === 'all' ? 'users' : null, users.length) + limit(users).map(x => userRow(x.user, x.following)).join('');
     if (places.length) html += sectionHead('Escuelas y sectores', type === 'all' ? 'places' : null, places.length) + shownPlaces.map(placeRow).join('');
+    if (gyms.length) html += sectionHead('Rocódromos', type === 'all' ? 'places' : null, gyms.length) + shownGyms.map(gymRow).join('');
     if (routes.length) html += sectionHead('Vías', type === 'all' ? 'routes' : null, routes.length) + shownRoutes.map(routeRow).join('');
     if (failed) html += stateBox('Algunos resultados no se pudieron cargar', 'Revisa tu conexión.');
     resultsContainer.innerHTML = html;
@@ -1512,6 +1548,11 @@ function initGlobalSearch() {
       showToast('El mapa todavía no está listo. Inténtalo de nuevo.', 'info');
       return;
     }
+    if (item.kind === 'gym') {
+      mlMap.flyTo({ center: item.coords, zoom: 16, essential: true });
+      mlMap.once('moveend', () => { if (window.KruxGymSheet) window.KruxGymSheet.open(item.props, item.coords); });
+      return;
+    }
     const schoolId = item.kind === 'school' ? item.id : item.schoolId;
     await mlLoadSchool(schoolId, item.kind !== 'school' && !!item.coords);
     if (item.kind === 'school' || !item.coords) return;
@@ -1539,6 +1580,7 @@ function initGlobalSearch() {
     try {
       const index = await loadPlacesIndex();
       if (item.type === 'school') target = index.schools.find(x => x.id === item.id);
+      else if (item.type === 'gym') target = (index.gyms || []).find(x => x.id === item.id);
       else if (item.type === 'sector') target = index.sectors.find(x => x.schoolId === item.schoolId && x.name === item.name);
       else target = index.routes.find(x => x.schoolId === item.schoolId && x.name === item.name && (x.sector || '') === (item.sector || ''));
     } catch (err) {
@@ -1563,6 +1605,7 @@ function initGlobalSearch() {
     load: loadPlacesIndex,
     matchPlaces,
     matchRoutes,
+    matchGyms,
     norm,
     open: async (item) => {
       await openOnMap(item, { stayOnMap: true });
@@ -1700,6 +1743,12 @@ function initGlobalSearch() {
       if (school) {
         rememberResult({ type: 'school', id: school.id, name: school.name });
         openOnMap(school);
+      }
+    } else if (kind === 'gym') {
+      const item = shownGyms[Number(row.dataset.index)];
+      if (item) {
+        rememberResult({ type: 'gym', id: item.id, name: item.name });
+        openOnMap(item);
       }
     } else if (kind === 'sector') {
       const item = shownPlaces[Number(row.dataset.index)];

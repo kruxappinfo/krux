@@ -1,20 +1,60 @@
 // ================== INFORMACIÓN DE ROCÓDROMOS (COMUNIDAD) ==================
-// Los usuarios aportan fotos, horario, precio, contacto e instalaciones de cada rocódromo y la comunidad los vota
-// con «me gusta» / «no me gusta». El contenido se modera solo:
-//   - puntuación = me gusta − no me gusta; se ordena de mayor a menor (a igualdad, lo más reciente primero);
-//   - cuando los no me gusta superan a los me gusta por KXG_HIDE_NET o más, la aportación se oculta para todos
-//     (queda en el panel de admin, que puede restaurarla o borrarla);
-//   - horario, precio y contacto muestran solo la versión mejor puntuada; fotos e instalaciones, todas las visibles.
-// Firestore: gym_info/{id} (aportación con contadores up/down) y gym_info/{id}/votes/{uid} ({ v: 1 | -1 }).
-// Las reglas obligan a que voto y contador cambien juntos y en una unidad (un voto por persona y aportación).
+// Los usuarios aportan fotos, horario, precios, instalaciones, redes y contacto de cada rocódromo.
+// Lo aportado se publica al instante. Si algo está mal, cualquier usuario puede denunciarlo con el botón ⚠ y
+// proponer un cambio; las denuncias llegan al panel de admin, que decide (aplicar el cambio, borrar o descartar).
+//   - horario, precios y contacto muestran la versión más reciente; de cada red, el enlace más reciente;
+//     fotos e instalaciones, todas (una instalación solo puede indicarse una vez por rocódromo).
+// Firestore: gym_info/{id} (aportación) y gym_reports/{infoId__uid} (denuncia: motivo, cambio propuesto, estado).
+// Una persona solo puede denunciar una vez cada aportación.
 
 // ============================================
 // LÓGICA (sin DOM; probada en tests/gym-info.test.js)
 // ============================================
-const KXG_HIDE_NET = 5;
-const KXG_KINDS = ['photo', 'hours', 'price', 'contact', 'facility'];
-const KXG_SINGLE = ['hours', 'price', 'contact'];   // una sola versión visible: la mejor puntuada
+const KXG_KINDS = ['photo', 'hours', 'price', 'contact', 'facility', 'link'];
+const KXG_SINGLE = ['hours', 'price', 'contact'];   // una sola versión visible: la más reciente
 const KXG_TEXT_MAX = 500;
+// Redes y web: cada enlace es una aportación con red + dirección. De cada red se muestra la más reciente.
+// Solo se admiten direcciones https de la red elegida (la web puede ser cualquier dominio); se normaliza al guardar y al mostrar.
+const KXG_NETWORKS = [
+  { key: 'instagram', label: 'Instagram', icon: 'instagram', hosts: ['instagram.com'], base: 'https://www.instagram.com/', ph: '@nombre o enlace de Instagram' },
+  { key: 'facebook', label: 'Facebook', icon: 'facebook', hosts: ['facebook.com', 'fb.com', 'fb.me'], base: 'https://www.facebook.com/', ph: 'nombre de página o enlace de Facebook' },
+  { key: 'tiktok', label: 'TikTok', icon: 'music', hosts: ['tiktok.com'], base: 'https://www.tiktok.com/@', ph: '@nombre o enlace de TikTok' },
+  { key: 'youtube', label: 'YouTube', icon: 'youtube', hosts: ['youtube.com', 'youtu.be'], base: 'https://www.youtube.com/@', ph: '@canal o enlace de YouTube' },
+  { key: 'x', label: 'X (Twitter)', icon: 'x', hosts: ['x.com', 'twitter.com'], base: 'https://x.com/', ph: '@nombre o enlace de X' },
+  { key: 'web', label: 'Página web', icon: 'globe', hosts: null, base: null, ph: 'www.turocodromo.es' }
+];
+const KXG_LINK_MAX = 300;
+
+function kxgNetwork(key) { return KXG_NETWORKS.find(n => n.key === key) || null; }
+
+// Devuelve la dirección https normalizada, o null si no es válida para esa red
+function kxgNormalizeLink(network, input) {
+  const n = kxgNetwork(network);
+  let t = String(input == null ? '' : input).trim();
+  if (!n || !t || /\s/.test(t)) return null;
+  // Usuario sin dirección («@nombre» o «nombre») en las redes que lo permiten
+  if (n.base && !/[/:]/.test(t) && !n.hosts.some(h => t.toLowerCase().includes(h))) {
+    const user = t.replace(/^@/, '');
+    if (!/^[A-Za-z0-9_.-]{1,60}$/.test(user)) return null;
+    return n.base + user;
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(t) && !/^https?:\/\//i.test(t)) return null;   // javascript:, data:, mailto:…
+  if (!/^https?:\/\//i.test(t)) t = 'https://' + t.replace(/^\/+/, '');
+  let u;
+  try { u = new URL(t); } catch (_) { return null; }
+  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  if (u.username || u.password || !host.includes('.')) return null;
+  if (n.hosts && !n.hosts.some(h => host === h || host.endsWith('.' + h))) return null;
+  u.protocol = 'https:';
+  const href = u.toString();
+  return href.length <= KXG_LINK_MAX ? href : null;
+}
+
+// Texto corto del enlace para la lista: dominio y ruta sin «https://www.»
+function kxgLinkDisplay(href) {
+  try { const u = new URL(href); return (u.hostname.replace(/^www\./, '') + u.pathname + u.search).replace(/\/$/, ''); } catch (_) { return href; }
+}
+
 const KXG_FACILITIES = [
   { key: 'gimnasio', label: 'Gimnasio / zona de fuerza' },
   { key: 'travesia', label: 'Travesías' },
@@ -30,10 +70,6 @@ const KXG_FACILITIES = [
   { key: 'infantil', label: 'Zona infantil' }
 ];
 
-function kxgScore(item) { return (item.up || 0) - (item.down || 0); }
-
-function kxgIsHidden(item) { return !item.restored && (item.down || 0) - (item.up || 0) >= KXG_HIDE_NET; }
-
 function kxgMillis(t) {
   if (!t) return 0;
   if (typeof t.toMillis === 'function') return t.toMillis();
@@ -41,25 +77,37 @@ function kxgMillis(t) {
   return typeof t === 'number' ? t : 0;
 }
 
+// Más recientes primero
 function kxgSort(items) {
-  return items.slice().sort((a, b) => kxgScore(b) - kxgScore(a) || kxgMillis(b.createdAt) - kxgMillis(a.createdAt));
+  return items.slice().sort((a, b) => kxgMillis(b.createdAt) - kxgMillis(a.createdAt));
 }
+
+const KXG_REASONS = [
+  { value: 'incorrect', label: 'Es incorrecto' },
+  { value: 'outdated', label: 'Está desfasado' },
+  { value: 'inappropriate', label: 'Inapropiado o spam' }
+];
+const KXG_REASON_LABEL = { incorrect: 'Es incorrecto', outdated: 'Está desfasado', inappropriate: 'Inapropiado o spam' };
+
+// Una denuncia por persona y aportación
+function kxgReportId(infoId, uid) { return `${infoId}__${uid}`; }
 
 // Agrupa las aportaciones visibles de un rocódromo en lo que enseña la ficha
 function kxgBuildView(items) {
-  const visible = kxgSort(items.filter(i => KXG_KINDS.includes(i.kind) && !kxgIsHidden(i)));
-  const view = { photos: [], facilities: [], hours: null, price: null, contact: null };
+  const visible = kxgSort(items.filter(i => KXG_KINDS.includes(i.kind)));
+  const view = { photos: [], facilities: [], links: [], hours: null, price: null, contact: null };
+  const seenNet = new Set();
   for (const it of visible) {
     if (it.kind === 'photo') view.photos.push(it);
     else if (it.kind === 'facility') view.facilities.push(it);
+    else if (it.kind === 'link') {
+      const href = kxgNormalizeLink(it.network, it.url);
+      if (href && !seenNet.has(it.network)) { seenNet.add(it.network); view.links.push({ ...it, href }); }
+    }
     else if (KXG_SINGLE.includes(it.kind) && !view[it.kind]) view[it.kind] = it;
   }
+  view.links.sort((a, b) => KXG_NETWORKS.findIndex(n => n.key === a.network) - KXG_NETWORKS.findIndex(n => n.key === b.network));
   return view;
-}
-
-// Cambio de contadores al pasar del voto `before` al voto `after` (1, -1 o 0 = sin voto)
-function kxgVoteDelta(before, after) {
-  return { up: (after === 1 ? 1 : 0) - (before === 1 ? 1 : 0), down: (after === -1 ? 1 : 0) - (before === -1 ? 1 : 0) };
 }
 
 // Id fijo de una instalación: una sola aportación por instalación y rocódromo (los demás la votan)
@@ -82,40 +130,29 @@ const KruxGymInfo = (() => {
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   }
 
-  // Votos del usuario actual para estas aportaciones → { [infoId]: 1 | -1 }
-  async function myVotes(items) {
-    const me = uid();
-    if (!me || !items.length) return {};
-    const docs = await Promise.all(items.map(i => col().doc(i.id).collection('votes').doc(me).get().catch(() => null)));
-    const out = {};
-    docs.forEach((d, k) => { if (d && d.exists) out[items[k].id] = d.data().v; });
-    return out;
-  }
-
-  // Vota (o retira el voto si se repite el mismo). Devuelve el voto final y los contadores nuevos.
-  async function vote(infoId, value) {
+  // Denuncia + propuesta de cambio. Devuelve 'sent' o 'already' si esta persona ya había denunciado esa aportación.
+  async function report(item, reason, proposal) {
     const me = uid();
     if (!me) throw new Error('auth');
-    const ref = col().doc(infoId);
-    const vref = ref.collection('votes').doc(me);
-    return db.runTransaction(async (tx) => {
-      const [doc, vdoc] = [await tx.get(ref), await tx.get(vref)];
-      if (!doc.exists) throw new Error('gone');
-      const before = vdoc.exists ? vdoc.data().v : 0;
-      const after = before === value ? 0 : value;
-      const d = kxgVoteDelta(before, after);
-      const up = (doc.data().up || 0) + d.up, down = (doc.data().down || 0) + d.down;
-      tx.update(ref, { up, down });
-      if (after) tx.set(vref, { v: after }); else tx.delete(vref);
-      return { v: after, up, down };
+    if (!KXG_REASON_LABEL[reason]) throw new Error('reason');
+    const ref = db.collection('gym_reports').doc(kxgReportId(item.id, me));
+    const prev = await ref.get().catch(() => null);
+    if (prev && prev.exists) return 'already';
+    const u = firebase.auth().currentUser;
+    await ref.set({
+      infoId: item.id, gymId: item.gymId, kind: item.kind, reason,
+      proposal: String(proposal || '').trim().slice(0, KXG_TEXT_MAX),
+      reporterId: me, reporterName: (u.displayName || 'Usuario').slice(0, 80),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(), status: 'open'
     });
+    return 'sent';
   }
 
   function base(gymId, kind) {
     const u = firebase.auth().currentUser;
     return {
       gymId, kind, authorId: u.uid, authorName: (u.displayName || 'Usuario').slice(0, 80),
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(), up: 0, down: 0
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
   }
 
@@ -126,19 +163,21 @@ const KruxGymInfo = (() => {
     await col().add({ ...base(gymId, kind), text: clean });
   }
 
-  // Instalación: si ya la aportó alguien, se vota «me gusta» en lugar de duplicarla
+  // Instalación: una por rocódromo y tipo. Si ya estaba indicada, no se duplica.
   async function addFacility(gymId, key) {
     if (!uid()) throw new Error('auth');
     const ref = col().doc(kxgFacilityId(gymId, key));
     const doc = await ref.get();
-    if (doc.exists) {
-      if (doc.data().authorId === uid()) return 'own';
-      const v = await ref.collection('votes').doc(uid()).get();
-      if (!v.exists || v.data().v !== 1) await vote(ref.id, 1);
-      return 'voted';
-    }
+    if (doc.exists) return 'exists';
     await ref.set({ ...base(gymId, 'facility'), value: key });
     return 'created';
+  }
+
+  async function addLink(gymId, network, input) {
+    if (!uid()) throw new Error('auth');
+    const url = kxgNormalizeLink(network, input);
+    if (!url) throw new Error('link');
+    await col().add({ ...base(gymId, 'link'), network, url });
   }
 
   async function addPhoto(gymId, file) {
@@ -159,7 +198,7 @@ const KruxGymInfo = (() => {
     if (item.storagePath) { try { await storage.ref(item.storagePath).delete(); } catch (_) {} }
   }
 
-  return { list, myVotes, vote, addText, addFacility, addPhoto, remove };
+  return { list, report, addText, addFacility, addLink, addPhoto, remove };
 })();
 
 // ============================================
@@ -168,7 +207,7 @@ const KruxGymInfo = (() => {
 const KruxGymSheet = (() => {
   let el = null, sheet = null;
   let gym = null;           // { id, nombre, pago, cuerda, bloque, auto, coords }
-  let items = [], votes = {}, view = 'info', addKind = 'hours', busy = false;
+  let items = [], photoIdx = 0, view = 'info', reportReason = 'incorrect', addKind = 'hours', linkNet = 'instagram', busy = false;
   const toast = (msg, type = 'info') => { if (typeof showToast === 'function') showToast(msg, type); };
   const me = () => (firebase.auth().currentUser || {}).uid || null;
   const askLogin = () => { toast('Inicia sesión para aportar o votar', 'info'); if (typeof openLoginModal === 'function') openLoginModal(); };
@@ -186,13 +225,19 @@ const KruxGymSheet = (() => {
     sheet = KXMapSheet.create(el, { snaps: ['expanded'], onStateChange: (s) => document.body.classList.toggle('kx-gym-open', s !== 'hidden') });
     el.addEventListener('click', onClick);
     el.addEventListener('change', onChange);
+    el.addEventListener('input', (e) => { if (e.target.id === 'kxg-url') kxSetFieldError('kxg-url', ''); if (e.target.id === 'kxg-proposal') kxSetFieldError('kxg-proposal', ''); });
   }
 
-  function voteHTML(it) {
-    const mine = votes[it.id] || 0;
-    const own = it.authorId && it.authorId === me();
-    const btn = (v, icon, n, label) => `<button type="button" class="kxg-vote${mine === v ? ' is-on' : ''}" data-kxg="vote" data-id="${kxEsc(it.id)}" data-v="${v}" aria-pressed="${mine === v}" aria-label="${label}"${own ? ' disabled title="No puedes votar tu propia aportación"' : ''}>${kxIcon(icon, { size: 16 })}<span>${n || 0}</span></button>`;
-    return `<span class="kxg-votes">${btn(1, 'thumbsUp', it.up, 'Me gusta')}${btn(-1, 'thumbsDown', it.down, 'No me gusta')}</span>`;
+  // Aportaciones de otras personas que se pueden denunciar, con una etiqueta y un resumen para elegir
+  function reportables() {
+    const v = kxgBuildView(items);
+    const mine = (it) => it.authorId && it.authorId === me();
+    const out = [];
+    v.photos.forEach((p, i) => { if (!mine(p)) out.push({ it: p, label: `Foto ${i + 1}`, sub: '', thumb: p.photoUrl }); });
+    [['hours', 'Horario'], ['price', 'Precios'], ['contact', 'Contacto']].forEach(([k, label]) => { const it = v[k]; if (it && !mine(it)) out.push({ it, label, sub: it.text }); });
+    v.facilities.forEach(f => { if (!mine(f)) out.push({ it: f, label: 'Instalación', sub: kxgFacilityLabel(f.value) }); });
+    v.links.forEach(l => { if (!mine(l)) out.push({ it: l, label: kxgNetwork(l.network).label, sub: kxgLinkDisplay(l.href) }); });
+    return out;
   }
 
   function ownHTML(it) {
@@ -205,7 +250,7 @@ const KruxGymSheet = (() => {
       : '<p class="kxg-none">Nadie lo ha añadido todavía.</p>';
     return `<section class="kxg-card">
       <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon(icon, { size: 18 })}</span><h3 class="kxg-card-title">${title}</h3>
-        ${it ? `${ownHTML(it)}${voteHTML(it)}` : `<button type="button" class="kxg-add" data-kxg="add" data-kind="${kind}">${kxIcon('plus', { size: 16 })}<span>Añadir</span></button>`}</div>
+        ${it ? ownHTML(it) : ''}</div>
       ${body}</section>`;
   }
 
@@ -215,73 +260,141 @@ const KruxGymSheet = (() => {
     const types = [[yes(gym.cuerda), 'Cuerda'], [yes(gym.bloque), 'Bloque'], [yes(gym.auto), 'Autobelay']].filter(t => t[0]).map(t => t[1]);
     const price = gym.pago === 'si' ? 'De pago' : gym.pago === 'no' ? 'Gratuito' : '';
     const tags = [price, ...types].filter(Boolean).map(t => kxTagHTML({ text: t })).join('');
-    const photos = v.photos.length
-      ? `<div class="kxg-photos">${v.photos.map(p => `<figure class="kxg-photo"><img src="${kxEsc(p.photoUrl)}" alt="Foto de ${kxEsc(gym.nombre)}" loading="lazy">
-          <figcaption>${ownHTML(p)}${voteHTML(p)}</figcaption></figure>`).join('')}</div>`
+    if (photoIdx >= v.photos.length) photoIdx = Math.max(0, v.photos.length - 1);
+    const cur = v.photos[photoIdx];
+    // Una foto cada vez, sin desplazamiento nativo ni botones: se cambia deslizando (o con las flechas del teclado); al tocarla se abre en grande
+    const photos = cur
+      ? `<div class="kxg-gallery">
+          <div class="kxg-stage" data-kxg-stage>
+            <button type="button" class="kxg-photo-btn" data-kxg="zoom" aria-label="Ver la foto en grande"><img src="${kxEsc(cur.photoUrl)}" alt="Foto ${photoIdx + 1} de ${v.photos.length} de ${kxEsc(gym.nombre)}" draggable="false"></button>
+            ${v.photos.length > 1 ? `<span class="kxg-count" aria-hidden="true">${photoIdx + 1} / ${v.photos.length}</span>` : ''}
+          </div>
+          <div class="kxg-photo-actions">${ownHTML(cur)}</div>
+        </div>`
       : '<p class="kxg-none">Aún no hay fotos. Sé la primera persona en subir una.</p>';
     const facilities = v.facilities.length
-      ? `<ul class="kxg-facs">${v.facilities.map(f => `<li class="kxg-fac"><span>${kxEsc(kxgFacilityLabel(f.value))}</span>${ownHTML(f)}${voteHTML(f)}</li>`).join('')}</ul>`
+      ? `<ul class="kxg-facs">${v.facilities.map(f => `<li class="kxg-fac"><span>${kxEsc(kxgFacilityLabel(f.value))}</span>${ownHTML(f)}</li>`).join('')}</ul>`
       : '<p class="kxg-none">Nadie ha indicado instalaciones todavía.</p>';
     return `${tags ? `<div class="kxg-tags">${tags}</div>` : ''}
       <section class="kxg-card">
-        <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon('image', { size: 18 })}</span><h3 class="kxg-card-title">Fotos</h3>
-          <button type="button" class="kxg-add" data-kxg="add" data-kind="photo">${kxIcon('plus', { size: 16 })}<span>Subir</span></button></div>
+        <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon('image', { size: 18 })}</span><h3 class="kxg-card-title">Fotos</h3></div>
         ${photos}</section>
       ${textRowHTML('hours', 'clock', 'Horario', v.hours)}
       ${textRowHTML('price', 'star', 'Precios', v.price)}
       <section class="kxg-card">
-        <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon('mountain', { size: 18 })}</span><h3 class="kxg-card-title">Instalaciones</h3>
-          <button type="button" class="kxg-add" data-kxg="add" data-kind="facility">${kxIcon('plus', { size: 16 })}<span>Añadir</span></button></div>
+        <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon('mountain', { size: 18 })}</span><h3 class="kxg-card-title">Instalaciones</h3></div>
         ${facilities}</section>
-      ${textRowHTML('contact', 'link', 'Web y contacto', v.contact)}
-      <p class="kxg-note">La información la aporta la comunidad. Vota con ${kxIcon('thumbsUp', { size: 14 })} lo que sea correcto y con ${kxIcon('thumbsDown', { size: 14 })} lo que no: lo más votado se muestra primero y lo que acumula ${KXG_HIDE_NET} «no me gusta» más que «me gusta» desaparece.</p>`;
+      <section class="kxg-card">
+        <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon('link', { size: 18 })}</span><h3 class="kxg-card-title">Redes y web</h3></div>
+        ${v.links.length
+          ? `<ul class="kxg-links">${v.links.map(l => { const n = kxgNetwork(l.network); return `<li class="kxg-linkrow">
+              <a class="kxg-link" href="${kxEsc(l.href)}" target="_blank" rel="noopener noreferrer" aria-label="${kxEsc(n.label)}: abrir ${kxEsc(kxgLinkDisplay(l.href))} (se abre en otra página)">
+                <span class="kxg-link-ic">${kxIcon(n.icon, { size: 20 })}</span>
+                <span class="kxg-link-text"><strong>${kxEsc(n.label)}</strong><small>${kxEsc(kxgLinkDisplay(l.href))}</small></span>
+                ${kxIcon('externalLink', { size: 16, cls: 'kxg-link-out' })}
+              </a>${ownHTML(l)}</li>`; }).join('')}</ul>`
+          : '<p class="kxg-none">Nadie ha añadido redes sociales ni web todavía.</p>'}</section>
+      ${textRowHTML('contact', 'messageCircle', 'Contacto', v.contact)}
+      <p class="kxg-note">La información la aporta la comunidad. Si algo está mal, pulsa ${kxIcon('triangleAlert', { size: 14 })} para avisarnos y proponer un cambio: lo revisaremos.</p>`;
   }
 
   function addHTML() {
-    const kinds = [{ value: 'hours', label: 'Horario' }, { value: 'price', label: 'Precios' }, { value: 'facility', label: 'Instalación' }, { value: 'photo', label: 'Foto' }, { value: 'contact', label: 'Contacto' }];
-    const used = new Set(items.filter(i => i.kind === 'facility' && !kxgIsHidden(i)).map(i => i.value));
-    const ph = { hours: 'Ej.: L–V 10:00–23:00 · S–D 10:00–21:00', price: 'Ej.: Entrada 12 € · Bono 10 entradas 100 € · Mensual 55 €', contact: 'Ej.: www.rocodromo.es · 600 000 000' };
+    const kinds = [{ value: 'hours', label: 'Horario' }, { value: 'price', label: 'Precios' }, { value: 'facility', label: 'Instalación' }, { value: 'photo', label: 'Foto' }, { value: 'link', label: 'Redes y web' }, { value: 'contact', label: 'Contacto' }];
+    const used = new Set(items.filter(i => i.kind === 'facility').map(i => i.value));
+    const ph = { hours: 'Ej.: L–V 10:00–23:00 · S–D 10:00–21:00', price: 'Ej.: Entrada 12 € · Bono 10 entradas 100 € · Mensual 55 €', contact: 'Ej.: 600 000 000 · info@rocodromo.es' };
     let field;
     if (addKind === 'photo') {
       field = `<label class="kxg-drop" for="kxg-file">${kxIcon('image', { size: 28 })}<strong>Elige una foto</strong><small>JPG, PNG o WebP. Se reduce antes de subirla.</small></label>
         <input type="file" id="kxg-file" accept="image/jpeg,image/png,image/webp" hidden>
         <p class="kxg-file-name" id="kxg-file-name" hidden></p>`;
+    } else if (addKind === 'link') {
+      const net = kxgNetwork(linkNet);
+      field = `<p class="kxg-help">Elige la red y pega el enlace o el nombre de usuario.</p>
+        <div class="kxg-fac-pick" role="radiogroup" aria-label="Red social">${KXG_NETWORKS.map(n => `<label class="kxg-fac-opt"><input type="radio" name="kxg-net" value="${n.key}"${n.key === linkNet ? ' checked' : ''}><span>${kxIcon(n.icon, { size: 16 })} ${kxEsc(n.label)}</span></label>`).join('')}</div>
+        <div class="kxg-url">${kxFieldHTML({ id: 'kxg-url', label: 'Enlace o usuario', type: 'text', placeholder: net.ph, attrs: { inputmode: 'url', autocapitalize: 'none', autocomplete: 'off', spellcheck: 'false', maxlength: KXG_LINK_MAX } })}</div>`;
     } else if (addKind === 'facility') {
-      field = `<p class="kxg-help">Marca todas las que tenga el rocódromo.</p><div class="kxg-fac-pick" role="group" aria-label="Instalaciones (puedes elegir varias)">${KXG_FACILITIES.map(f => `<label class="kxg-fac-opt${used.has(f.key) ? ' is-used' : ''}"><input type="checkbox" name="kxg-fac" value="${f.key}"><span>${kxEsc(f.label)}</span>${used.has(f.key) ? '<small>Ya indicada: sumarás tu «me gusta»</small>' : ''}</label>`).join('')}</div>`;
+      field = `<p class="kxg-help">Marca todas las que tenga el rocódromo.</p><div class="kxg-fac-pick" role="group" aria-label="Instalaciones (puedes elegir varias)">${KXG_FACILITIES.map(f => `<label class="kxg-fac-opt${used.has(f.key) ? ' is-used' : ''}"><input type="checkbox" name="kxg-fac" value="${f.key}"${used.has(f.key) ? ' disabled' : ''}><span>${kxEsc(f.label)}</span>${used.has(f.key) ? '<small>Ya indicada</small>' : ''}</label>`).join('')}</div>`;
     } else {
-      field = kxFieldHTML({ id: 'kxg-text', label: { hours: 'Horario', price: 'Precios', contact: 'Web y contacto' }[addKind], type: 'textarea', placeholder: ph[addKind], help: 'Si ya hay una versión, la tuya se muestra en cuanto tenga igual o más votos.', attrs: { maxlength: KXG_TEXT_MAX } });
+      field = kxFieldHTML({ id: 'kxg-text', label: { hours: 'Horario', price: 'Precios', contact: 'Teléfono o correo' }[addKind], type: 'textarea', placeholder: ph[addKind], help: 'Si ya hay una versión, la tuya pasa a mostrarse en su lugar.', attrs: { maxlength: KXG_TEXT_MAX } });
     }
     return `${kxSegmentedHTML({ items: kinds, value: addKind, label: 'Qué quieres añadir', attrs: { id: 'kxg-kind' } })}<div class="kxg-form">${field}</div>`;
+  }
+
+  // Hoja de denuncia: se elige qué parte de la ficha está mal, el motivo y, si se quiere, el cambio propuesto
+  function reportFormHTML() {
+    const opts = reportables();
+    const pick = opts.length
+      ? `<div class="kxg-pick" role="radiogroup" aria-label="Parte de la ficha que denuncias">${opts.map((o, i) => `<label class="kxg-pick-opt">
+          <input type="radio" name="kxg-part" value="${kxEsc(o.it.id)}"${i === 0 ? ' checked' : ''}>
+          ${o.thumb ? `<img src="${kxEsc(o.thumb)}" alt="" draggable="false">` : ''}
+          <span class="kxg-pick-text"><strong>${kxEsc(o.label)}</strong>${o.sub ? `<small>${kxEsc(o.sub)}</small>` : ''}</span></label>`).join('')}</div>`
+      : '<p class="kxg-none">No hay información de otras personas que denunciar.</p>';
+    return `<div class="kxg-field"><h3 class="kxg-label">¿Qué parte está mal?</h3>${pick}</div>
+      <div class="kxg-field"><h3 class="kxg-label">¿Qué le pasa?</h3>
+        ${kxSegmentedHTML({ items: KXG_REASONS, value: reportReason, label: 'Motivo de la denuncia', attrs: { id: 'kxg-reason' } })}</div>
+      <div id="kxg-prop-slot"></div>`;
+  }
+
+  const selectedPart = () => {
+    const sel = el.querySelector('input[name="kxg-part"]:checked');
+    return sel ? items.find(i => i.id === sel.value) || null : null;
+  };
+
+  // El cambio se propone sobre la propia información: el campo sale con el valor actual para corregirlo
+  // (horario, precios, contacto y enlaces). En fotos e instalaciones solo se avisa: el equipo decide si la quita.
+  function renderProposal() {
+    const slot = el.querySelector('#kxg-prop-slot');
+    if (!slot) return;
+    const it = selectedPart();
+    if (!it) { slot.innerHTML = ''; return; }
+    if (it.kind === 'link') {
+      const n = kxgNetwork(it.network);
+      slot.innerHTML = kxFieldHTML({ id: 'kxg-proposal', label: `Enlace de ${n ? n.label : 'la red'} correcto`, type: 'text', value: it.url, optional: true, help: 'Corrige el enlace. Solo tendremos que aceptar o rechazar tu propuesta.', attrs: { inputmode: 'url', autocapitalize: 'none', autocomplete: 'off', spellcheck: 'false', maxlength: KXG_LINK_MAX } });
+    } else if (KXG_SINGLE.includes(it.kind)) {
+      const label = { hours: 'Horario correcto', price: 'Precios correctos', contact: 'Contacto correcto' }[it.kind];
+      slot.innerHTML = kxFieldHTML({ id: 'kxg-proposal', label, type: 'textarea', value: it.text, optional: true, help: 'Edita el texto con la información correcta. Solo tendremos que aceptar o rechazar tu propuesta.', attrs: { maxlength: KXG_TEXT_MAX } });
+    } else {
+      slot.innerHTML = '<p class="kxg-note">Revisaremos tu denuncia y, si es necesario, quitaremos esta información.</p>';
+    }
+    sheet.refresh();
   }
 
   function render({ keepScroll = false } = {}) {
     const body = el.querySelector('#kx-gym-body');
     const keep = body.scrollTop;
-    const add = view === 'add';
-    el.querySelector('#kx-gym-drag').innerHTML = kxSheetDragHTML({ title: add ? 'Añadir información' : gym.nombre, titleId: 'kx-gym-title', metaHTML: add ? kxEsc(gym.nombre) : 'Rocódromo' });
-    body.innerHTML = view === 'loading' ? kxSkeletonHTML('rows') : add ? addHTML() : infoHTML();
-    el.querySelector('#kx-gym-foot').innerHTML = add
+    const add = view === 'add', rep = view === 'report';
+    el.querySelector('#kx-gym-drag').innerHTML = kxSheetDragHTML({ title: rep ? 'Denunciar información' : add ? 'Añadir información' : gym.nombre, titleId: 'kx-gym-title', metaHTML: add || rep ? kxEsc(gym.nombre) : 'Rocódromo', asideHTML: view === 'info' && reportables().length ? `<button type="button" class="kxg-report" data-kxg="report" aria-label="Denunciar información incorrecta" title="Denunciar información incorrecta">${kxIcon('triangleAlert', { size: 20 })}</button>` : '' });
+    body.innerHTML = view === 'loading' ? kxSkeletonHTML('rows') : rep ? reportFormHTML() : add ? addHTML() : infoHTML();
+    el.querySelector('#kx-gym-foot').innerHTML = rep
+      ? kxButtonHTML({ label: 'Cancelar', variant: 'secondary', size: 'lg', attrs: { 'data-kxg': 'back' } }) + kxButtonHTML({ icon: 'triangleAlert', label: 'Enviar denuncia', size: 'lg', attrs: { 'data-kxg': 'send-report' } })
+      : add
       ? kxButtonHTML({ label: 'Cancelar', variant: 'secondary', size: 'lg', attrs: { 'data-kxg': 'back' } }) + kxButtonHTML({ icon: 'check', label: 'Publicar', size: 'lg', attrs: { 'data-kxg': 'submit' } })
       : kxButtonHTML({ icon: 'navigation', label: 'Cómo llegar', variant: 'secondary', size: 'lg', attrs: { 'data-kxg': 'go' } }) + kxButtonHTML({ icon: 'plus', label: 'Aportar', size: 'lg', attrs: { 'data-kxg': 'add' } });
     body.scrollTop = keepScroll ? keep : 0;
     if (add) kxBindSegmented(el.querySelector('#kxg-kind'), (k) => { addKind = k; render(); });
+    if (rep) kxBindSegmented(el.querySelector('#kxg-reason'), (v) => { reportReason = v; });
+    if (rep) renderProposal();
+    bindStage();
     sheet.refresh();
   }
 
   async function load() {
     try {
       items = await KruxGymInfo.list(gym.id);
-      votes = await KruxGymInfo.myVotes(items);
     } catch (e) {
       console.warn('[Rocódromos] No se pudo cargar la información:', e);
-      items = []; votes = {};
+      items = [];
       toast('No se pudo cargar la información del rocódromo', 'error');
     }
   }
 
   async function open(p, coords) {
     ensure();
+    // Una sola ficha a la vez: se cierran las de escuela, sector y vía si estaban abiertas
+    ['hideBottomSheet', 'hideSectorBottomSheet', 'hideRouteBottomSheet'].forEach(fn => { try { if (typeof window[fn] === 'function') window[fn](); } catch (_) {} });
     gym = { ...p, coords };
+    photoIdx = 0;
+    closeLightbox();
     view = 'loading';
     render();
     if (sheet.state === 'hidden') sheet.open('expanded');
@@ -304,13 +417,18 @@ const KruxGymSheet = (() => {
       } else if (addKind === 'facility') {
         const keys = [...el.querySelectorAll('input[name="kxg-fac"]:checked')].map(i => i.value);
         if (!keys.length) { toast('Elige al menos una instalación', 'info'); return; }
-        const tally = { created: 0, voted: 0, own: 0 };
+        const tally = { created: 0, exists: 0 };
         for (const k of keys) tally[await KruxGymInfo.addFacility(gym.id, k)]++;
         const parts = [];
         if (tally.created) parts.push(tally.created === 1 ? '1 instalación añadida' : `${tally.created} instalaciones añadidas`);
-        if (tally.voted) parts.push(tally.voted === 1 ? '1 ya estaba indicada: has sumado tu «me gusta»' : `${tally.voted} ya estaban indicadas: has sumado tu «me gusta»`);
-        if (tally.own) parts.push(tally.own === 1 ? '1 ya la habías añadido tú' : `${tally.own} ya las habías añadido tú`);
+        if (tally.exists) parts.push(tally.exists === 1 ? '1 ya estaba indicada' : `${tally.exists} ya estaban indicadas`);
         toast(parts.join(' · '), 'success');
+      } else if (addKind === 'link') {
+        const raw = el.querySelector('#kxg-url').value.trim();
+        if (!raw) { kxSetFieldError('kxg-url', 'Escribe el enlace o el usuario'); return; }
+        if (!kxgNormalizeLink(linkNet, raw)) { kxSetFieldError('kxg-url', `No parece un enlace de ${kxgNetwork(linkNet).label}`); return; }
+        await KruxGymInfo.addLink(gym.id, linkNet, raw);
+        toast('Enlace publicado', 'success');
       } else {
         const t = el.querySelector('#kxg-text').value.trim();
         if (!t) { kxSetFieldError('kxg-text', 'Escribe la información'); return; }
@@ -331,7 +449,74 @@ const KruxGymSheet = (() => {
     }
   }
 
+  // Foto a pantalla completa (se cierra con la X, Escape o tocando fuera de la imagen)
+  let lb = null, lastSwipe = 0;
+  function closeLightbox() { if (lb) { lb.remove(); lb = null; document.removeEventListener('keydown', onLbKey); } }
+  function onLbKey(e) {
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowRight') lbStep(1);
+    else if (e.key === 'ArrowLeft') lbStep(-1);
+  }
+  function lbStep(d) {
+    const photos = kxgBuildView(items).photos;
+    if (photos.length < 2 || !lb) return;
+    photoIdx = (photoIdx + d + photos.length) % photos.length;
+    lb.querySelector('img').src = photos[photoIdx].photoUrl;
+    lb.querySelector('.kxg-lb-count').textContent = `${photoIdx + 1} / ${photos.length}`;
+  }
+  function openLightbox() {
+    const photos = kxgBuildView(items).photos;
+    if (!photos.length) return;
+    closeLightbox();
+    lb = document.createElement('div');
+    lb.className = 'kxg-lb';
+    lb.setAttribute('role', 'dialog');
+    lb.setAttribute('aria-modal', 'true');
+    lb.setAttribute('aria-label', 'Foto en grande');
+    lb.innerHTML = `<button type="button" class="kxg-lb-close" aria-label="Cerrar">${kxIcon('x', { size: 22 })}</button>
+      <img src="${kxEsc(photos[photoIdx].photoUrl)}" alt="Foto de ${kxEsc(gym.nombre)}" draggable="false">
+      ${photos.length > 1 ? `<span class="kxg-lb-count">${photoIdx + 1} / ${photos.length}</span>` : ''}`;
+    document.body.appendChild(lb);
+    document.addEventListener('keydown', onLbKey);
+    let sx = null, sy = 0;
+    lb.addEventListener('pointerdown', (e) => { sx = e.clientX; sy = e.clientY; });
+    lb.addEventListener('pointerup', (e) => {
+      if (sx == null) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
+      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4) lbStep(dx < 0 ? 1 : -1);
+    });
+    lb.addEventListener('click', (e) => {
+      if (e.target.closest('.kxg-lb-close') || e.target === lb) { closeLightbox(); render({ keepScroll: true }); }
+    });
+    lb.querySelector('.kxg-lb-close').focus();
+  }
+
+  // Deslizar la foto de la ficha cambia de foto; un toque sin desplazamiento la abre en grande
+  function bindStage() {
+    const stage = el.querySelector('[data-kxg-stage]');
+    if (!stage || stage._kxg) return;
+    stage._kxg = true;
+    let sx = null, sy = 0, swiped = false;
+    stage.addEventListener('pointerdown', (e) => { sx = e.clientX; sy = e.clientY; swiped = false; });
+    stage.addEventListener('pointerup', (e) => {
+      if (sx == null) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
+      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4) { swiped = true; lastSwipe = Date.now(); ACTIONS['photo-step']({ dataset: { step: dx < 0 ? 1 : -1 } }); }
+    });
+    stage.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); ACTIONS['photo-step']({ dataset: { step: e.key === 'ArrowRight' ? 1 : -1 } }); }
+    });
+    stage.addEventListener('click', (e) => { if (swiped) { e.stopPropagation(); e.preventDefault(); swiped = false; } }, true);
+  }
+
   const ACTIONS = {
+    zoom() { if (Date.now() - lastSwipe > 400) openLightbox(); },
+    'photo-step'(btn) {
+      const n = kxgBuildView(items).photos.length;
+      if (n < 2) return;
+      photoIdx = (photoIdx + Number(btn.dataset.step) + n) % n;
+      render({ keepScroll: true });
+    },
     add(btn) {
       if (!me()) { askLogin(); return; }
       addKind = (btn && btn.dataset.kind) || addKind;
@@ -341,22 +526,40 @@ const KruxGymSheet = (() => {
     back() { view = 'info'; render(); },
     submit,
     go() { window.open(`https://www.google.com/maps/dir/?api=1&destination=${gym.coords[1]},${gym.coords[0]}`, '_blank'); },
-    async vote(btn) {
+    report() {
       if (!me()) { askLogin(); return; }
+      reportReason = 'incorrect';
+      view = 'report';
+      render();
+    },
+    async 'send-report'(btn) {
       if (busy) return;
+      const item = selectedPart();
+      if (!item) { toast('Elige qué parte está mal', 'info'); return; }
+      // Propuesta: solo cuenta si cambia el valor actual; los enlaces se guardan ya normalizados
+      let proposal = '';
+      const field = el.querySelector('#kxg-proposal');
+      if (field) {
+        const val = field.value.trim();
+        if (item.kind === 'link') {
+          const href = val ? kxgNormalizeLink(item.network, val) : null;
+          if (val && !href) { kxSetFieldError('kxg-proposal', `No parece un enlace de ${kxgNetwork(item.network).label}`); return; }
+          proposal = href && href !== item.url ? href : '';
+        } else {
+          proposal = val !== String(item.text || '').trim() ? val : '';
+        }
+      }
       busy = true;
+      btn.setAttribute('aria-busy', 'true');
       try {
-        const id = btn.dataset.id;
-        const r = await KruxGymInfo.vote(id, Number(btn.dataset.v));
-        const it = items.find(i => i.id === id);
-        if (it) { it.up = r.up; it.down = r.down; }
-        if (r.v) votes[id] = r.v; else delete votes[id];
-        if (it && kxgIsHidden(it)) toast('Esta aportación se ha ocultado por los votos de la comunidad', 'info');
-        render({ keepScroll: true });
+        const r = await KruxGymInfo.report(item, reportReason, proposal);
+        toast(r === 'already' ? 'Ya habías denunciado esto: lo estamos revisando' : 'Gracias: hemos recibido tu denuncia y la revisaremos', r === 'already' ? 'info' : 'success');
+        view = 'info';
+        render();
       } catch (e) {
-        console.error('[Rocódromos] Error al votar:', e);
-        toast('No se pudo registrar el voto', 'error');
-      } finally { busy = false; }
+        console.error('[Rocódromos] Error al denunciar:', e);
+        toast('No se pudo enviar la denuncia. Revisa la conexión.', 'error');
+      } finally { busy = false; btn.removeAttribute('aria-busy'); }
     },
     async del(btn) {
       const it = items.find(i => i.id === btn.dataset.id);
@@ -382,6 +585,13 @@ const KruxGymSheet = (() => {
       if (n) { n.hidden = !f; n.textContent = f ? f.name : ''; }
     }
     if (e.target.id === 'kxg-text') kxSetFieldError('kxg-text', '');
+    if (e.target.name === 'kxg-part') renderProposal();
+    if (e.target.name === 'kxg-net') {
+      linkNet = e.target.value;
+      const inp = el.querySelector('#kxg-url');
+      inp.placeholder = kxgNetwork(linkNet).ph;
+      kxSetFieldError('kxg-url', '');
+    }
   }
 
   return { open };

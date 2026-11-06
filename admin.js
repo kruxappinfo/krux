@@ -3133,90 +3133,148 @@ console.log('[Admin] Panel de administración cargado');
 
 
 // ============================================
-// ROCÓDROMOS: APORTACIONES DE LA COMUNIDAD (gym_info)
+// ROCÓDROMOS: DENUNCIAS DE LA COMUNIDAD (gym_reports sobre gym_info)
 // ============================================
-// Misma regla que gym-info.js: oculta cuando los «no me gusta» superan a los «me gusta» por 5 o más (salvo restaurada)
-const GYM_HIDE_NET = 5;
-const GYM_KIND_LABEL = { photo: 'Foto', hours: 'Horario', price: 'Precios', contact: 'Contacto', facility: 'Instalación' };
-let gymContribCache = [];
-
-function gymIsHidden(it) { return !it.restored && (it.down || 0) - (it.up || 0) >= GYM_HIDE_NET; }
+// Cualquier usuario puede denunciar una aportación y proponer un cambio. Aquí se revisan:
+//   · «Aceptar cambio» sustituye el texto/enlace de la aportación por la propuesta ya escrita por quien denuncia (horario, precios, contacto y enlaces);
+//   · «Borrar aportación» la elimina (y la foto del almacenamiento) y cierra todas sus denuncias;
+//   · «Rechazar» / «Descartar» cierra la denuncia sin tocar nada.
+const GYM_KIND_LABEL = { photo: 'Foto', hours: 'Horario', price: 'Precios', contact: 'Contacto', facility: 'Instalación', link: 'Red o web' };
+const GYM_REASON_LABEL = { incorrect: 'Es incorrecto', outdated: 'Está desfasado', inappropriate: 'Inapropiado o spam' };
+let gymReportCache = [];
+let gymInfoCache = {};
 
 async function loadGymContributions() {
     const listEl = document.getElementById('gymsList');
-    listEl.innerHTML = '<div class="loading"><div class="spinner"></div><p>Cargando aportaciones...</p></div>';
+    listEl.innerHTML = '<div class="loading"><div class="spinner"></div><p>Cargando denuncias...</p></div>';
     try {
-        const snap = await db.collection('gym_info').get();
-        gymContribCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const hiddenCount = gymContribCache.filter(gymIsHidden).length;
-        const badge = document.getElementById('gymsBadge');
-        if (badge) { badge.textContent = hiddenCount; badge.style.display = hiddenCount ? '' : 'none'; }
         const filter = document.getElementById('filterGymStatus').value;
-        const items = (filter === 'hidden' ? gymContribCache.filter(gymIsHidden) : gymContribCache)
+        let query = db.collection('gym_reports');
+        if (filter !== 'all') query = query.where('status', '==', filter);
+        const snap = await query.get();
+        gymReportCache = snap.docs.map(d => ({ id: d.id, ...d.data() }))
             .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        if (!items.length) {
-            listEl.innerHTML = `<div class="empty-state"><p>${filter === 'hidden' ? 'No hay aportaciones ocultas' : 'Todavía no hay aportaciones'}</p></div>`;
+
+        // Aportaciones denunciadas (una lectura por aportación)
+        const ids = [...new Set(gymReportCache.map(r => r.infoId))];
+        gymInfoCache = {};
+        await Promise.all(ids.map(async id => {
+            const d = await db.collection('gym_info').doc(id).get();
+            gymInfoCache[id] = d.exists ? { id: d.id, ...d.data() } : null;
+        }));
+
+        const openSnap = filter === 'open' ? snap : await db.collection('gym_reports').where('status', '==', 'open').get();
+        const openCount = openSnap.size;
+        const badge = document.getElementById('gymsBadge');
+        if (badge) { badge.textContent = openCount; badge.style.display = openCount ? '' : 'none'; }
+
+        if (!gymReportCache.length) {
+            listEl.innerHTML = `<div class="empty-state"><p>${filter === 'open' ? 'No hay denuncias pendientes' : 'No hay denuncias'}</p></div>`;
             return;
         }
-        listEl.innerHTML = items.map(it => {
-            const hidden = gymIsHidden(it);
-            const date = it.createdAt ? new Date(it.createdAt.toDate()).toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
-            const content = it.kind === 'photo'
-                ? `<img src="${escapeHtml(it.photoUrl || '')}" alt="" style="max-width:240px;border-radius:10px">`
-                : escapeHtml(it.kind === 'facility' ? it.value : it.text || '');
+        listEl.innerHTML = gymReportCache.map(r => {
+            const it = gymInfoCache[r.infoId];
+            const date = r.createdAt ? new Date(r.createdAt.toDate()).toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+            const isOpen = r.status === 'open';
+            let content;
+            if (!it) content = '<em>La aportación ya no existe</em>';
+            else if (it.kind === 'photo') content = `<img src="${escapeHtml(it.photoUrl || '')}" alt="" style="max-width:240px;border-radius:10px">`;
+            else if (it.kind === 'facility') content = escapeHtml(it.value || '');
+            else if (it.kind === 'link') content = `${escapeHtml(it.network || '')}: ${escapeHtml(it.url || '')}`;
+            else content = escapeHtml(it.text || '');
+            const canApply = isOpen && it && r.proposal && ['hours', 'price', 'contact', 'link'].includes(it.kind);
             return `
-                <div class="route-card ${hidden ? 'rejected' : 'approved'}">
+                <div class="route-card ${isOpen ? 'pending' : 'approved'}">
                     <div class="route-header">
                         <div>
-                            <div class="route-name">${escapeHtml(GYM_KIND_LABEL[it.kind] || it.kind)} · ${escapeHtml(it.gymId)}</div>
-                            <span class="badge ${hidden ? 'badge-rejected' : 'badge-approved'}">${hidden ? 'Oculta por votos' : it.restored ? 'Restaurada' : 'Visible'}</span>
+                            <div class="route-name">${escapeHtml(GYM_KIND_LABEL[r.kind] || r.kind)} · ${escapeHtml(r.gymId)}</div>
+                            <span class="badge ${isOpen ? 'badge-pending' : 'badge-approved'}">${isOpen ? 'Pendiente' : 'Resuelta'}</span>
+                            <span class="badge badge-rejected">${escapeHtml(GYM_REASON_LABEL[r.reason] || r.reason)}</span>
                         </div>
                     </div>
                     <div class="route-details">
                         <div>
-                            <div class="route-detail-label">Contenido</div>
+                            <div class="route-detail-label">Información denunciada</div>
                             <div class="route-detail-value">${content}</div>
                         </div>
                         <div>
-                            <div class="route-detail-label">Votos</div>
-                            <div class="route-detail-value">👍 ${it.up || 0} · 👎 ${it.down || 0}</div>
+                            <div class="route-detail-label">Cambio propuesto</div>
+                            <div class="route-detail-value">${r.proposal ? escapeHtml(r.proposal) : '<em>Sin propuesta</em>'}</div>
                         </div>
                     </div>
                     <div class="route-meta">
-                        <span>Aportado por: ${escapeHtml(it.authorName || it.authorId || 'Desconocido')}</span>
+                        <span>Denunciada por: ${escapeHtml(r.reporterName || r.reporterId || 'Desconocido')}${it ? ` · aportada por ${escapeHtml(it.authorName || 'Usuario')}` : ''}</span>
                         <span>${date}</span>
                     </div>
+                    ${isOpen ? `
                     <div class="route-actions">
-                        ${hidden ? `<button class="btn btn-success btn-sm" onclick="restoreGymContribution('${it.id}')">Restaurar</button>` : ''}
-                        <button class="btn btn-danger btn-sm" onclick="deleteGymContribution('${it.id}')">Borrar</button>
-                    </div>
+                        ${canApply ? `<button class="btn btn-success btn-sm" onclick="applyGymReport('${r.id}')">Aceptar cambio</button>` : ''}
+                        ${it ? `<button class="btn btn-danger btn-sm" onclick="deleteGymContribution('${r.id}')">Borrar aportación</button>` : ''}
+                        <button class="btn btn-sm" onclick="dismissGymReport('${r.id}')">${canApply ? 'Rechazar' : 'Descartar'}</button>
+                    </div>` : ''}
                 </div>`;
         }).join('');
     } catch (error) {
-        console.error('Error loading gym contributions:', error);
-        listEl.innerHTML = '<div class="empty-state"><p>Error al cargar las aportaciones</p></div>';
+        console.error('Error loading gym reports:', error);
+        listEl.innerHTML = '<div class="empty-state"><p>Error al cargar las denuncias</p></div>';
     }
 }
 
-async function restoreGymContribution(id) {
+// Cierra todas las denuncias abiertas de una aportación
+async function resolveGymReportsOf(infoId) {
+    const snap = await db.collection('gym_reports').where('infoId', '==', infoId).get();
+    const batch = db.batch();
+    snap.forEach(d => { if (d.data().status === 'open') batch.update(d.ref, { status: 'resolved' }); });
+    await batch.commit();
+}
+
+async function applyGymReport(reportId) {
+    const r = gymReportCache.find(x => x.id === reportId);
+    const it = r && gymInfoCache[r.infoId];
+    if (!r || !it) return;
+    let value = String(r.proposal || '').trim();
+    const patch = {};
+    if (it.kind === 'link') {
+        if (!/^https:\/\/[^\s]+$/.test(value)) {
+            value = prompt('La propuesta no es una dirección https válida. Escribe el enlace correcto:', value) || '';
+            if (!/^https:\/\/[^\s]+$/.test(value.trim())) { showToast('Enlace no válido: no se ha aplicado', 'error'); return; }
+        }
+        patch.url = value.trim();
+    } else {
+        patch.text = value.slice(0, 500);
+    }
     try {
-        await db.collection('gym_info').doc(id).update({ restored: true });
-        showToast('Aportación restaurada: vuelve a verse en la ficha', 'success');
+        await db.collection('gym_info').doc(it.id).update(patch);
+        await resolveGymReportsOf(it.id);
+        showToast('Cambio aplicado', 'success');
         loadGymContributions();
     } catch (error) {
-        console.error('Error restoring gym contribution:', error);
-        showToast('No se pudo restaurar', 'error');
+        console.error('Error applying gym report:', error);
+        showToast('No se pudo aplicar el cambio', 'error');
     }
 }
 
-async function deleteGymContribution(id) {
-    if (!confirm('¿Borrar esta aportación definitivamente?')) return;
-    const it = gymContribCache.find(x => x.id === id);
+async function dismissGymReport(reportId) {
     try {
-        await db.collection('gym_info').doc(id).delete();
-        if (it && it.storagePath && firebase.storage) {
+        await db.collection('gym_reports').doc(reportId).update({ status: 'resolved' });
+        showToast('Denuncia descartada', 'info');
+        loadGymContributions();
+    } catch (error) {
+        console.error('Error dismissing gym report:', error);
+        showToast('No se pudo descartar', 'error');
+    }
+}
+
+async function deleteGymContribution(reportId) {
+    const r = gymReportCache.find(x => x.id === reportId);
+    const it = r && gymInfoCache[r.infoId];
+    if (!it || !confirm('¿Borrar esta aportación definitivamente?')) return;
+    try {
+        await db.collection('gym_info').doc(it.id).delete();
+        if (it.storagePath && firebase.storage) {
             try { await firebase.storage().ref(it.storagePath).delete(); } catch (_) {}
         }
+        await resolveGymReportsOf(it.id);
         showToast('Aportación borrada', 'info');
         loadGymContributions();
     } catch (error) {
