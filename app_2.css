@@ -32043,7 +32043,7 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 .kxg-fac-opt span { color: var(--kx-ink); font-size: var(--kx-fs-meta); font-weight: 700; line-height: 1.3; }
 .kxg-fac-opt small { color: var(--kx-ink-3); font-size: 0.6875rem; line-height: 1.3; }
 .kxg-fac-opt { transition: background var(--kx-dur) var(--kx-ease), box-shadow var(--kx-dur) var(--kx-ease); }
-.kxg-fac-opt:has(input:checked) { background: var(--kx-forest); box-shadow: none; }
+.kxg-fac-opt:has(input:checked) { background: #2A4038; box-shadow: none; }   /* verde bosque algo más claro que el de los botones */
 .kxg-fac-opt:has(input:checked) span { color: #fff; }
 .kxg-fac-opt:has(input:checked) small { color: rgba(255, 255, 255, 0.78); }
 .kxg-fac-opt:has(input:focus-visible) { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
