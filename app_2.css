@@ -31138,7 +31138,7 @@ body.map-active #map-view .legend-panel .lp-pane {
    Las fichas usan el .kx-btn general (píldora, peso 600) en tamaño grande;
    aquí solo se reparte el ancho del pie. */
 .kx-msheet-foot > .kx-btn { white-space: nowrap; }
-.kx-msheet-foot > .kx-btn span { overflow: hidden; text-overflow: ellipsis; }
+.kx-msheet-foot > .kx-btn span { overflow: hidden; text-overflow: ellipsis; line-height: 1.4; padding: 1px 0; }   /* sin recortar el ¿ ni los acentos */
 @media (hover: hover) {
   .kx-lact:hover, .kx-act:hover { background: var(--kx-stone-hover); }
   .kx-act.is-primary:hover { background: var(--kx-sage-hover); }}
@@ -31885,3 +31885,11 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
   }
   body.kx-sess-open #bottom-sheet-overlay { display: block !important; }
 }
+
+/* Ficha móvil de escuela: el donut se funde con el fondo de la hoja (sin tarjeta blanca) y es más grande;
+   una indicación suave explica que los grados se pueden tocar. */
+#school-bottom-sheet .bs-chart-card { background: transparent; padding: 0; margin: -10px 0 8px; }
+#school-bottom-sheet .bs-chart-header { margin-bottom: 2px; }
+#school-bottom-sheet .bs-chart-hint { margin: 0 0 6px; text-align: center; font-size: 13px; font-weight: 500; color: #9ca3af; }
+#school-bottom-sheet .bs-donut-chart { width: min(212px, 100%); height: auto; aspect-ratio: 1; }
+#school-bottom-sheet .bs-skeleton-donut { padding: 8px 0; }
