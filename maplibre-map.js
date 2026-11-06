@@ -7944,9 +7944,9 @@ function initBottomSheet() {
 
   kxSchoolSheet = KXMapSheet.create(bottomSheet, {
     snaps: ['summary', 'expanded'],
-    // El resumen llega hasta el final de la tarjeta del donut
-    peek: '#bs-donut-card',
-    peekMax: 0.8,
+    // El resumen llega hasta el final de la tarjeta del tiempo (donut y tiempo visibles; el pie no los tapa)
+    peek: '#bs-weather-widget',
+    peekMax: 0.92,
     onRequestClose: hideBottomSheet,
     onStateChange: state => { bsCurrentState = state; }
   });
