@@ -31672,3 +31672,216 @@ body.map-active #map-view .legend-panel .lp-pane {
 #school-bottom-sheet.has-more .kx-msheet-foot {
   box-shadow: 0 -1px 0 var(--kx-line), 0 -12px 14px -10px rgba(32, 41, 35, 0.2);
 }
+
+/* ====================================================================
+   SESIONES DE ESCALADA EN ROCA (climb-session-ui.js)
+   Botón flotante, tarjeta de sesión activa, hoja de sesión (móvil) / modal (escritorio).
+   Reutiliza .kx-msheet, .kx-btn, .kx-stat, .kx-seg, .kx-irow y .kx-gchart.
+   ==================================================================== */
+
+/* Botón flotante: círculo verde al final de la columna inferior derecha, distinto de los controles cartográficos */
+#map-view .maplibregl-ctrl-bottom-right > .maplibregl-ctrl-attrib { order: 2; }   /* la atribución sigue al final de la pila */
+#map-view .kx-sess-fab {
+  order: 1;
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kx-forest);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(20, 28, 24, 0.18), 0 6px 16px rgba(20, 28, 24, 0.28);
+  transform: none;
+  will-change: auto;
+  white-space: normal;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.2s var(--kx-ease), transform 0.15s var(--kx-ease);
+}
+#map-view .kx-sess-fab:active { transform: scale(0.95); background: var(--kx-primary-pressed); }
+@media (hover: hover) { #map-view .kx-sess-fab:hover { background: var(--kx-primary-hover); transform: none; box-shadow: 0 1px 2px rgba(20, 28, 24, 0.18), 0 6px 16px rgba(20, 28, 24, 0.28); }}
+#map-view .kx-sess-fab:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 3px; }
+.kx-sess-fab-dot { display: none; position: absolute; top: 5px; right: 5px; width: 11px; height: 11px; border-radius: 50%; background: #4CC38A; box-shadow: 0 0 0 2px var(--kx-forest); }
+.kx-sess-fab.is-live .kx-sess-fab-dot { display: block; animation: kxsPulse 1.8s ease-in-out infinite; }
+@keyframes kxsPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.25); } }
+
+/* Indicador de sesión activa (verde) o en pausa (ámbar) */
+.kxs-live { display: inline-block; flex: none; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: var(--kx-success, #2E7D4F); }
+.kxs-live.is-paused, .kx-sess-card.is-paused .kxs-live { background: var(--kx-warning, #B7791F); }
+.kx-sess-card:not(.is-paused) .kxs-live { animation: kxsPulse 1.8s ease-in-out infinite; }
+
+/* Tarjeta compacta bajo el buscador */
+#map-view .kx-sess-card {
+  position: absolute;
+  z-index: 4;
+  top: var(--map-panel-top);
+  left: var(--map-gap);
+  right: var(--map-gap);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  margin: 0;
+  padding: 8px 12px 8px 14px;
+  border: 1px solid var(--map-edge);
+  border-radius: 16px;
+  background: var(--map-solid);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--map-shadow);
+  color: var(--map-ink);
+  font-family: var(--kx-font);
+  text-align: left;
+  white-space: normal;
+  transform: none;
+  will-change: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#map-view .kx-sess-card[hidden] { display: none; }
+#map-view .kx-sess-card:active { background: rgba(240, 239, 233, 0.96); transform: none; }
+@media (hover: hover) { #map-view .kx-sess-card:hover { background: #fff; transform: none; box-shadow: var(--map-shadow); }}
+#map-view .kx-sess-card:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+@media (min-width: 1025px) { #map-view .kx-sess-card { right: auto; width: 340px; }}
+.kx-sess-card-main { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; gap: 1px; }
+.kx-sess-card-title { display: flex; align-items: center; font-size: var(--kx-fs-meta); font-weight: 700; line-height: 1.2; }
+.kx-sess-card-sub { font-size: var(--kx-fs-caption); color: var(--kx-ink-3); line-height: 1.25; padding-left: 17px; overflow-wrap: anywhere; }
+.kx-sess-card-clock { flex: none; font-size: 1.25rem; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.kx-sess-card.is-paused .kx-sess-card-clock { color: var(--kx-ink-3); }
+.kx-sess-card-chev { flex: none; color: var(--kx-ink-3); }
+
+/* ---- Contenido de la hoja ---- */
+#kx-sess-sheet .kx-fhead-meta { display: flex; align-items: center; }
+.kxs-lead { margin: 0 0 16px; color: var(--kx-ink-2); font-size: var(--kx-fs-body); line-height: 1.45; }
+.kxs-note { margin: 10px 2px 0; color: var(--kx-ink-3); font-size: var(--kx-fs-caption); line-height: 1.4; }
+.kxs-note[hidden], .kxs-field[hidden], .kxs-peers[hidden] { display: none; }
+.kxs-empty { margin: 8px 0; color: var(--kx-ink-3); font-size: var(--kx-fs-meta); line-height: 1.4; }
+
+.kxs-type, .kxs-switchrow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 14px;
+  border-radius: 18px;
+}
+.kxs-type { border: 1.5px solid var(--kx-forest); background: var(--kx-sage-soft); }
+.kxs-switchrow { border: 1px solid var(--kx-line); background: var(--kx-stone-card); }
+.kxs-type-ic, .kxs-switchrow-ic { display: inline-flex; color: var(--kx-forest); }
+.kxs-switchrow-ic { color: var(--kx-ink-2); }
+.kxs-type-text { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.kxs-type-text strong { font-size: var(--kx-fs-body); font-weight: 700; color: var(--kx-ink); }
+.kxs-type-text small { font-size: var(--kx-fs-meta); color: var(--kx-ink-3); line-height: 1.35; }
+.kxs-type-ok { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--kx-forest); color: #fff; }
+
+.kxs-switch {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 32px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: #C5CBC7;
+  box-shadow: none;
+  transform: none;
+  will-change: auto;
+  white-space: normal;
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease);
+  -webkit-tap-highlight-color: transparent;
+}
+.kxs-switch::after { content: ''; position: absolute; inset: -6px -2px; }   /* zona táctil de 44 px */
+.kxs-switch > span { position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(20, 28, 24, 0.3); transition: transform 0.2s var(--kx-ease); }
+.kxs-switch[aria-checked="true"] { background: var(--kx-forest); }
+.kxs-switch[aria-checked="true"] > span { transform: translateX(20px); }
+.kxs-switch:hover { transform: none; box-shadow: none; background: #C5CBC7; }
+.kxs-switch[aria-checked="true"]:hover { background: var(--kx-forest); }
+.kxs-switch:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 3px; }
+
+.kxs-clock { margin: 2px 0 14px; text-align: center; font-size: clamp(2.5rem, 13vw, 3.25rem); font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--kx-ink); }
+.kxs-clock.is-paused { color: var(--kx-ink-3); }
+
+.kxs-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.kxs-stats--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kxs-stats--3 .kx-stat-label { font-size: 0.75rem; overflow-wrap: normal; }
+.kxs-gps { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--kx-ink-2); font-size: var(--kx-fs-meta); line-height: 1.35; }
+.kxs-gps svg { flex: none; }
+.kxs-gps.is-warn { color: var(--kx-warning-ink, #7A5410); }
+.kxs-chart { margin: 4px 0 16px; }
+.kxs-sec { padding-top: 6px; }
+
+.kxs-entries { display: flex; flex-direction: column; }
+.kxs-entry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  margin: 0;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--kx-line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--kx-ink);
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  transform: none;
+  will-change: auto;
+}
+.kxs-entries > .kxs-entry:last-child { border-bottom: 0; }
+button.kxs-entry { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button.kxs-entry:active { background: var(--kx-stone-card); transform: none; }
+@media (hover: hover) { button.kxs-entry:hover { background: var(--kx-stone-card); transform: none; box-shadow: none; }}
+button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: -2px; border-radius: var(--kx-radius-sm); }
+.kxs-entry-text { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.kxs-entry-text strong { font-size: var(--kx-fs-body); font-weight: 700; overflow-wrap: anywhere; }
+.kxs-entry-text small { font-size: var(--kx-fs-caption); color: var(--kx-ink-3); overflow-wrap: anywhere; }
+
+/* Grado: etiqueta neutra con el color del grado (sin tocar los colores originales) como punto */
+.kxs-grade { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 52px; height: 32px; padding: 0 10px; border-radius: 10px; background: var(--kx-stone-card); color: var(--kx-ink); font-size: var(--kx-fs-meta); font-weight: 800; font-variant-numeric: tabular-nums; }
+.kxs-grade::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgba(32, 41, 35, 0.25); }
+.kxs-grade.is-none { color: var(--kx-ink-3); }
+.kxs-grade.is-none::before { display: none; }
+.kxs-grade--lg { height: 36px; font-size: var(--kx-fs-body); }
+
+/* Registro de ascenso */
+.kxs-field { margin: 0 0 18px; }
+.kxs-label { margin: 0 0 8px; font-size: var(--kx-fs-meta); font-weight: 700; color: var(--kx-ink-2); }
+.kxs-peers { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
+.kxs-peer { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 4px 2px; border-bottom: 1px solid var(--kx-line); font-size: var(--kx-fs-body); cursor: pointer; }
+.kxs-peer:last-child { border-bottom: 0; }
+.kxs-peer input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--kx-forest); }
+.kxs-peer span { min-width: 0; overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kx-sess-fab.is-live .kx-sess-fab-dot, .kx-sess-card:not(.is-paused) .kxs-live { animation: none; }
+}
+
+/* Escritorio: la misma hoja se muestra como modal centrado, con fondo atenuado */
+@media (min-width: 1025px) {
+  #kx-sess-sheet.bottom-sheet.kx-msheet:not(.hidden) {
+    display: flex !important;
+    left: calc(50% - 230px);
+    right: auto;
+    bottom: 6vh;
+    width: 460px;
+    max-height: 88vh;
+    border-radius: var(--kx-radius-sheet);
+  }
+  body.kx-sess-open #bottom-sheet-overlay { display: block !important; }
+}

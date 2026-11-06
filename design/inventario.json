@@ -86,8 +86,8 @@
    "nombre": "Selector segmentado con paso a chips",
    "donde": "app_2.css · map-ui.js",
    "construido": true,
-   "integracion": "no",
-   "uso": "Ninguno.",
+   "integracion": "parcial",
+   "uso": "Sesiones de escalada: Resultado y Estilo al registrar una vía.",
    "pendiente": "Sustituye al menos diez versiones propias: Actividad, Entrena, Perfil, Social, administración y recorte de vídeo.",
    "fase": "Fase 6, sección a sección",
    "marcas": [
@@ -286,8 +286,8 @@
    "nombre": "Sección con título y separador (.kx-fsec / .kx-fsecs)",
    "donde": "app_2.css · map-ui.js",
    "construido": true,
-   "integracion": "no",
-   "uso": "Ninguna.",
+   "integracion": "parcial",
+   "uso": "Sesiones de escalada: lista de vías del panel y del resumen.",
    "pendiente": "Contenido de las fichas rediseñadas.",
    "fase": "Fase 4",
    "marcas": [
@@ -301,8 +301,8 @@
    "nombre": "Fila de dato (.kx-irow, pulsable opcional)",
    "donde": "app_2.css · map-ui.js",
    "construido": true,
-   "integracion": "no",
-   "uso": "Ninguna.",
+   "integracion": "parcial",
+   "uso": "Sesiones de escalada: selector de compañeros.",
    "pendiente": "Acceso, exposición y estado en las fichas; filas de Perfil y Actividad.",
    "fase": "Fases 4 y 6",
    "marcas": [
@@ -316,8 +316,8 @@
    "nombre": "Franja de datos técnicos (.kx-stat)",
    "donde": "app_2.css · map-ui.js",
    "construido": true,
-   "integracion": "no",
-   "uso": "Ninguna.",
+   "integracion": "parcial",
+   "uso": "Sesiones de escalada: datos del panel y del resumen (tiempo, vías, metros, encadenadas, recorrido).",
    "pendiente": "Tipo, express y metros de la ficha de vía.",
    "fase": "Fase 4",
    "marcas": [

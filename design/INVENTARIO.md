@@ -9,8 +9,8 @@ Este documento se genera desde `inventario.json`. La prueba `tests/design-invent
 | Estado | Componentes |
 |---|---|
 | Integrado | 9 |
-| Integrado en parte | 7 |
-| Construido, sin integrar | 10 |
+| Integrado en parte | 11 |
+| Construido, sin integrar | 6 |
 | Por construir | 2 |
 | **Total** | **28** |
 
@@ -33,7 +33,7 @@ Este documento se genera desde `inventario.json`. La prueba `tests/design-invent
 |---|---|---|---|---|
 | Botón (.kx-btn: píldora, 4 variantes, 3 tamaños) | Integrado en parte | app_2.css · map-ui.js | Pies de las fichas de escuela y sector, botones de la ficha de escuela en el popup de escritorio, Notificaciones, Notificar y reintentos de Buscar y Chat (2 de 185 botones del HTML principal, más los generados desde app_3.js y maplibre-map.js). | Los demás botones conservan clases propias por sección. **Fase 6, sección a sección** |
 | Filtro (chip) | Integrado | app_2.css | Buscar, Notificaciones y motivos de Notificar. | — |
-| Selector segmentado con paso a chips | Construido, sin integrar | app_2.css · map-ui.js | Ninguno. | Sustituye al menos diez versiones propias: Actividad, Entrena, Perfil, Social, administración y recorte de vídeo. **Fase 6, sección a sección** |
+| Selector segmentado con paso a chips | Integrado en parte | app_2.css · map-ui.js | Sesiones de escalada: Resultado y Estilo al registrar una vía. | Sustituye al menos diez versiones propias: Actividad, Entrena, Perfil, Social, administración y recorte de vídeo. **Fase 6, sección a sección** |
 | Campo de texto (.kx-field suelto) | Integrado en parte | app_2.css | Notificar (3 de 67 controles de formulario del HTML principal). | El resto de controles tienen estilos propios. **Fase 6, Formularios y menús** |
 | Campo con etiqueta, ayuda y error (.kx-formrow) | Construido, sin integrar | app_2.css · map-ui.js | Ninguno. | Adoptarlo primero en Notificar y después en los formularios de Perfil, Entrena y Spotter. **Fase 6, Formularios y menús** |
 | Etiqueta de estado o atributo (.kx-tag, 6 tonos) | Integrado en parte | app_2.css · map-ui.js | Tipo de roca de la ficha de escuela, en la hoja móvil y en el popup de escritorio. | Acceso, restricción y exposición del sector; insignias de Entrena y Actividad. **Fases 4 y 6** |
@@ -57,9 +57,9 @@ Este documento se genera desde `inventario.json`. La prueba `tests/design-invent
 | Componente | Estado | Dónde vive | Uso hoy | Pendiente |
 |---|---|---|---|---|
 | Cabecera de ficha (.kx-fhead) | Integrado | app_2.css · map-ui.js | Fichas de escuela, sector y vía (a través de kxSheetDragHTML). | — |
-| Sección con título y separador (.kx-fsec / .kx-fsecs) | Construido, sin integrar | app_2.css · map-ui.js | Ninguna. | Contenido de las fichas rediseñadas. **Fase 4** |
-| Fila de dato (.kx-irow, pulsable opcional) | Construido, sin integrar | app_2.css · map-ui.js | Ninguna. | Acceso, exposición y estado en las fichas; filas de Perfil y Actividad. **Fases 4 y 6** |
-| Franja de datos técnicos (.kx-stat) | Construido, sin integrar | app_2.css · map-ui.js | Ninguna. | Tipo, express y metros de la ficha de vía. **Fase 4** |
+| Sección con título y separador (.kx-fsec / .kx-fsecs) | Integrado en parte | app_2.css · map-ui.js | Sesiones de escalada: lista de vías del panel y del resumen. | Contenido de las fichas rediseñadas. **Fase 4** |
+| Fila de dato (.kx-irow, pulsable opcional) | Integrado en parte | app_2.css · map-ui.js | Sesiones de escalada: selector de compañeros. | Acceso, exposición y estado en las fichas; filas de Perfil y Actividad. **Fases 4 y 6** |
+| Franja de datos técnicos (.kx-stat) | Integrado en parte | app_2.css · map-ui.js | Sesiones de escalada: datos del panel y del resumen (tiempo, vías, metros, encadenadas, recorrido). | Tipo, express y metros de la ficha de vía. **Fase 4** |
 
 ## Datos y gráficos
 

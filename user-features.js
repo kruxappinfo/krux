@@ -479,10 +479,21 @@ async function logAscent(ascentData) {
             notes: ascentData.notes || '',
             ...(ascentData.schoolCity ? { schoolCity: ascentData.schoolCity } : {}),
             ...(ascentData.climbType ? { climbType: ascentData.climbType } : {}),
+            // Solo los ascensos registrados dentro de una sesión de escalada (climb-session.js)
+            ...(ascentData.sessionId ? { sessionId: ascentData.sessionId } : {}),
+            ...(ascentData.loggedAt ? { loggedAt: new Date(ascentData.loggedAt) } : {}),
+            ...(Array.isArray(ascentData.companions) && ascentData.companions.length ? { companions: ascentData.companions.slice(0, 10) } : {}),
         };
 
-        // Add to ascents collection
-        const docRef = await db.collection('ascents').add(data);
+        if (ascentData.id) {
+            // Id fijo (sesiones, con reintentos sin conexión): si ya existe no se vuelve a crear ni a contar
+            const ref = db.collection('ascents').doc(ascentData.id);
+            if ((await ref.get()).exists) return true;
+            await ref.set(data);
+        } else {
+            // Add to ascents collection
+            await db.collection('ascents').add(data);
+        }
 
         // Update user stats
         await db.collection('users').doc(currentUser.uid).update({
@@ -707,6 +718,12 @@ async function getUserStats() {
 function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector) {
     if (!currentUser) {
         showToast('Inicia sesión para registrar tus ascensiones', 'info');
+        return;
+    }
+
+    // Con una sesión de escalada activa, el registro pasa por la hoja de la sesión (mismo logAscent, con sessionId)
+    if (routeId != null && schoolId && window.KruxSession && KruxSession.isActive() && window.KruxSessionUI) {
+        KruxSessionUI.openRegister({ schoolId, schoolName, routeId, routeName, grade, sector });
         return;
     }
 

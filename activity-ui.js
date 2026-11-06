@@ -102,6 +102,7 @@
     placesTab: 'school',
     sessFilter: 'all', sessions: [], sessShown: 5, gymSessions: [], gymSessShown: 5,
     thumbs: new Map(),
+    climb: [], climbShown: 5, climbToken: 0,
   };
 
   // ── Helpers de datos ────────────────────────────────────────────────
@@ -243,46 +244,13 @@
   }
 
   // ── Longitud real de las vías (GeoJSON de la escuela) ───────────────
-  function lengthOf(p) {
-    const L = [1, 2, 3, 4, 5].map(n => { const v = parseFloat(p['long' + n]); return v > 0 ? v : null; });
-    if (!L.some(Boolean)) return null;
-    if (L[1] == null) return L[0] || null;                          // un solo largo
-    if (/multilargo/i.test(p.modalidad || '')) return L.filter(Boolean).reduce((s, v) => s + v, 0);  // suma de los largos
-    return null;                                                    // varias longitudes ambiguas (variantes): no se adivina
-  }
-  function loadViasIndex(schoolId) {
-    if (S.viasIdx.has(schoolId)) return S.viasIdx.get(schoolId);
-    const url = knownSchool(schoolId) && MAPLIBRE_SCHOOLS[schoolId].geojson?.vias;
-    const p = (async () => {
-      if (!url) return null;
-      try {
-        const r = await fetch(url);
-        if (!r.ok) return null;
-        const g = await r.json();
-        const m = new Map();
-        (g.features || []).forEach(f => {
-          const id = String(f.properties?.id);
-          if (!m.has(id)) m.set(id, []);
-          m.get(id).push(f.properties);
-        });
-        return m;
-      } catch (_) { return null; }
-    })();
-    S.viasIdx.set(schoolId, p);
-    return p;
-  }
+  // La regla de longitudes (un largo, multilargo, variantes ambiguas) y el índice de vías viven en climb-session.js,
+  // compartidos con las sesiones de escalada para que ambos cuenten los mismos metros.
+  const lengthOf = p => kxsRouteLength(p);
+  const loadViasIndex = schoolId => (knownSchool(schoolId) ? kxsLoadViasIndex(schoolId) : Promise.resolve(null));
   function metersFor(idx, a) {
     if (!idx || a.routeId == null || a.routeId === '') return null;
-    const c = idx.get(String(a.routeId));
-    if (!c || !c.length) return null;
-    let cand = c;
-    if (cand.length > 1) {
-      const nm = String(a.routeName || '').trim().toLowerCase();
-      const byName = cand.filter(p => String(p.nombre || '').trim().toLowerCase() === nm);
-      if (byName.length) cand = byName;
-    }
-    const vals = [...new Set(cand.map(lengthOf))];
-    return vals.length === 1 ? vals[0] : null;
+    return kxsPickMeters(idx.get(String(a.routeId)), a.routeName);
   }
   async function resolveMeters() {
     const token = ++S.metersToken;
@@ -958,6 +926,55 @@
     hydrateThumbs(el);
   }
 
+  // ── Sesiones de escalada (reales, iniciadas desde el mapa) ───────────
+  // Separadas de «Últimas sesiones», que agrupa ascensos por día y lugar: aquí cada tarjeta es una sesión con
+  // cronómetro (climb-session.js) y su detalle es el mismo resumen que se ve al finalizarla.
+  function climbCard(c, i) {
+    const d = new Date(c.startedAt);
+    const st = c.stats || {};
+    const dur = typeof kxsFormatDuration === 'function' ? kxsFormatDuration(c.activeMs || 0) : '';
+    const bits = [dur, plural(st.routes || 0, 'vía', 'vías'), st.meters > 0 ? `${nf.format(st.meters)} m` : '', c.gps && c.gps.enabled && c.gps.distanceM > 0 && typeof kxsFormatDistance === 'function' ? kxsFormatDistance(c.gps.distanceM) : ''].filter(Boolean);
+    return `<button type="button" class="ax-sess" data-ax="climb-open" data-i="${i}">
+      <span class="ax-thumb ax-thumb--lg ax-datetile"><b>${d.getDate()}</b><small>${MONTHS[d.getMonth()]}</small></span>
+      <span class="ax-sess-text">
+        <small>${fmtDayYear(d)}</small>
+        <strong>${esc(c.schoolName || 'Sesión de escalada')}</strong>
+        <span class="ax-sess-chips">${bits.map(t => `<em>${esc(t)}</em>`).join('')}${st.maxGrade ? `<em class="ax-chip-grade" style="--c:${gcolor(st.maxGrade)}">${esc(st.maxGrade)}</em>` : ''}</span>
+      </span>
+      <span class="ax-sess-go">${I.chevron}</span>
+    </button>`;
+  }
+
+  function renderClimbSessions() {
+    const el = $('ax-climb');
+    if (!el) return;
+    if (!S.climb.length) { el.innerHTML = ''; return; }   // sin sesiones no se muestra nada (no hay estado vacío engañoso)
+    const shown = S.climb.slice(0, S.climbShown);
+    el.innerHTML = `<div class="ax-bare-head"><h2 class="ax-h2 ax-h2--lg">Sesiones de escalada</h2></div>
+      <div class="activity-list ax-sess-list">${shown.map(climbCard).join('')}</div>
+      ${S.climb.length > shown.length ? '<button type="button" class="ax-btn ax-btn--soft" data-ax="climb-more">Ver todas las sesiones de escalada</button>' : ''}`;
+  }
+
+  async function loadClimbSessions() {
+    const token = ++S.climbToken;
+    if (!window.KruxSession) return;
+    try {
+      const list = await KruxSession.list(50);
+      if (token !== S.climbToken) return;
+      S.climb = list;
+    } catch (e) { return; }
+    renderClimbSessions();
+  }
+
+  async function openClimbSession(id) {
+    let c = S.climb.find(x => x.id === id);
+    if (!c) { await loadClimbSessions(); c = S.climb.find(x => x.id === id); }
+    if (!c || !window.KruxSessionUI) return;
+    let entries = [];
+    try { entries = await KruxSession.ascentsOf(c.id); } catch (e) { /* se muestra el resumen guardado */ }
+    KruxSessionUI.openSummary({ session: c, entries }, { history: true });
+  }
+
   function renderGymSessions() {
     const el = $('activity-list-gym');
     if (!el) return;
@@ -1077,6 +1094,8 @@
       case 'place-go': closeSheet(true); if (typeof _navigateToGymOnMap === 'function') _navigateToGymOnMap(t.dataset.school); break;
       case 'goto-map': if (typeof switchView === 'function') switchView('map-view'); break;
       case 'sess-open': sessionSheet(t.dataset.kind, parseInt(t.dataset.i, 10)); break;
+      case 'climb-open': openClimbSession(S.climb[parseInt(t.dataset.i, 10)] && S.climb[parseInt(t.dataset.i, 10)].id); break;
+      case 'climb-more': S.climbShown += 10; renderClimbSessions(); break;
       case 'sess-more': S.sessShown += 10; renderSessions(); break;
       case 'gsess-more': S.gymSessShown += 10; renderGymSessions(); break;
       case 'retry': if (typeof loadActivityData === 'function') { showLoading(); loadActivityData(); } break;
@@ -1122,6 +1141,8 @@
     renderConsistency();
     renderRecords();
     renderPlaces();
+    renderClimbSessions();
+    loadClimbSessions();
     renderSessions();
     renderGymConsistency();
     renderGymSessions();
@@ -1142,12 +1163,17 @@
     document.addEventListener('click', onClick);
     document.addEventListener('change', onChange);
     if (!S.loaded) showLoading();   // si los datos ya llegaron no se tapan con el esqueleto
+    // Al finalizar una sesión de escalada, su tarjeta aparece sin recargar la pestaña
+    if (window.KruxSession) {
+      let was = KruxSession.isActive();
+      KruxSession.on(() => { const now = KruxSession.isActive(); if (was && !now) loadClimbSessions(); was = now; });
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 
   window.KruxActivity = {
-    render, showError, setSessionFilter, renderPhysical,
+    render, showError, setSessionFilter, renderPhysical, openClimbSession,
     // Funciones puras expuestas para las pruebas
     _test: { milestoneState, lengthOf, MILESTONES, periodRange, bestStreak, groupSessions, delta },
   };

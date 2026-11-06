@@ -1433,6 +1433,24 @@ function addMapControls() {
 
   // Botón de información / leyenda
   addInfoLegendButton();
+
+  // Sesiones de escalada: botón flotante y tarjeta de sesión activa (climb-session-ui.js)
+  if (typeof KruxSessionUI !== 'undefined') KruxSessionUI.mountMap(mlMap);
+}
+
+// Recorrido GPS de la sesión activa (lista vacía = quitarlo). Lo llama climb-session-ui.js
+function kxSessionDrawTrack(points) {
+  if (!mlMap) return;
+  const apply = () => {
+    const data = { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: points.map(p => [p.lng, p.lat]) } };
+    const src = mlMap.getSource('kx-session-track');
+    if (src) { src.setData(data); return; }
+    if (!points.length) return;
+    mlMap.addSource('kx-session-track', { type: 'geojson', data });
+    mlMap.addLayer({ id: 'kx-session-track-casing', type: 'line', source: 'kx-session-track', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#FFFFFF', 'line-width': 7, 'line-opacity': 0.9 } });
+    mlMap.addLayer({ id: 'kx-session-track-line', type: 'line', source: 'kx-session-track', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2F7D62', 'line-width': 3.5 } });
+  };
+  if (mlMap.isStyleLoaded()) apply(); else mlMap.once('idle', apply);
 }
 
 // Estado del modo 3D
