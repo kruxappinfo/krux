@@ -31589,7 +31589,7 @@ body.map-active #map-view .legend-panel .lp-pane {
 .kx-gchart-grid { display: none; }
 .kx-gchart-bars { position: relative; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); align-items: stretch; box-sizing: border-box; height: calc(var(--kx-gplot-h) + 22px); padding-top: 22px; border-bottom: 1px solid var(--kx-line); touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none; }
 .kx-gbar { position: relative; display: flex; align-items: flex-end; justify-content: center; min-width: 0; min-height: 0; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: inherit; font: inherit; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.kx-gbar-fill { display: block; width: min(28px, calc(100% - 6px)); height: var(--h); min-height: 3px; border-radius: 5px 5px 0 0; background: var(--c); box-shadow: none; transition: opacity var(--kx-dur) var(--kx-ease); }
+.kx-gbar-fill { display: block; width: min(48px, calc(100% - 8px)); height: var(--h); min-height: 3px; border-radius: 5px 5px 0 0; background: var(--c); box-shadow: none; transition: opacity var(--kx-dur) var(--kx-ease); }
 .kx-gbar-val { position: absolute; left: 50%; bottom: calc(var(--h) + 5px); display: none; transform: translateX(-50%); color: var(--kx-ink-2); font-size: 0.75rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; pointer-events: none; }
 .kx-gbar-val, .kx-gbar[aria-pressed="true"] .kx-gbar-val { display: block; }
 .kx-gbar[aria-pressed="true"] .kx-gbar-val { color: var(--kx-ink); font-weight: 800; }
@@ -31941,3 +31941,6 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 #school-bottom-sheet .bs-kcard--activity .bs-kstat-value { font-size: var(--kx-fs-title); }
 #school-bottom-sheet .bs-kstat-label { max-width: 100%; font-size: var(--kx-fs-caption); line-height: 1.25; color: var(--kx-ink-3); overflow-wrap: normal; }
 #school-bottom-sheet .bs-kcard-empty { margin: 0; padding: 4px 8px 10px; font-size: var(--kx-fs-meta); color: var(--kx-ink-3); }
+
+/* Resumen de sesión: métrica sin datos (GPS no usado, sin longitud de vías…) */
+.kx-stat.kxs-stat-empty .kx-stat-value { color: var(--kx-ink-3); font-size: var(--kx-fs-body); font-weight: 600; line-height: 1.5; }

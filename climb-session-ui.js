@@ -40,13 +40,21 @@ function kxsEntryRowHTML(e, { index = -1, action = false } = {}) {
 // Cuerpo del resumen de una sesión finalizada (también el detalle de Actividad)
 function kxsSummaryBodyHTML(session, entries) {
   const st = session.stats || kxsStats(entries);
-  const tiles = [kxStatTileHTML({ icon: 'calendarClock', value: kxsFormatDuration(session.activeMs || kxsActiveMs(session)), label: 'Duración' })];
-  tiles.push(kxStatTileHTML({ icon: 'mountain', value: String(st.routes), label: 'Vías registradas' }));
-  if (st.meters > 0) tiles.push(kxStatTileHTML({ icon: 'ruler', value: `${st.meters} m`, label: 'Metros escalados' }));
-  if (st.routes > 0) tiles.push(kxStatTileHTML({ icon: 'circleCheck', value: String(st.sends), label: 'Encadenadas' }));
+  const empty = (tile) => tile.replace('class="kx-stat"', 'class="kx-stat kxs-stat-empty"');
+  const tile = (icon, value, label) => (value ? kxStatTileHTML({ icon, value, label }) : empty(kxStatTileHTML({ icon, value: 'Sin datos', label })));
   const gps = session.gps || {};
-  if (gps.enabled && gps.distanceM > 0) tiles.push(kxStatTileHTML({ icon: 'route', value: kxsFormatDistance(gps.distanceM), label: 'Recorrido (GPS)' }));
+  const kcal = kxsEstimateKcal(session.activeMs || kxsActiveMs(session));
+  const hasDist = gps.enabled && gps.distanceM > 0;
+  const tiles = [
+    kxStatTileHTML({ icon: 'calendarClock', value: kxsFormatDuration(session.activeMs || kxsActiveMs(session)), label: 'Duración' }),
+    kxStatTileHTML({ icon: 'mountain', value: String(st.routes), label: 'Vías registradas' }),
+    tile('ruler', st.meters > 0 ? `${st.meters} m` : '', 'Metros escalados'),
+    kxStatTileHTML({ icon: 'circleCheck', value: String(st.sends), label: 'Encadenadas' }),
+    tile('flame', kcal > 0 ? `${kcal} kcal` : '', 'Calorías (est.)'),
+    tile('route', hasDist ? kxsFormatDistance(gps.distanceM) : '', gps.enabled ? 'Recorrido (GPS)' : 'GPS no utilizado')
+  ];
   const notes = [];
+  if (kcal > 0) notes.push('Las calorías son una estimación a partir del tiempo activo (referencia de 70 kg); no son un dato medido.');
   if (st.meters > 0) notes.push('Los metros suman la longitud de las vías encadenadas (también a vista, flash y top rope); los intentos no cuentan.');
   if (st.meters > 0 && st.metersUnknown > 0) notes.push(`${kxsPlural(st.metersUnknown, 'vía encadenada no tiene', 'vías encadenadas no tienen')} longitud registrada y no suma metros.`);
   const note = notes.map(n => `<p class="kxs-note">${kxEsc(n)}</p>`).join('');

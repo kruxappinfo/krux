@@ -476,3 +476,13 @@ describe('contrato con el resto de la app', () => {
     expect(plist).toMatch(/NSLocationWhenInUseUsageDescription<\/key>\s*<string>[^<]*sesión de escalada[^<]*<\/string>/);
   });
 });
+
+describe('calorías estimadas', () => {
+  const kcal = world().get('kxsEstimateKcal');
+  it('escala con el tiempo activo y es 0 sin tiempo', () => {
+    expect(kcal(0)).toBe(0);
+    expect(kcal(-5)).toBe(0);
+    expect(kcal(3600000)).toBe(406);          // 5,8 MET × 70 kg × 1 h
+    expect(kcal(7200000)).toBe(812);
+  });
+});
