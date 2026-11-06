@@ -421,7 +421,7 @@ function kxGradeChartHTML(stats, { id = 'kx-gchart', title = 'Vías por grado', 
   const { entries, ticks, top } = { entries: stats.entries, ...kxNiceTicks(stats.max) };
   const n = entries.length;
   const bars = entries.map((e, i) => {
-    const h = Math.max(1.5, (e.count / top) * 100);
+    const h = Math.max(1.5, (e.count / Math.max(top, 4)) * 100); // mínimo 4: con pocas vías las barras no se disparan
     const label = `${e.grade}: ${e.count} ${e.count === 1 ? 'vía' : 'vías'}, ${kxFormatPct(e.pct)}`;
     return `<button type="button" class="kx-gbar${e.count === stats.max ? ' is-max' : ''}" data-i="${i}" data-grade="${kxEsc(e.grade)}" aria-pressed="false" aria-label="${kxEsc(label)}" tabindex="${i === 0 ? 0 : -1}" style="--h:${h.toFixed(2)}%;--c:${kxGradeColor(e.grade)}">`
       + `<span class="kx-gbar-val" aria-hidden="true">${e.count}</span><span class="kx-gbar-fill" aria-hidden="true"></span></button>`;
