@@ -32003,21 +32003,20 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 .kxg-note { display: block; margin: 6px 2px 4px; color: var(--kx-ink-3); font-size: var(--kx-fs-caption); line-height: 1.45; }
 .kxg-note svg { vertical-align: -2px; }
 
-.kxg-report, .kxg-del {
+.kxg-report {
   display: inline-flex; align-items: center; justify-content: center; gap: 4px; position: relative;
   min-height: 36px; margin: 0; padding: 0 12px; border: 0; border-radius: var(--kx-radius-pill);
   background: var(--kx-surface); box-shadow: inset 0 0 0 1px var(--kx-line); color: var(--kx-ink-2);
   font: inherit; font-size: var(--kx-fs-meta); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; transform: none;
   -webkit-tap-highlight-color: transparent;
 }
-.kxg-report::before, .kxg-del::before { content: ''; position: absolute; inset: -4px 0; }   /* 44 px de área táctil */
-.kxg-del { padding: 0 10px; color: var(--kx-ink-3); }
+.kxg-report::before { content: ''; position: absolute; inset: -4px 0; }   /* 44 px de área táctil */
 .kxg-report { width: 44px; min-height: 44px; padding: 0; color: var(--kx-ink-2); }
 .kxg-report:hover { color: #8E3420; }
 #kx-gym-sheet .kx-fhead { align-items: center; }
 #kx-gym-sheet .kxg-report { flex: none; margin-right: 6px; background: var(--kx-stone-card); box-shadow: none; }
-.kxg-report:hover, .kxg-del:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(32, 41, 35, 0.24); }
-.kxg-report:focus-visible, .kxg-del:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+.kxg-report:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(32, 41, 35, 0.24); }
+.kxg-report:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 
 
 
