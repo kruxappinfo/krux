@@ -7936,7 +7936,8 @@ function initBottomSheet() {
   // Cabecera y pie con los constructores compartidos (los mismos ids de siempre)
   drag.innerHTML = kxSheetDragHTML({
     titleId: 'bs-school-name',
-    metaHTML: kxTagHTML({ icon: 'mountain', textId: 'bs-rock-type', text: 'Caliza' })
+    // Tipo de roca y restricciones juntos bajo el nombre (la etiqueta de restricciones se añade al conocer los datos)
+    metaHTML: kxTagHTML({ icon: 'mountain', textId: 'bs-rock-type', text: 'Caliza' }) + '<span class="bs-tag-slot" id="bs-restriction-slot"></span>'
   });
   foot.innerHTML =
     kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary', size: 'lg', attrs: { id: 'bs-btn-directions' } }) +
@@ -8534,6 +8535,127 @@ function updateBottomSheetContent(school) {
   const rockEl = document.getElementById('bs-rock-type');
   if (rockEl) rockEl.textContent = school.rockType || 'Caliza';
 
+  kxRenderSchoolCards(school);
+}
+
+// ============================================
+// DATOS REALES DE LA FICHA: restricciones, actividad del usuario, información práctica
+// ============================================
+// Solo se muestra lo que existe: restricciones y exposición salen de los sectores de la escuela, el aparcamiento
+// de su capa de parkings y la actividad de los ascensos del propio usuario. Un dato ausente no se rellena.
+const kxSchoolFactsCache = new Map();
+let kxSchoolCardsToken = 0;
+
+async function kxFetchFeatures(path) {
+  if (!path) return null;
+  try {
+    const res = await fetch(path);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return Array.isArray(json.features) ? json.features : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function kxLoadSchoolFacts(schoolId) {
+  const cfg = MAPLIBRE_SCHOOLS[schoolId];
+  if (!cfg || !cfg.geojson) return Promise.resolve(null);
+  if (!kxSchoolFactsCache.has(schoolId)) {
+    kxSchoolFactsCache.set(schoolId, Promise.all([kxFetchFeatures(cfg.geojson.sectores), kxFetchFeatures(cfg.geojson.parkings)])
+      .then(([sectors, parkings]) => {
+        const facts = { restriction: null, exposures: [], parking: !!(parkings && parkings.length) };
+        if (sectors && sectors.length) {
+          const props = sectors.map(f => f.properties || {});
+          const flags = props.map(p => String(p.restr || '').trim().toUpperCase().replace('Í', 'I'));
+          if (flags.includes('SI')) {
+            const active = props.some((p, i) => flags[i] === 'SI' && isCurrentlyRestricted(p.Fecha_inicio || p.Fecha_inic, p.Fecha_fin));
+            facts.restriction = active ? 'active' : 'seasonal';
+          } else if (flags.every(f => f === 'NO')) {
+            facts.restriction = 'none';
+          }
+          const count = new Map();
+          props.forEach(p => {
+            const e = String(p.exposicion || '').replace(/_/g, ' ').trim();
+            if (e) count.set(e, (count.get(e) || 0) + 1);
+          });
+          facts.exposures = [...count.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
+        }
+        return facts;
+      }));
+  }
+  return kxSchoolFactsCache.get(schoolId);
+}
+
+// Vías encadenadas (cualquier estilo menos intento), grado máximo y sectores distintos del usuario en la escuela
+async function kxLoadSchoolActivity(schoolId) {
+  if (typeof currentUser === 'undefined' || !currentUser || typeof db === 'undefined') return null;
+  try {
+    const snap = await db.collection('ascents')
+      .where('userId', '==', currentUser.uid)
+      .where('schoolId', '==', schoolId)
+      .get();
+    const routes = new Set();
+    const sectors = new Set();
+    let best = null, bestIdx = -1;
+    snap.docs.forEach(d => {
+      const a = d.data();
+      if (a.style === 'project') return;
+      routes.add(a.routeId != null ? String(a.routeId) : a.routeName || d.id);
+      if (a.sector) sectors.add(String(a.sector).trim());
+      const idx = typeof _rocoGradeIndex === 'function' ? _rocoGradeIndex(a.grade) : -1;
+      if (idx > bestIdx) { bestIdx = idx; best = a.grade; }
+    });
+    return routes.size ? { sends: routes.size, maxGrade: best, sectors: sectors.size } : null;
+  } catch (e) {
+    console.warn('Actividad en la escuela no disponible:', e);
+    return null;
+  }
+}
+
+function kxSchoolCardHTML(cls, icon, title, bodyHTML) {
+  return `<section class="bs-kcard ${cls}"><h3 class="bs-kcard-title">${kxIcon(icon, { size: 22 })}<span>${kxEsc(title)}</span></h3>${bodyHTML}</section>`;
+}
+
+function kxKStat(value, label, icon) {
+  return `<div class="bs-kstat">${icon ? kxIcon(icon, { size: 22, cls: 'bs-kstat-ic' }) : ''}<span class="bs-kstat-value${value.length > 16 ? ' is-long' : ''}">${kxEsc(value)}</span><span class="bs-kstat-label">${kxEsc(label)}</span></div>`;
+}
+
+async function kxRenderSchoolCards(school) {
+  const token = ++kxSchoolCardsToken;
+  const tagSlot = document.getElementById('bs-restriction-slot');
+  const actSlot = document.getElementById('bs-activity-slot');
+  const infoSlot = document.getElementById('bs-practical-slot');
+  [tagSlot, actSlot, infoSlot].forEach(el => { if (el) el.innerHTML = ''; });
+
+  const [facts, activity] = await Promise.all([kxLoadSchoolFacts(school.id), kxLoadSchoolActivity(school.id)]);
+  if (token !== kxSchoolCardsToken) return;   // se abrió otra escuela mientras tanto
+
+  const TAGS = {
+    none: { icon: 'shieldCheck', tone: 'forest', text: 'Sin restricciones' },
+    seasonal: { icon: 'calendarClock', tone: 'warning', text: 'Restricción estacional' },
+    active: { icon: 'ban', tone: 'danger', text: 'Restricción activa' }
+  };
+  const tag = facts && TAGS[facts.restriction];
+  if (tagSlot && tag) tagSlot.innerHTML = kxTagHTML(tag);
+
+  if (actSlot && activity) {
+    const body = `<div class="bs-kstats bs-kstats--panel">${[
+      kxKStat(String(activity.sends), activity.sends === 1 ? 'Vía encadenada' : 'Vías encadenadas'),
+      activity.maxGrade ? kxKStat(activity.maxGrade, 'Grado máximo') : '',
+      activity.sectors ? kxKStat(String(activity.sectors), activity.sectors === 1 ? 'Sector visitado' : 'Sectores visitados') : ''
+    ].join('')}</div>`;
+    actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity', 'mountain', `Tu actividad en ${school.nombre}`, body);
+  }
+
+  if (infoSlot && facts) {
+    const items = [
+      facts.exposures.length ? kxKStat(facts.exposures.join(', '), 'Orientación', 'compass') : '',
+      facts.parking ? kxKStat('Sí', 'Aparcamiento', 'car') : ''
+    ].filter(Boolean);
+    if (items.length) infoSlot.innerHTML = kxSchoolCardHTML('bs-kcard--info', 'info', 'Información práctica', `<div class="bs-kstats">${items.join('')}</div>`);
+  }
+  if (kxSchoolSheet) kxSchoolSheet.refresh();
 }
 
 // ============================================

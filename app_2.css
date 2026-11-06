@@ -31899,3 +31899,47 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
   box-shadow: none;
   transform: none;
 }
+
+/* Hoja de escuela: etiquetas bajo el nombre, «Tu actividad» e «Información práctica» */
+.bs-tag-slot { display: contents; }
+
+#school-bottom-sheet .bs-kcard {
+  margin: 0 0 12px;
+  padding: 14px 8px 8px;
+  border-radius: var(--kx-radius-card);
+  background: var(--kx-stone-card);
+  color: var(--kx-ink);
+}
+#school-bottom-sheet .bs-kcard--activity { background: var(--kx-sage-soft); }
+#school-bottom-sheet .bs-kcard-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 0 8px;
+  font-size: var(--kx-fs-lead);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--kx-ink);
+}
+#school-bottom-sheet .bs-kcard-title > .kx-ic { flex: none; color: var(--kx-ink-2); }
+#school-bottom-sheet .bs-kcard-title > span { min-width: 0; overflow-wrap: anywhere; }
+#school-bottom-sheet .bs-kstats { display: flex; padding: 0 0 6px; }
+#school-bottom-sheet .bs-kstats--panel { padding: 10px 0; border-radius: var(--kx-radius-md); background: var(--kx-surface); margin-bottom: 0; }
+#school-bottom-sheet .bs-kstat {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  padding: 2px 6px;
+  text-align: center;
+}
+#school-bottom-sheet .bs-kstat + .bs-kstat { border-left: 1px solid var(--kx-line); }
+#school-bottom-sheet .bs-kstat-ic { color: var(--kx-ink-2); margin-bottom: 4px; }
+#school-bottom-sheet .bs-kstat-value { max-width: 100%; font-size: var(--kx-fs-lead); font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; overflow-wrap: break-word; }
+#school-bottom-sheet .bs-kcard--activity .bs-kstat-value { font-size: var(--kx-fs-title); }
+#school-bottom-sheet .bs-kstat-label { max-width: 100%; font-size: var(--kx-fs-caption); line-height: 1.25; color: var(--kx-ink-3); overflow-wrap: normal; }
+#school-bottom-sheet .bs-kstat-value.is-long { font-size: var(--kx-fs-meta); line-height: 1.3; }
