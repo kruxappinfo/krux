@@ -266,7 +266,7 @@ const KruxGymSheet = (() => {
     const photos = cur
       ? `<div class="kxg-gallery">
           <div class="kxg-stage" data-kxg-stage>
-            <button type="button" class="kxg-photo-btn" data-kxg="zoom" aria-label="Ver la foto en grande"><img src="${kxEsc(cur.photoUrl)}" alt="Foto ${photoIdx + 1} de ${v.photos.length} de ${kxEsc(gym.nombre)}" draggable="false"></button>
+            <div class="kxg-track" style="transform:translateX(-${photoIdx * 100}%)">${v.photos.map((ph, i) => `<button type="button" class="kxg-photo-btn" data-kxg="zoom" aria-label="Ver la foto ${i + 1} de ${v.photos.length} en grande"><img src="${kxEsc(ph.photoUrl)}" alt="Foto ${i + 1} de ${v.photos.length} de ${kxEsc(gym.nombre)}" draggable="false"${Math.abs(i - photoIdx) > 1 ? ' loading="lazy"' : ''}></button>`).join('')}</div>
             ${v.photos.length > 1 ? `<span class="kxg-count" aria-hidden="true">${photoIdx + 1} / ${v.photos.length}</span>` : ''}
           </div>
           <div class="kxg-photo-actions">${ownHTML(cur)}</div>
@@ -449,20 +449,132 @@ const KruxGymSheet = (() => {
     }
   }
 
+  // Deslizador: la pista sigue al dedo mientras se arrastra y, al soltar, se asienta con una animación suave
+  // (según la distancia o la velocidad del gesto). Sin desplazamiento nativo; con rebote en los extremos.
+  const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function makeSlider(stage, track, { count, index, onChange, canDrag = () => true }) {
+    let x0 = 0, y0 = 0, t0 = 0, dx = 0, drag = false, down = false, idx = index();
+    const place = (i, extra = 0) => { track.style.transform = `translateX(calc(${-i * 100}% + ${extra}px))`; };
+    const settle = (i) => {
+      track.style.transition = reducedMotion() ? 'none' : 'transform 0.38s cubic-bezier(0.22, 0.9, 0.28, 1)';
+      place(i);
+    };
+    const go = (i) => {
+      const n = count();
+      i = Math.max(0, Math.min(n - 1, i));
+      if (i !== idx) { idx = i; onChange(i); }
+      settle(i);
+    };
+    stage.addEventListener('pointerdown', (e) => {
+      if ((e.button != null && e.button > 0) || !canDrag()) return;
+      idx = index(); down = true; drag = false; dx = 0; x0 = e.clientX; y0 = e.clientY; t0 = performance.now();
+    });
+    stage.addEventListener('pointermove', (e) => {
+      if (!down || !canDrag()) return;
+      const mx = e.clientX - x0, my = e.clientY - y0;
+      if (!drag) {
+        if (Math.abs(mx) < 8 || Math.abs(mx) < Math.abs(my) * 1.2) return;   // gesto vertical: lo gestiona la página
+        drag = true; track.style.transition = 'none';
+        try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+      const n = count();
+      dx = (idx === 0 && mx > 0) || (idx === n - 1 && mx < 0) ? mx * 0.35 : mx;   // rebote en los extremos
+      place(idx, dx);
+    });
+    const end = (e) => {
+      if (!down) return;
+      down = false;
+      if (!drag) return;
+      lastSwipe = Date.now();
+      const w = stage.clientWidth || 1, v = dx / Math.max(1, performance.now() - t0);
+      let target = idx;
+      if (dx < -w * 0.2 || v < -0.45) target = idx + 1;
+      else if (dx > w * 0.2 || v > 0.45) target = idx - 1;
+      drag = false;
+      go(target);
+    };
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
+    stage.addEventListener('click', (e) => { if (Date.now() - lastSwipe < 350) { e.stopPropagation(); e.preventDefault(); } }, true);
+    return { go, current: () => idx };
+  }
+
+  // Ampliar la foto abierta en grande, siempre a voluntad de la persona: pellizco o rueda del ratón, y arrastre para
+  // moverla cuando está ampliada. Nunca se amplía sola (sin doble toque). Ampliada no se cambia de foto; sin ampliar, deslizar pasa a la siguiente.
+  function bindZoom(root) {
+    const MAX = 5;
+    let sc = 1, tx = 0, ty = 0, pinch = null, pan = null, moved = false;
+    const pts = new Map();
+    const img = () => root.querySelectorAll('.kxg-lb-slide img')[photoIdx];
+    const clamp = () => {
+      const im = img(); if (!im) return;
+      const lx = Math.max(0, (im.offsetWidth * sc - root.clientWidth) / 2), ly = Math.max(0, (im.offsetHeight * sc - root.clientHeight) / 2);
+      tx = Math.max(-lx, Math.min(lx, tx)); ty = Math.max(-ly, Math.min(ly, ty));
+      if (sc <= 1) { tx = 0; ty = 0; }
+    };
+    const apply = (smooth) => {
+      const im = img(); if (!im) return;
+      clamp();
+      im.style.transition = smooth && !reducedMotion() ? 'transform 0.25s cubic-bezier(0.22, 0.9, 0.28, 1)' : 'none';
+      im.style.transform = sc === 1 && !tx && !ty ? '' : `translate(${tx}px, ${ty}px) scale(${sc})`;
+    };
+    // Cambia la escala manteniendo fijo el punto (px, py) de la pantalla
+    const zoomAt = (ns, px, py) => {
+      ns = Math.max(1, Math.min(MAX, ns));
+      const r = root.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const k = ns / sc;
+      tx = (px - cx) - ((px - cx) - tx) * k; ty = (py - cy) - ((py - cy) - ty) * k;
+      sc = ns;
+    };
+    const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+    const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+    root.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.kxg-lb-close')) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      moved = false;
+      if (pts.size === 2) { pinch = { d: dist(), sc }; pan = null; }
+      else if (pts.size === 1) pan = { x: e.clientX, y: e.clientY, tx, ty };
+    });
+    root.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size >= 2) {
+        const m = mid();
+        zoomAt(pinch.sc * dist() / pinch.d, m.x, m.y); moved = true; apply(false);
+      } else if (pan && sc > 1) {
+        const dx = e.clientX - pan.x, dy = e.clientY - pan.y;
+        if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+        tx = pan.tx + dx; ty = pan.ty + dy; apply(false);
+      }
+    });
+    const up = (e) => {
+      if (!pts.has(e.pointerId)) return;
+      const was = pts.size;
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinch = null;
+      if (pts.size === 1) { const [p] = [...pts.values()]; pan = { x: p.x, y: p.y, tx, ty }; }
+      if (pts.size === 0) {
+        pan = null;
+        if (sc < 1.05) { sc = 1; tx = 0; ty = 0; apply(true); }
+      }
+    };
+    root.addEventListener('pointerup', up);
+    root.addEventListener('pointercancel', up);
+    root.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      zoomAt(sc * Math.exp(-e.deltaY * 0.0025), e.clientX, e.clientY); apply(false);
+      if (sc < 1.02) { sc = 1; apply(true); }
+    }, { passive: false });
+    return { active: () => sc > 1 || pts.size > 1, reset: () => { sc = 1; tx = 0; ty = 0; root.querySelectorAll('.kxg-lb-slide img').forEach(i => { i.style.transform = ''; }); } };
+  }
+
   // Foto a pantalla completa (se cierra con la X, Escape o tocando fuera de la imagen)
-  let lb = null, lastSwipe = 0;
-  function closeLightbox() { if (lb) { lb.remove(); lb = null; document.removeEventListener('keydown', onLbKey); } }
+  let lb = null, lbCtl = null, galleryCtl = null, lastSwipe = 0;
+  function closeLightbox() { if (lb) { lb.remove(); lb = null; lbCtl = null; document.removeEventListener('keydown', onLbKey); } }
   function onLbKey(e) {
     if (e.key === 'Escape') closeLightbox();
-    else if (e.key === 'ArrowRight') lbStep(1);
-    else if (e.key === 'ArrowLeft') lbStep(-1);
-  }
-  function lbStep(d) {
-    const photos = kxgBuildView(items).photos;
-    if (photos.length < 2 || !lb) return;
-    photoIdx = (photoIdx + d + photos.length) % photos.length;
-    lb.querySelector('img').src = photos[photoIdx].photoUrl;
-    lb.querySelector('.kxg-lb-count').textContent = `${photoIdx + 1} / ${photos.length}`;
+    else if (lbCtl && e.key === 'ArrowRight') lbCtl.go(lbCtl.current() + 1);
+    else if (lbCtl && e.key === 'ArrowLeft') lbCtl.go(lbCtl.current() - 1);
   }
   function openLightbox() {
     const photos = kxgBuildView(items).photos;
@@ -474,49 +586,44 @@ const KruxGymSheet = (() => {
     lb.setAttribute('aria-modal', 'true');
     lb.setAttribute('aria-label', 'Foto en grande');
     lb.innerHTML = `<button type="button" class="kxg-lb-close" aria-label="Cerrar">${kxIcon('x', { size: 22 })}</button>
-      <img src="${kxEsc(photos[photoIdx].photoUrl)}" alt="Foto de ${kxEsc(gym.nombre)}" draggable="false">
+      <div class="kxg-lb-track" style="transform:translateX(-${photoIdx * 100}%)">${photos.map(ph => `<div class="kxg-lb-slide"><img src="${kxEsc(ph.photoUrl)}" alt="Foto de ${kxEsc(gym.nombre)}" draggable="false"></div>`).join('')}</div>
       ${photos.length > 1 ? `<span class="kxg-lb-count">${photoIdx + 1} / ${photos.length}</span>` : ''}`;
     document.body.appendChild(lb);
     document.addEventListener('keydown', onLbKey);
-    let sx = null, sy = 0;
-    lb.addEventListener('pointerdown', (e) => { sx = e.clientX; sy = e.clientY; });
-    lb.addEventListener('pointerup', (e) => {
-      if (sx == null) return;
-      const dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
-      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4) lbStep(dx < 0 ? 1 : -1);
+    const zoom = bindZoom(lb);
+    lbCtl = makeSlider(lb, lb.querySelector('.kxg-lb-track'), {
+      count: () => photos.length, index: () => photoIdx,
+      canDrag: () => !zoom.active(),
+      onChange: (i) => { photoIdx = i; zoom.reset(); const c = lb.querySelector('.kxg-lb-count'); if (c) c.textContent = `${i + 1} / ${photos.length}`; }
     });
     lb.addEventListener('click', (e) => {
-      if (e.target.closest('.kxg-lb-close') || e.target === lb) { closeLightbox(); render({ keepScroll: true }); }
+      if (Date.now() - lastSwipe < 350) return;
+      if (e.target.closest('.kxg-lb-close') || e.target === lb || e.target.classList.contains('kxg-lb-slide')) { closeLightbox(); render({ keepScroll: true }); }
     });
     lb.querySelector('.kxg-lb-close').focus();
   }
 
-  // Deslizar la foto de la ficha cambia de foto; un toque sin desplazamiento la abre en grande
+  // Galería de la ficha: deslizar cambia de foto con animación; un toque sin desplazamiento la abre en grande
   function bindStage() {
+    galleryCtl = null;
     const stage = el.querySelector('[data-kxg-stage]');
-    if (!stage || stage._kxg) return;
-    stage._kxg = true;
-    let sx = null, sy = 0, swiped = false;
-    stage.addEventListener('pointerdown', (e) => { sx = e.clientX; sy = e.clientY; swiped = false; });
-    stage.addEventListener('pointerup', (e) => {
-      if (sx == null) return;
-      const dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
-      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4) { swiped = true; lastSwipe = Date.now(); ACTIONS['photo-step']({ dataset: { step: dx < 0 ? 1 : -1 } }); }
+    if (!stage) return;
+    const photos = kxgBuildView(items).photos;
+    galleryCtl = makeSlider(stage, stage.querySelector('.kxg-track'), {
+      count: () => photos.length, index: () => photoIdx,
+      onChange: (i) => {
+        photoIdx = i;
+        const c = stage.querySelector('.kxg-count'); if (c) c.textContent = `${i + 1} / ${photos.length}`;
+        const act = el.querySelector('.kxg-photo-actions'); if (act) act.innerHTML = ownHTML(photos[i]);
+      }
     });
     stage.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); ACTIONS['photo-step']({ dataset: { step: e.key === 'ArrowRight' ? 1 : -1 } }); }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); galleryCtl.go(galleryCtl.current() + (e.key === 'ArrowRight' ? 1 : -1)); }
     });
-    stage.addEventListener('click', (e) => { if (swiped) { e.stopPropagation(); e.preventDefault(); swiped = false; } }, true);
   }
 
   const ACTIONS = {
     zoom() { if (Date.now() - lastSwipe > 400) openLightbox(); },
-    'photo-step'(btn) {
-      const n = kxgBuildView(items).photos.length;
-      if (n < 2) return;
-      photoIdx = (photoIdx + Number(btn.dataset.step) + n) % n;
-      render({ keepScroll: true });
-    },
     add(btn) {
       if (!me()) { askLogin(); return; }
       addKind = (btn && btn.dataset.kind) || addKind;
