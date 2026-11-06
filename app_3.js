@@ -1549,8 +1549,9 @@ function initGlobalSearch() {
       return;
     }
     if (item.kind === 'gym') {
+      // La ficha se abre ya (con lo último guardado) mientras el mapa viaja hasta el rocódromo
       mlMap.flyTo({ center: item.coords, zoom: 16, essential: true });
-      mlMap.once('moveend', () => { if (window.KruxGymSheet) window.KruxGymSheet.open(item.props, item.coords); });
+      if (window.KruxGymSheet) window.KruxGymSheet.open(item.props, item.coords);
       return;
     }
     const schoolId = item.kind === 'school' ? item.id : item.schoolId;

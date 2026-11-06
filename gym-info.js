@@ -125,9 +125,39 @@ const KruxGymInfo = (() => {
   const col = () => db.collection('gym_info');
   const uid = () => (firebase.auth().currentUser || {}).uid || null;
 
+  // Caché de la última lectura de cada rocódromo (memoria + localStorage): la ficha se pinta al instante con lo último
+  // que se vio y se refresca en segundo plano. Las fechas se guardan en milisegundos.
+  const CACHE_KEY = 'krux_gym_info_v1', CACHE_MAX = 20;
+  const mem = new Map();
+  const readStore = () => { try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || {}; } catch (_) { return {}; } };
+  function cached(gymId) {
+    if (mem.has(gymId)) return mem.get(gymId);
+    const e = readStore()[gymId];
+    return e ? e.items : null;
+  }
+  function remember(gymId, items) {
+    mem.set(gymId, items);
+    try {
+      const store = readStore();
+      store[gymId] = { t: Date.now(), items: items.map(i => ({ ...i, createdAt: kxgMillis(i.createdAt) })) };
+      Object.keys(store).sort((a, b) => store[b].t - store[a].t).slice(CACHE_MAX).forEach(k => delete store[k]);
+      localStorage.setItem(CACHE_KEY, JSON.stringify(store));
+    } catch (_) {}
+  }
+
   async function list(gymId) {
     const snap = await col().where('gymId', '==', gymId).get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const out = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    remember(gymId, out);
+    return out;
+  }
+
+  // Abre la conexión con Firestore antes de que nadie toque un rocódromo (la primera lectura tarda por la conexión)
+  let warmed = false;
+  function warm() {
+    if (warmed || typeof db === 'undefined') return;
+    warmed = true;
+    col().where('gymId', '==', '__warm__').limit(1).get().catch(() => {});
   }
 
   // Denuncia + propuesta de cambio. Devuelve 'sent' o 'already' si esta persona ya había denunciado esa aportación.
@@ -198,7 +228,7 @@ const KruxGymInfo = (() => {
     if (item.storagePath) { try { await storage.ref(item.storagePath).delete(); } catch (_) {} }
   }
 
-  return { list, report, addText, addFacility, addLink, addPhoto, remove };
+  return { list, cached, warm, report, addText, addFacility, addLink, addPhoto, remove };
 })();
 
 // ============================================
@@ -207,7 +237,7 @@ const KruxGymInfo = (() => {
 const KruxGymSheet = (() => {
   let el = null, sheet = null;
   let gym = null;           // { id, nombre, pago, cuerda, bloque, auto, coords }
-  let items = [], photoIdx = 0, view = 'info', reportReason = 'incorrect', addKind = 'hours', linkNet = 'instagram', busy = false;
+  let items = [], photoIdx = 0, facPage = 0, view = 'info', reportReason = 'incorrect', addKind = 'hours', linkNet = 'instagram', busy = false;
   const toast = (msg, type = 'info') => { if (typeof showToast === 'function') showToast(msg, type); };
   const me = () => (firebase.auth().currentUser || {}).uid || null;
   const askLogin = () => { toast('Inicia sesión para aportar o votar', 'info'); if (typeof openLoginModal === 'function') openLoginModal(); };
@@ -244,6 +274,19 @@ const KruxGymSheet = (() => {
     return it.authorId === me() ? `<button type="button" class="kxg-del" data-kxg="del" data-id="${kxEsc(it.id)}" aria-label="Borrar mi aportación">${kxIcon('trash', { size: 16 })}</button>` : '';
   }
 
+  // Instalaciones en páginas de 6 (2 columnas × 3 filas) que se pasan deslizando, con puntos indicadores
+  const FAC_PER_PAGE = 6;
+  function facilitiesHTML(list) {
+    const pages = [];
+    for (let i = 0; i < list.length; i += FAC_PER_PAGE) pages.push(list.slice(i, i + FAC_PER_PAGE));
+    if (facPage >= pages.length) facPage = pages.length - 1;
+    const chip = (f) => `<div class="kxg-fchip"><span>${kxEsc(kxgFacilityLabel(f.value))}</span>${ownHTML(f)}</div>`;
+    return `<div class="kxg-facs" data-kxg-facs>
+      <div class="kxg-fstage"><div class="kxg-ftrack" style="transform:translateX(-${facPage * 100}%)">${pages.map(pg => `<div class="kxg-fpage">${pg.map(chip).join('')}</div>`).join('')}</div></div>
+      ${pages.length > 1 ? `<div class="kxg-dots" aria-hidden="true">${pages.map((_, i) => `<span class="kxg-dot${i === facPage ? ' is-on' : ''}"></span>`).join('')}</div>` : ''}
+    </div>`;
+  }
+
   function textRowHTML(kind, icon, title, it) {
     const body = it
       ? `<p class="kxg-text">${kxEsc(it.text)}</p><p class="kxg-by">Aportado por ${kxEsc(it.authorName || 'Usuario')}</p>`
@@ -273,7 +316,7 @@ const KruxGymSheet = (() => {
         </div>`
       : '<p class="kxg-none">Aún no hay fotos. Sé la primera persona en subir una.</p>';
     const facilities = v.facilities.length
-      ? `<ul class="kxg-facs">${v.facilities.map(f => `<li class="kxg-fac"><span>${kxEsc(kxgFacilityLabel(f.value))}</span>${ownHTML(f)}</li>`).join('')}</ul>`
+      ? facilitiesHTML(v.facilities)
       : '<p class="kxg-none">Nadie ha indicado instalaciones todavía.</p>';
     return `${tags ? `<div class="kxg-tags">${tags}</div>` : ''}
       <section class="kxg-card">
@@ -375,6 +418,7 @@ const KruxGymSheet = (() => {
     if (rep) kxBindSegmented(el.querySelector('#kxg-reason'), (v) => { reportReason = v; });
     if (rep) renderProposal();
     bindStage();
+    bindFacilities();
     sheet.refresh();
   }
 
@@ -393,13 +437,19 @@ const KruxGymSheet = (() => {
     // Una sola ficha a la vez: se cierran las de escuela, sector y vía si estaban abiertas
     ['hideBottomSheet', 'hideSectorBottomSheet', 'hideRouteBottomSheet'].forEach(fn => { try { if (typeof window[fn] === 'function') window[fn](); } catch (_) {} });
     gym = { ...p, coords };
-    photoIdx = 0;
+    photoIdx = 0; facPage = 0;
     closeLightbox();
-    view = 'loading';
+    const known = KruxGymInfo.cached(p.id);
+    items = known || [];
+    view = known ? 'info' : 'loading';
     render();
     if (sheet.state === 'hidden') sheet.open('expanded');
+    const before = known ? JSON.stringify(known.map(i => [i.id, i.text, i.url])) : null;
     await load();
-    if (gym && gym.id === p.id) { view = 'info'; render(); }
+    if (!gym || gym.id !== p.id || lb) return;
+    // Con datos ya pintados solo se vuelve a dibujar si algo cambió
+    if (known && JSON.stringify(items.map(i => [i.id, i.text, i.url])) === before) return;
+    if (view === 'loading' || view === 'info') { view = 'info'; render({ keepScroll: !!known }); }
   }
 
   async function submit() {
@@ -622,6 +672,18 @@ const KruxGymSheet = (() => {
     });
   }
 
+  // Páginas de instalaciones: mismo deslizamiento que las fotos
+  function bindFacilities() {
+    const box = el.querySelector('[data-kxg-facs]');
+    if (!box) return;
+    const pages = box.querySelectorAll('.kxg-fpage').length;
+    if (pages < 2) return;
+    makeSlider(box.querySelector('.kxg-fstage'), box.querySelector('.kxg-ftrack'), {
+      count: () => pages, index: () => facPage,
+      onChange: (i) => { facPage = i; box.querySelectorAll('.kxg-dot').forEach((d, k) => d.classList.toggle('is-on', k === i)); }
+    });
+  }
+
   const ACTIONS = {
     zoom() { if (Date.now() - lastSwipe > 400) openLightbox(); },
     add(btn) {
@@ -701,7 +763,7 @@ const KruxGymSheet = (() => {
     }
   }
 
-  return { open };
+  return { open, warm: KruxGymInfo.warm };
 })();
 
 window.KruxGymSheet = KruxGymSheet;

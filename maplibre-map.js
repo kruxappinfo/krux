@@ -6674,6 +6674,8 @@ function loadGymMarkers() {
         paint: { 'text-color': '#153E35', 'text-halo-color': 'rgba(255, 255, 255, 0.95)', 'text-halo-width': 2 }
       });
       setupGymLayerInteraction();
+      // Conexión con Firestore lista antes del primer toque (la ficha de rocódromo tarda menos en abrir)
+      if (window.KruxGymSheet && window.KruxGymSheet.warm) window.KruxGymSheet.warm();
     })
     .catch(err => console.warn('[Rocódromos] No se han podido cargar:', err));
 }
