@@ -8564,7 +8564,7 @@ function kxLoadSchoolFacts(schoolId) {
   if (!kxSchoolFactsCache.has(schoolId)) {
     kxSchoolFactsCache.set(schoolId, Promise.all([kxFetchFeatures(cfg.geojson.sectores), kxFetchFeatures(cfg.geojson.parkings)])
       .then(([sectors, parkings]) => {
-        const facts = { restriction: null, exposures: [], parking: !!(parkings && parkings.length) };
+        const facts = { restriction: null, exposures: [], parking: parkings ? parkings.length > 0 : null };
         if (sectors && sectors.length) {
           const props = sectors.map(f => f.properties || {});
           const flags = props.map(p => String(p.restr || '').trim().toUpperCase().replace('Í', 'I'));
@@ -8574,12 +8574,18 @@ function kxLoadSchoolFacts(schoolId) {
           } else if (flags.every(f => f === 'NO')) {
             facts.restriction = 'none';
           }
-          const count = new Map();
+          const kinds = new Set();
           props.forEach(p => {
-            const e = String(p.exposicion || '').replace(/_/g, ' ').trim();
-            if (e) count.set(e, (count.get(e) || 0) + 1);
+            const e = String(p.exposicion || '').toLowerCase().trim();
+            if (/sombra/.test(e)) kinds.add('shade');
+            else if (/ma[ñn]ana/.test(e)) kinds.add('morning');
+            else if (/tarde/.test(e)) kinds.add('afternoon');
+            else if (/medio/.test(e)) kinds.add('midday');
+            else if (e.startsWith('sol')) kinds.add('sun');
           });
-          facts.exposures = [...count.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
+          // «Sol» a secas solo informa cuando no hay una franja concreta
+          if (kinds.has('sun') && ['morning', 'afternoon', 'midday'].some(k => kinds.has(k))) kinds.delete('sun');
+          facts.exposures = ['morning', 'midday', 'afternoon', 'sun', 'shade'].filter(k => kinds.has(k));
         }
         return facts;
       }));
@@ -8606,7 +8612,7 @@ async function kxLoadSchoolActivity(schoolId) {
       const idx = typeof _rocoGradeIndex === 'function' ? _rocoGradeIndex(a.grade) : -1;
       if (idx > bestIdx) { bestIdx = idx; best = a.grade; }
     });
-    return routes.size ? { sends: routes.size, maxGrade: best, sectors: sectors.size } : null;
+    return { sends: routes.size, maxGrade: best, sectors: sectors.size };
   } catch (e) {
     console.warn('Actividad en la escuela no disponible:', e);
     return null;
@@ -8617,16 +8623,15 @@ function kxSchoolCardHTML(cls, icon, title, bodyHTML) {
   return `<section class="bs-kcard ${cls}"><h3 class="bs-kcard-title">${kxIcon(icon, { size: 22 })}<span>${kxEsc(title)}</span></h3>${bodyHTML}</section>`;
 }
 
-function kxKStat(value, label, icon) {
-  return `<div class="bs-kstat">${icon ? kxIcon(icon, { size: 22, cls: 'bs-kstat-ic' }) : ''}<span class="bs-kstat-value${value.length > 16 ? ' is-long' : ''}">${kxEsc(value)}</span><span class="bs-kstat-label">${kxEsc(label)}</span></div>`;
+function kxKStat(value, label) {
+  return `<div class="bs-kstat"><span class="bs-kstat-value">${kxEsc(value)}</span><span class="bs-kstat-label">${kxEsc(label)}</span></div>`;
 }
 
 async function kxRenderSchoolCards(school) {
   const token = ++kxSchoolCardsToken;
   const tagSlot = document.getElementById('bs-restriction-slot');
   const actSlot = document.getElementById('bs-activity-slot');
-  const infoSlot = document.getElementById('bs-practical-slot');
-  [tagSlot, actSlot, infoSlot].forEach(el => { if (el) el.innerHTML = ''; });
+  [tagSlot, actSlot].forEach(el => { if (el) el.innerHTML = ''; });
 
   const [facts, activity] = await Promise.all([kxLoadSchoolFacts(school.id), kxLoadSchoolActivity(school.id)]);
   if (token !== kxSchoolCardsToken) return;   // se abrió otra escuela mientras tanto
@@ -8637,24 +8642,33 @@ async function kxRenderSchoolCards(school) {
     active: { icon: 'ban', tone: 'danger', text: 'Restricción activa' }
   };
   const tag = facts && TAGS[facts.restriction];
-  if (tagSlot && tag) tagSlot.innerHTML = kxTagHTML(tag);
+  if (tagSlot && facts) {
+    // Exposición solar y aparcamiento como símbolos junto a la roca y las restricciones
+    const SUN = {
+      morning: { icon: 'sunrise', label: 'Sol de mañana' },
+      midday: { icon: 'sun', label: 'Sol a mediodía' },
+      afternoon: { icon: 'sunset', label: 'Sol de tarde' },
+      sun: { icon: 'sun', label: 'Sol' },
+      shade: { icon: 'cloud', label: 'Sombra' }
+    };
+    const chips = [];
+    if (tag) chips.push(kxTagHTML(tag));
+    facts.exposures.forEach(k => chips.push(kxTagHTML({ icon: SUN[k].icon, attrs: { role: 'img', 'aria-label': SUN[k].label, title: SUN[k].label } })));
+    if (facts.parking !== null) chips.push(kxTagHTML({ icon: 'car', text: facts.parking ? 'Sí' : 'No', attrs: { role: 'img', 'aria-label': facts.parking ? 'Con aparcamiento' : 'Sin aparcamiento', title: 'Aparcamiento' } }));
+    tagSlot.innerHTML = chips.join('');
+  }
 
   if (actSlot && activity) {
-    const body = `<div class="bs-kstats bs-kstats--panel">${[
-      kxKStat(String(activity.sends), activity.sends === 1 ? 'Vía encadenada' : 'Vías encadenadas'),
-      activity.maxGrade ? kxKStat(activity.maxGrade, 'Grado máximo') : '',
-      activity.sectors ? kxKStat(String(activity.sectors), activity.sectors === 1 ? 'Sector visitado' : 'Sectores visitados') : ''
-    ].join('')}</div>`;
+    const body = activity.sends
+      ? `<div class="bs-kstats bs-kstats--panel">${[
+        kxKStat(String(activity.sends), activity.sends === 1 ? 'Vía encadenada' : 'Vías encadenadas'),
+        activity.maxGrade ? kxKStat(activity.maxGrade, 'Grado máximo') : '',
+        activity.sectors ? kxKStat(String(activity.sectors), activity.sectors === 1 ? 'Sector visitado' : 'Sectores visitados') : ''
+      ].join('')}</div>`
+      : '<p class="bs-kcard-empty">Todavía sin vías registradas en esta escuela.</p>';
     actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity', 'mountain', `Tu actividad en ${school.nombre}`, body);
   }
 
-  if (infoSlot && facts) {
-    const items = [
-      facts.exposures.length ? kxKStat(facts.exposures.join(', '), 'Orientación', 'compass') : '',
-      facts.parking ? kxKStat('Sí', 'Aparcamiento', 'car') : ''
-    ].filter(Boolean);
-    if (items.length) infoSlot.innerHTML = kxSchoolCardHTML('bs-kcard--info', 'info', 'Información práctica', `<div class="bs-kstats">${items.join('')}</div>`);
-  }
   if (kxSchoolSheet) kxSchoolSheet.refresh();
 }
 
@@ -8670,7 +8684,7 @@ function renderDonutChart(gradeData) {
   if (!container) return;
 
   if (!gradeData || Object.keys(gradeData).length === 0) {
-    container.innerHTML = '<div style="color: #9ca3af; text-align: center; font-size: 14px; padding: 40px;">Sin datos</div>';
+    container.innerHTML = '<div style="color: #9ca3af; text-align: center; font-size: 14px; padding: 40px;">Todavía sin información</div>';
     return;
   }
 
