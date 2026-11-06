@@ -31584,21 +31584,20 @@ body.map-active #map-view .legend-panel .lp-pane {
 @media (hover: hover) { .kx-gchart-step:not(:disabled):hover { background: var(--kx-stone-hover); }}
 
 
-/* Zona de dibujo: eje de valores a la izquierda, barras, grados y familias debajo */
-.kx-gchart-plot { position: relative; padding-left: var(--kx-gaxis-w); }
-.kx-gchart-grid { position: absolute; top: 18px; left: var(--kx-gaxis-w); right: 0; height: var(--kx-gplot-h); pointer-events: none; }
-.kx-gchart-tick { position: absolute; left: 0; right: 0; bottom: var(--y); border-top: 1px solid var(--kx-line); }
-.kx-gchart-tick > span { position: absolute; right: calc(100% + 6px); top: 0; transform: translateY(-50%); color: var(--kx-ink-3); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
-.kx-gchart-bars { position: relative; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); align-items: stretch; box-sizing: border-box; height: calc(var(--kx-gplot-h) + 18px); padding-top: 18px; touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none; }
+/* Zona de dibujo: barras planas sobre una línea base fina; sin cuadrícula ni eje (el recuento va sobre cada barra) */
+.kx-gchart-plot { position: relative; }
+.kx-gchart-grid { display: none; }
+.kx-gchart-bars { position: relative; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); align-items: stretch; box-sizing: border-box; height: calc(var(--kx-gplot-h) + 22px); padding-top: 22px; border-bottom: 1px solid var(--kx-line); touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none; }
 .kx-gbar { position: relative; display: flex; align-items: flex-end; justify-content: center; min-width: 0; min-height: 0; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: inherit; font: inherit; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.kx-gbar-fill { display: block; width: min(24px, calc(100% - 2px)); height: var(--h); min-height: 3px; border-radius: 4px 4px 0 0; background: var(--c); box-shadow: inset 0 2px 0 rgba(32, 41, 35, 0.55); transition: opacity var(--kx-dur) var(--kx-ease); }
-.kx-gbar-val { position: absolute; left: 50%; bottom: calc(var(--h) + 4px); display: none; transform: translateX(-50%); color: var(--kx-ink); font-size: 0.75rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; pointer-events: none; }
-.kx-gbar.is-max .kx-gbar-val, .kx-gbar[aria-pressed="true"] .kx-gbar-val { display: block; }
-.kx-gchart.has-sel .kx-gbar.is-max:not([aria-pressed="true"]) .kx-gbar-val { display: none; }
+.kx-gbar-fill { display: block; width: min(28px, calc(100% - 6px)); height: var(--h); min-height: 3px; border-radius: 5px 5px 0 0; background: var(--c); box-shadow: none; transition: opacity var(--kx-dur) var(--kx-ease); }
+.kx-gbar-val { position: absolute; left: 50%; bottom: calc(var(--h) + 5px); display: none; transform: translateX(-50%); color: var(--kx-ink-2); font-size: 0.75rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; pointer-events: none; }
+.kx-gbar-val, .kx-gbar[aria-pressed="true"] .kx-gbar-val { display: block; }
+.kx-gbar[aria-pressed="true"] .kx-gbar-val { color: var(--kx-ink); font-weight: 800; }
 .kx-gchart.has-sel .kx-gbar:not([aria-pressed="true"]) .kx-gbar-fill { opacity: 0.28; }
+.kx-gchart.has-sel .kx-gbar:not([aria-pressed="true"]) .kx-gbar-val { opacity: 0.5; }
 .kx-gbar:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: -2px; }
 @media (hover: hover) {
-  .kx-gbar:hover .kx-gbar-fill { opacity: 1; }
+  .kx-gbar:hover .kx-gbar-fill, .kx-gbar:hover .kx-gbar-val { opacity: 1; }
   .kx-gbar:hover .kx-gbar-val { display: block; }
   .kx-gchart.has-sel .kx-gbar:hover:not([aria-pressed="true"]) .kx-gbar-fill { opacity: 0.6; }}
 
