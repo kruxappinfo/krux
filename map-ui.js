@@ -429,7 +429,6 @@ function kxGradeChartHTML(stats, { id = 'kx-gchart', title = 'Vías por grado', 
   }).join('');
   const grid = ticks.map(t => `<span class="kx-gchart-tick" style="--y:${((t / top) * 100).toFixed(2)}%"><span>${t}</span></span>`).join('');
   const labels = entries.map((e, i) => `<span class="kx-gchart-xl" data-i="${i}">${kxEsc(e.grade)}</span>`).join('');
-  const fams = stats.families.map(f => `<span class="kx-gchart-fam" style="grid-column:${f.from + 1} / ${f.to + 2}">${kxEsc(f.family)}</span>`).join('');
   const rows = entries.map(e => `<tr><th scope="row"><span class="kx-gchart-sw" style="--c:${kxGradeColor(e.grade)}"></span>${kxEsc(e.grade)}</th><td>${e.count}</td><td>${kxFormatPct(e.pct)}</td></tr>`).join('');
   return `<section class="kx-gchart" id="${kxEsc(id)}" data-n="${n}" data-graded="${stats.graded}" data-view-label="${kxEsc(viewLabel)}">
     <div class="kx-gchart-head"><h3 class="kx-gchart-title">${kxEsc(title)}</h3><span class="kx-gchart-total">${stats.graded} ${stats.graded === 1 ? 'vía' : 'vías'}</span></div>
@@ -438,7 +437,6 @@ function kxGradeChartHTML(stats, { id = 'kx-gchart', title = 'Vías por grado', 
       <div class="kx-gchart-grid" aria-hidden="true">${grid}</div>
       <div class="kx-gchart-bars" role="group" aria-label="${kxEsc(title)}. Usa las flechas para recorrer los grados" style="--n:${n}">${bars}</div>
       <div class="kx-gchart-x" aria-hidden="true" style="--n:${n}">${labels}</div>
-      <div class="kx-gchart-fams" aria-hidden="true" style="--n:${n}">${fams}</div>
     </div>
     <details class="kx-gchart-table"><summary>Ver como tabla</summary>
       <table><thead><tr><th scope="col">Grado</th><th scope="col">Vías</th><th scope="col">%</th></tr></thead><tbody>${rows}</tbody>
@@ -546,7 +544,7 @@ function kxBindGradeChart(el, stats, { onSelect, onViewRoutes } = {}) {
     if (e.target.closest('[data-view]') && onViewRoutes && sel >= 0) onViewRoutes(stats.entries[sel]);
   });
 
-  // Etiquetas: todas si caben; si no, solo familias y el grado elegido
+  // Etiquetas: siempre todas los grados; si no caben a tamaño normal, se reducen (.is-dense)
   const fit = () => el.classList.toggle('is-dense', plot.getBoundingClientRect().width / bars.length < 22);
   fit();
   let ro = null;
