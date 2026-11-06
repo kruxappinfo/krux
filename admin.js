@@ -145,6 +145,8 @@ function navigateTo(section, updateHash = true) {
         loadPendingSectors();
     } else if (section === 'poi') {
         loadPendingPOI();
+    } else if (section === 'gyms') {
+        loadGymContributions();
     }
 }
 
@@ -3128,3 +3130,97 @@ async function rejectItem(collection, docId, reloadFn) {
 }
 
 console.log('[Admin] Panel de administración cargado');
+
+
+// ============================================
+// ROCÓDROMOS: APORTACIONES DE LA COMUNIDAD (gym_info)
+// ============================================
+// Misma regla que gym-info.js: oculta cuando los «no me gusta» superan a los «me gusta» por 5 o más (salvo restaurada)
+const GYM_HIDE_NET = 5;
+const GYM_KIND_LABEL = { photo: 'Foto', hours: 'Horario', price: 'Precios', contact: 'Contacto', facility: 'Instalación' };
+let gymContribCache = [];
+
+function gymIsHidden(it) { return !it.restored && (it.down || 0) - (it.up || 0) >= GYM_HIDE_NET; }
+
+async function loadGymContributions() {
+    const listEl = document.getElementById('gymsList');
+    listEl.innerHTML = '<div class="loading"><div class="spinner"></div><p>Cargando aportaciones...</p></div>';
+    try {
+        const snap = await db.collection('gym_info').get();
+        gymContribCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const hiddenCount = gymContribCache.filter(gymIsHidden).length;
+        const badge = document.getElementById('gymsBadge');
+        if (badge) { badge.textContent = hiddenCount; badge.style.display = hiddenCount ? '' : 'none'; }
+        const filter = document.getElementById('filterGymStatus').value;
+        const items = (filter === 'hidden' ? gymContribCache.filter(gymIsHidden) : gymContribCache)
+            .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        if (!items.length) {
+            listEl.innerHTML = `<div class="empty-state"><p>${filter === 'hidden' ? 'No hay aportaciones ocultas' : 'Todavía no hay aportaciones'}</p></div>`;
+            return;
+        }
+        listEl.innerHTML = items.map(it => {
+            const hidden = gymIsHidden(it);
+            const date = it.createdAt ? new Date(it.createdAt.toDate()).toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+            const content = it.kind === 'photo'
+                ? `<img src="${escapeHtml(it.photoUrl || '')}" alt="" style="max-width:240px;border-radius:10px">`
+                : escapeHtml(it.kind === 'facility' ? it.value : it.text || '');
+            return `
+                <div class="route-card ${hidden ? 'rejected' : 'approved'}">
+                    <div class="route-header">
+                        <div>
+                            <div class="route-name">${escapeHtml(GYM_KIND_LABEL[it.kind] || it.kind)} · ${escapeHtml(it.gymId)}</div>
+                            <span class="badge ${hidden ? 'badge-rejected' : 'badge-approved'}">${hidden ? 'Oculta por votos' : it.restored ? 'Restaurada' : 'Visible'}</span>
+                        </div>
+                    </div>
+                    <div class="route-details">
+                        <div>
+                            <div class="route-detail-label">Contenido</div>
+                            <div class="route-detail-value">${content}</div>
+                        </div>
+                        <div>
+                            <div class="route-detail-label">Votos</div>
+                            <div class="route-detail-value">👍 ${it.up || 0} · 👎 ${it.down || 0}</div>
+                        </div>
+                    </div>
+                    <div class="route-meta">
+                        <span>Aportado por: ${escapeHtml(it.authorName || it.authorId || 'Desconocido')}</span>
+                        <span>${date}</span>
+                    </div>
+                    <div class="route-actions">
+                        ${hidden ? `<button class="btn btn-success btn-sm" onclick="restoreGymContribution('${it.id}')">Restaurar</button>` : ''}
+                        <button class="btn btn-danger btn-sm" onclick="deleteGymContribution('${it.id}')">Borrar</button>
+                    </div>
+                </div>`;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading gym contributions:', error);
+        listEl.innerHTML = '<div class="empty-state"><p>Error al cargar las aportaciones</p></div>';
+    }
+}
+
+async function restoreGymContribution(id) {
+    try {
+        await db.collection('gym_info').doc(id).update({ restored: true });
+        showToast('Aportación restaurada: vuelve a verse en la ficha', 'success');
+        loadGymContributions();
+    } catch (error) {
+        console.error('Error restoring gym contribution:', error);
+        showToast('No se pudo restaurar', 'error');
+    }
+}
+
+async function deleteGymContribution(id) {
+    if (!confirm('¿Borrar esta aportación definitivamente?')) return;
+    const it = gymContribCache.find(x => x.id === id);
+    try {
+        await db.collection('gym_info').doc(id).delete();
+        if (it && it.storagePath && firebase.storage) {
+            try { await firebase.storage().ref(it.storagePath).delete(); } catch (_) {}
+        }
+        showToast('Aportación borrada', 'info');
+        loadGymContributions();
+    } catch (error) {
+        console.error('Error deleting gym contribution:', error);
+        showToast('No se pudo borrar', 'error');
+    }
+}

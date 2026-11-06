@@ -6733,11 +6733,17 @@ function showGymPopup(p, coords) {
       <p class="ml-gym-kicker">Rocódromo${price ? ` · <span class="ml-gym-price ml-gym-price--${esc(p.pago)}">${price}</span>` : ''}</p>
       <h3 class="ml-gym-title">${esc(p.nombre)}</h3>
       ${types.length ? `<ul class="ml-gym-tags">${types.map(t => `<li>${t}</li>`).join('')}</ul>` : ''}
-      <button type="button" class="ml-gym-btn" data-gym-go>Cómo llegar</button>
+      <div class="ml-gym-actions">
+        <button type="button" class="ml-gym-btn ml-gym-btn--alt" data-gym-go>Cómo llegar</button>
+        ${window.KruxGymSheet ? '<button type="button" class="ml-gym-btn" data-gym-info>Fotos e información</button>' : ''}
+      </div>
     </div>`).addTo(mlMap);
   const el = mlGymPopup.getElement();
   el.querySelector('[data-gym-close]').onclick = () => mlGymPopup.remove();
   el.querySelector('[data-gym-go]').onclick = () => window.open(gmapsUrl, '_blank');
+  // Ficha con lo que aporta la comunidad (gym-info.js): fotos, horario, precios, instalaciones y contacto
+  const info = el.querySelector('[data-gym-info]');
+  if (info) info.onclick = () => { mlGymPopup.remove(); window.KruxGymSheet.open(p, coords); };
 }
 
 /**

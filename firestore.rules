@@ -502,6 +502,52 @@ service cloud.firestore {
     }
 
     // Aleje votes (votaciones de aleje por ruta)
+    // Información de rocódromos aportada por la comunidad (gym-info.js).
+    // Aportación con contadores up/down; cada voto es gym_info/{id}/votes/{uid} = { v: 1 | -1 }.
+    // Voto y contador cambian juntos (lote o transacción) y en una sola unidad: un voto por persona.
+    // Ocultar por votos se deduce de los contadores en el cliente; el admin puede restaurar (restored) o borrar.
+    match /gym_info/{infoId} {
+      function votePath() {
+        return /databases/$(database)/documents/gym_info/$(infoId)/votes/$(request.auth.uid);
+      }
+      function voteBefore() { return exists(votePath()) ? get(votePath()).data.v : 0; }
+      function voteAfter() { return existsAfter(votePath()) ? getAfter(votePath()).data.v : 0; }
+      function validNew() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['gymId', 'kind', 'text', 'value', 'photoUrl', 'storagePath', 'authorId', 'authorName', 'createdAt', 'up', 'down'])
+          && isString(d.gymId, 60) && d.kind in ['photo', 'hours', 'price', 'contact', 'facility']
+          && d.authorId == request.auth.uid && isString(d.authorName, 80)
+          && d.createdAt == request.time && d.up == 0 && d.down == 0
+          && (d.kind != 'photo' || (isString(d.photoUrl, 1000) && isString(d.storagePath, 300) && d.storagePath.matches('gym-photos/' + request.auth.uid + '/.*')))
+          && (d.kind != 'facility' || (isString(d.value, 30) && infoId == d.gymId + '__facility__' + d.value))
+          && (!(d.kind in ['hours', 'price', 'contact']) || (isString(d.text, 500) && d.text.size() > 0));
+      }
+      function validVoteCount() {
+        let a = voteAfter();
+        let b = voteBefore();
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['up', 'down'])
+          && resource.data.authorId != request.auth.uid && a != b
+          && request.resource.data.up == resource.data.up + (a == 1 ? 1 : 0) - (b == 1 ? 1 : 0)
+          && request.resource.data.down == resource.data.down + (a == -1 ? 1 : 0) - (b == -1 ? 1 : 0);
+      }
+
+      allow read: if true;
+      allow create: if isAuthenticated() && validNew();
+      allow update: if isAuthenticated() && (validVoteCount() || isAdmin() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (resource.data.authorId == request.auth.uid || isAdmin() || isSuperAdmin());
+
+      match /votes/{voterId} {
+        function counterMoved() {
+          let p = /databases/$(database)/documents/gym_info/$(infoId);
+          return getAfter(p).data.up != get(p).data.up || getAfter(p).data.down != get(p).data.down;
+        }
+        allow read: if true;
+        allow create, update: if isOwner(voterId) && request.resource.data.keys().hasOnly(['v'])
+          && request.resource.data.v in [1, -1] && counterMoved();
+        allow delete: if isOwner(voterId) && counterMoved();
+      }
+    }
+
     match /aleje_votes/{docId} {
       allow read: if true;
       allow write: if isAuthenticated();

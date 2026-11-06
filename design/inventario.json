@@ -116,9 +116,9 @@
    "nombre": "Campo con etiqueta, ayuda y error (.kx-formrow)",
    "donde": "app_2.css · map-ui.js",
    "construido": true,
-   "integracion": "no",
-   "uso": "Ninguno.",
-   "pendiente": "Adoptarlo primero en Notificar y después en los formularios de Perfil, Entrena y Spotter.",
+   "integracion": "parcial",
+   "uso": "Formulario «Añadir información» de la ficha de rocódromo (gym-info.js).",
+   "pendiente": "Adoptarlo en Notificar y después en los formularios de Perfil, Entrena y Spotter.",
    "fase": "Fase 6, Formularios y menús",
    "marcas": [
     "\\bkx-formrow\\b",
