@@ -247,7 +247,7 @@ const KruxGymSheet = (() => {
         <input type="file" id="kxg-file" accept="image/jpeg,image/png,image/webp" hidden>
         <p class="kxg-file-name" id="kxg-file-name" hidden></p>`;
     } else if (addKind === 'facility') {
-      field = `<div class="kxg-fac-pick" role="radiogroup" aria-label="Instalación">${KXG_FACILITIES.map(f => `<label class="kxg-fac-opt${used.has(f.key) ? ' is-used' : ''}"><input type="radio" name="kxg-fac" value="${f.key}"><span>${kxEsc(f.label)}</span>${used.has(f.key) ? '<small>Ya indicada: sumarás tu «me gusta»</small>' : ''}</label>`).join('')}</div>`;
+      field = `<p class="kxg-help">Marca todas las que tenga el rocódromo.</p><div class="kxg-fac-pick" role="group" aria-label="Instalaciones (puedes elegir varias)">${KXG_FACILITIES.map(f => `<label class="kxg-fac-opt${used.has(f.key) ? ' is-used' : ''}"><input type="checkbox" name="kxg-fac" value="${f.key}"><span>${kxEsc(f.label)}</span>${used.has(f.key) ? '<small>Ya indicada: sumarás tu «me gusta»</small>' : ''}</label>`).join('')}</div>`;
     } else {
       field = kxFieldHTML({ id: 'kxg-text', label: { hours: 'Horario', price: 'Precios', contact: 'Web y contacto' }[addKind], type: 'textarea', placeholder: ph[addKind], help: 'Si ya hay una versión, la tuya se muestra en cuanto tenga igual o más votos.', attrs: { maxlength: KXG_TEXT_MAX } });
     }
@@ -302,10 +302,15 @@ const KruxGymSheet = (() => {
         await KruxGymInfo.addPhoto(gym.id, f);
         toast('Foto publicada', 'success');
       } else if (addKind === 'facility') {
-        const r = el.querySelector('input[name="kxg-fac"]:checked');
-        if (!r) { toast('Elige una instalación', 'info'); return; }
-        const res = await KruxGymInfo.addFacility(gym.id, r.value);
-        toast(res === 'created' ? 'Instalación añadida' : res === 'voted' ? 'Ya estaba indicada: has sumado tu «me gusta»' : 'Ya la habías añadido tú', 'success');
+        const keys = [...el.querySelectorAll('input[name="kxg-fac"]:checked')].map(i => i.value);
+        if (!keys.length) { toast('Elige al menos una instalación', 'info'); return; }
+        const tally = { created: 0, voted: 0, own: 0 };
+        for (const k of keys) tally[await KruxGymInfo.addFacility(gym.id, k)]++;
+        const parts = [];
+        if (tally.created) parts.push(tally.created === 1 ? '1 instalación añadida' : `${tally.created} instalaciones añadidas`);
+        if (tally.voted) parts.push(tally.voted === 1 ? '1 ya estaba indicada: has sumado tu «me gusta»' : `${tally.voted} ya estaban indicadas: has sumado tu «me gusta»`);
+        if (tally.own) parts.push(tally.own === 1 ? '1 ya la habías añadido tú' : `${tally.own} ya las habías añadido tú`);
+        toast(parts.join(' · '), 'success');
       } else {
         const t = el.querySelector('#kxg-text').value.trim();
         if (!t) { kxSetFieldError('kxg-text', 'Escribe la información'); return; }
