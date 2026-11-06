@@ -6716,7 +6716,10 @@ function setupGymLayerInteraction() {
   mlMap.on('click', 'gym-markers-layer', (e) => {
     if (mlMap.getCanvas().style.cursor === 'crosshair') return;
     const f = e.features && e.features[0];
-    if (f) showGymPopup(f.properties, f.geometry.coordinates.slice());
+    if (!f) return;
+    // Un toque abre la ficha completa (hoja en móvil, modal en escritorio); el popup queda como alternativa
+    if (window.KruxGymSheet) window.KruxGymSheet.open(f.properties, f.geometry.coordinates.slice());
+    else showGymPopup(f.properties, f.geometry.coordinates.slice());
   });
 }
 

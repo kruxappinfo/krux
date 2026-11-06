@@ -1245,7 +1245,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 10v12M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
                     </svg>
-                    Rocódromos (comunidad)
+                    Denuncias de rocódromos
                     <span class="nav-badge" id="gymsBadge" style="display: none;">0</span>
                 </a>
             </li>
@@ -1662,8 +1662,8 @@
             <!-- Rocódromos: información de la comunidad -->
             <section id="section-gyms" class="section">
                 <div class="page-header">
-                    <h1 class="page-title">Rocódromos: aportaciones de la comunidad</h1>
-                    <p class="page-description">Fotos, horarios, precios, instalaciones y contacto. Lo que acumula 5 «no me gusta» más que «me gusta» se oculta solo; aquí puedes restaurarlo o borrarlo.</p>
+                    <h1 class="page-title">Rocódromos: denuncias de la comunidad</h1>
+                    <p class="page-description">Los usuarios denuncian la información de un rocódromo que está mal y proponen un cambio. Aquí decides: aplicar el cambio, borrar la aportación o descartar la denuncia.</p>
                 </div>
 
                 <div class="card">
@@ -1673,7 +1673,8 @@
                     <div class="card-body">
                         <div class="filters">
                             <select id="filterGymStatus" class="form-select" onchange="loadGymContributions()">
-                                <option value="hidden">Ocultas por votos</option>
+                                <option value="open">Pendientes</option>
+                                <option value="resolved">Resueltas</option>
                                 <option value="all">Todas</option>
                             </select>
                         </div>
@@ -1683,7 +1684,7 @@
                 <div id="gymsList">
                     <div class="loading">
                         <div class="spinner"></div>
-                        <p>Cargando aportaciones...</p>
+                        <p>Cargando denuncias...</p>
                     </div>
                 </div>
             </section>

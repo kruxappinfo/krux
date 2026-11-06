@@ -1,6 +1,6 @@
 const path = require('node:path');
 const ROOT = path.resolve(__dirname, '../../..');
-// Reglas de gym_info (información de rocódromos de la comunidad) y de sus votos, contra el emulador local (proyecto demo).
+// Reglas de gym_info (información de rocódromos de la comunidad) y de gym_reports (denuncias), contra el emulador local.
 const firebase = require(path.join(ROOT, 'node_modules/firebase/compat/app'));
 require(path.join(ROOT, 'node_modules/firebase/compat/auth'));
 require(path.join(ROOT, 'node_modules/firebase/compat/firestore'));
@@ -26,42 +26,60 @@ const expect = async (label, promise, shouldPass) => {
   const stamp = Date.now();
   const A = await mk('a' + stamp, `a${stamp}@test.dev`);
   const B = await mk('b' + stamp, `b${stamp}@test.dev`);
-  const C = await mk('c' + stamp, `c${stamp}@test.dev`);
   const SA = await mk('sa' + stamp, 'krux.app.info@gmail.com');
   const gym = 'roco-' + stamp;
-  const info = (u, id) => u.db.collection('gym_info').doc(id);
-  const vote = (u, id) => info(u, id).collection('votes').doc(u.uid);
-  const base = (u, over) => Object.assign({ gymId: gym, kind: 'hours', text: 'L–V 10–23', authorId: u.uid, authorName: 'A', createdAt: u.FV.serverTimestamp(), up: 0, down: 0 }, over || {});
-  const voteBatch = (u, id, counters, v) => { const b = u.db.batch(); b.update(info(u, id), counters); if (v) b.set(vote(u, id), { v }); else b.delete(vote(u, id)); return b.commit(); };
+  const info = (u, id) => u.db.collection('gym_info').doc(id.length < 12 ? `${id}-${stamp}` : id);
+  const rep = (u, id) => u.db.collection('gym_reports').doc(id);
+  const iid = (id) => `${id}-${stamp}`;   // los ids cortos se sufijan con la marca de tiempo: cada ejecución parte de cero
+  const base = (u, over) => Object.assign({ gymId: gym, kind: 'hours', text: 'L–V 10–23', authorId: u.uid, authorName: 'A', createdAt: u.FV.serverTimestamp() }, over || {});
+  const noText = (o) => { const { text, ...r } = o; return r; };
 
+  // Aportaciones
   await expect('crear horario propio', info(A, 'h1').set(base(A)), true);
-  await expect('crear con contadores inflados', info(A, 'h2').set(base(A, { up: 9 })), false);
+  await expect('crear con contador (campo ya no existe)', info(A, 'h2').set(base(A, { up: 0 })), false);
   await expect('crear a nombre de otro', info(A, 'h3').set(base(A, { authorId: B.uid })), false);
   await expect('crear tipo no admitido', info(A, 'h4').set(base(A, { kind: 'spam' })), false);
   await expect('crear horario vacío', info(A, 'h5').set(base(A, { text: '' })), false);
   await expect('otro usuario lee', info(B, 'h1').get(), true);
-  await expect('foto con ruta propia', info(A, 'p1').set((({ text, ...r }) => r)(base(A, { kind: 'photo', photoUrl: 'https://x/y.jpg', storagePath: `gym-photos/${A.uid}/${gym}_1.jpg` }))), true);
-  await expect('foto con ruta de otro usuario', info(A, 'p2').set((({ text, ...r }) => r)(base(A, { kind: 'photo', photoUrl: 'https://x/y.jpg', storagePath: `gym-photos/${B.uid}/x.jpg` }))), false);
-  const facId = `${gym}__facility__parking`;
-  await expect('instalación con id fijo', info(A, facId).set((({ text, ...r }) => r)(base(A, { kind: 'facility', value: 'parking' }))), true);
-  await expect('instalación con id libre', info(A, 'f2').set((({ text, ...r }) => r)(base(A, { kind: 'facility', value: 'duchas' }))), false);
+  await expect('foto con ruta propia', info(A, 'p1').set(noText(base(A, { kind: 'photo', photoUrl: 'https://x/y.jpg', storagePath: `gym-photos/${A.uid}/${gym}_1.jpg` }))), true);
+  await expect('foto con ruta de otro usuario', info(A, 'p2').set(noText(base(A, { kind: 'photo', photoUrl: 'https://x/y.jpg', storagePath: `gym-photos/${B.uid}/x.jpg` }))), false);
+  await expect('instalación con id fijo', info(A, `${gym}__facility__parking`).set(noText(base(A, { kind: 'facility', value: 'parking' }))), true);
+  await expect('instalación con id libre', info(A, 'f2').set(noText(base(A, { kind: 'facility', value: 'duchas' }))), false);
+  const link = (u, over) => noText(base(u, Object.assign({ kind: 'link', network: 'instagram', url: 'https://www.instagram.com/sharma' }, over || {})));
+  await expect('enlace: Instagram https', info(A, 'l1').set(link(A)), true);
+  await expect('enlace: red desconocida', info(A, 'l2').set(link(A, { network: 'myspace' })), false);
+  await expect('enlace: sin https', info(A, 'l3').set(link(A, { url: 'http://x.com/a' })), false);
+  await expect('enlace: esquema javascript', info(A, 'l4').set(link(A, { url: 'javascript:alert(1)' })), false);
+  await expect('enlace: con espacios', info(A, 'l5').set(link(A, { url: 'https://a.com/x y' })), false);
 
-  await expect('voto: me gusta con su contador', voteBatch(B, 'h1', { up: 1, down: 0 }, 1), true);
-  await expect('voto: repetir me gusta sin cambio', voteBatch(B, 'h1', { up: 2, down: 0 }, 1), false);
-  await expect('voto: solo contador, sin voto', info(C, 'h1').update({ up: 2 }), false);
-  await expect('voto: solo voto, sin contador', vote(C, 'h1').set({ v: 1 }), false);
-  await expect('voto: contador +2', voteBatch(C, 'h1', { up: 3, down: 0 }, 1), false);
-  await expect('voto: valor 5', voteBatch(C, 'h1', { up: 2, down: 0 }, 5), false);
-  await expect('voto: otro usuario, me gusta', voteBatch(C, 'h1', { up: 2, down: 0 }, 1), true);
-  await expect('voto: cambiar a no me gusta', voteBatch(B, 'h1', { up: 1, down: 1 }, -1), true);
-  await expect('voto: retirar', voteBatch(B, 'h1', { up: 1, down: 0 }, 0), true);
-  await expect('voto: el autor no vota lo suyo', voteBatch(A, 'h1', { up: 2, down: 0 }, 1), false);
-  await expect('voto: tocar el texto al votar', (() => { const b = B.db.batch(); b.update(info(B, 'h1'), { up: 2, text: 'otro' }); b.set(vote(B, 'h1'), { v: 1 }); return b.commit(); })(), false);
-  await expect('voto: escribir el voto de otro', info(B, 'h1').collection('votes').doc(C.uid).set({ v: -1 }), false);
-
-  await expect('editar texto ajeno', info(B, 'h1').update({ text: 'cambiado' }), false);
+  // Ya no hay votos: nadie modifica una aportación salvo el admin
+  await expect('editar la propia (solo admin edita)', info(A, 'h1').update({ text: 'cambiado' }), false);
+  await expect('editar ajena', info(B, 'h1').update({ text: 'cambiado' }), false);
+  await expect('subcolección de votos retirada', info(B, 'h1').collection('votes').doc(B.uid).set({ v: 1 }), false);
   await expect('borrar ajeno', info(B, 'h1').delete(), false);
-  await expect('super-admin restaura', info(SA, 'h1').update({ restored: true }), true);
+
+  // Denuncias
+  const report = (u, infoId, over) => Object.assign({ infoId: iid(infoId), gymId: gym, kind: 'hours', reason: 'incorrect', proposal: 'Abre a las 9', reporterId: u.uid, reporterName: 'B', createdAt: u.FV.serverTimestamp(), status: 'open' }, over || {});
+  const rid = (u, id) => `${iid(id)}__${u.uid}`;
+  await expect('denuncia: B denuncia h1 con propuesta', rep(B, rid(B, 'h1')).set(report(B, 'h1')), true);
+  await expect('denuncia: sin propuesta (cadena vacía)', rep(B, rid(B, 'l1')).set(report(B, 'l1', { kind: 'link', proposal: '' })), true);
+  await expect('denuncia: repetida por la misma persona (no se puede reescribir)', rep(B, rid(B, 'h1')).set(report(B, 'h1', { proposal: 'otra' })), false);
+  await expect('denuncia: id que no es infoId__uid', rep(B, 'cualquiera').set(report(B, 'h1')), false);
+  await expect('denuncia: a nombre de otro', rep(B, rid(A, 'p1')).set(report(B, 'p1', { reporterId: A.uid })), false);
+  await expect('denuncia: aportación inexistente', rep(B, rid(B, 'no-existe')).set(report(B, 'no-existe')), false);
+  await expect('denuncia: motivo inválido', rep(B, rid(B, 'p1')).set(report(B, 'p1', { kind: 'photo', reason: 'odio' })), false);
+  await expect('denuncia: estado resuelta al crear', rep(B, rid(B, 'p1')).set(report(B, 'p1', { kind: 'photo', status: 'resolved' })), false);
+  await expect('denuncia: propuesta de 600 caracteres', rep(B, rid(B, 'p1')).set(report(B, 'p1', { kind: 'photo', proposal: 'x'.repeat(600) })), false);
+  await expect('denuncia: quien la envió la lee', rep(B, rid(B, 'h1')).get(), true);
+  await expect('denuncia: otra persona no la lee', rep(A, rid(B, 'h1')).get(), false);
+  await expect('denuncia: otra persona no lista', A.db.collection('gym_reports').get(), false);
+  await expect('denuncia: el reportero no la modifica', rep(B, rid(B, 'h1')).update({ status: 'resolved' }), false);
+  await expect('denuncia: el reportero no la borra', rep(B, rid(B, 'h1')).delete(), false);
+  await expect('denuncia: super-admin lista', SA.db.collection('gym_reports').get(), true);
+  await expect('denuncia: super-admin la resuelve', rep(SA, rid(B, 'h1')).update({ status: 'resolved' }), true);
+
+  // Moderación
+  await expect('super-admin edita una aportación', info(SA, 'h1').update({ text: 'corregido' }), true);
   await expect('autor borra lo suyo', info(A, 'p1').delete(), true);
   await expect('super-admin borra', info(SA, 'h1').delete(), true);
   await expect('listar por rocódromo', B.db.collection('gym_info').where('gymId', '==', gym).get(), true);

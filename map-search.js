@@ -7,16 +7,17 @@
 // SUGERENCIAS (lógica pura, sin DOM)
 // ============================================
 const MAP_SEARCH_MIN_CHARS = 2;
-const MAP_SEARCH_LIMITS = { school: 3, sector: 4, route: 6 };
+const MAP_SEARCH_LIMITS = { school: 3, gym: 3, sector: 4, route: 6 };
 
 /**
  * Agrupa los resultados para una consulta. Escuelas y sectores salen de matchPlaces, las vías de matchRoutes.
  * A igualdad de relevancia, lo de la escuela que está abierta en el mapa va primero.
- * @returns {{schools: object[], sectors: object[], routes: object[]}}
+ * Los rocódromos salen de matchGyms (opcional) y tienen su propio grupo.
+ * @returns {{schools: object[], gyms: object[], sectors: object[], routes: object[]}}
  */
 function mapSearchSuggest(places, query, currentSchoolId) {
   const q = String(query || '').trim();
-  const empty = { schools: [], sectors: [], routes: [] };
+  const empty = { schools: [], gyms: [], sectors: [], routes: [] };
   if (!places || q.length < MAP_SEARCH_MIN_CHARS) return empty;
   const nq = places.norm(q);
   const sameSchoolFirst = (list, idOf) => {
@@ -32,7 +33,8 @@ function mapSearchSuggest(places, query, currentSchoolId) {
   const schools = placeHits.filter(p => p.kind === 'school').slice(0, MAP_SEARCH_LIMITS.school);
   const sectors = sameSchoolFirst(placeHits.filter(p => p.kind === 'sector'), (x) => x.schoolId).slice(0, MAP_SEARCH_LIMITS.sector);
   const routes = sameSchoolFirst(places.matchRoutes(found, q), (x) => x.schoolId).slice(0, MAP_SEARCH_LIMITS.route);
-  return { schools, sectors, routes };
+  const gyms = typeof places.matchGyms === 'function' ? places.matchGyms(found, q).slice(0, MAP_SEARCH_LIMITS.gym) : [];
+  return { schools, gyms, sectors, routes };
 }
 
 if (typeof window !== 'undefined') window.KruxMapSearchLogic = { suggest: mapSearchSuggest, MIN_CHARS: MAP_SEARCH_MIN_CHARS };
@@ -59,6 +61,7 @@ function initMapSearch() {
 
   const ICONS = {
     mountain: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20l6.5-11 4 6.5 2.5-4L21 20z"></path></svg>',
+    gym: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5v11"></path><path d="M17.5 6.5v11"></path><path d="M3 9v6"></path><path d="M21 9v6"></path><path d="M6.5 12h11"></path></svg>',
     sector: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19l4-12 4 6 3-4 5 10z"></path><circle cx="16.5" cy="5.5" r="1.5"></circle></svg>',
     clock: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>'
   };
@@ -112,6 +115,10 @@ function initMapSearch() {
       ].filter(Boolean).join(' · ');
       return `<div class="search-row ms-row" ${open}><span class="search-thumb">${ICONS.mountain}</span><div class="search-info"><div class="search-title">${esc(it.name)}</div><div class="search-meta">Escuela${stats ? ` · ${stats}` : ''}</div></div></div>`;
     }
+    if (it.kind === 'gym') {
+      const price = it.props && (it.props.pago === 'no' ? 'Gratuito' : it.props.pago === 'si' ? 'De pago' : '');
+      return `<div class="search-row ms-row" ${open}><span class="search-thumb search-thumb--soft">${ICONS.gym}</span><div class="search-info"><div class="search-title">${esc(it.name)}</div><div class="search-meta">Rocódromo${price ? ` · ${price}` : ''}</div></div></div>`;
+    }
     if (it.kind === 'sector') {
       return `<div class="search-row ms-row" ${open}><span class="search-thumb search-thumb--soft">${ICONS.sector}</span><div class="search-info"><div class="search-title">${esc(it.name)}</div><div class="search-meta">Sector · ${esc(it.schoolName)}</div></div></div>`;
     }
@@ -144,6 +151,8 @@ function initMapSearch() {
     // Los recientes se guardan como {type, id|schoolId, name}: se pintan con la forma de los resultados
     const items = recent.map(it => (it.type === 'school'
       ? { kind: 'school', id: it.id, name: it.name, recent: true }
+      : it.type === 'gym'
+        ? { kind: 'gym', id: it.id, name: it.name, recent: true }
       : it.type === 'sector'
         ? { kind: 'sector', schoolId: it.schoolId, schoolName: it.schoolName, name: it.name, recent: true }
         : { kind: 'route', schoolId: it.schoolId, schoolName: it.schoolName, name: it.name, grade: it.grade, sector: it.sector, recent: true }));
@@ -165,12 +174,12 @@ function initMapSearch() {
     }
     const currentSchool = typeof mlCurrentSchool !== 'undefined' ? mlCurrentSchool : null;
     const api = places();
-    const res = mapSearchSuggest({ index, norm: api.norm, matchPlaces: api.matchPlaces, matchRoutes: api.matchRoutes }, q, currentSchool);
-    if (!res.schools.length && !res.sectors.length && !res.routes.length) {
-      renderState(`Sin resultados para «${q}»`, 'Prueba con el nombre de una escuela, un sector o una vía');
+    const res = mapSearchSuggest({ index, norm: api.norm, matchPlaces: api.matchPlaces, matchGyms: api.matchGyms, matchRoutes: api.matchRoutes }, q, currentSchool);
+    if (!res.schools.length && !res.gyms.length && !res.sectors.length && !res.routes.length) {
+      renderState(`Sin resultados para «${q}»`, 'Prueba con el nombre de una escuela, un rocódromo, un sector o una vía');
       return;
     }
-    render([res.schools, res.sectors, res.routes], ['Escuelas', 'Sectores', 'Vías']);
+    render([res.schools, res.gyms, res.sectors, res.routes], ['Escuelas', 'Rocódromos', 'Sectores', 'Vías']);
   }
 
   // ---------- Elegir una sugerencia ----------
@@ -184,6 +193,7 @@ function initMapSearch() {
       try {
         const idx = await ensureIndex();
         target = it.kind === 'school' ? idx.schools.find(x => x.id === it.id)
+          : it.kind === 'gym' ? (idx.gyms || []).find(x => x.id === it.id)
           : it.kind === 'sector' ? idx.sectors.find(x => x.schoolId === it.schoolId && x.name === it.name)
             : idx.routes.find(x => x.schoolId === it.schoolId && x.name === it.name && (x.sector || '') === (it.sector || ''));
       } catch (_) { target = null; }
@@ -194,6 +204,8 @@ function initMapSearch() {
     }
     api.remember(target.kind === 'school'
       ? { type: 'school', id: target.id, name: target.name }
+      : target.kind === 'gym'
+        ? { type: 'gym', id: target.id, name: target.name }
       : target.kind === 'sector'
         ? { type: 'sector', schoolId: target.schoolId, schoolName: target.schoolName, name: target.name }
         : { type: 'route', schoolId: target.schoolId, schoolName: target.schoolName, name: target.name, grade: target.grade, sector: target.sector });

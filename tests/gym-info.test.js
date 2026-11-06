@@ -1,62 +1,85 @@
-// Información de rocódromos (gym-info.js): puntuación, ocultación por votos, versión visible y delta de contadores.
+// Información de rocódromos (gym-info.js): versión visible, denuncias, instalaciones y enlaces.
 // Se carga el archivo tal cual en un contexto aislado; solo se usan sus funciones puras.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const SRC = readFileSync(new URL('../gym-info.js', import.meta.url), 'utf8');
-const ctx = vm.createContext({ window: {}, console });
+const ctx = vm.createContext({ window: {}, console, URL });
 vm.runInContext(SRC, ctx, { filename: 'gym-info.js' });
 const get = (n) => vm.runInContext(n, ctx);
-
-describe('moderación por votos', () => {
-  const hidden = get('kxgIsHidden');
-  it('se oculta con 5 «no me gusta» netos y no antes', () => {
-    expect(hidden({ up: 0, down: 4 })).toBe(false);
-    expect(hidden({ up: 0, down: 5 })).toBe(true);
-    expect(hidden({ up: 3, down: 7 })).toBe(false);
-    expect(hidden({ up: 3, down: 8 })).toBe(true);
-  });
-  it('lo restaurado por un admin sigue visible', () => {
-    expect(hidden({ up: 0, down: 9, restored: true })).toBe(false);
-  });
-});
 
 describe('qué se muestra', () => {
   const build = get('kxgBuildView');
   const items = [
-    { id: 'h-old', kind: 'hours', text: 'viejo', up: 0, down: 0, createdAt: 1 },
-    { id: 'h-new', kind: 'hours', text: 'nuevo', up: 0, down: 0, createdAt: 2 },
-    { id: 'p-top', kind: 'price', text: 'bueno', up: 3, down: 0, createdAt: 1 },
-    { id: 'p-new', kind: 'price', text: 'nuevo', up: 0, down: 0, createdAt: 5 },
-    { id: 'c-bad', kind: 'contact', text: 'spam', up: 0, down: 6, createdAt: 1 },
-    { id: 'f1', kind: 'facility', value: 'parking', up: 1, down: 0, createdAt: 1 },
-    { id: 'f2', kind: 'facility', value: 'duchas', up: 4, down: 0, createdAt: 1 },
-    { id: 'f3', kind: 'facility', value: 'tienda', up: 0, down: 5, createdAt: 1 },
-    { id: 'ph1', kind: 'photo', up: 0, down: 0, createdAt: 1 },
-    { id: 'ph2', kind: 'photo', up: 2, down: 0, createdAt: 1 },
-    { id: 'x', kind: 'otro', up: 9, down: 0 }
+    { id: 'h-old', kind: 'hours', text: 'viejo', createdAt: 1 },
+    { id: 'h-new', kind: 'hours', text: 'nuevo', createdAt: 2 },
+    { id: 'p-old', kind: 'price', text: 'antiguo', createdAt: 1 },
+    { id: 'f1', kind: 'facility', value: 'parking', createdAt: 1 },
+    { id: 'f2', kind: 'facility', value: 'duchas', createdAt: 5 },
+    { id: 'ph1', kind: 'photo', createdAt: 1 },
+    { id: 'ph2', kind: 'photo', createdAt: 9 },
+    { id: 'x', kind: 'otro', createdAt: 9 }
   ];
   const v = build(items);
-  it('horario, precio y contacto: solo la versión mejor puntuada; a igualdad, la más reciente', () => {
+  it('horario, precios y contacto: solo la versión más reciente', () => {
     expect(v.hours.id).toBe('h-new');
-    expect(v.price.id).toBe('p-top');
+    expect(v.price.id).toBe('p-old');
     expect(v.contact).toBe(null);
   });
-  it('instalaciones y fotos: todas las visibles, de más a menos votadas', () => {
+  it('instalaciones y fotos: todas, de más reciente a más antigua; tipos desconocidos fuera', () => {
     expect(v.facilities.map(f => f.id)).toEqual(['f2', 'f1']);
     expect(v.photos.map(p => p.id)).toEqual(['ph2', 'ph1']);
   });
+  it('ya no existe la ocultación por votos: una aportación con muchos «no me gusta» heredados sigue visible', () => {
+    expect(build([{ id: 'a', kind: 'hours', text: 'x', up: 0, down: 50, createdAt: 1 }]).hours.id).toBe('a');
+  });
 });
 
-describe('contadores', () => {
-  const d = get('kxgVoteDelta');
-  it('cambia en una unidad al votar, cambiar o retirar el voto', () => {
-    expect({ ...d(0, 1) }).toEqual({ up: 1, down: 0 });
-    expect({ ...d(1, -1) }).toEqual({ up: -1, down: 1 });
-    expect({ ...d(-1, 0) }).toEqual({ up: 0, down: -1 });
+describe('denuncias', () => {
+  it('una denuncia por persona y aportación', () => {
+    expect(get('kxgReportId')('info1', 'uidA')).toBe('info1__uidA');
+    expect(get('kxgReportId')('info1', 'uidB')).not.toBe(get('kxgReportId')('info1', 'uidA'));
+  });
+  it('motivos disponibles', () => {
+    expect(get('KXG_REASONS').map(r => r.value)).toEqual(['incorrect', 'outdated', 'inappropriate']);
   });
   it('id fijo por instalación', () => {
     expect(get('kxgFacilityId')('roco-1', 'parking')).toBe('roco-1__facility__parking');
+  });
+});
+
+describe('redes y web', () => {
+  const norm = get('kxgNormalizeLink');
+  it('acepta usuario o enlace y devuelve siempre https de la red elegida', () => {
+    expect(norm('instagram', '@sharma')).toBe('https://www.instagram.com/sharma');
+    expect(norm('instagram', 'sharma.climbing')).toBe('https://www.instagram.com/sharma.climbing');
+    expect(norm('instagram', 'https://instagram.com/sharma/')).toBe('https://instagram.com/sharma/');
+    expect(norm('facebook', 'fb.com/sharma')).toBe('https://fb.com/sharma');
+    expect(norm('tiktok', '@sharma')).toBe('https://www.tiktok.com/@sharma');
+    expect(norm('youtube', 'youtu.be/abc')).toBe('https://youtu.be/abc');
+    expect(norm('web', 'www.rocodromo.es')).toBe('https://www.rocodromo.es/');
+    expect(norm('web', 'http://rocodromo.es/tarifas')).toBe('https://rocodromo.es/tarifas');
+  });
+  it('rechaza enlaces de otra red, esquemas peligrosos y basura', () => {
+    expect(norm('instagram', 'https://facebook.com/sharma')).toBe(null);
+    expect(norm('instagram', 'https://instagram.com.evil.es/x')).toBe(null);
+    expect(norm('web', 'javascript:alert(1)')).toBe(null);
+    expect(norm('web', 'data:text/html,hola')).toBe(null);
+    expect(norm('web', 'https://user:pw@sitio.es')).toBe(null);
+    expect(norm('web', 'sin punto')).toBe(null);
+    expect(norm('web', 'localhost')).toBe(null);
+    expect(norm('myspace', 'x.com')).toBe(null);
+    expect(norm('instagram', '')).toBe(null);
+  });
+  it('en la ficha sale el enlace válido más reciente de cada red, ordenado por red', () => {
+    const v = get('kxgBuildView')([
+      { id: 'a', kind: 'link', network: 'web', url: 'https://viejo.es', createdAt: 1 },
+      { id: 'b', kind: 'link', network: 'web', url: 'https://nuevo.es', createdAt: 5 },
+      { id: 'c', kind: 'link', network: 'instagram', url: 'https://www.instagram.com/sharma', createdAt: 1 },
+      { id: 'd', kind: 'link', network: 'instagram', url: 'javascript:alert(1)', createdAt: 9 }
+    ]);
+    expect(v.links.map(l => l.id)).toEqual(['c', 'b']);
+    expect(v.links[1].href).toBe('https://nuevo.es/');
   });
 });

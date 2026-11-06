@@ -13,6 +13,7 @@ const mk = (kind, schoolId, name, extra = {}) => ({ kind, schoolId, schoolName: 
 const index = {
   schools: [{ kind: 'school', id: 'valeria', name: 'Valeria', key: 'valeria' }, { kind: 'school', id: 'cuenca', name: 'Cuenca', key: 'cuenca' }],
   sectors: [mk('sector', 'cuenca', 'Peña del Cuervo'), mk('sector', 'valeria', 'Peña Alta'), mk('sector', 'valeria', 'Placa')],
+  gyms: [mk('gym', 'g1', 'Sharma Climbing'), mk('gym', 'g2', 'Sharma Norte'), mk('gym', 'g3', 'Sharma Sur'), mk('gym', 'g4', 'Sharma Este'), mk('gym', 'g5', 'Espacio Acción')],
   routes: [
     mk('route', 'cuenca', 'La peña verde', { grade: '6a' }), mk('route', 'valeria', 'Peñazo', { grade: '7a' }),
     mk('route', 'valeria', 'Pena negra', { grade: '6a' }), mk('route', 'cuenca', 'Otra', { grade: '5c' })
@@ -23,6 +24,7 @@ const rank = (key, q) => (key.startsWith(q) ? 0 : 1);
 const api = {
   index, norm,
   matchPlaces: (idx, q) => { const nq = norm(q); return [...idx.schools, ...idx.sectors].filter(p => p.key.includes(nq)).sort((a, b) => rank(a.key, nq) - rank(b.key, nq)); },
+  matchGyms: (idx, q) => { const nq = norm(q); return (idx.gyms || []).filter(g => g.key.includes(nq)); },
   matchRoutes: (idx, q) => { const nq = norm(q); return idx.routes.filter(r => r.key.includes(nq) || norm(r.grade) === nq).sort((a, b) => rank(a.key, nq) - rank(b.key, nq)); }
 };
 
@@ -35,11 +37,11 @@ describe('buscador del mapa', () => {
     }
   });
 
-  it('devuelve solo escuelas, sectores y vías (nunca personas)', () => {
+  it('devuelve solo escuelas, rocódromos, sectores y vías (nunca personas)', () => {
     const r = suggest(api, 'val', null);
-    expect(Object.keys(r).sort()).toEqual(['routes', 'schools', 'sectors']);
+    expect(Object.keys(r).sort()).toEqual(['gyms', 'routes', 'schools', 'sectors']);
     expect(r.schools.map(x => x.name)).toEqual(['Valeria']);
-    expect([...r.schools, ...r.sectors, ...r.routes].every(x => ['school', 'sector', 'route'].includes(x.kind))).toBe(true);
+    expect([...r.schools, ...r.gyms, ...r.sectors, ...r.routes].every(x => ['school', 'gym', 'sector', 'route'].includes(x.kind))).toBe(true);
   });
 
   it('ignora acentos y mayúsculas', () => {
@@ -75,5 +77,17 @@ describe('buscador del mapa', () => {
   it('sin coincidencias devuelve todo vacío', () => {
     const r = suggest(api, 'zzzz', null);
     expect(r.schools.length + r.sectors.length + r.routes.length).toBe(0);
+  });
+
+  it('los rocódromos tienen su propio grupo, limitado y sin acentos', () => {
+    const r = suggest(api, 'sharma', null);
+    expect(r.gyms.length).toBe(3);
+    expect(r.gyms.every(g => g.kind === 'gym')).toBe(true);
+    expect(suggest(api, 'accion', null).gyms.map(g => g.name)).toEqual(['Espacio Acción']);
+    expect(suggest(api, 'sharma', null).schools).toEqual([]);
+  });
+  it('sin matchGyms (índice antiguo) no falla', () => {
+    const { matchGyms, ...old } = api;
+    expect(suggest(old, 'sharma', null).gyms).toEqual([]);
   });
 });
