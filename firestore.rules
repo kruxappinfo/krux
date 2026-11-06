@@ -504,7 +504,7 @@ service cloud.firestore {
     // Aleje votes (votaciones de aleje por ruta)
     // Información de rocódromos aportada por la comunidad (gym-info.js).
     // Se publica al instante; cualquiera puede denunciarla (gym_reports) y el admin decide: editar, borrar o descartar.
-    // Solo el autor (o un admin) puede borrar; solo un admin puede modificar una aportación.
+    // Una vez publicada, solo un admin puede modificarla o borrarla (el resto la denuncia).
     match /gym_info/{infoId} {
       function validNew() {
         let d = request.resource.data;
@@ -521,7 +521,7 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isAuthenticated() && validNew();
       allow update: if isAuthenticated() && (isAdmin() || isSuperAdmin());
-      allow delete: if isAuthenticated() && (resource.data.authorId == request.auth.uid || isAdmin() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
     }
 
     // Denuncias de esa información: una por persona y aportación (id = infoId__uid). Privadas: solo las ve el admin

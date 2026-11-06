@@ -222,13 +222,7 @@ const KruxGymInfo = (() => {
     await col().add({ ...base(gymId, 'photo'), photoUrl, storagePath: path });
   }
 
-  // Borra una aportación propia (o cualquiera, si es admin). La foto se borra también del almacenamiento.
-  async function remove(item) {
-    await col().doc(item.id).delete();
-    if (item.storagePath) { try { await storage.ref(item.storagePath).delete(); } catch (_) {} }
-  }
-
-  return { list, cached, warm, report, addText, addFacility, addLink, addPhoto, remove };
+  return { list, cached, warm, report, addText, addFacility, addLink, addPhoto };
 })();
 
 // ============================================
@@ -270,9 +264,6 @@ const KruxGymSheet = (() => {
     return out;
   }
 
-  function ownHTML(it) {
-    return it.authorId === me() ? `<button type="button" class="kxg-del" data-kxg="del" data-id="${kxEsc(it.id)}" aria-label="Borrar mi aportación">${kxIcon('trash', { size: 16 })}</button>` : '';
-  }
 
   // Instalaciones en páginas de 6 (2 columnas × 3 filas) que se pasan deslizando, con puntos indicadores
   const FAC_PER_PAGE = 6;
@@ -280,7 +271,7 @@ const KruxGymSheet = (() => {
     const pages = [];
     for (let i = 0; i < list.length; i += FAC_PER_PAGE) pages.push(list.slice(i, i + FAC_PER_PAGE));
     if (facPage >= pages.length) facPage = pages.length - 1;
-    const chip = (f) => `<div class="kxg-fchip"><span>${kxEsc(kxgFacilityLabel(f.value))}</span>${ownHTML(f)}</div>`;
+    const chip = (f) => `<div class="kxg-fchip"><span>${kxEsc(kxgFacilityLabel(f.value))}</span></div>`;
     return `<div class="kxg-facs" data-kxg-facs>
       <div class="kxg-fstage"><div class="kxg-ftrack" style="transform:translateX(-${facPage * 100}%)">${pages.map(pg => `<div class="kxg-fpage">${pg.map(chip).join('')}</div>`).join('')}</div></div>
       ${pages.length > 1 ? `<div class="kxg-dots" aria-hidden="true">${pages.map((_, i) => `<span class="kxg-dot${i === facPage ? ' is-on' : ''}"></span>`).join('')}</div>` : ''}
@@ -293,7 +284,7 @@ const KruxGymSheet = (() => {
       : '<p class="kxg-none">Nadie lo ha añadido todavía.</p>';
     return `<section class="kxg-card">
       <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon(icon, { size: 18 })}</span><h3 class="kxg-card-title">${title}</h3>
-        ${it ? ownHTML(it) : ''}</div>
+        </div>
       ${body}</section>`;
   }
 
@@ -312,7 +303,7 @@ const KruxGymSheet = (() => {
             <div class="kxg-track" style="transform:translateX(-${photoIdx * 100}%)">${v.photos.map((ph, i) => `<button type="button" class="kxg-photo-btn" data-kxg="zoom" aria-label="Ver la foto ${i + 1} de ${v.photos.length} en grande"><img src="${kxEsc(ph.photoUrl)}" alt="Foto ${i + 1} de ${v.photos.length} de ${kxEsc(gym.nombre)}" draggable="false"${Math.abs(i - photoIdx) > 1 ? ' loading="lazy"' : ''}></button>`).join('')}</div>
             ${v.photos.length > 1 ? `<span class="kxg-count" aria-hidden="true">${photoIdx + 1} / ${v.photos.length}</span>` : ''}
           </div>
-          <div class="kxg-photo-actions">${ownHTML(cur)}</div>
+          
         </div>`
       : '<p class="kxg-none">Aún no hay fotos. Sé la primera persona en subir una.</p>';
     const facilities = v.facilities.length
@@ -335,7 +326,7 @@ const KruxGymSheet = (() => {
                 <span class="kxg-link-ic">${kxIcon(n.icon, { size: 20 })}</span>
                 <span class="kxg-link-text"><strong>${kxEsc(n.label)}</strong><small>${kxEsc(kxgLinkDisplay(l.href))}</small></span>
                 ${kxIcon('externalLink', { size: 16, cls: 'kxg-link-out' })}
-              </a>${ownHTML(l)}</li>`; }).join('')}</ul>`
+              </a></li>`; }).join('')}</ul>`
           : '<p class="kxg-none">Nadie ha añadido redes sociales ni web todavía.</p>'}</section>
       ${textRowHTML('contact', 'messageCircle', 'Contacto', v.contact)}
       <p class="kxg-note">La información la aporta la comunidad. Si algo está mal, pulsa ${kxIcon('triangleAlert', { size: 14 })} para avisarnos y proponer un cambio: lo revisaremos.</p>`;
@@ -664,7 +655,6 @@ const KruxGymSheet = (() => {
       onChange: (i) => {
         photoIdx = i;
         const c = stage.querySelector('.kxg-count'); if (c) c.textContent = `${i + 1} / ${photos.length}`;
-        const act = el.querySelector('.kxg-photo-actions'); if (act) act.innerHTML = ownHTML(photos[i]);
       }
     });
     stage.addEventListener('keydown', (e) => {
@@ -729,16 +719,6 @@ const KruxGymSheet = (() => {
         console.error('[Rocódromos] Error al denunciar:', e);
         toast('No se pudo enviar la denuncia. Revisa la conexión.', 'error');
       } finally { busy = false; btn.removeAttribute('aria-busy'); }
-    },
-    async del(btn) {
-      const it = items.find(i => i.id === btn.dataset.id);
-      if (!it || !window.confirm('¿Borrar esta aportación?')) return;
-      try {
-        await KruxGymInfo.remove(it);
-        items = items.filter(i => i !== it);
-        render({ keepScroll: true });
-        toast('Aportación borrada', 'success');
-      } catch (e) { toast('No se pudo borrar', 'error'); }
     }
   };
 

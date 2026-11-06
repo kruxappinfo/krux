@@ -80,7 +80,7 @@ const expect = async (label, promise, shouldPass) => {
 
   // Moderación
   await expect('super-admin edita una aportación', info(SA, 'h1').update({ text: 'corregido' }), true);
-  await expect('autor borra lo suyo', info(A, 'p1').delete(), true);
+  await expect('el autor ya no puede borrar lo suyo', info(A, 'p1').delete(), false);
   await expect('super-admin borra', info(SA, 'h1').delete(), true);
   await expect('listar por rocódromo', B.db.collection('gym_info').where('gymId', '==', gym).get(), true);
 
