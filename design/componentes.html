@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>KRUX · Componentes</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Estilos reales de la app: lo que se ve aquí es lo que verá la app al adoptar cada pieza -->
+<link rel="stylesheet" href="../app_2.css">
+<style>
+/* Solo la maqueta del catálogo (prefijo cat-); los componentes usan el CSS de la app */
+html, body { height: auto; }
+body { padding: 0; }
+.cat { max-width: 1240px; margin: 0 auto; padding: 28px 20px 80px; font-family: var(--kx-font); color: var(--kx-ink); }
+.cat h2 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.cat-sec { padding: 32px 0 6px; border-top: 1px solid var(--kx-line); }
+.cat-sec:first-of-type { border-top: 0; padding-top: 0; }
+.cat-sub { margin: 6px 0 18px; max-width: 66ch; color: var(--kx-ink-3); font-size: 14px; line-height: 1.5; }
+.cat h3 { margin: 22px 0 10px; color: var(--kx-ink-3); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.cat-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cat-board { padding: 18px; border-radius: 18px; background: var(--kx-surface); box-shadow: inset 0 0 0 1px var(--kx-line); }
+.cat-sec > .cat-board + .cat-board { margin-top: 12px; }
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.cat-cap { margin-top: 8px; color: var(--kx-ink-3); font-size: 12px; line-height: 1.45; }
+.cat-cap code, .cat-sub code, .cat-table code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+.cat-decide { margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: var(--kx-warning-soft); color: var(--kx-ink); font-size: 13px; line-height: 1.5; }
+.cat-decide b { color: var(--kx-warning); }
+.cat-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cat-table th { padding: 8px 8px; border-bottom: 1px solid var(--kx-line); color: var(--kx-ink-3); font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-align: left; text-transform: uppercase; }
+.cat-table td { padding: 10px 8px; border-bottom: 1px solid var(--kx-line); vertical-align: top; line-height: 1.45; }
+.cat-scroll { overflow-x: auto; }
+.cat-sheet-demo { position: relative; max-width: 390px; }
+/* La hoja se muestra en su forma móvil también en pantallas anchas */
+.cat-sheet-demo .kx-sheet-panel { width: 100%; height: auto; min-height: 0; max-height: none; margin: 0; border-radius: var(--kx-radius-sheet) var(--kx-radius-sheet) 0 0; box-shadow: var(--kx-shadow-sheet); animation: none; }
+.cat-sheet-demo .kx-sheet-handle { display: block; }
+.cat-sheet-demo .kx-sheet-drag { padding-top: 8px; }
+.cat-msheet { background: var(--kx-chalk); border-radius: var(--kx-radius-sheet) var(--kx-radius-sheet) 0 0; box-shadow: var(--kx-shadow-sheet); max-width: 390px; overflow: hidden; }
+.cat-toasts { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.cat-toasts .kx-toast { opacity: 1; transform: none; pointer-events: auto; }
+.cat-sample { min-width: 0; max-width: 460px; }
+.cat-inv { display: grid; gap: 6px; padding: 14px 0; border-top: 1px solid var(--kx-line); }
+.cat-inv:first-of-type { border-top: 0; }
+.cat-inv-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.cat-inv-name { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; min-width: 0; overflow-wrap: anywhere; }
+.cat-inv dl { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; line-height: 1.45; color: var(--kx-ink-2); }
+.cat-inv dt { color: var(--kx-ink-3); font-weight: 700; }
+.cat-inv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.cat-inv code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+@media (max-width: 560px) { .cat-inv dl { grid-template-columns: 1fr; gap: 0; } .cat-inv dt { margin-top: 6px; } }
+.cat-gc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
+.cat-gc-card { min-width: 0; padding: 18px 18px 14px; border-radius: 20px; background: var(--kx-chalk); box-shadow: inset 0 0 0 1px var(--kx-line); }
+.cat-gc-card > header { margin-bottom: 12px; }
+.cat-gc-card > header b { display: block; font-size: 15px; }
+.cat-gc-card > header span { color: var(--kx-ink-3); font-size: 12px; }
+.cat-gc-out { min-height: 18px; margin: 8px 0 0; color: var(--kx-ink-2); font-size: 12px; }
+@media (max-width: 560px) { .cat-gc-card { padding: 14px 14px 10px; } }
+.cat-code { margin: 10px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--kx-stone-card); color: var(--kx-ink-2); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cat-state { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px 16px; align-items: center; }
+.cat-state > div { min-width: 0; }
+.cat-state > b { color: var(--kx-ink-3); font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.cat-pops { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; padding: 28px 20px; border-radius: 18px; background: linear-gradient(135deg, #C9D2C3, #AFBBA9); }
+.cat-pops > div { min-width: 0; max-width: 100%; }
+.cat-pop-cap { width: 0; min-width: 100%; margin-top: 10px; color: var(--kx-ink-2); font-size: 12px; font-weight: 600; }
+.cat-grade { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: 10px; font-weight: 800; font-size: 15px; color: #202923; font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) { .cat { padding: 20px 16px 64px; } .cat-board { padding: 14px; } .cat-state { grid-template-columns: 1fr; gap: 6px; } .cat-pops { padding: 16px; } }
+</style>
+</head>
+<body>
+<main class="cat">
+
+<section class="cat-sec">
+  <h2>Componentes compartidos</h2>
+  <p class="cat-sub">Fase 2. Cada pieza usa el CSS real de <code>app_2.css</code> y los constructores de <code>map-ui.js</code>. Hoy conviven con las versiones propias de cada sección; cada sección las adopta en su fase, nunca todas a la vez.</p>
+  <div class="cat-board"><div class="cat-row" id="st"></div></div>
+</section>
+
+<section class="cat-sec" id="botones">
+  <h2>Botones</h2>
+  <p class="cat-sub">Un único sistema: píldora y peso 600. La jerarquía la da el color, nunca la forma: principal para la acción que cierra la tarea, secundario para alternativas, terciario para acciones de bajo peso y destructivo solo para borrar. Un único principal por pantalla.</p>
+  <h3>Variantes</h3>
+  <div class="cat-board"><div class="cat-row" id="btn-variants"></div></div>
+  <h3>Estados</h3>
+  <div class="cat-board"><div class="cat-row" id="btn-states"></div>
+    <p class="cat-cap">Deshabilitado no responde ni cambia al pulsar. Ocupado (<code>aria-busy="true"</code>) muestra el giro y conserva el ancho para que nada salte.</p></div>
+  <h3>Tamaños</h3>
+  <div class="cat-board"><div class="cat-row" id="btn-sizes" style="align-items:flex-end"></div>
+    <p class="cat-cap">Pequeño 36 px a la vista con 44 px de área táctil (dentro de listas) · normal 44 px · grande 52 px, acción principal de los pies de hoja.</p></div>
+  <h3>En uso: pies de hoja</h3>
+  <div class="cat-grid">
+    <div><div class="cat-board kx-msheet" style="position:static;transform:none;padding:0;overflow:hidden" id="btn-map"></div><p class="cat-cap">Ficha de escuela (<code>.kx-msheet-foot</code>) · grande, secundario + principal</p></div>
+    <div><div class="cat-board" style="padding:12px 16px" id="btn-sheet"></div><p class="cat-cap">Notificaciones y Notificar (<code>.kx-sheet-footer</code>) · grande, ancho completo</p></div>
+  </div>
+</section>
+
+<section class="cat-sec" id="segmentado">
+  <h2>Selector segmentado</h2>
+  <p class="cat-sub">Para alternar vistas o filtros excluyentes de un mismo dato (semana / mes / año). Las etiquetas nunca se cortan: si las opciones no caben en una fila, el mismo control pasa a chips en varias líneas, con todas las opciones a la vista y sin perder la selección ni el teclado.</p>
+  <div class="cat-board cat-state" id="seg"></div>
+  <p class="cat-cap" id="seg-out">Pulsa una opción o usa las flechas ← →.</p>
+  <h3>Transición de segmentado a chips</h3>
+  <p class="cat-sub">El mismo selector en contenedores de distinto ancho. El cambio se decide midiendo, no con un punto de corte fijo: depende de las etiquetas reales.</p>
+  <div class="cat-board" id="seg-widths" style="display:flex;flex-direction:column;gap:14px"></div>
+  <pre class="cat-code">el.innerHTML = kxSegmentedHTML({ label: 'Periodo', value: 'mes', items: [
+  { value: 'semana', label: 'Semana' }, { value: 'mes', label: 'Mes' }, { value: 'año', label: 'Año', disabled: true } ] });
+kxBindSegmented(el.firstElementChild, value =&gt; …);   // teclado, selección y paso a chips
+// El contenedor debe poder encogerse (min-width: 0 en celdas de grid o flex); si no, el control crece en vez de pasar a chips.</pre>
+</section>
+
+<section class="cat-sec" id="chips">
+  <h2>Filtros (chips)</h2>
+  <p class="cat-sub">Para filtros que se pueden combinar o listas largas que se desplazan en horizontal. Ya en uso en Buscar y Notificaciones.</p>
+  <div class="cat-board">
+    <div class="kx-chips">
+      <button type="button" class="kx-chip is-active">Todo</button>
+      <button type="button" class="kx-chip">Escuelas <span class="kx-chip-count">12</span></button>
+      <button type="button" class="kx-chip">Sectores</button>
+      <button type="button" class="kx-chip">Vías <span class="kx-chip-count">348</span></button>
+    </div>
+  </div>
+</section>
+
+<section class="cat-sec" id="campos">
+  <h2>Campos de formulario</h2>
+  <p class="cat-sub">Etiqueta siempre visible encima y ayuda debajo; el marcador de posición es breve y nunca sustituye a la etiqueta. Cada estado se distingue sin depender del color: el foco engrosa el borde, el error añade icono y texto y el deshabilitado usa trama discontinua sobre gris piedra. El borde del campo tiene un contraste de 3:1.</p>
+  <div class="cat-board cat-state" id="fields"></div>
+  <h3>Validación en vivo</h3>
+  <div class="cat-board" style="max-width:420px" id="fields-live"></div>
+  <pre class="cat-code">el.innerHTML = kxFieldHTML({ id: 'rr-metros', label: 'Metros', type: 'number', help: 'Entre 0 y 500.' });
+kxSetFieldError('rr-metros', 'Entre 0 y 500 metros.');   // muestra icono + texto y marca aria-invalid
+kxSetFieldError('rr-metros', '');                        // lo retira</pre>
+</section>
+
+<section class="cat-sec" id="etiquetas">
+  <h2>Etiquetas</h2>
+  <p class="cat-sub">Estado o atributo de un elemento, sin acción. Siempre icono y texto: el color nunca es el único aviso. El texto usa una tinta algo más oscura que el icono para llegar a 4,5:1 sobre el fondo suave. Si el texto no cabe, pasa a otra línea.</p>
+  <div class="cat-board cat-state" id="tags"></div>
+  <div class="cat-board cat-scroll" style="margin-top:12px"><table class="cat-table" id="tag-contrast"></table>
+  <p class="cat-cap">Calculado en esta página a partir de los estilos reales. Mínimos: 4,5:1 para el texto y 3:1 para el icono.</p></div>
+</section>
+
+<section class="cat-sec" id="info">
+  <h2>Filas de dato y secciones</h2>
+  <p class="cat-sub">Fila con icono, etiqueta y valor; el valor largo se parte en varias líneas en vez de cortarse. La versión pulsable es un botón con flecha. Varias secciones seguidas llevan un separador fino.</p>
+  <div class="cat-board cat-state" id="rows"></div>
+  <h3>Secciones con separador</h3>
+  <div class="cat-board" style="max-width:460px" id="sections"></div>
+</section>
+
+<section class="cat-sec" id="tecnicos">
+  <h2>Franja de datos técnicos</h2>
+  <p class="cat-sub">Tres datos con icono, valor y etiqueta. Un dato que falta se muestra atenuado, con borde discontinuo de 3:1, e invita a completarlo; un dato que existe también puede ser pulsable si se puede corregir.</p>
+  <div class="cat-board cat-state" id="stats"></div>
+</section>
+
+<section class="cat-sec" id="acciones">
+  <h2>Acciones</h2>
+  <p class="cat-sub">Acciones principales en rejilla (registrar ascenso, proyecto, comentarios, compartir) y acciones secundarias en lista. Estados: normal, principal, marcada, con contador, ocupada (conserva su etiqueta y solo el icono pasa a giro), deshabilitada y foco. El deshabilitado cambia de forma (sin relleno, contorno fino), no solo de color.</p>
+  <div class="cat-board cat-state" id="acts"></div>
+</section>
+
+<section class="cat-sec" id="estados">
+  <h2>Estados</h2>
+  <p class="cat-sub">Carga, vacío, error con reintento, sin sesión y resultado de una acción. Nunca una tarjeta vacía: cada estado dice qué pasa y, si hay salida, ofrece la acción.</p>
+  <div class="cat-board cat-state" id="states"></div>
+  <h3>Carga parcial</h3>
+  <p class="cat-sub">Los datos que ya existen se muestran de inmediato; solo lo que falta lleva esqueleto.</p>
+  <div class="cat-board" style="max-width:460px" id="partial"></div>
+</section>
+
+<section class="cat-sec" id="avisos">
+  <h2>Avisos</h2>
+  <p class="cat-sub">Un único sistema en toda la app: <code>showToast</code>. Tonos semánticos de la marca (sin el índigo heredado); el aviso lleva además un triángulo para distinguirse del error sin depender del color. <code>showSectorToast</code>, <code>showRDToast</code> y <code>showDevToast</code> ya lo llaman por dentro. Las páginas de administración tienen el suyo propio (Fase 6).</p>
+  <div class="cat-board cat-toasts" id="toasts"></div>
+  <div class="cat-board cat-scroll" style="margin-top:12px"><table class="cat-table" id="toast-contrast"></table>
+  <p class="cat-cap">Calculado en esta página a partir de los estilos reales. Mínimos: 4,5:1 para texto, 3:1 para el icono frente al fondo.</p></div>
+</section>
+
+<section class="cat-sec" id="hojas">
+  <h2>Hojas inferiores</h2>
+  <p class="cat-sub">Dos familias con el mismo aspecto: <code>.kx-sheet</code> (Mensajes, Notificaciones, Buscar, Notificar) y <code>.kx-msheet</code> (fichas del mapa, con dos alturas). Desde esta fase comparten tirador, sombra y fondo mediante tokens.</p>
+  <div class="cat-grid">
+    <div>
+      <div class="cat-sheet-demo">
+        <section class="kx-sheet-panel">
+          <div class="kx-sheet-drag"><div class="kx-sheet-handle"></div>
+            <div class="kx-sheet-header"><h2 class="kx-sheet-title">Notificaciones</h2></div>
+          </div>
+          <div class="kx-sheet-body" style="padding:8px 20px 20px" id="sheet-a"></div>
+        </section>
+      </div>
+      <p class="cat-cap"><code>.kx-sheet</code> · una altura</p>
+    </div>
+    <div>
+      <div class="cat-msheet" id="sheet-b"></div>
+      <p class="cat-cap"><code>.kx-msheet</code> · resumen y expandida</p>
+    </div>
+  </div>
+</section>
+
+<section class="cat-sec" id="popups">
+  <h2>Popups de escritorio</h2>
+  <p class="cat-sub">Cabecera fija con título y cierre, contenido que se desplaza por dentro y acciones fijas abajo. Tres anchos según la cantidad de contenido (280, 360 y 420 px). La altura nunca supera el hueco disponible, y los separadores solo aparecen cuando hay contenido por debajo o por encima. Se cierran con ✕ o Escape.</p>
+  <div class="cat-board" style="margin-bottom:16px"><p class="cat-cap" style="margin:0;font-size:13px;color:var(--kx-ink-2)"><b>Títulos:</b> mayúscula inicial y el nombre tal como se escribe, nunca todo en mayúsculas (<b>Valeria</b>, <b>Pico de la Muela</b>, <b>El manantial</b>). Las mayúsculas completas se reservan para las etiquetas pequeñas de sección, como «SECTORES».</p></div>
+  <h3>Según la cantidad de contenido</h3>
+  <div class="cat-pops" id="pops"></div>
+  <h3>Mismo contenido largo en los tres tamaños</h3>
+  <p class="cat-sub">Misma cabecera, mismos márgenes (20 px), misma tipografía y el mismo par de acciones; solo cambia el ancho. Las acciones van en tamaño normal (44 px): con ratón no hace falta el grande y así queda más sitio para el contenido. Cuando no caben, pasan a dos filas sin cortar el texto.</p>
+  <div class="cat-pops" id="pops-same"></div>
+  <p class="cat-cap">Sobre el mapa, cada popup se coloca junto al elemento seleccionado. En móvil esta misma información va en la hoja inferior, y a 320 y 390 px el popup se limita al ancho de la pantalla menos 32 px.</p>
+  <pre class="cat-code">new maplibregl.Popup({ closeButton: false, maxWidth: 'none', className: 'kx-mpop kx-mpop--shell' })
+  .setHTML(kxPopoverHTML({ size: 'md', header: { title, titleId, metaHTML }, body, actions }));
+// actions: botones en tamaño normal (kxButtonHTML sin size); el grande es para los pies de hoja en móvil.
+kxBindPopover(popup.getElement().querySelector('.kx-pop'), { onClose: () =&gt; popup.remove() });</pre>
+</section>
+
+<section class="cat-sec" id="grados">
+  <h2>Gráfico de grados · Fase 3</h2>
+  <p class="cat-sub">En la app este gráfico está en las fichas de sector; la ficha de escuela conserva su donut y su tiempo originales. Distribución de vías por grado con los datos reales de cada escuela: todos los grados por separado, con los colores originales. Al pulsar una barra se ven el grado, sus vías exactas y su porcentaje; volver a pulsarla, la ✕ o Escape quitan la selección. Se puede arrastrar el dedo para recorrer grados estrechos, y con teclado basta con las flechas. Sin selección, el resumen da información que el gráfico no muestra: el rango (del grado más fácil al más difícil), el grado hasta el que llega la mitad de las vías y el grado con más vías.</p>
+  <p class="cat-cap" id="gc-status">Cargando datos reales…</p>
+  <h3>Escuelas</h3>
+  <div class="cat-gc-grid" id="gc-schools"></div>
+  <h3>Selección y acción</h3>
+  <div class="cat-gc-grid" id="gc-select"></div>
+  <h3>Filtro activo en el mapa</h3>
+  <p class="cat-sub">«Ver las N vías» filtra el mapa actual por ese grado (y por el sector, si viene de una ficha de sector) y cierra la ficha para dejar ver el mapa. Una píldora bajo el buscador indica el grado activo, cuántas vías son y de dónde; tocarla vuelve al gráfico con ese grado ya seleccionado y la ✕ quita el filtro. Mover el filtro de rango del mapa o pulsar «Todos» también lo retira.</p>
+  <div class="cat-gc-grid" id="gc-focus"></div>
+  <h3>Sector y estados</h3>
+  <div class="cat-gc-grid" id="gc-states"></div>
+  <pre class="cat-code">const stats = kxGradeStats(gradeCounts, { ungraded });      // orden canónico, «sin grado» aparte, % sobre vías con grado
+el.innerHTML = kxGradeChartHTML(stats, { title: 'Vías por grado' });
+kxBindGradeChart(el.firstElementChild, stats, { onSelect, onViewRoutes });   // selección, arrastre, teclado y acción</pre>
+</section>
+
+<section class="cat-sec" id="inventario">
+  <h2>Inventario de componentes compartidos</h2>
+  <p class="cat-sub">Qué está construido, qué está integrado en la app y qué sigue pendiente. Se genera desde <code>design/inventario.json</code> y una prueba lo contrasta con el código: si una pantalla adopta un componente o un constructor nuevo no figura aquí, la suite falla.</p>
+  <div class="cat-board" id="inv-summary"></div>
+  <div id="inv-list"></div>
+</section>
+
+</main>
+<script src="../map-ui.js"></script>
+<script>
+// Los constructores de map-ui.js generan el mismo HTML que usará la app
+const $ = id => document.getElementById(id);
+$('st').innerHTML = [
+  kxStatusHTML({ state: 'done', text: 'CSS de la app cargado' }),
+  kxStatusHTML({ state: 'done', text: 'Constructores de map-ui.js' })
+].join('');
+
+$('btn-variants').innerHTML = [
+  kxButtonHTML({ label: 'Guardar', variant: 'primary' }),
+  kxButtonHTML({ label: 'Cancelar', variant: 'secondary' }),
+  kxButtonHTML({ label: 'Ver todo', variant: 'tertiary' }),
+  kxButtonHTML({ icon: 'trash', label: 'Eliminar', variant: 'danger' })
+].join('');
+$('btn-states').innerHTML = [
+  '<button type="button" class="kx-btn kx-btn--primary">Normal</button>',
+  '<button type="button" class="kx-btn kx-btn--primary" disabled>Deshabilitado</button>',
+  '<button type="button" class="kx-btn kx-btn--primary" aria-busy="true">Guardando</button>',
+  '<button type="button" class="kx-btn kx-btn--secondary" aria-busy="true">Cargando</button>'
+].join('');
+$('btn-sizes').innerHTML = [
+  kxButtonHTML({ icon: 'pen', label: 'Editar', variant: 'secondary', size: 'sm' }),
+  kxButtonHTML({ icon: 'share', label: 'Compartir', variant: 'secondary' }),
+  kxButtonHTML({ icon: 'check', label: 'Registrar ascenso', variant: 'primary', size: 'lg' })
+].join('');
+
+$('btn-map').innerHTML = '<div class="kx-msheet-foot" style="position:static;transform:none">'
+  + kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary', size: 'lg' })
+  + kxButtonHTML({ icon: 'map', label: 'Visitar escuela', variant: 'primary', size: 'lg' }) + '</div>';
+$('btn-sheet').innerHTML = '<button type="button" class="kx-btn kx-btn--primary kx-btn--lg kx-btn--block kx-sheet-footer-btn">Marcar todas como leídas</button>';
+
+// Selector segmentado: cada estado en una fila (el foco se fuerza en las capturas con CDP)
+const PERIOD = [{ value: 'semana', label: 'Semana' }, { value: 'mes', label: 'Mes' }, { value: 'año', label: 'Año' }];
+const SEG_ROWS = [
+  ['Normal', kxSegmentedHTML({ label: 'Periodo', value: 'mes', items: PERIOD })],
+  ['Opción deshabilitada', kxSegmentedHTML({ label: 'Periodo (sin datos del año)', value: 'mes', items: [PERIOD[0], PERIOD[1], { ...PERIOD[2], disabled: true }] })],
+  ['Foco por teclado', kxSegmentedHTML({ label: 'Vista', value: 'lista', items: [{ value: 'lista', label: 'Lista' }, { value: 'mapa', label: 'Mapa' }], attrs: { id: 'seg-focus' } })],
+  ['Grupo deshabilitado', kxSegmentedHTML({ label: 'Periodo', value: 'semana', disabled: true, items: PERIOD })],
+  ['Con cifras (pasa a chips si no cabe)', kxSegmentedHTML({ label: 'Estilo de ascenso', value: 'todos', items: [
+    { value: 'todos', label: 'Todos', count: 128 }, { value: 'flash', label: 'Flash', count: 21 },
+    { value: 'vista', label: 'A vista', count: 9 }, { value: 'rp', label: 'Redpoint', count: 98 }] })],
+  ['Muchas opciones', kxSegmentedHTML({ label: 'Tipo de escalada', value: 'dep', items: [
+    { value: 'dep', label: 'Deportiva' }, { value: 'clas', label: 'Clásica' }, { value: 'boul', label: 'Bloque' },
+    { value: 'multi', label: 'Vía larga' }, { value: 'psico', label: 'Psicobloc' }] })]
+];
+$('seg').innerHTML = SEG_ROWS.map(([t, h]) => `<b>${t}</b><div>${h}</div>`).join('');
+document.querySelectorAll('#seg .kx-seg').forEach(el => kxBindSegmented(el, v => {
+  $('seg-out').textContent = `${el.getAttribute('aria-label')}: ${v}${el.classList.contains('is-chips') ? ' (como chips)' : ''}`;
+}));
+
+// Transición: mismo selector en contenedores de 260, 320, 400 y 560 px
+const STYLE_ITEMS = [{ value: 'todos', label: 'Todos', count: 128 }, { value: 'flash', label: 'Flash', count: 21 }, { value: 'vista', label: 'A vista', count: 9 }, { value: 'rp', label: 'Redpoint', count: 98 }];
+$('seg-widths').innerHTML = [260, 320, 400, 560].map(w => `<div style="width:${w}px;max-width:100%"><p class="cat-cap" style="margin:0 0 6px"></p>${kxSegmentedHTML({ label: 'Estilo de ascenso', value: 'todos', items: STYLE_ITEMS })}</div>`).join('');
+// La etiqueta indica el ancho real (en móvil los contenedores anchos se limitan a la pantalla)
+$('seg-widths').querySelectorAll('.kx-seg').forEach(el => {
+  kxBindSegmented(el);
+  const box = el.parentElement;
+  box.querySelector('.cat-cap').textContent = `Contenedor de ${Math.round(box.getBoundingClientRect().width)} px · ${el.classList.contains('is-chips') ? 'chips' : 'segmentado'}`;
+});
+
+// Campos: un estado por fila, con datos reales de una vía
+const GRADES = ['6a', '6a+', '6b', '6b+'].map(g => ({ value: g, label: g }));
+const FIELD_ROWS = [
+  ['Normal', kxFieldHTML({ id: 'f-normal', label: 'Nombre de la vía', placeholder: 'Perdidos y lloviendo' })],
+  ['Con ayuda', kxFieldHTML({ id: 'f-help', label: 'Express', type: 'number', value: '11', help: 'Cuenta las cintas necesarias, sin la reunión.' })],
+  ['Foco', kxFieldHTML({ id: 'f-focus', label: 'Metros', type: 'number', value: '25', help: 'Entre 0 y 500.' })],
+  ['Error', kxFieldHTML({ id: 'f-error', label: 'Metros', type: 'number', value: '620', error: 'Entre 0 y 500 metros.' })],
+  ['Error con foco', kxFieldHTML({ id: 'f-errfocus', label: 'Express', type: 'number', value: '-2', error: 'No puede ser negativo.' })],
+  ['Deshabilitado', kxFieldHTML({ id: 'f-off', label: 'Escuela', value: 'Valeria', disabled: true, help: 'La escuela no se puede cambiar desde una vía.' })],
+  ['Desplegable', kxFieldHTML({ id: 'f-select', label: 'Grado propuesto', type: 'select', value: '6a+', options: GRADES })],
+  ['Texto largo', kxFieldHTML({ id: 'f-area', label: 'Comentario', type: 'textarea', optional: true, placeholder: 'Qué has visto en la vía' })]
+];
+$('fields').innerHTML = FIELD_ROWS.map(([t, h]) => `<b>${t}</b><div>${h}</div>`).join('');
+
+$('fields-live').innerHTML = kxFieldHTML({ id: 'f-live', label: 'Metros', type: 'number', value: '25', help: 'Entre 0 y 500. Prueba con 620.', attrs: { inputmode: 'numeric' } });
+$('f-live').addEventListener('input', (e) => {
+  const v = e.target.value.trim();
+  const n = Number(v);
+  kxSetFieldError('f-live', v === '' ? 'Escribe los metros o deja el campo vacío.' : (!Number.isFinite(n) || n < 0 || n > 500) ? 'Entre 0 y 500 metros.' : '');
+});
+
+// Etiquetas: seis tonos con icono, relleno de énfasis, texto largo
+const TONES = [['neutral', 'mountain', 'Caliza'], ['forest', 'shieldCheck', 'Escuela configurada'], ['success', 'shieldCheck', 'Acceso permitido'], ['warning', 'calendarClock', 'Restricción hasta 30 jun'], ['danger', 'ban', 'Prohibido'], ['info', 'circleHelp', 'Información pendiente']];
+$('tags').innerHTML = [
+  ['Tonos', '<div class="cat-row">' + TONES.map(([t, i, x]) => kxTagHTML({ icon: i, text: x, tone: t })).join('') + '</div>'],
+  ['Con relleno', '<div class="cat-row">' + TONES.slice(2).map(([t, i, x]) => kxTagHTML({ icon: i, text: x, tone: t, solid: true })).join('') + '</div>'],
+  ['Sin icono', '<div class="cat-row">' + kxTagHTML({ text: 'Sol de mañana' }) + kxTagHTML({ text: '28 vías', tone: 'forest' }) + '</div>'],
+  ['Texto largo', '<div style="max-width:260px">' + kxTagHTML({ icon: 'calendarClock', tone: 'warning', text: 'Prohibida la escalada del 1 de febrero al 31 de julio por nidificación de rapaces' }) + '</div>']
+].map(([t, h]) => `<b>${t}</b><div>${h}</div>`).join('');
+
+// Contraste real del texto de cada etiqueta sobre su fondo y sobre las superficies de la app
+(() => {
+  const rgb = c => (c.match(/[\d.]+/g) || []).map(Number);
+  const parse = c => { const n = rgb(c); if (/^color\(srgb/.test(c)) { n[0] *= 255; n[1] *= 255; n[2] *= 255; } return n; };
+  const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  const fmt = v => v.toFixed(1).replace('.', ',') + ':1';
+  const names = { neutral: 'Neutro', forest: 'Bosque', success: 'Éxito', warning: 'Aviso', danger: 'Peligro', info: 'Información' };
+  let rows = '<thead><tr><th>Tono</th><th>Texto / fondo suave</th><th>Icono / fondo suave</th><th>Relleno: blanco / fondo</th></tr></thead><tbody>';
+  document.querySelectorAll('#tags .cat-row').forEach((row, ri) => {
+    if (ri !== 0) return;
+    row.querySelectorAll('.kx-tag').forEach(tag => {
+      const kind = [...tag.classList].find(c => /^kx-tone-/.test(c)).slice(8);
+      const cs = getComputedStyle(tag); const bg = parse(cs.backgroundColor); const ink = parse(cs.color);
+      const ic = parse(getComputedStyle(tag.querySelector('.kx-ic')).color);
+      const tone = parse(getComputedStyle(tag).getPropertyValue('--kx-tone').trim().startsWith('#') ? getComputedStyle(tag).getPropertyValue('--kx-tone').trim().replace(/^#(..)(..)(..)$/, (_, r, g, b) => `${parseInt(r, 16)} ${parseInt(g, 16)} ${parseInt(b, 16)}`) : '0 0 0');
+      rows += `<tr><td>${names[kind]}</td><td>${fmt(ratio(ink, bg))}</td><td>${fmt(ratio(ic, bg))}</td><td>${tone.length === 3 ? fmt(ratio([255, 255, 255], tone)) : '—'}</td></tr>`;
+    });
+  });
+  $('tag-contrast').innerHTML = rows + '</tbody>';
+})();
+
+// Filas de dato: normal, tonos, pulsable, valor largo, cargando
+const longValue = 'Sol de mañana hasta las 13:00 en verano; sombra el resto del año';
+$('rows').innerHTML = [
+  ['Normal', '<div class="cat-sample">' + kxInfoRowHTML({ icon: 'sunrise', label: 'Exposición', value: 'Sol de mañana' }) + kxInfoRowHTML({ icon: 'star', label: 'Estado medio', value: '4,2 · 37 votos' }) + '</div>'],
+  ['Tonos', '<div class="cat-sample">' + kxInfoRowHTML({ icon: 'shieldCheck', label: 'Acceso permitido', tone: 'success' }) + kxInfoRowHTML({ icon: 'calendarClock', label: 'Restricción temporal', value: 'hasta 30 jun', tone: 'warning' }) + kxInfoRowHTML({ icon: 'ban', label: 'Acceso prohibido', tone: 'danger' }) + '</div>'],
+  ['Pulsable', '<div class="cat-sample">' + kxInfoRowHTML({ icon: 'images', label: 'Fotografías del sector', value: '6', action: true }) + kxInfoRowHTML({ icon: 'route', label: 'Ver trazado', action: true, attrs: { id: 'row-focus' } }) + '</div>'],
+  ['Valor largo', '<div class="cat-sample">' + kxInfoRowHTML({ icon: 'sunrise', label: 'Exposición', value: longValue }) + '</div>'],
+  ['Cargando', '<div class="cat-sample">' + kxSkeletonHTML('rows') + '</div>']
+].map(([t, h]) => `<b>${t}</b><div>${h}</div>`).join('');
+
+$('sections').innerHTML = '<div class="kx-fsecs">'
+  + kxSectionHTML({ title: 'Sector', meta: '28 vías', body: kxInfoRowHTML({ icon: 'sunrise', label: 'Exposición', value: 'Sol de mañana' }) + kxInfoRowHTML({ icon: 'ruler', label: 'Altura máxima', value: '32 m' }) })
+  + kxSectionHTML({ title: 'Acceso', meta: 'Actualizado hoy', body: kxInfoRowHTML({ icon: 'shieldCheck', label: 'Permitido', tone: 'success' }) })
+  + kxSectionHTML({ title: 'Fotografías', meta: '6', body: kxInfoRowHTML({ icon: 'images', label: 'Ver sector', action: true }) })
+  + '</div>';
+
+// Franja técnica
+$('stats').innerHTML = [
+  ['Normal', '<div class="cat-sample"><div class="kx-stats">' + kxStatTileHTML({ icon: 'route', value: 'Deportiva', label: 'Tipo' }) + kxStatTileHTML({ icon: 'link', value: '11', label: 'Express' }) + kxStatTileHTML({ icon: 'ruler', value: '25 m', label: 'Metros' }) + '</div></div>'],
+  ['Dato que falta', '<div class="cat-sample"><div class="kx-stats">' + kxStatTileHTML({ icon: 'route', value: 'Deportiva', label: 'Tipo' }) + kxStatTileHTML({ icon: 'link', label: 'Express', missing: true }) + kxStatTileHTML({ icon: 'ruler', label: 'Metros', missing: true, attrs: { id: 'stat-focus' } }) + '</div></div>'],
+  ['Pulsable', '<div class="cat-sample"><div class="kx-stats">' + kxStatTileHTML({ icon: 'route', value: 'Deportiva', label: 'Tipo', action: true }) + kxStatTileHTML({ icon: 'link', value: '11', label: 'Express', action: true }) + kxStatTileHTML({ icon: 'ruler', value: '25 m', label: 'Metros', action: true }) + '</div></div>'],
+  ['Valor largo', '<div class="cat-sample"><div class="kx-stats">' + kxStatTileHTML({ icon: 'route', value: 'Multilargo equipada', label: 'Tipo' }) + kxStatTileHTML({ icon: 'link', value: '11', label: 'Express' }) + kxStatTileHTML({ icon: 'ruler', value: '250 m', label: 'Metros' }) + '</div></div>'],
+  ['Cargando', '<div class="cat-sample">' + kxSkeletonHTML('tiles') + '</div>']
+].map(([t, h]) => `<b>${t}</b><div>${h}</div>`).join('');
+
+// Acciones
+$('acts').innerHTML = [
+  ['Normal y principal', '<div class="cat-sample"><div class="kx-acts">' + kxActionTileHTML({ icon: 'check', label: 'Ascenso', primary: true }) + kxActionTileHTML({ icon: 'bookmark', label: 'Proyecto' }) + kxActionTileHTML({ icon: 'messageCircle', label: 'Comentar', badge: '3' }) + kxActionTileHTML({ icon: 'share', label: 'Compartir' }) + '</div></div>'],
+  ['Marcada', '<div class="cat-sample"><div class="kx-acts">' + kxActionTileHTML({ icon: 'check', label: 'Ascenso', primary: true, active: true }) + kxActionTileHTML({ icon: 'bookmark', label: 'En proyectos', active: true }) + kxActionTileHTML({ icon: 'messageCircle', label: 'Comentar', badge: '12' }) + kxActionTileHTML({ icon: 'share', label: 'Compartir' }) + '</div></div>'],
+  ['Foco', '<div class="cat-sample"><div class="kx-acts">' + kxActionTileHTML({ icon: 'check', label: 'Ascenso', primary: true }) + kxActionTileHTML({ icon: 'bookmark', label: 'Proyecto', attrs: { id: 'act-focus' } }) + '</div></div>'],
+  ['Ocupada', '<div class="cat-sample"><div class="kx-acts">' + kxActionTileHTML({ icon: 'check', label: 'Ascenso', primary: true, busy: true }) + kxActionTileHTML({ icon: 'bookmark', label: 'Proyecto', busy: true }) + '</div></div>'],
+  ['Deshabilitada', '<div class="cat-sample"><div class="kx-acts">' + kxActionTileHTML({ icon: 'check', label: 'Ascenso', primary: true, disabled: true }) + kxActionTileHTML({ icon: 'bookmark', label: 'Proyecto', disabled: true }) + '</div></div>'],
+  ['En lista', '<div class="cat-sample"><div class="kx-lacts">' + kxListActionHTML({ icon: 'triangleAlert', label: 'Notificar un problema' }) + kxListActionHTML({ icon: 'images', label: 'Ver en el sector', attrs: { id: 'lact-focus' } }) + kxListActionHTML({ icon: 'trash', label: 'Eliminar sector', tone: 'danger' }) + kxListActionHTML({ icon: 'pen', label: 'Editar geometría', disabled: true }) + '</div></div>']
+].map(([t, h]) => `<b>${t}</b><div>${h}</div>`).join('');
+
+// Estados
+$('states').innerHTML = [
+  ['Cargando', '<div class="cat-sample" style="display:flex;flex-direction:column;gap:14px">' + kxSkeletonHTML('lines') + kxSkeletonHTML('bars') + '<div style="max-width:200px">' + kxSkeletonHTML('media') + '</div></div>'],
+  ['Vacío', '<div class="cat-sample">' + kxEmptyHTML({ text: 'Todavía no hay vías registradas en este sector' }) + '</div>'],
+  ['Vacío con salida', '<div class="cat-sample">' + kxEmptyHTML({ icon: 'route', text: 'Este sector aún no tiene fotografías', action: { label: 'Añadir una fotografía' } }) + '</div>'],
+  ['Error', '<div class="cat-sample">' + kxErrorHTML({ retryAttrs: { 'data-x': 1 } }) + '</div>'],
+  ['Sin sesión', '<div class="cat-sample" style="display:flex;flex-direction:column;gap:10px">' + kxSignInNoticeHTML({ text: 'Inicia sesión para votar el grado' }) + kxSignInNoticeHTML({ text: 'Inicia sesión para votar el grado', action: { label: 'Iniciar sesión' } }) + '</div>'],
+  ['Acción', '<div style="display:flex;flex-direction:column;gap:6px">' + kxStatusHTML({ state: 'pending', text: 'Guardando el ascenso…' }) + kxStatusHTML({ state: 'done', text: 'Ascenso guardado' }) + kxStatusHTML({ state: 'error', text: 'No se pudo guardar. Inténtalo de nuevo.' }) + '</div>']
+].map(([t, h]) => `<b>${t}</b><div>${h}</div>`).join('');
+
+$('partial').innerHTML = kxSectionHTML({ title: 'Sector', meta: '28 vías', body: kxInfoRowHTML({ icon: 'sunrise', label: 'Exposición', value: 'Sol de mañana' }) + kxInfoRowHTML({ icon: 'shieldCheck', label: 'Acceso permitido', tone: 'success' }) })
+  + '<div style="height:12px"></div>' + kxSectionHTML({ title: 'Vías por grado', meta: 'Cargando…', body: kxSkeletonHTML('bars') });
+
+// Gráfico de grados: colores leídos de getGradeColor (maplibre-map.js) y datos de los GeoJSON reales
+const GC_SCHOOLS = [
+  ['valeria', 'Valeria', '../Cartografia/Valeria/Valeria_Vias.geojson'],
+  ['sanmartin', 'San Martín de Valdeiglesias', '../Cartografia/San Martin de ValdeIglesias/SM_Vias.geojson'],
+  ['mora', 'Mora', '../Cartografia/Mora/Mora_Vias.geojson'],
+  ['pedriza', 'La Pedriza', '../Cartografia/La Pedriza/Pedriza_Vias.geojson']
+];
+window.kxGcData = {};
+(async () => {
+  try {
+    // La función original, sin copiarla: si cambian los colores en la app, cambian aquí
+    const src = await (await fetch('../maplibre-map.js', { cache: 'no-cache' })).text();
+    const start = src.indexOf('function getGradeColor(grade) {');
+    let depth = 0, end = start;
+    for (let i = src.indexOf('{', start); i < src.length; i++) { if (src[i] === '{') depth++; else if (src[i] === '}' && --depth === 0) { end = i + 1; break; } }
+    (0, eval)(src.slice(start, end));
+  } catch (e) { $('gc-status').textContent = 'No se pudieron leer los colores de grado de maplibre-map.js'; return; }
+
+  // Mismo recuento que la app: grado1 en minúsculas; las vías sin grado se cuentan aparte
+  const countOf = (features, filter) => {
+    const counts = {}; let ungraded = 0, n = 0;
+    for (const f of features) {
+      const p = f.properties || {};
+      if (filter && !filter(p)) continue;
+      n++;
+      const g = String(p.grado1 || '').toLowerCase().trim();
+      if (g) counts[g] = (counts[g] || 0) + 1; else ungraded++;
+    }
+    return { counts, ungraded, n };
+  };
+  const card = (title, sub, inner, outId) => `<article class="cat-gc-card"><header><b>${kxEsc(title)}</b><span>${kxEsc(sub)}</span></header>${inner}${outId ? `<p class="cat-gc-out" id="${outId}"></p>` : ''}</article>`;
+  const mount = (box, id, title, stats, opts = {}) => {
+    const el = box.querySelector('#' + id);
+    return kxBindGradeChart(el, stats, {
+      onSelect: e => { const o = box.querySelector('#' + id + '-out'); if (o) o.textContent = e ? `Seleccionado: ${e.grade} · ${e.count} vías · ${kxFormatPct(e.pct)}` : 'Sin selección'; },
+      onViewRoutes: e => { const o = box.querySelector('#' + id + '-out'); if (o) o.textContent = `En la app: filtra el mapa por ${e.grade} (${e.count} vías de ${title}) y muestra la píldora para quitar el filtro.`; },
+      ...opts
+    });
+  };
+
+  const data = {};
+  for (const [key, name, url] of GC_SCHOOLS) {
+    try { const g = await (await fetch(url)).json(); data[key] = { name, features: g.features || [] }; }
+    catch (e) { data[key] = { name, features: [], error: true }; }
+  }
+
+  // Escuelas reales
+  const schools = ['valeria', 'sanmartin', 'mora'].map(k => {
+    const c = countOf(data[k].features); const stats = kxGradeStats(c.counts, { ungraded: c.ungraded });
+    window.kxGcData[k] = { n: c.n, stats };
+    return [k, stats, c];
+  });
+  $('gc-schools').innerHTML = schools.map(([k, st, c]) => card(data[k].name, `${c.n} vías en el GeoJSON · ${st.entries.length} grados`, kxGradeChartHTML(st, { id: 'gc-' + k, title: 'Vías por grado' }), 'gc-' + k + '-out')).join('');
+  schools.forEach(([k, st]) => mount($('gc-schools'), 'gc-' + k, data[k].name, st));
+
+  // Selección fijada para la revisión (6a en Valeria) y con la acción
+  const val = window.kxGcData.valeria.stats;
+  $('gc-select').innerHTML = card('Valeria · grado seleccionado', 'Barras atenuadas salvo la elegida; acción para abrir sus vías', kxGradeChartHTML(val, { id: 'gc-sel', title: 'Vías por grado' }), 'gc-sel-out');
+  const ctl = mount($('gc-select'), 'gc-sel', 'Valeria', val);
+  const i6a = val.entries.findIndex(e => e.grade === '6a');
+  if (ctl && i6a >= 0) ctl.select(i6a);
+
+  // Sector, carga, error y vacío
+  const sec = countOf(data.valeria.features, p => (p.sector || '').trim() === 'Rocas Rojas');
+  const secStats = kxGradeStats(sec.counts, { ungraded: sec.ungraded });
+  window.kxGcData.rocasrojas = { n: sec.n, stats: secStats };
+  const ped = countOf(data.pedriza.features); const pedStats = kxGradeStats(ped.counts, { ungraded: ped.ungraded });
+  $('gc-states').innerHTML = [
+    card('Sector · Rocas Rojas (Valeria)', `${sec.n} vías · ${secStats.entries.length} grados`, kxGradeChartHTML(secStats, { id: 'gc-sec', title: 'Vías por grado' }), 'gc-sec-out'),
+    card('Cargando', 'Mientras llegan los datos', '<div class="kx-gchart"><div class="kx-gchart-head"><h3 class="kx-gchart-title">Vías por grado</h3><span class="kx-gchart-total">Cargando…</span></div>' + kxSkeletonHTML('tiles') + kxSkeletonHTML('bars') + '</div>'),
+    card('Error de conexión', 'No se pudo leer el GeoJSON', '<div class="kx-gchart"><div class="kx-gchart-head"><h3 class="kx-gchart-title">Vías por grado</h3></div>' + kxErrorHTML({ retryAttrs: { 'data-x': 1 } }) + '</div>'),
+    card('La Pedriza · sin vías', `${ped.n} vías en el GeoJSON`, kxGradeChartHTML(pedStats, { id: 'gc-ped' }))
+  ].join('');
+  mount($('gc-states'), 'gc-sec', 'Rocas Rojas', secStats);
+  // Píldora del filtro (mismo marcado que la app; aquí sin posición absoluta)
+  $('gc-focus').innerHTML = [
+    ['Escuela', { grade: '6a', count: 43, where: 'Valeria' }],
+    ['Sector', { grade: '6b+', count: 7, where: 'Valeria · Rocas Rojas' }],
+    ['Nombre largo y una sola vía', { grade: '5c+', count: 1, where: 'San Martín de Valdeiglesias · Sector de las Peñas del Cerro' }]
+  ].map(([t, f]) => `<article class="cat-gc-card" style="background:var(--kx-stone-card)"><header><b>${t}</b></header><div class="kx-gfocus" style="position:static;transform:none;animation:none;max-width:100%;width:fit-content">${kxGradeFocusChipHTML(f)}</div></article>`).join('');
+
+
+  const bad = Object.entries(window.kxGcData).filter(([, d]) => d.stats.graded + d.stats.ungraded !== d.n).map(([k]) => k);
+  $('gc-status').textContent = bad.length ? `Descuadre de datos en: ${bad.join(', ')}` : 'Datos reales de los GeoJSON. Comprobado: en cada gráfico, vías con grado + sin grado = vías del archivo. En la app se suman además las vías aprobadas de spotters.';
+})();
+
+// Inventario final: se pinta desde design/inventario.json (lo verifica tests/design-inventory.test.js)
+(async () => {
+  let inv;
+  try { inv = await (await fetch('inventario.json', { cache: 'no-cache' })).json(); } catch (e) { $('inv-list').innerHTML = kxErrorHTML({ text: 'No se pudo leer design/inventario.json' }); return; }
+  const C = inv.componentes;
+  const estado = c => !c.construido ? 'porconstruir' : c.integracion === 'integrado' ? 'integrado' : c.integracion === 'parcial' ? 'parcial' : 'sinintegrar';
+  const TAG = {
+    integrado: { icon: 'check', text: 'Integrado', tone: 'success' },
+    parcial: { icon: 'refresh', text: 'Integrado en parte', tone: 'info' },
+    sinintegrar: { icon: 'bookmark', text: 'Construido, sin integrar', tone: 'neutral' },
+    porconstruir: { icon: 'pen', text: 'Por construir', tone: 'warning' }
+  };
+  const n = k => C.filter(c => estado(c) === k).length;
+  $('inv-summary').innerHTML = '<div class="kx-stats" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr))">'
+    + kxStatTileHTML({ icon: 'check', value: n('integrado'), label: 'Integrados' })
+    + kxStatTileHTML({ icon: 'refresh', value: n('parcial'), label: 'Integrados en parte' })
+    + kxStatTileHTML({ icon: 'bookmark', value: n('sinintegrar'), label: 'Construidos, sin integrar' })
+    + kxStatTileHTML({ icon: 'pen', value: n('porconstruir'), label: 'Por construir' }) + '</div>'
+    + `<p class="cat-cap">${C.length} componentes · ${C.filter(c => c.construido).length} construidos · actualizado el 5 de noviembre de 2026. Integrado: ${inv.criterio.integrado} En parte: ${inv.criterio.parcial} Sin integrar: ${inv.criterio.no}</p>`;
+  const groups = [...new Set(C.map(c => c.grupo))];
+  const esc = kxEsc;
+  $('inv-list').innerHTML = groups.map(g => `<div class="cat-board" style="margin-top:12px"><h3 style="margin-top:0">${esc(g)}</h3>`
+    + C.filter(c => c.grupo === g).map(c => {
+      const t = TAG[estado(c)];
+      return `<div class="cat-inv"><div class="cat-inv-head"><h4 class="cat-inv-name">${esc(c.nombre)}</h4>${kxTagHTML({ icon: t.icon, text: t.text, tone: t.tone })}</div>`
+        + `<dl><dt>Dónde vive</dt><dd>${esc(c.donde)}</dd><dt>Uso hoy</dt><dd>${esc(c.uso)}</dd><dt>Pendiente</dt><dd>${esc(c.pendiente)}${c.fase && c.fase !== '—' ? ` <b>· ${esc(c.fase)}</b>` : ''}</dd></dl></div>`;
+    }).join('') + '</div>').join('');
+})();
+
+// Avisos: mismo marcado que genera showToast (user-features.js)
+const TOAST_ICONS = { success: '<path d="M6 12.5l4 4 8-9" />', error: '<path d="M12 7v6" /><path d="M12 16.6v.1" />', info: '<path d="M12 11v5.5" /><path d="M12 7.6v.1" />', warning: '<path d="M12 8v5" /><path d="M12 16.4v.1" />' };
+$('toasts').innerHTML = [
+  ['success', 'Ascenso registrado', ''], ['info', 'Vía guardada en proyectos', ''],
+  ['warning', 'Sin conexión', 'Los cambios se enviarán al recuperarla.'], ['error', 'No se pudo enviar el voto', 'Revisa la conexión e inténtalo de nuevo.']
+].map(([k, t, d]) => `<div class="kx-toast kx-toast-${k} is-in" role="status"><span class="kx-toast-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${TOAST_ICONS[k]}</svg></span><span class="kx-toast-body"><span class="kx-toast-title">${t}</span>${d ? `<span class="kx-toast-detail">${d}</span>` : ''}</span><button type="button" class="kx-toast-close" aria-label="Cerrar aviso"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg></button></div>`).join('');
+
+// Contraste real de cada aviso: glifo blanco sobre el icono, icono frente al fondo, título y detalle
+(() => {
+  const rgb = c => (c.match(/[\d.]+/g) || []).map(Number);
+  const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  // getComputedStyle devuelve rgb(0–255) o, con color-mix, color(srgb 0–1 / alfa)
+  const parse = c => { const n = rgb(c); if (/^color\(srgb/.test(c)) { n[0] *= 255; n[1] *= 255; n[2] *= 255; } return n; };
+  const flat = (c, under) => { const [r, g, b, a = 1] = parse(c); return [r, g, b].map((v, i) => v * a + under[i] * (1 - a)); };
+  const page = rgb(getComputedStyle(document.querySelector('#toasts')).backgroundColor);
+  const fmt = v => v.toFixed(1).replace('.', ',') + ':1';
+  const names = { success: 'Éxito', info: 'Información', warning: 'Aviso', error: 'Error' };
+  let rows = '<thead><tr><th>Tipo</th><th>Glifo / icono</th><th>Icono / fondo</th><th>Título</th><th>Detalle</th></tr></thead><tbody>';
+  document.querySelectorAll('#toasts .kx-toast').forEach(t => {
+    const kind = [...t.classList].find(c => /^kx-toast-(success|info|warning|error)$/.test(c)).slice(9);
+    const bg = flat(getComputedStyle(t).backgroundColor, page);
+    const icon = flat(getComputedStyle(t.querySelector('.kx-toast-icon')).backgroundColor, bg);
+    const title = flat(getComputedStyle(t.querySelector('.kx-toast-title')).color, bg);
+    const det = t.querySelector('.kx-toast-detail');
+    rows += `<tr><td>${names[kind]}</td><td>${fmt(ratio([255, 255, 255], icon))}</td><td>${fmt(ratio(icon, bg))}</td><td>${fmt(ratio(title, bg))}</td><td>${det ? fmt(ratio(flat(getComputedStyle(det).color, bg), bg)) : '—'}</td></tr>`;
+  });
+  $('toast-contrast').innerHTML = rows + '</tbody>';
+})();
+
+// Popups: tres cantidades de contenido con datos de Valeria. El color del grado sale de maplibre-map.js.
+(async () => {
+  let gradeColor = '#9fd36b';
+  try {
+    const src = await (await fetch('../maplibre-map.js', { cache: 'no-cache' })).text();
+    const m = src.match(/const gradeColors = \{([\s\S]*?)\};/);
+    const hit = m && m[1].match(/['"]5b['"]\s*:\s*['"](#[0-9a-fA-F]{6})['"]/);
+    if (hit) gradeColor = hit[1];
+  } catch (e) { /* sin red: color de respaldo */ }
+
+  const small = kxPopoverHTML({
+    size: 'sm',
+    header: { title: 'Los Callejones', titleId: 'pop-a', metaHTML: kxTagHTML({ icon: 'calendarClock', text: 'Restricción hasta 30 jun', tone: 'warning' }) },
+    body: kxInfoRowHTML({ icon: 'route', label: 'Vías', value: '42' }) + kxInfoRowHTML({ icon: 'sunrise', label: 'Exposición', value: 'Sol de mañana' }),
+    actions: kxButtonHTML({ icon: 'image', label: 'Ver sector' })
+  });
+  const medium = kxPopoverHTML({
+    header: { title: 'Perdidos y lloviendo', titleId: 'pop-b', asideHTML: `<span class="cat-grade" style="background:${gradeColor}">5b</span>`, metaHTML: kxTagHTML({ icon: 'mapPin', text: 'Rocas Rojas · Valeria' }) },
+    body: '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'
+      + kxStatTileHTML({ icon: 'route', value: 'Placa', label: 'Tipo' })
+      + kxStatTileHTML({ icon: 'link', value: '9', label: 'Express' })
+      + kxStatTileHTML({ icon: 'ruler', label: 'Metros', missing: true }) + '</div>'
+      + '<div style="margin-top:10px">' + kxListActionHTML({ icon: 'triangleAlert', label: 'Notificar un problema' }) + '</div>',
+    actions: kxButtonHTML({ icon: 'bookmark', label: 'Proyecto', variant: 'secondary' }) + kxButtonHTML({ icon: 'check', label: 'Registrar ascenso' })
+  });
+  const SECTORS = [['Rocas Rojas', 28], ['Los Callejones', 42], ['El Mirador', 19], ['La Cueva', 11], ['Las Columnas', 33], ['El Puente', 24], ['Peña Grande', 37], ['La Hoz', 16], ['El Castillo', 21], ['Las Torcas', 14]];
+  const large = kxPopoverHTML({
+    size: 'lg',
+    header: { title: 'Valeria', titleId: 'pop-c', metaHTML: kxTagHTML({ icon: 'mountain', text: 'Caliza' }) },
+    body: kxSectionHTML({ title: 'Sectores', meta: `${SECTORS.length} sectores`, body: SECTORS.map(([n, v]) => kxInfoRowHTML({ icon: 'mapPin', label: n, value: `${v} vías` })).join('') }),
+    actions: kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary' }) + kxButtonHTML({ icon: 'map', label: 'Visitar escuela' }),
+    attrs: { style: '--kx-pop-max-h: 460px' }
+  });
+  $('pops').innerHTML = [
+    [small, 'Pequeño · 280 px · poco contenido'],
+    [medium, 'Medio · 360 px · ficha de vía'],
+    [large, 'Grande · 420 px · contenido largo: se desplaza por dentro (límite de 460 px en esta muestra)']
+  ].map(([h, c]) => `<div>${h}<p class="cat-pop-cap">${c}</p></div>`).join('');
+  const sameBody = kxSectionHTML({ title: 'Sectores', meta: `${SECTORS.length} sectores`, body: SECTORS.map(([n, v]) => kxInfoRowHTML({ icon: 'mapPin', label: n, value: `${v} vías` })).join('') });
+  const sameActions = kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary' }) + kxButtonHTML({ icon: 'map', label: 'Visitar escuela' });
+  $('pops-same').innerHTML = ['sm', 'md', 'lg'].map((sz, i) => `<div>${kxPopoverHTML({
+    size: sz,
+    header: { title: 'Valeria', titleId: 'pop-s' + i, metaHTML: kxTagHTML({ icon: 'mountain', text: 'Caliza' }) },
+    body: sameBody, actions: sameActions, attrs: { style: '--kx-pop-max-h: 440px' }
+  })}<p class="cat-pop-cap">${{ sm: 'Pequeño · 280 px', md: 'Medio · 360 px', lg: 'Grande · 420 px' }[sz]}</p></div>`).join('');
+  document.querySelectorAll('#pops .kx-pop, #pops-same .kx-pop').forEach(el => kxBindPopover(el, { onClose: () => { el.animate([{ opacity: 1 }, { opacity: 0.3 }, { opacity: 1 }], 500); } }));
+})();
+
+$('sheet-a').innerHTML = kxInfoRowHTML({ icon: 'messageCircle', label: 'Nuevo comentario', value: 'hace 2 h' }) + kxInfoRowHTML({ icon: 'check', label: 'Ascenso validado', value: 'ayer' });
+$('sheet-b').innerHTML = kxSheetDragHTML({ title: 'Rocas Rojas', metaHTML: kxTagHTML({ icon: 'shieldCheck', text: 'Acceso permitido', tone: 'success' }) })
+  + '<div style="padding:0 20px 20px">' + kxInfoRowHTML({ icon: 'sunset', label: 'Exposición', value: 'Sol de tarde' }) + '</div>';
+</script>
+</body>
+</html>

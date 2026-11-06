@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>KRUX · Sistema de diseño</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Esta hoja lee los tokens de ../app_2.css en ejecución: no duplica valores.
+   Si algo no coincide con la app, el error está aquí, no en la app. */
+:root {
+  --forest: #153E35; --chalk: #F7F6F0; --ink: #202923; --ink-2: #44504A; --ink-3: #5A665F;
+  --stone: #F3F4F1; --line: rgba(32, 41, 35, .09); --sage: #DCE9DF;
+  --font: 'Manrope', system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body { font-family: var(--font); background: var(--chalk); color: var(--ink); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+.wrap { max-width: 920px; margin: 0 auto; padding: 0 20px 96px; }
+header.top { padding: 40px 0 28px; border-bottom: 1px solid var(--line); }
+.brand { font-weight: 800; letter-spacing: .32em; font-size: 14px; color: var(--forest); }
+h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.1; letter-spacing: -.03em; font-weight: 800; margin-top: 14px; text-wrap: balance; }
+.lead { margin-top: 12px; max-width: 62ch; color: var(--ink-2); font-size: 17px; }
+.meta { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--ink-3); font-weight: 600; }
+.chip { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: var(--stone); font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.chip.ok { background: #E6F2EA; color: #1E7F4A; }
+nav.toc { position: sticky; top: 0; z-index: 5; display: flex; gap: 4px; overflow-x: auto; padding: 10px 0; background: color-mix(in srgb, var(--chalk) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); scrollbar-width: none; }
+nav.toc a { flex: none; padding: 7px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; color: var(--ink-3); text-decoration: none; }
+nav.toc a:hover { background: var(--stone); color: var(--ink); }
+nav.toc a:focus-visible { outline: 2px solid var(--forest); outline-offset: 1px; }
+section { padding: 44px 0 8px; border-top: 1px solid var(--line); margin-top: 8px; }
+section:first-of-type { border-top: 0; }
+h2 { font-size: 22px; letter-spacing: -.02em; font-weight: 800; }
+.sub { margin: 6px 0 22px; color: var(--ink-3); font-size: 14px; max-width: 64ch; }
+h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); font-weight: 800; margin: 26px 0 12px; }
+code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.grid { display: grid; gap: 14px; }
+.sw-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.sw { display: flex; flex-direction: column; gap: 8px; }
+.sw-chip { height: 64px; border-radius: 14px; box-shadow: inset 0 0 0 1px rgba(32, 41, 35, .1); display: flex; align-items: flex-end; padding: 8px 10px; font-size: 12px; font-weight: 800; }
+.sw-name { font-size: 13px; font-weight: 700; }
+.sw-val { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.sw-use { font-size: 12px; color: var(--ink-3); }
+.grades { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+.g { height: 48px; border-radius: 10px; display: grid; place-items: center; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.note { margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: var(--stone); font-size: 13px; color: var(--ink-2); }
+.type-row { display: grid; grid-template-columns: 150px 1fr; gap: 6px 18px; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--line); }
+.type-row:first-child { border-top: 0; }
+.type-meta { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.type-meta b { display: block; color: var(--ink); font-size: 13px; }
+.space-row { display: grid; grid-template-columns: 110px 70px 1fr; gap: 12px; align-items: center; padding: 6px 0; font-size: 13px; }
+.space-bar { height: 12px; border-radius: 3px; background: var(--forest); }
+.radius-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.radius-box { height: 84px; background: var(--stone); box-shadow: inset 0 0 0 1px rgba(32, 41, 35, .12); display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--ink-2); text-align: center; padding: 6px; }
+.shadow-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.shadow-box { height: 110px; background: #fff; border-radius: 18px; display: flex; flex-direction: column; justify-content: flex-end; padding: 14px; font-size: 13px; font-weight: 700; }
+.shadow-box span { font-size: 12px; color: var(--ink-3); font-weight: 500; }
+.motion { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.m-card { padding: 16px; border-radius: 18px; background: var(--stone); }
+.m-track { position: relative; height: 34px; margin: 14px 0 12px; border-radius: 999px; background: rgba(32, 41, 35, .07); }
+.m-dot { position: absolute; left: 4px; top: 4px; width: 26px; height: 26px; border-radius: 50%; background: var(--forest); transition-property: transform; }
+.m-track.go .m-dot { transform: translateX(var(--run)); }
+.btn { display: inline-flex; align-items: center; height: 44px; padding: 0 18px; border: 0; border-radius: 14px; background: var(--forest); color: #fff; font: 700 14px var(--font); cursor: pointer; margin-top: 4px; transition: transform var(--dur-fast, 150ms) var(--ease, ease); }
+.btn:active { transform: scale(.97); }
+.btn:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; }
+.pending { padding: 22px; border: 1px dashed rgba(32, 41, 35, .25); border-radius: 18px; color: var(--ink-3); font-size: 14px; }
+.pending b { color: var(--ink); }
+/* ---- Iconos ---- */
+.spec { display: grid; grid-template-columns: minmax(0, 260px) 1fr; gap: 24px; align-items: center; }
+.keyline { position: relative; width: 100%; max-width: 260px; aspect-ratio: 1; border-radius: 18px; background: #fff; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.keyline svg.grid24 { position: absolute; inset: 0; width: 100%; height: 100%; }
+.keyline .kxi { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--ink); }
+.spec ul { list-style: none; display: grid; gap: 10px; font-size: 14px; color: var(--ink-2); }
+.spec li b { color: var(--ink); }
+.variants { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.variant { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 14px; background: var(--stone); font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.variant.dark { background: #202923; color: #fff; }
+.wx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.wx-tile { padding: 16px 12px 12px; border-radius: 18px; background: #fff; box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.wx-tile .big { color: var(--ink); }
+.wx-tile .sizes { display: flex; align-items: flex-end; gap: 10px; color: var(--ink); min-height: 32px; }
+.wx-tile .nm { font-size: 14px; font-weight: 800; }
+.wx-tile .codes { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.wx-tile.extra { box-shadow: inset 0 0 0 1px var(--line), inset 0 0 0 9999px rgba(32,41,35,.02); }
+.wx-tile .tagx { font-size: 10px; font-weight: 800; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; }
+.px-wrap { display: grid; gap: 14px; }
+.px-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px; border-radius: 18px; }
+.px-row.light { background: var(--chalk); box-shadow: inset 0 0 0 1px var(--line); }
+.px-row.dark { background: #153E35; }
+.px-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; color: var(--ink-3); }
+.px-row.dark .px-cell { color: rgba(255,255,255,.7); }
+.px-cell canvas { width: 72px; height: 72px; image-rendering: pixelated; border-radius: 6px; }
+.px-label { font-size: 12px; font-weight: 800; color: var(--ink-2); margin: 4px 0 -4px; }
+.fc { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; padding: 10px; border-radius: 20px; background: #fff; box-shadow: inset 0 0 0 1px var(--line); }
+.fc.dark { background: #202923; box-shadow: none; }
+.fd { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; border: 0; border-radius: 14px; background: transparent; font: inherit; cursor: pointer; min-width: 0; color: var(--ink); font-variant-numeric: tabular-nums; transition: background var(--dur, 250ms) var(--ease, ease); }
+.fc.dark .fd { color: #fff; }
+.fd .dn { font-size: 12px; font-weight: 700; color: var(--ink-3); }
+.fc.dark .fd .dn { color: rgba(255,255,255,.66); }
+.fd .tx { font-size: 15px; font-weight: 800; }
+.fd .tn { font-size: 12px; font-weight: 600; color: var(--ink-3); margin-top: -4px; }
+.fc.dark .fd .tn { color: rgba(255,255,255,.62); }
+.fd .pp { font-size: 11px; font-weight: 700; color: var(--ink-3); }
+.fd .pp.wet { color: #2F6FB3; }
+.fc.dark .fd .pp { color: rgba(255,255,255,.66); }
+.fc.dark .fd .pp.wet { color: #8DC0F0; }
+.fd.today { background: var(--stone); }
+.fc.dark .fd.today { background: rgba(255,255,255,.08); }
+.fd.sel { background: var(--forest); color: #fff; }
+.fd.sel .dn, .fd.sel .tn, .fd.sel .pp { color: rgba(255,255,255,.8); }
+.fc.dark .fd.sel { background: #DCE9DF; color: #153E35; }
+.fc.dark .fd.sel .dn, .fc.dark .fd.sel .tn, .fc.dark .fd.sel .pp { color: #153E35; }
+.fd.off { opacity: .42; cursor: default; }
+.fd:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; }
+.legend-states { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12px; color: var(--ink-3); }
+.now { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; padding: 16px 18px; border-radius: 20px; background: var(--stone); margin-bottom: 14px; }
+.now .t { font-size: 30px; font-weight: 800; letter-spacing: -.03em; }
+.now .st { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.now .st .kxi { color: var(--ink-3); }
+table.ct { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+table.ct th, table.ct td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+table.ct th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.ok { color: #1E7F4A; font-weight: 800; } .ko { color: #C2362B; font-weight: 800; }
+.sw-dot { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; vertical-align: middle; margin-right: 8px; }
+.ic-groups { display: grid; gap: 22px; }
+.ic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
+.ic-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 6px 10px; border-radius: 14px; color: var(--ink); text-align: center; }
+.ic-cell:hover { background: #fff; }
+.ic-cell .r { display: flex; align-items: center; gap: 10px; }
+.ic-cell span { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.ic-cell code { font-size: 10px; color: var(--ink-3); }
+.ctx { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.ctx-card { padding: 16px; border-radius: 20px; background: var(--chalk); box-shadow: inset 0 0 0 1px var(--line); }
+.ctx-card.dark { background: #153E35; color: #fff; box-shadow: none; }
+.tech { display: grid; grid-template-columns: 1.3fr 1fr 1fr; border-radius: 18px; background: var(--stone); }
+.tech > div { padding: 12px 12px 11px; display: flex; flex-direction: column; gap: 2px; }
+.tech > div + div { border-left: 1px solid rgba(32,41,35,.09); }
+.tech .kxi { color: var(--ink-3); margin-bottom: 4px; }
+.tech b { font-size: 16px; } .tech small { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+.rowi { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.rowi + .rowi { border-top: 1px solid var(--line); }
+.ctx-card.dark .rowi + .rowi { border-top-color: rgba(255,255,255,.12); }
+.rowi .bub { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.rowi b { font-size: 15px; } .rowi small { display: block; font-size: 12px; color: var(--ink-3); font-weight: 500; }
+.ctx-card.dark .rowi small { color: rgba(255,255,255,.66); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chipi { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 9px; border-radius: 999px; background: var(--stone); font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.chipi.sel { background: var(--forest); color: #fff; }
+.map-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.map-table td { padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.map-table .old { display: inline-flex; align-items: center; gap: 8px; }
+.map-table img { width: 24px; height: 24px; object-fit: contain; }
+.map-table .emo { font-size: 18px; width: 24px; text-align: center; }
+@media (max-width: 640px) { .spec { grid-template-columns: 1fr; } .fc { gap: 2px; padding: 6px; } .fd .tx { font-size: 14px; } .tech { grid-template-columns: 1fr 1fr 1fr; } }
+@media (max-width: 560px) { .type-row { grid-template-columns: 1fr; } .wrap { padding: 0 16px 72px; } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .m-dot { transition-duration: 0ms !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">KRUX</div>
+    <h1>Sistema de diseño</h1>
+    <p class="lead">Premium, outdoor y preciso. Referencia viva de los tokens de la app: esta página los lee de <code>app_2.css</code> al abrirse, así que siempre muestra lo que la app usa de verdad.</p>
+    <div class="meta">
+      <span class="chip ok" id="status">Leyendo tokens…</span>
+      <span>Fase 0 · Tokens</span><span>Fase 1 · Iconos (aprobada)</span><span>Fase 2 · <a href="componentes.html">Componentes</a> (en curso)</span>
+      <span>Actualizado: 5 nov 2026</span>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Secciones">
+    <a href="#color">Color</a><a href="#grados">Grados</a><a href="#tipografia">Tipografía</a><a href="#espacio">Espacio</a>
+    <a href="#forma">Radios y sombras</a><a href="#movimiento">Movimiento</a><a href="#iconos">Iconos</a><a href="componentes.html">Componentes →</a>
+  </nav>
+
+  <section id="color">
+    <h2>Color</h2>
+    <p class="sub">El verde bosque se reserva para acciones principales, selección e identidad. El blanco cálido es la superficie. El gris piedra agrupa información secundaria. Sin colores decorativos.</p>
+    <h3>Marca</h3><div class="grid sw-grid" id="c-brand"></div>
+    <h3>Superficies y piedra</h3><div class="grid sw-grid" id="c-surface"></div>
+    <h3>Texto y botón principal</h3><div class="grid sw-grid" id="c-text"></div>
+    <h3>Estados</h3><div class="grid sw-grid" id="c-state"></div>
+  </section>
+
+  <section id="grados">
+    <h2>Colores de grado</h2>
+    <p class="sub">Codificación original de KRUX, leída de <code>getGradeColor</code> en <code>maplibre-map.js</code>. No se modifica: la usan el mapa, los gráficos y los ascensos.</p>
+    <div class="grades" id="grades"></div>
+    <div class="note">Los gráficos de grados siempre usan estos colores. Para texto sobre un grado, el color de la letra se elige según la luminosidad del fondo.</div>
+  </section>
+
+  <section id="tipografia">
+    <h2>Tipografía</h2>
+    <p class="sub">Manrope, con una escala común de siete pasos más la cifra destacada. Los títulos pesan 800 con interletraje -0,02 em; el texto, 500.</p>
+    <div id="type"></div>
+  </section>
+
+  <section id="espacio">
+    <h2>Espacio</h2>
+    <p class="sub">Escala de 4 en 4 px. El área táctil mínima es de 44 px.</p>
+    <div id="space"></div>
+  </section>
+
+  <section id="forma">
+    <h2>Radios y sombras</h2>
+    <p class="sub">Esquinas coherentes y sombras muy sutiles, solo cuando aportan profundidad. Los separadores finos sustituyen a las tarjetas innecesarias.</p>
+    <h3>Radios</h3><div class="grid radius-grid" id="radius"></div>
+    <h3>Sombras</h3><div class="grid shadow-grid" id="shadow"></div>
+  </section>
+
+  <section id="movimiento">
+    <h2>Movimiento</h2>
+    <p class="sub">Rápido y funcional. Respeta la preferencia «reducir movimiento» del sistema. Pulsa para ver cada duración.</p>
+    <div class="motion" id="motion"></div>
+  </section>
+
+  <section id="iconos">
+    <h2>Iconos</h2>
+    <p class="sub">Familia propia de KRUX, en revisión: todavía no sustituye ningún icono de la app. 88 iconos en tres grupos (tiempo, escalada e interfaz) con el mismo trazo y la misma geometría.</p>
+
+    <h3>Construcción</h3>
+    <div class="spec">
+      <div class="keyline" id="keyline"></div>
+      <div>
+        <ul>
+          <li><b>Rejilla de 24 × 24</b> con 2 px de margen de seguridad (zona sombreada).</li>
+          <li><b>Trazo de 1,75</b> en todos los iconos, con terminaciones y uniones redondeadas.</li>
+          <li><b>Módulos compartidos:</b> un mismo sol, una misma nube y una nube elevada para la precipitación. Así lluvia, nieve y tormenta tienen idénticas proporciones.</li>
+          <li><b>Capa tonal opcional:</b> un relleno suave del color del texto (14 %) da volumen sin añadir colores.</li>
+          <li><b>Color con función:</b> solo el tiempo y los estados usan acentos (sol, agua, rayo, frío, punto rojo). El resto hereda el color del texto.</li>
+        </ul>
+        <div class="variants" id="variants"></div>
+      </div>
+    </div>
+
+    <h3>Tiempo · 10 iconos y niebla</h3>
+    <p class="sub">Cada icono lleva los códigos de Open-Meteo que representa. Hoy la app usa PNG y la hoja móvil pide tres nombres que no existen; esta tabla los sustituiría.</p>
+    <div class="wx-grid" id="wx-grid"></div>
+
+    <h3>Prueba a tamaño real</h3>
+    <p class="sub">Píxeles reales ampliados ×3, sin suavizar: <b>24 px</b> y <b>16 px</b> en una pantalla de densidad 1 (el peor caso) y <b>24 px</b> en iPhone (densidad 3). Sobre blanco cálido y sobre verde bosque. Al final de cada fila van los cuatro iconos de escalada revisados (vía, express, top rope y sombra).</p>
+    <div class="px-wrap" id="px"></div>
+
+    <h3>Estados · previsión real de Valeria</h3>
+    <p class="sub" id="fc-src">Datos de Open-Meteo.</p>
+    <div class="now" id="now"></div>
+    <div class="fc" id="fc-light"></div>
+    <div class="legend-states"><span>Hoy: fondo piedra</span><span>Seleccionado: verde bosque</span><span>Sin datos: atenuado</span><span>Toca un día para seleccionarlo</span></div>
+    <div class="fc dark" id="fc-dark" style="margin-top:14px"></div>
+
+    <h3>Contraste</h3>
+    <p class="sub">Los iconos necesitan al menos 3:1 frente a su fondo (WCAG 1.4.11). Calculado con los colores reales de cada variante.</p>
+    <table class="ct" id="contrast"></table>
+
+    <h3>Escalada y elementos técnicos</h3>
+    <div class="ic-groups" id="climb"></div>
+
+    <h3>En contexto</h3>
+    <div class="ctx" id="ctx"></div>
+
+    <h3>Interfaz</h3>
+    <div class="ic-grid" id="ui"></div>
+
+    <h3>Sustitución prevista (no aplicada)</h3>
+    <p class="sub">Qué iconos actuales reemplazaría cada uno cuando se apruebe la familia. Por ahora la app no cambia.</p>
+    <table class="map-table" id="replace"></table>
+  </section>
+</div>
+
+<script src="krux-icons.js"></script>
+<script>
+(async () => {
+  const $ = id => document.getElementById(id);
+  const status = $('status');
+  const hex = rgb => { const m = rgb.match(/[\d.]+/g); if (!m) return rgb; const [r, g, b] = m.map(Number); return '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase(); };
+  const lum = rgb => { const [r, g, b] = rgb.match(/[\d.]+/g).slice(0, 3).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); return .2126 * r + .7152 * g + .0722 * b; };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
+
+  // 1. Tokens: se extraen del :root de la marca en app_2.css y se aplican a esta página
+  let tokens = {};
+  try {
+    const css = await (await fetch('../app_2.css', { cache: 'no-cache' })).text();
+    const start = css.indexOf('--kx-forest:'); const open = css.lastIndexOf(':root', start); const end = css.indexOf('}', start);
+    const block = css.slice(open, end).replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const m of block.matchAll(/(--kx-[a-z0-9-]+)\s*:\s*([^;]+);/g)) tokens[m[1]] = m[2].trim();
+    const style = document.createElement('style');
+    style.textContent = ':root{' + Object.entries(tokens).map(([k, v]) => `${k}:${v}`).join(';') + '}';
+    document.head.appendChild(style);
+    status.textContent = Object.keys(tokens).length + ' tokens leídos de app_2.css';
+  } catch (e) { status.textContent = 'No se pudo leer app_2.css'; status.className = 'chip'; return; }
+
+  const probe = (prop, token) => { const el = document.createElement('div'); el.style[prop] = `var(${token})`; el.style.display = 'none'; document.body.appendChild(el); const v = getComputedStyle(el)[prop]; el.remove(); return v; };
+  const chalk = probe('backgroundColor', '--kx-chalk');
+
+  // 2. Color
+  const swatch = (token, use, textOn) => {
+    const rgb = probe('backgroundColor', token); const onDark = ratio(rgb, 'rgb(255,255,255)') >= ratio(rgb, 'rgb(32,41,35)');
+    const c = textOn ? `${ratio(rgb, chalk).toFixed(1)}:1 sobre blanco cálido` : '';
+    return `<div class="sw"><div class="sw-chip" style="background:var(${token});color:${onDark ? '#fff' : '#202923'}">Aa</div>
+      <div><div class="sw-name">${token.replace('--kx-', '')}</div><div class="sw-val">${hex(rgb)}${c ? ' · ' + c : ''}</div><div class="sw-use">${use}</div></div></div>`;
+  };
+  const fill = (id, list) => { const el = $(id); if (el) el.innerHTML = list.filter(([t]) => tokens[t] !== undefined).map(([t, u, c]) => swatch(t, u, c)).join(''); };
+  fill('c-brand', [['--kx-forest', 'Acciones principales, selección, identidad', true], ['--kx-chalk', 'Superficie predominante'], ['--kx-granite', 'Texto principal e iconos', true], ['--kx-coral', 'Acento puntual: avisos, logros'], ['--kx-sage', 'Selección suave, estados secundarios']]);
+  fill('c-surface', [['--kx-surface', 'Blanco puro: campos y superficies elevadas'], ['--kx-stone-card', 'Gris piedra: agrupa información secundaria'], ['--kx-stone-hover', 'Gris piedra al pasar el ratón'], ['--kx-sage-soft', 'Verde suave de fondo'], ['--kx-sage-hover', 'Salvia al pasar el ratón']]);
+  fill('c-text', [['--kx-ink', 'Texto principal', true], ['--kx-ink-2', 'Texto secundario', true], ['--kx-ink-3', 'Metadatos y ayudas', true], ['--kx-primary-hover', 'Botón principal, hover'], ['--kx-primary-pressed', 'Botón principal, pulsado']]);
+  fill('c-state', [['--kx-success', 'Permitido, completado', true], ['--kx-success-soft', 'Fondo de éxito'], ['--kx-warning', 'Aviso, restricción', true], ['--kx-warning-soft', 'Fondo de aviso'], ['--kx-danger', 'Error, prohibido', true], ['--kx-danger-soft', 'Fondo de error'], ['--kx-info', 'Información', true], ['--kx-info-soft', 'Fondo informativo']]);
+
+  // 3. Grados: de la fuente única (getGradeColor)
+  try {
+    const js = await (await fetch('../maplibre-map.js', { cache: 'no-cache' })).text();
+    const a = js.indexOf('const gradeColors = {'); const body = js.slice(a, js.indexOf('};', a));
+    const list = [...body.matchAll(/'([^']+)':\s*'(#[0-9a-fA-F]{6})'/g)].filter(m => /^\d[a-c]\+?$/.test(m[1]));
+    $('grades').innerHTML = list.map(([, g, c]) => { const [r, gg, b] = [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)); const l = (.299 * r + .587 * gg + .114 * b) / 255; return `<div class="g" style="background:${c};color:${l > .62 ? '#202923' : '#fff'}" title="${c}">${g}</div>`; }).join('');
+  } catch (e) { $('grades').textContent = 'No se pudo leer maplibre-map.js'; }
+
+  // 4. Tipografía
+  const fs = [['--kx-fs-stat', 'Cifra destacada', 800, 'Hoz del Río 396'], ['--kx-fs-display', 'Título de ficha', 800, 'Hoz del Río Gritos'], ['--kx-fs-title', 'Encabezado', 800, 'Vías por grado'], ['--kx-fs-lead', 'Nombre / destacado', 700, 'Pico de la Muela'], ['--kx-fs-body', 'Texto base', 500, 'Escalada permitida · restricción del 15 ene al 15 ago'], ['--kx-fs-meta', 'Secundario', 500, '24 sectores · 396 vías'], ['--kx-fs-caption', 'Metadato', 600, '5c a 6c · 1 foto'], ['--kx-fs-micro', 'Etiqueta de navegación', 700, 'MAPA']];
+  $('type').innerHTML = fs.filter(([t]) => tokens[t]).map(([t, n, w, s]) => { const px = Math.round(parseFloat(tokens[t]) * 16 * 10) / 10; return `<div class="type-row"><div class="type-meta"><b>${n}</b>${t.replace('--kx-', '')} · ${tokens[t]} · ${px}px · ${w}</div><div style="font-size:var(${t});font-weight:${w};letter-spacing:${w >= 800 ? '-.02em' : '0'};line-height:1.2">${s}</div></div>`; }).join('');
+
+  // 5. Espacio
+  $('space').innerHTML = [1, 2, 3, 4, 5, 6, 7, 8].filter(i => tokens['--kx-space-' + i]).map(i => `<div class="space-row"><span class="mono">space-${i}</span><span class="sw-val">${tokens['--kx-space-' + i]}</span><div class="space-bar" style="width:var(--kx-space-${i})"></div></div>`).join('') +
+    (tokens['--kx-touch'] ? `<div class="space-row"><span class="mono">touch</span><span class="sw-val">${tokens['--kx-touch']}</span><div class="space-bar" style="width:var(--kx-touch);height:44px;border-radius:12px;opacity:.9"></div></div>` : '');
+
+  // 6. Radios y sombras
+  $('radius').innerHTML = ['xs', 'sm', 'md', 'lg', 'card', 'pill', 'sheet'].filter(k => tokens['--kx-radius-' + k]).map(k => `<div class="radius-box" style="border-radius:var(--kx-radius-${k})">${k}<br>${tokens['--kx-radius-' + k]}</div>`).join('');
+  $('shadow').innerHTML = [['--kx-shadow-card', 'card · tarjetas y menús'], ['--kx-shadow-pop', 'pop · popups sobre el mapa'], ['--kx-shadow-sheet', 'sheet · hojas inferiores']].filter(([t]) => tokens[t]).map(([t, n]) => `<div class="shadow-box" style="box-shadow:var(${t})">${n.split(' · ')[0]}<span>${n.split(' · ')[1]}</span></div>`).join('');
+
+  // 7. Movimiento
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const durs = [['--kx-dur-fast', 'Respuesta al pulsar'], ['--kx-dur', 'Cambios de estado y selección'], ['--kx-dur-slow', 'Hojas y paneles']].filter(([t]) => tokens[t]);
+  $('motion').innerHTML = durs.map(([t, n]) => `<div class="m-card"><div class="sw-name">${t.replace('--kx-', '')} · ${tokens[t]}</div><div class="sw-use">${n}</div><div class="m-track"><div class="m-dot" style="transition-duration:var(${t});transition-timing-function:var(--kx-ease)"></div></div><button class="btn" data-run>Ver</button></div>`).join('') +
+    `<div class="m-card"><div class="sw-name">kx-ease</div><div class="sw-use">${tokens['--kx-ease'] || ''}</div><div class="sw-use" style="margin-top:8px">Curva de salida suave para todo.${reduce ? ' Tu sistema pide reducir movimiento: las animaciones están desactivadas.' : ''}</div></div>`;
+  renderIcons();
+  document.querySelectorAll('[data-run]').forEach(b => b.addEventListener('click', () => {
+    const track = b.parentElement.querySelector('.m-track'); track.style.setProperty('--run', (track.clientWidth - 34) + 'px');
+    track.classList.remove('go'); void track.offsetWidth; requestAnimationFrame(() => track.classList.add('go'));
+    setTimeout(() => track.classList.remove('go'), 1100);
+  }));
+})();
+
+function renderIcons() {
+  if (typeof KXI === 'undefined') return;
+  const $ = id => document.getElementById(id);
+  const st = document.createElement('style'); st.textContent = KXI_CSS; document.head.appendChild(st);
+  const ic = (n, o) => kxiSVG(n, o);
+
+  // Construcción: rejilla 24 con margen de 2 px y el sol encima
+  const grid = [...Array(25)].map((_, i) => `<path d="M${i} 0V24M0 ${i}H24" stroke="rgba(32,41,35,${i % 4 === 0 ? .12 : .05})" stroke-width=".05"/>`).join('');
+  $('keyline').innerHTML = `<svg class="grid24" viewBox="0 0 24 24"><rect x="0" y="0" width="24" height="24" fill="rgba(194,54,43,.05)"/><rect x="2" y="2" width="20" height="20" fill="#fff"/>${grid}<circle cx="12" cy="12" r="10" fill="none" stroke="rgba(47,111,179,.35)" stroke-width=".06"/><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="rgba(47,111,179,.35)" stroke-width=".06"/></svg>` + ic('solNubes', { size: 260, variant: 'linea' });
+  $('variants').innerHTML = [['linea', 'Línea'], ['duo', 'Tonal'], ['color', 'Color']].map(([v, l]) => `<span class="variant">${ic('tormenta', { size: 24, variant: v })}${ic('permitido', { size: 24, variant: v })}${l}</span>`).join('') +
+    `<span class="variant dark kxi-on-dark">${ic('tormenta', { size: 24, variant: 'color' })}${ic('permitido', { size: 24, variant: 'duo' })}Sobre oscuro</span>`;
+
+  // Tiempo
+  const codes = { sol: '0', solNubes: '1 · 2', nubes: '3', niebla: '45 · 48', lluvia: '51–57 · 61 · 63 · 66 · 80 · 81', lluviaIntensa: '65 · 67 · 82', nieve: '71–77 · 85 · 86', tormenta: '95–99', viento: 'velocidad', humedad: 'humedad relativa', direccionViento: 'grados (gira)' };
+  const wx = ['sol', 'solNubes', 'nubes', 'lluvia', 'lluviaIntensa', 'tormenta', 'nieve', 'viento', 'humedad', 'direccionViento', 'niebla'];
+  $('wx-grid').innerHTML = wx.map(n => `<div class="wx-tile${KXI[n].extra ? ' extra' : ''}"><span class="big">${ic(n, { size: 56, variant: 'color', rotate: n === 'direccionViento' ? 45 : 0 })}</span>
+    <div class="nm">${KXI[n].label}</div><div class="sizes">${[16, 20, 24, 32].map(z => ic(n, { size: z, variant: 'linea' })).join('')}</div>
+    <div class="codes">${codes[n] || ''}</div>${KXI[n].extra ? '<div class="tagx">Extra · niebla no estaba en la lista</div>' : ''}</div>`).join('');
+
+  // Prueba de píxeles: el SVG se rasteriza en un lienzo del tamaño real y se amplía sin suavizado
+  const raster = (name, size, dpr, color, dark) => new Promise(res => {
+    const css = KXI_CSS.replace(':root{', 'svg{') + (dark ? '.kxi-color{--kxi-sun:#F4BC52;--kxi-water:#8DC0F0;--kxi-bolt:#F4BC52;--kxi-cold:#B9D7F4;--kxi-red:#FF8F80;--kxi-tone:.22}' : '');
+    const svg = kxiSVG(name, { size: size, variant: 'color' }).replace('<svg ', `<svg xmlns="http://www.w3.org/2000/svg" style="color:${color}" `).replace('>', `><style>${css}</style>`);
+    const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = c.height = size * dpr; const x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.drawImage(img, 0, 0, size * dpr, size * dpr); res(c); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+  const pxExtra = ['via', 'express', 'topRope', 'sombra'];
+  (async () => {
+    const tests = [['24 px · densidad 1', 24, 1], ['16 px · densidad 1', 16, 1], ['24 px · iPhone (densidad 3)', 24, 3]];
+    let html = '';
+    for (const [lab] of tests) html += `<div class="px-label">${lab}</div><div class="px-row light" data-t="${lab}"></div><div class="px-row dark" data-t="${lab}"></div>`;
+    $('px').innerHTML = html;
+    for (const [lab, size, dpr] of tests) {
+      for (const row of document.querySelectorAll(`.px-row[data-t="${lab}"]`)) {
+        const dark = row.classList.contains('dark');
+        for (const n of [...wx, ...pxExtra]) {
+          const c = await raster(n, size, dpr, dark ? '#FFFFFF' : '#202923', dark);
+          c.style.width = c.style.height = (size * 3) + 'px';
+          const cell = document.createElement('div'); cell.className = 'px-cell'; cell.append(c); cell.insertAdjacentHTML('beforeend', `<span>${KXI[n].label}</span>`); row.append(cell);
+        }
+      }
+    }
+  })();
+
+  // Estados con la previsión real (Open-Meteo, Valeria). Si no hay red, datos guardados del 5 nov 2026
+  const FALLBACK = { current: { temperature_2m: 14.5, relative_humidity_2m: 48, precipitation_probability: 0, precipitation: 0, wind_speed_10m: 18.5, wind_direction_10m: 249, weather_code: 1 },
+    daily: { time: ['2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11'], weather_code: [80, 3, 61, 61, 95, 80, 80], temperature_2m_max: [15.4, 15.7, 17, 16.3, 15.3, 16.4, 15.9], temperature_2m_min: [8.7, 4.2, 8.5, 9.4, 12.4, 11.6, 12.7], precipitation_probability_max: [23, 0, 18, 43, 95, 68, 68] } };
+  const dirName = d => ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'][Math.round(d / 45) % 8];
+  const drawWeather = (W, src) => {
+    $('fc-src').textContent = src;
+    const c = W.current;
+    $('now').innerHTML = `${ic(kxiWeatherFor(c.weather_code), { size: 40, variant: 'color' })}<span class="t">${Math.round(c.temperature_2m)}°</span>
+      <span class="st">${ic('lluvia', { size: 18, variant: 'linea' })}${c.precipitation_probability}% · ${String(c.precipitation).replace('.', ',')} mm</span>
+      <span class="st">${ic('viento', { size: 18, variant: 'linea' })}${Math.round(c.wind_speed_10m)} km/h ${dirName(c.wind_direction_10m)} ${ic('direccionViento', { size: 18, variant: 'duo', rotate: (c.wind_direction_10m + 180) % 360 })}</span>
+      <span class="st">${ic('humedad', { size: 18, variant: 'linea' })}${c.relative_humidity_2m}%</span>`;
+    const names = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const day = (k, cls) => { const d = W.daily, dt = new Date(d.time[k] + 'T00:00:00'), p = d.precipitation_probability_max[k];
+      return `<button type="button" class="fd ${cls}" data-k="${k}" aria-pressed="${cls.includes('sel')}"><span class="dn">${k ? names[dt.getDay()] : 'Hoy'}</span>${ic(kxiWeatherFor(d.weather_code[k]), { size: 26, variant: 'color' })}<span class="tx">${Math.round(d.temperature_2m_max[k])}°</span><span class="tn">${Math.round(d.temperature_2m_min[k])}°</span><span class="pp${p >= 30 ? ' wet' : ''}">${p}%</span></button>`; };
+    const render = (id, sel) => { $(id).innerHTML = W.daily.time.map((_, k) => day(k, (k === 0 ? 'today ' : '') + (k === sel ? 'sel ' : '') + (k === 6 ? 'off' : ''))).join(''); };
+    let sel = 4; render('fc-light', sel); render('fc-dark', sel);
+    $('fc-dark').classList.add('kxi-on-dark');
+    for (const id of ['fc-light', 'fc-dark']) $(id).addEventListener('click', e => { const b = e.target.closest('.fd'); if (!b || b.classList.contains('off')) return; const k = +b.dataset.k; sel = sel === k ? -1 : k; render('fc-light', sel); render('fc-dark', sel); });
+  };
+  fetch('https://api.open-meteo.com/v1/forecast?latitude=39.7828&longitude=-2.151&current=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,wind_speed_10m,wind_direction_10m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7')
+    .then(r => r.ok ? r.json() : Promise.reject()).then(W => drawWeather(W, 'Previsión real de hoy en Valeria (Open-Meteo). El séptimo día se muestra atenuado como ejemplo de «sin datos».'))
+    .catch(() => drawWeather(FALLBACK, 'Sin conexión con Open-Meteo: datos reales guardados del 5 nov 2026. El séptimo día se muestra atenuado como ejemplo de «sin datos».'));
+
+  // Contraste
+  const lumH = h => { const v = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(x => x <= .03928 ? x / 12.92 : Math.pow((x + .055) / 1.055, 2.4)); return .2126 * v[0] + .7152 * v[1] + .0722 * v[2]; };
+  const cr = (a, b) => { const [x, y] = [lumH(a), lumH(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
+  const rows = [['Icono (texto)', '#202923', ['#F7F6F0', '#F3F4F1', '#FFFFFF']], ['Icono atenuado (ink-3)', '#5A665F', ['#F7F6F0', '#F3F4F1', '#FFFFFF']], ['Sol / rayo', '#B26F06', ['#F7F6F0', '#F3F4F1', '#FFFFFF']], ['Agua', '#2F6FB3', ['#F7F6F0', '#F3F4F1', '#FFFFFF']], ['Frío', '#3D7CB8', ['#F7F6F0', '#F3F4F1', '#FFFFFF']], ['Punto rojo', '#C2362B', ['#F7F6F0', '#F3F4F1', '#FFFFFF']],
+    ['Icono sobre oscuro', '#FFFFFF', ['#153E35', '#202923']], ['Sol / rayo sobre oscuro', '#F4BC52', ['#153E35', '#202923']], ['Agua sobre oscuro', '#8DC0F0', ['#153E35', '#202923']], ['Frío sobre oscuro', '#B9D7F4', ['#153E35', '#202923']], ['Punto rojo sobre oscuro', '#FF8F80', ['#153E35', '#202923']], ['Seleccionado (blanco sobre bosque)', '#FFFFFF', ['#153E35']]];
+  const bgName = { '#F7F6F0': 'blanco cálido', '#F3F4F1': 'piedra', '#FFFFFF': 'blanco', '#153E35': 'verde bosque', '#202923': 'granito' };
+  $('contrast').innerHTML = '<tr><th>Color</th><th>Fondo</th><th>Contraste</th><th></th></tr>' + rows.flatMap(([n, c, bgs]) => bgs.map(bg => { const r = cr(c, bg); return `<tr><td><span class="sw-dot" style="background:${bg};box-shadow:inset 0 0 0 1px rgba(32,41,35,.12)"><span style="width:12px;height:12px;border-radius:50%;background:${c};display:block"></span></span>${n}</td><td>${bgName[bg]}</td><td>${r.toFixed(1)}:1</td><td class="${r >= 3 ? 'ok' : 'ko'}">${r >= 3 ? 'Cumple' : 'No cumple'}</td></tr>`; })).join('');
+
+  // Escalada por grupos
+  const climb = Object.entries(KXI).filter(([, v]) => v.g === 'escalada');
+  const subs = [...new Set(climb.map(([, v]) => v.sub))];
+  $('climb').innerHTML = subs.map(sb => `<div><div class="px-label" style="margin-bottom:6px">${sb}</div><div class="ic-grid">${climb.filter(([, v]) => v.sub === sb).map(([k, v]) => `<div class="ic-cell"><div class="r">${ic(k, { size: 32, variant: 'color' })}${ic(k, { size: 24, variant: 'linea' })}</div><span>${v.label}</span><code>${k}</code></div>`).join('')}</div></div>`).join('');
+
+  // En contexto (datos reales de la vía «El manantial» y del sector Pico de la Muela)
+  $('ctx').innerHTML = `
+    <div class="ctx-card"><div class="px-label" style="margin:0 0 10px">Ficha técnica de vía</div>
+      <div class="tech"><div>${ic('placa', { size: 20 })}<b>Placa y diedro</b><small>Tipo</small></div><div>${ic('express', { size: 20 })}<b>10</b><small>Express</small></div><div>${ic('longitud', { size: 20 })}<b>25 m</b><small>Longitud</small></div></div>
+      <div class="chips" style="margin-top:12px"><span class="chipi sel">${ic('encadenada', { size: 18, variant: 'duo' })}Encadenada</span><span class="chipi">${ic('redpoint', { size: 18, variant: 'color' })}Redpoint</span><span class="chipi">${ic('flash', { size: 18, variant: 'color' })}Flash</span><span class="chipi">${ic('onsight', { size: 18 })}A vista</span><span class="chipi">${ic('proyecto', { size: 18 })}Proyecto</span></div></div>
+    <div class="ctx-card"><div class="px-label" style="margin:0 0 4px">Sector · acceso y exposición</div>
+      <div class="rowi"><span class="bub" style="background:#E6F2EA;color:#1E7F4A">${ic('permitido', { size: 20, variant: 'duo' })}</span><div><b style="color:#1E7F4A">Escalada permitida</b><small>Restricción temporal del 15 ene al 15 ago</small></div></div>
+      <div class="rowi"><span class="bub" style="background:#F7EEDC;color:#9A6412">${ic('solManana', { size: 20, variant: 'duo' })}</span><div><b>Sol de mañana</b><small>Exposición del sector</small></div></div>
+      <div class="rowi"><span class="bub" style="background:#F3F4F1;color:#44504A">${ic('anillas', { size: 20 })}</span><div><b>Reunión de anillas</b><small>Tipo de reunión en el trazado</small></div></div></div>
+    <div class="ctx-card dark kxi-on-dark"><div class="px-label" style="margin:0 0 4px;color:rgba(255,255,255,.75)">Sobre oscuro</div>
+      <div class="rowi"><span class="bub" style="background:rgba(255,255,255,.1)">${ic('prohibido', { size: 20, variant: 'duo' })}</span><div><b>Prohibido</b><small>Nidificación · hasta el 15 ago</small></div></div>
+      <div class="rowi"><span class="bub" style="background:rgba(255,255,255,.1)">${ic('tormenta', { size: 22, variant: 'color' })}</span><div><b>Tormenta · 95%</b><small>Lunes</small></div></div>
+      <div class="rowi"><span class="bub" style="background:rgba(255,255,255,.1)">${ic('sombra', { size: 20, variant: 'color' })}</span><div><b>Sombra</b><small>Exposición del sector</small></div></div></div>`;
+
+  // Interfaz
+  $('ui').innerHTML = Object.entries(KXI).filter(([, v]) => v.g === 'interfaz').map(([k, v]) => `<div class="ic-cell"><div class="r">${ic(k, { size: 24, variant: 'duo' })}${ic(k, { size: 20, variant: 'linea' })}</div><span>${v.label}</span><code>${k}</code></div>`).join('');
+
+  // Sustitución prevista
+  const rep = [['img', '../icons/placa.png', 'Tipo de vía (ficha de vía)', 'placa'], ['img', '../icons/mosq.png', 'Express', 'express'], ['img', '../icons/cuerda.png', 'Metros', 'longitud'],
+    ['img', '../icons/permitido.png', 'Acceso permitido', 'permitido'], ['img', '../icons/prohibido.png', 'Acceso prohibido', 'prohibido'], ['img', '../icons/sol mañana.png', 'Sol de mañana', 'solManana'], ['img', '../icons/sol tarde.png', 'Sol de tarde', 'solTarde'], ['img', '../icons/sol.png', 'Sol todo el día', 'solTodoDia'], ['img', '../icons/sombra.png', 'Sombra', 'sombra'],
+    ['img', '../icons/weather/partly-cloudy.png', 'Tiempo (PNG)', 'solNubes'], ['img', '../icons/weather/rain.png', 'Lluvia (PNG)', 'lluvia'], ['img', '../icons/weather/storm.png', 'Tormenta (PNG)', 'tormenta'], ['img', '../icons/weather/Gota.png', 'Precipitación (PNG)', 'humedad'],
+    ['emo', '🔴', 'Estilo redpoint', 'redpoint'], ['emo', '⚡', 'Estilo flash', 'flash'], ['emo', '👁️', 'Estilo a vista', 'onsight'], ['emo', '🚧', 'Proyecto', 'proyecto'], ['emo', '🧗', 'Top rope / vacío', 'topRope'], ['emo', '🏔️', 'Tipo de roca / escuela', 'escuela'], ['emo', '📍', 'Sector en listas', 'sector']];
+  $('replace').innerHTML = rep.map(([t, v, l, n]) => `<tr><td><span class="old">${t === 'img' ? `<img src="${v}" alt="">` : `<span class="emo">${v}</span>`}${l}</span></td><td style="width:40px;color:var(--ink-3)">→</td><td><span class="old" style="color:var(--ink)">${ic(n, { size: 24, variant: 'color' })}<code>${n}</code></span></td></tr>`).join('');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,442 @@
+{
+ "actualizado": "2026-11-06",
+ "criterio": {
+  "integrado": "La app lo usa hoy tal como está definido.",
+  "parcial": "La app lo usa en algunas pantallas; el resto conserva versiones propias.",
+  "no": "Construido y documentado, o por construir; ninguna pantalla lo usa todavía."
+ },
+ "componentes": [
+  {
+   "id": "tokens",
+   "grupo": "Fundamentos",
+   "nombre": "Tokens de diseño (--kx-*)",
+   "donde": "app_2.css",
+   "construido": true,
+   "integracion": "integrado",
+   "uso": "Toda la app: paleta, texto, espacio, radios, sombras, movimiento y tintas semánticas.",
+   "pendiente": "Quedan unos 2.000 colores sueltos, que se migran por sección sin sustituir los de grados, gráficos ni herramientas técnicas.",
+   "fase": "Fase 6",
+   "css": [
+    "var\\(--kx-forest\\)"
+   ]
+  },
+  {
+   "id": "iconos-kxi",
+   "grupo": "Fundamentos",
+   "nombre": "Familia de iconos KRUX (88)",
+   "donde": "design/krux-icons.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguno: aprobada, pero la app no la carga.",
+   "pendiente": "Sustituir PNG y emojis (unos 180) sección a sección, nunca en masa.",
+   "fase": "Fases 4 y 6",
+   "marcas": [
+    "\\bkxiSVG\\b",
+    "krux-icons"
+   ]
+  },
+  {
+   "id": "iconos-lucide",
+   "grupo": "Fundamentos",
+   "nombre": "Iconos de trazo para fichas (kxIcon)",
+   "donde": "map-ui.js",
+   "construido": true,
+   "integracion": "parcial",
+   "uso": "Fichas del mapa (cabecera, etiqueta, botones).",
+   "pendiente": "Se sustituirán por la familia KRUX cuando se integre.",
+   "fase": "Fase 4",
+   "marcas": [
+    "\\bkxSheetDragHTML\\b",
+    "\\bkxTagHTML\\b",
+    "\\bkxButtonHTML\\b"
+   ]
+  },
+  {
+   "id": "boton",
+   "grupo": "Controles",
+   "nombre": "Botón (.kx-btn: píldora, 4 variantes, 3 tamaños)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "parcial",
+   "uso": "Pies de las fichas de escuela y sector, botones de la ficha de escuela en el popup de escritorio, Notificaciones, Notificar y reintentos de Buscar y Chat (2 de 185 botones del HTML principal, más los generados desde app_3.js y maplibre-map.js).",
+   "pendiente": "Los demás botones conservan clases propias por sección.",
+   "fase": "Fase 6, sección a sección",
+   "marcas": [
+    "\\bkx-btn\\b",
+    "\\bkxButtonHTML\\b"
+   ]
+  },
+  {
+   "id": "chip",
+   "grupo": "Controles",
+   "nombre": "Filtro (chip)",
+   "donde": "app_2.css",
+   "construido": true,
+   "integracion": "integrado",
+   "uso": "Buscar, Notificaciones y motivos de Notificar.",
+   "pendiente": "—",
+   "fase": "—",
+   "marcas": [
+    "\\bkx-chip\\b"
+   ]
+  },
+  {
+   "id": "segmentado",
+   "grupo": "Controles",
+   "nombre": "Selector segmentado con paso a chips",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguno.",
+   "pendiente": "Sustituye al menos diez versiones propias: Actividad, Entrena, Perfil, Social, administración y recorte de vídeo.",
+   "fase": "Fase 6, sección a sección",
+   "marcas": [
+    "\\bkx-seg\\b",
+    "\\bkxSegmentedHTML\\b",
+    "\\bkxBindSegmented\\b"
+   ]
+  },
+  {
+   "id": "campo-base",
+   "grupo": "Controles",
+   "nombre": "Campo de texto (.kx-field suelto)",
+   "donde": "app_2.css",
+   "construido": true,
+   "integracion": "parcial",
+   "uso": "Notificar (3 de 67 controles de formulario del HTML principal).",
+   "pendiente": "El resto de controles tienen estilos propios.",
+   "fase": "Fase 6, Formularios y menús",
+   "marcas": [
+    "\\bkx-field\\b"
+   ]
+  },
+  {
+   "id": "campo-completo",
+   "grupo": "Controles",
+   "nombre": "Campo con etiqueta, ayuda y error (.kx-formrow)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguno.",
+   "pendiente": "Adoptarlo primero en Notificar y después en los formularios de Perfil, Entrena y Spotter.",
+   "fase": "Fase 6, Formularios y menús",
+   "marcas": [
+    "\\bkx-formrow\\b",
+    "\\bkxFieldHTML\\b",
+    "\\bkxSetFieldError\\b"
+   ]
+  },
+  {
+   "id": "etiqueta",
+   "grupo": "Controles",
+   "nombre": "Etiqueta de estado o atributo (.kx-tag, 6 tonos)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "parcial",
+   "uso": "Tipo de roca de la ficha de escuela, en la hoja móvil y en el popup de escritorio.",
+   "pendiente": "Acceso, restricción y exposición del sector; insignias de Entrena y Actividad.",
+   "fase": "Fases 4 y 6",
+   "marcas": [
+    "\\bkxTagHTML\\b",
+    "\\bkx-tag\\b"
+   ]
+  },
+  {
+   "id": "cierre",
+   "grupo": "Controles",
+   "nombre": "Botón de cierre (.kx-close)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "integrado",
+   "uso": "Cabecera de las tres fichas del mapa.",
+   "pendiente": "—",
+   "fase": "—",
+   "marcas": [
+    "\\bkx-close\\b"
+   ]
+  },
+  {
+   "id": "accion-rejilla",
+   "grupo": "Controles",
+   "nombre": "Acción en rejilla (.kx-act)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguno.",
+   "pendiente": "Registrar ascenso, proyecto, comentarios y compartir en la ficha de vía.",
+   "fase": "Fase 4",
+   "marcas": [
+    "\\bkx-act\\b",
+    "\\bkxActionTileHTML\\b"
+   ]
+  },
+  {
+   "id": "accion-lista",
+   "grupo": "Controles",
+   "nombre": "Acción en lista (.kx-lact)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguno.",
+   "pendiente": "Notificar un problema, Ver en el sector, acciones de administración.",
+   "fase": "Fase 4",
+   "marcas": [
+    "\\bkx-lact\\b",
+    "\\bkxListActionHTML\\b"
+   ]
+  },
+  {
+   "id": "hoja-panel",
+   "grupo": "Superficies",
+   "nombre": "Hoja inferior de panel (.kx-sheet)",
+   "donde": "app_2.css",
+   "construido": true,
+   "integracion": "integrado",
+   "uso": "Mensajes, Notificaciones, Buscar y Notificar. Comparte tirador, sombra y fondo con la hoja de fichas mediante tokens.",
+   "pendiente": "—",
+   "fase": "—",
+   "marcas": [
+    "\\bkx-sheet\\b"
+   ]
+  },
+  {
+   "id": "hoja-ficha",
+   "grupo": "Superficies",
+   "nombre": "Hoja de ficha del mapa (.kx-msheet + KXMapSheet)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "integrado",
+   "uso": "Fichas de escuela, sector y vía; dos alturas reales en escuela y sector.",
+   "pendiente": "—",
+   "fase": "—",
+   "marcas": [
+    "\\bKXMapSheet\\b",
+    "\\bkx-msheet\\b"
+   ]
+  },
+  {
+   "id": "hoja-unica",
+   "grupo": "Superficies",
+   "nombre": "Hoja inferior unificada (un solo controlador)",
+   "donde": "—",
+   "construido": false,
+   "integracion": "no",
+   "uso": "Hoy hay dos controladores: el de paneles y KXMapSheet.",
+   "pendiente": "Unificar al terminar las fichas, conservando las dos alturas.",
+   "fase": "Fase 4"
+  },
+  {
+   "id": "popup-mapa",
+   "grupo": "Superficies",
+   "nombre": "Carcasa de popup de MapLibre (.kx-mpop)",
+   "donde": "app_2.css · maplibre-map.js",
+   "construido": true,
+   "integracion": "integrado",
+   "uso": "Popups de escuela, sector y vía en escritorio: carcasa, cierre y Escape.",
+   "pendiente": "El contenido interior sigue siendo el antiguo y distinto en cada uno.",
+   "fase": "Fase 4",
+   "marcas": [
+    "\\bkx-mpop\\b"
+   ]
+  },
+  {
+   "id": "popup-comun",
+   "grupo": "Superficies",
+   "nombre": "Popup común (.kx-pop: cabecera, contenido, acciones)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguno.",
+   "pendiente": "Sustituye al contenido antiguo de los popups, con tres anchos.",
+   "fase": "Fase 4",
+   "marcas": [
+    "\\bkx-pop\\b",
+    "\\bkxPopoverHTML\\b",
+    "\\bkxBindPopover\\b"
+   ]
+  },
+  {
+   "id": "modal",
+   "grupo": "Superficies",
+   "nombre": "Modal centrado compartido",
+   "donde": "—",
+   "construido": false,
+   "integracion": "no",
+   "uso": "Hoy hay 33 modales por identificador, 11 con la clase .modal, y otras superficies propias (administración, editor de trazados, spotter, fotos).",
+   "pendiente": "Definir una carcasa común y migrarlos uno a uno.",
+   "fase": "Fases 5 y 6"
+  },
+  {
+   "id": "cabecera",
+   "grupo": "Contenido de fichas",
+   "nombre": "Cabecera de ficha (.kx-fhead)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "integrado",
+   "uso": "Fichas de escuela, sector y vía (a través de kxSheetDragHTML).",
+   "pendiente": "—",
+   "fase": "—",
+   "marcas": [
+    "\\bkxSheetDragHTML\\b"
+   ]
+  },
+  {
+   "id": "seccion",
+   "grupo": "Contenido de fichas",
+   "nombre": "Sección con título y separador (.kx-fsec / .kx-fsecs)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguna.",
+   "pendiente": "Contenido de las fichas rediseñadas.",
+   "fase": "Fase 4",
+   "marcas": [
+    "\\bkx-fsec\\b",
+    "\\bkxSectionHTML\\b"
+   ]
+  },
+  {
+   "id": "fila",
+   "grupo": "Contenido de fichas",
+   "nombre": "Fila de dato (.kx-irow, pulsable opcional)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguna.",
+   "pendiente": "Acceso, exposición y estado en las fichas; filas de Perfil y Actividad.",
+   "fase": "Fases 4 y 6",
+   "marcas": [
+    "\\bkx-irow\\b",
+    "\\bkxInfoRowHTML\\b"
+   ]
+  },
+  {
+   "id": "franja-tecnica",
+   "grupo": "Contenido de fichas",
+   "nombre": "Franja de datos técnicos (.kx-stat)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguna.",
+   "pendiente": "Tipo, express y metros de la ficha de vía.",
+   "fase": "Fase 4",
+   "marcas": [
+    "\\bkx-stat\\b",
+    "\\bkxStatTileHTML\\b"
+   ]
+  },
+  {
+   "id": "barras-interactivas",
+   "grupo": "Datos y gráficos",
+   "nombre": "Gráfico de barras interactivo por grado (.kx-gchart)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "integrado",
+   "uso": "Ficha y popup de sector (móvil y escritorio). «Ver las N vías» filtra el mapa por ese grado. La ficha de escuela conserva su donut y su tiempo originales (decisión del 6 nov).",
+   "pendiente": "—",
+   "fase": "—",
+   "marcas": [
+    "\\bkxLoadGradeChart\\b",
+    "\\bkxGradeChartHTML\\b",
+    "\\bkxBindGradeChart\\b",
+    "\\bkxGradeStats\\b",
+    "\\bkxGradeChartStateHTML\\b"
+   ]
+  },
+  {
+   "id": "filtro-grado",
+   "grupo": "Datos y gráficos",
+   "nombre": "Píldora del filtro de un grado en el mapa (.kx-gfocus)",
+   "donde": "app_2.css · map-ui.js · maplibre-map.js",
+   "construido": true,
+   "integracion": "integrado",
+   "uso": "«Ver las N vías» desde el gráfico de una ficha de sector filtra el mapa por el grado y el sector. La píldora indica el grado activo; tocarla vuelve al gráfico y la ✕ quita el filtro.",
+   "pendiente": "—",
+   "fase": "—",
+   "marcas": [
+    "\\bkxGradeFocusChipHTML\\b",
+    "\\bkxFocusGrade\\b"
+   ]
+  },
+  {
+   "id": "estados",
+   "grupo": "Estados y avisos",
+   "nombre": "Estados vacío, error y sin sesión (.kx-state)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "parcial",
+   "uso": "Carga y error del gráfico de grados (kxGradeChartStateHTML). Buscar, Chat y Social conservan los suyos.",
+   "pendiente": "Fichas del mapa; Actividad sin sesión; Buscar, Chat y Social.",
+   "fase": "Fases 4 y 6",
+   "marcas": [
+    "\\bkx-state\\b",
+    "\\bkxEmptyHTML\\b",
+    "\\bkxErrorHTML\\b",
+    "\\bkxSignInNoticeHTML\\b",
+    "\\bkxGradeChartStateHTML\\b"
+   ]
+  },
+  {
+   "id": "esqueletos",
+   "grupo": "Estados y avisos",
+   "nombre": "Esqueletos de carga (.kx-skel)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "parcial",
+   "uso": "Carga del gráfico de grados.",
+   "pendiente": "Carga de gráficos, filas, datos técnicos y fotografías.",
+   "fase": "Fases 4 y 6",
+   "marcas": [
+    "\\bkx-skel\\b",
+    "\\bkxSkeletonHTML\\b",
+    "\\bkxGradeChartStateHTML\\b"
+   ]
+  },
+  {
+   "id": "estado-accion",
+   "grupo": "Estados y avisos",
+   "nombre": "Estado de una acción (.kx-status)",
+   "donde": "app_2.css · map-ui.js",
+   "construido": true,
+   "integracion": "no",
+   "uso": "Ninguno.",
+   "pendiente": "Guardando, guardado y fallo en formularios y fichas.",
+   "fase": "Fases 4 y 6",
+   "marcas": [
+    "\\bkx-status\\b",
+    "\\bkxStatusHTML\\b"
+   ]
+  },
+  {
+   "id": "aviso",
+   "grupo": "Estados y avisos",
+   "nombre": "Aviso (showToast, .kx-toast)",
+   "donde": "user-features.js · app_2.css",
+   "construido": true,
+   "integracion": "parcial",
+   "uso": "Toda la app principal (17 archivos); showSectorToast, showRDToast y showDevToast ya lo llaman.",
+   "pendiente": "Las tres páginas de administración definen su propio showToast.",
+   "fase": "Fase 6, Administración",
+   "marcas": [
+    "\\bshowToast\\("
+   ]
+  }
+ ],
+ "retirados": [
+  {
+   "nombre": "Barras por grado de la ficha móvil de escuela (renderBarChart) y del sector (renderGradeChart)",
+   "motivo": "Recortaban grados en móvil y contaban solo lo dibujado; el sector usa ahora el gráfico interactivo y la escuela recupera su donut",
+   "fecha": "2026-11-06"
+  },
+  {
+   "nombre": "kxGradeBarsHTML",
+   "motivo": "Construido en la Fase 1 del mapa y nunca integrado; lo sustituye kxGradeChartHTML",
+   "fecha": "2026-11-06"
+  },
+  {
+   "nombre": "kxGradeDonutHTML (constructor de la Fase 1 del mapa)",
+   "motivo": "Nunca se integró; la ficha de escuela usa su donut original (renderDonutChart)",
+   "fecha": "2026-11-06"
+  }
+ ]
+}

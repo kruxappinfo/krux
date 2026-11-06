@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=136" />
+  <link rel="stylesheet" href="./app_2.css?v=148" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -89,13 +89,14 @@
 
   <script defer src="./auth.js?v=6"></script>
 
-  <script defer src="./user-features.js?v=6"></script>
+  <script defer src="./user-features.js?v=7"></script>
 
   <script defer src="./route-photos.js?v=2"></script>
 
   <script defer src="./maplibre-config.js?v=4"></script>
 
-  <script defer src="./maplibre-map.js?v=36"></script>
+  <script defer src="./map-ui.js?v=11"></script>
+  <script defer src="./maplibre-map.js?v=42"></script>
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
@@ -1300,7 +1301,7 @@
       </div>
       <div id="notification-list" class="notification-list kx-sheet-body"></div>
       <div class="kx-sheet-footer" id="notifications-footer" hidden>
-        <button type="button" class="kx-btn kx-btn--primary kx-sheet-footer-btn" id="notifications-mark-read">Marcar todas como leídas</button>
+        <button type="button" class="kx-btn kx-btn--primary kx-btn--lg kx-btn--block kx-sheet-footer-btn" id="notifications-mark-read">Marcar todas como leídas</button>
       </div>
     </section>
   </div>
@@ -1408,7 +1409,7 @@
         <p class="rr-error" id="route-report-error" role="alert" hidden></p>
       </form>
       <div class="kx-sheet-footer">
-        <button type="submit" form="route-report-form" class="kx-btn kx-btn--primary kx-sheet-footer-btn" id="route-report-submit">Enviar</button>
+        <button type="submit" form="route-report-form" class="kx-btn kx-btn--primary kx-btn--lg kx-btn--block kx-sheet-footer-btn" id="route-report-submit">Enviar</button>
       </div>
     </section>
   </div>
@@ -2593,56 +2594,24 @@
   <div id="dropdown-portal"></div>
 
   <!-- Bottom Sheet para escuelas (solo mÃ³vil) -->
-  <div id="school-bottom-sheet" class="bottom-sheet hidden">
-    <!-- Handle para arrastrar -->
-    <div class="bottom-sheet-handle">
-      <div class="bottom-sheet-handle-bar"></div>
-    </div>
-
-    <!-- Header con tÃ­tulo centrado -->
-    <div class="bs-header">
-      <h2 class="bs-title" id="bs-school-name">HOZ DEL RÍO GRITOS</h2>
-    </div>
+  <div id="school-bottom-sheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="bs-school-name">
+    <!-- Tirador + cabecera (map-ui.js: kxSheetDragHTML) -->
+    <div class="kx-msheet-drag" id="bs-school-drag"></div>
 
     <!-- Contenido del Bottom Sheet -->
-    <div class="bottom-sheet-content">
-      <!-- SNAP 1 - RESUMEN: Solo BarChart (se oculta en expandido) -->
-      <div class="bs-summary-section" id="bs-summary-section">
-        <div class="bs-chart-card">
-          <div class="bs-chart-header">
-            <span class="bs-chart-title">Ví­as por Grado</span>
-            <span class="bs-chart-total" id="bs-total-vias-bar"></span>
-          </div>
-          <!-- Skeleton loader -->
-          <div class="bs-skeleton" id="bs-bar-skeleton">
-            <div class="bs-skeleton-bars">
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-            </div>
-          </div>
-          <!-- GrÃ¡fico de barras -->
-          <div class="bs-bar-chart hidden" id="bs-bar-chart"></div>
-        </div>
-      </div>
-
-      <!-- SNAP 2 - EXPANDIDO: DonutChart + Weather + Actions (se muestra al expandir) -->
+    <div class="bottom-sheet-content kx-msheet-body">
+      <!-- Donut de vías por grado + tiempo (el pronóstico semanal se superpone al donut) -->
       <div class="bs-expanded-section" id="bs-expanded-section">
         <!-- Donut Chart Card -->
-        <div class="bs-chart-card">
+        <div class="bs-chart-card" id="bs-donut-card">
           <div class="bs-chart-header">
-            <span class="bs-chart-title">Ví­as por Grado</span>
+            <span class="bs-chart-title">Vías por Grado</span>
           </div>
           <!-- Skeleton loader donut -->
           <div class="bs-skeleton-donut" id="bs-donut-skeleton">
             <div class="bs-skeleton-ring"></div>
           </div>
-          <!-- GrÃ¡fico Donut -->
+          <!-- Gráfico Donut -->
           <div class="bs-donut-chart hidden" id="bs-donut-chart"></div>
         </div>
 
@@ -2687,42 +2656,20 @@
           </div>
         </div>
 
-        <!-- Tipo de Roca -->
-        <div class="bs-rock-info">
-          <span class="bs-rock-icon">🏔️</span>
-          <span class="bs-rock-text" id="bs-rock-type">Caliza</span>
-        </div>
-
-        <!-- Botones de AcciÃ³n (Pixel Perfect) -->
-        <div class="bs-actions">
-          <button class="bs-btn bs-btn-dark" id="bs-btn-directions">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="3 11 22 2 13 21 11 13 3 11" />
-            </svg>
-            ¿Cómo ir?
-          </button>
-          <button class="bs-btn bs-btn-light" id="bs-btn-visit">
-            Visitar escuela
-          </button>
-        </div>
       </div>
     </div>
+
+    <!-- Acciones fijas al pie (map-ui.js) -->
+    <footer class="kx-msheet-foot" id="bs-school-foot"></footer>
   </div>
 
   <!-- Bottom Sheet para Sectores (solo móvil) -->
-  <div id="sector-bottom-sheet" class="bottom-sheet hidden">
-    <!-- Handle para arrastrar -->
-    <div class="bottom-sheet-handle">
-      <div class="bottom-sheet-handle-bar"></div>
-    </div>
-
-    <!-- Header con título centrado -->
-    <div class="bs-header">
-      <h2 class="bs-title" id="secbs-sector-name">SECTOR</h2>
-    </div>
+  <div id="sector-bottom-sheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="secbs-sector-name">
+    <!-- Tirador + cabecera (map-ui.js: kxSheetDragHTML) -->
+    <div class="kx-msheet-drag" id="secbs-drag"></div>
 
     <!-- Contenido del Sector Bottom Sheet -->
-    <div class="bottom-sheet-content">
+    <div class="bottom-sheet-content kx-msheet-body">
       <!-- Fila de restricción -->
       <div class="secbs-info-row" id="secbs-restriction-row">
         <span class="secbs-info-icon" id="secbs-restriction-icon"></span>
@@ -2746,31 +2693,19 @@
         <div style="text-align: center; color: #888;">Cargando...</div>
       </div>
 
-      <!-- Botón Ver Sector -->
-      <div class="secbs-actions">
-        <button class="secbs-view-btn" id="secbs-btn-view">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-            <circle cx="8.5" cy="8.5" r="1.5"/>
-            <polyline points="21 15 16 10 5 21"/>
-          </svg>
-          Ver Sector
-        </button>
-      </div>
-
       <!-- Acciones de admin (solo visible para admins) -->
       <div id="secbs-admin-actions"></div>
     </div>
+
+    <!-- Acción principal fija al pie (map-ui.js) -->
+    <footer class="kx-msheet-foot" id="secbs-foot"></footer>
   </div>
 
   <!-- Bottom Sheet para Vías/Rutas (solo móvil) -->
-  <div id="route-bottom-sheet" class="bottom-sheet hidden">
-    <!-- Handle para arrastrar -->
-    <div class="bottom-sheet-handle">
-      <div class="bottom-sheet-handle-bar"></div>
-    </div>
-
-    <!-- Header: Check + Nombre + Grado -->
+  <div id="route-bottom-sheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="rbs-route-name">
+    <!-- Tirador + cabecera: Check + Nombre + Grado -->
+    <div class="kx-msheet-drag">
+    <button type="button" class="kx-msheet-grip" aria-label="Arrastra hacia abajo para cerrar" tabindex="-1"></button>
     <div class="rbs-header">
       <span class="rbs-ascent-check hidden" id="rbs-ascent-check">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -2779,10 +2714,12 @@
       <span class="rbs-route-name" id="rbs-route-name">Vía</span>
       <span class="rbs-route-grade" id="rbs-route-grade">?</span>
       <span class="ml-grade-consensus-badge" id="rbs-consensus-badge" style="display:none"></span>
+      <button type="button" class="kx-close" data-kx-close aria-label="Cerrar"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
     </div>
 
     <!-- Contenido del Route Bottom Sheet -->
-    <div class="bottom-sheet-content">
+    <div class="bottom-sheet-content kx-msheet-body">
       <!-- Info items (tipo, express, metros) -->
       <div class="rbs-info" id="rbs-info-items"></div>
 
