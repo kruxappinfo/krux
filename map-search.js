@@ -63,6 +63,7 @@ function initMapSearch() {
     mountain: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20l6.5-11 4 6.5 2.5-4L21 20z"></path></svg>',
     gym: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5v11"></path><path d="M17.5 6.5v11"></path><path d="M3 9v6"></path><path d="M21 9v6"></path><path d="M6.5 12h11"></path></svg>',
     sector: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19l4-12 4 6 3-4 5 10z"></path><circle cx="16.5" cy="5.5" r="1.5"></circle></svg>',
+    x: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
     clock: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>'
   };
 
@@ -132,7 +133,11 @@ function initMapSearch() {
     sections.forEach((items, s) => {
       if (!items.length) return;
       html += `<div class="ms-head" role="presentation">${heads[s]}</div>`;
-      items.forEach(it => { html += rowHTML(it, shown.length); shown.push(it); });
+      items.forEach(it => {
+        let row = rowHTML(it, shown.length);
+        if (it.recent) row = row.replace(/<\/div>$/, `<button type="button" class="ms-remove" tabindex="-1" data-remove="${shown.length}" aria-label="Quitar de recientes: ${esc(it.name)}">${ICONS.x}</button></div>`);
+        html += row; shown.push(it);
+      });
     });
     list.innerHTML = html;
     setOpen(true);
@@ -156,7 +161,7 @@ function initMapSearch() {
       : it.type === 'sector'
         ? { kind: 'sector', schoolId: it.schoolId, schoolName: it.schoolName, name: it.name, recent: true }
         : { kind: 'route', schoolId: it.schoolId, schoolName: it.schoolName, name: it.name, grade: it.grade, sector: it.sector, recent: true }));
-    render([items], [`${ICONS.clock}<span>Recientes</span>`]);
+    render([items], [`${ICONS.clock}<span>Recientes</span><button type="button" class="ms-clear" tabindex="-1">Borrar historial</button>`]);
   }
 
   function run() {
@@ -181,6 +186,12 @@ function initMapSearch() {
     }
     render([res.schools, res.gyms, res.sectors, res.routes], ['Escuelas', 'Rocódromos', 'Sectores', 'Vías']);
   }
+
+  // Forma guardada de un resultado (la inversa de renderRecent)
+  const toRecent = (t) => (t.kind === 'school' ? { type: 'school', id: t.id, name: t.name }
+    : t.kind === 'gym' ? { type: 'gym', id: t.id, name: t.name }
+    : t.kind === 'sector' ? { type: 'sector', schoolId: t.schoolId, schoolName: t.schoolName, name: t.name }
+    : { type: 'route', schoolId: t.schoolId, schoolName: t.schoolName, name: t.name, grade: t.grade, sector: t.sector });
 
   // ---------- Elegir una sugerencia ----------
   async function choose(i) {
@@ -248,6 +259,14 @@ function initMapSearch() {
 
   // Tocar una sugerencia (click: no compite con el desplazamiento de la lista)
   list.addEventListener('click', (e) => {
+    const api = places();
+    const rm = e.target.closest('.ms-remove');
+    if (rm) {
+      const it = shown[Number(rm.dataset.remove)];
+      if (it && api) { api.forget(toRecent(it)); renderRecent(); }
+      return;
+    }
+    if (e.target.closest('.ms-clear')) { if (api) api.clearRecent(); renderRecent(); return; }
     const row = e.target.closest('.ms-row');
     if (row) choose(Number(row.dataset.i));
   });
