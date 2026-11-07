@@ -32304,3 +32304,76 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 #school-bottom-sheet .bs-kempty-text { margin: 0; font-size: var(--kx-fs-caption); line-height: 1.4; color: var(--kx-ink-3); }
 
 @media (prefers-reduced-motion: reduce) { .bs-pdot::before { transition: none; }}
+
+/* Gráfico «Evolución por grado» de la ficha de escuela: vías encadenadas por grado con los colores de grado */
+#school-bottom-sheet .bs-gc {
+  margin: 0 0 8px;
+  padding: 10px 12px 10px;
+  border-radius: var(--kx-radius-card);
+  background: var(--kx-surface);
+  box-shadow: 0 1px 2px rgba(32, 41, 35, 0.05), 0 6px 18px rgba(32, 41, 35, 0.06);
+}
+#school-bottom-sheet .bs-gc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#school-bottom-sheet .bs-gc-title { margin: 0; font-size: var(--kx-fs-lead); font-weight: 700; line-height: 1.25; color: var(--kx-ink); }
+#school-bottom-sheet .bs-gc-note { margin: 8px 0 0; font-size: var(--kx-fs-caption); line-height: 1.4; color: var(--kx-ink-3); }
+#school-bottom-sheet .bs-gc-chart { display: flex; gap: 4px; padding-top: 22px; }
+#school-bottom-sheet .bs-gc-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#school-bottom-sheet .bs-gc-col:hover, #school-bottom-sheet .bs-gc-col:active { background: transparent; box-shadow: none; transform: none; }
+#school-bottom-sheet .bs-gc-track { display: flex; align-items: flex-end; height: 76px; }
+#school-bottom-sheet .bs-gc-bar { position: relative; display: block; width: 100%; min-height: 4px; border-radius: 6px; transition: opacity .15s ease; }
+#school-bottom-sheet .bs-gc-bar.is-empty { height: 4px; background: var(--kx-line); }
+#school-bottom-sheet .bs-gc-grade { text-align: center; font-size: 0.75rem; font-weight: 500; line-height: 1; color: var(--kx-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#school-bottom-sheet .bs-gc-col.is-zero .bs-gc-grade { color: var(--kx-ink-3); }
+#school-bottom-sheet .bs-gc-chart.has-sel .bs-gc-col[aria-pressed="false"] .bs-gc-bar { opacity: .35; }
+#school-bottom-sheet .bs-gc-col[aria-pressed="true"] .bs-gc-grade { font-weight: 700; color: var(--kx-forest); }
+#school-bottom-sheet .bs-gc-col:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; border-radius: 6px; }
+/* El lector de pantalla lee el detalle en .bs-gc-readout; la burbuja es solo visual */
+#school-bottom-sheet .bs-gc-readout { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#school-bottom-sheet .bs-gc-tip {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  display: none;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--kx-forest);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+#school-bottom-sheet .bs-gc-col.is-first .bs-gc-tip { left: 0; transform: none; }
+#school-bottom-sheet .bs-gc-col.is-last .bs-gc-tip { left: auto; right: 0; transform: none; }
+#school-bottom-sheet .bs-gc-col[aria-pressed="true"] .bs-gc-tip { display: block; }
+@media (prefers-reduced-motion: reduce) { #school-bottom-sheet .bs-gc-bar { transition: none; } }
+/* Página 2 compacta: actividad en una línea por dato para que quepa todo sin recortar las condiciones */
+#school-bottom-sheet .bs-page:nth-child(2) .bs-cond { margin-bottom: 8px; }
+#school-bottom-sheet .bs-kcard--activity { margin-bottom: 8px; padding: 10px 8px 8px; }
+#school-bottom-sheet .bs-kcard--activity .bs-kcard-title { margin-bottom: 8px; }
+#school-bottom-sheet .bs-kcard--activity .bs-kstats--panel { padding: 8px 0; }
+#school-bottom-sheet .bs-kcard--activity .bs-kstat { padding: 0 4px; }
+#school-bottom-sheet .bs-kcard--activity .bs-kstat-label { font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 359px) { #school-bottom-sheet .bs-kcard--activity .bs-kstat-label { white-space: normal; } }

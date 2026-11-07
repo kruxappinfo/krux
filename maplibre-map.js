@@ -8624,17 +8624,24 @@ async function kxLoadSchoolActivity(schoolId) {
       .where('schoolId', '==', schoolId)
       .get();
     const routes = new Set();
+    const routeGrade = new Map();   // una vía cuenta una vez en el gráfico por grado
     const sectors = new Set();
     let best = null, bestIdx = -1;
     snap.docs.forEach(d => {
       const a = d.data();
       if (a.style === 'project') return;
-      routes.add(a.routeId != null ? String(a.routeId) : a.routeName || d.id);
+      const rk = a.routeId != null ? String(a.routeId) : a.routeName || d.id;
+      routes.add(rk);
+      if (a.grade) routeGrade.set(rk, String(a.grade).trim());
       if (a.sector) sectors.add(String(a.sector).trim());
       const idx = typeof _rocoGradeIndex === 'function' ? _rocoGradeIndex(a.grade) : -1;
       if (idx > bestIdx) { bestIdx = idx; best = a.grade; }
     });
-    return { sends: routes.size, maxGrade: best, sectors: sectors.size };
+    const counts = new Map();
+    routeGrade.forEach(g => counts.set(g, (counts.get(g) || 0) + 1));
+    const byGrade = [...counts].map(([grade, count]) => ({ grade, count }))
+      .sort((x, y) => (typeof _rocoGradeIndex === 'function' ? _rocoGradeIndex(x.grade) - _rocoGradeIndex(y.grade) : 0) || x.grade.localeCompare(y.grade));
+    return { sends: routes.size, maxGrade: best, sectors: sectors.size, byGrade };
   } catch (e) {
     console.warn('Actividad en la escuela no disponible:', e);
     return null;
@@ -8647,6 +8654,66 @@ function kxSchoolCardHTML(cls, icon, title, bodyHTML) {
 
 function kxKStat(value, label) {
   return `<div class="bs-kstat"><span class="bs-kstat-value">${kxEsc(value)}</span><span class="bs-kstat-label">${kxEsc(label)}</span></div>`;
+}
+
+// Gráfico «Evolución por grado»: vías encadenadas por el usuario en la escuela, con los colores originales de grado.
+// Pulsar una barra muestra su recuento exacto y el porcentaje sobre el total.
+function kxGradeChartHTML(byGrade, total) {
+  const scale = typeof GYM_ROCO_GRADE_SCALE !== 'undefined' ? GYM_ROCO_GRADE_SCALE : null;
+  if (!scale || !byGrade || !byGrade.length) return '';
+  const counts = new Map();
+  byGrade.forEach(g => { const i = _rocoGradeIndex(g.grade); if (i >= 0) counts.set(i, g.count); });
+  if (!counts.size) return '';
+  // Eje como en las guías: sin los «c+» ni los grados de rocódromo (3, 4, 5+…) salvo que tengan vías
+  const axis = scale.map((grade, i) => ({ grade, n: counts.get(i) || 0 }))
+    .filter(g => g.n || /^[5-9][ab]\+?$|^[5-9]c$/.test(g.grade));
+  // Ventana de al menos 12 grados consecutivos centrada en lo escalado: si el rango es corto, deja margen
+  // por debajo y por encima (los grados sin vías quedan vacíos); si es largo, ocupa justo el rango
+  const pos = axis.map((g, k) => (g.n ? k : -1)).filter(k => k >= 0);
+  const lo = pos[0], hi = pos[pos.length - 1];
+  const size = Math.min(axis.length, Math.max(12, hi - lo + 1));
+  let start = Math.round((lo + hi) / 2 - (size - 1) / 2);
+  start = Math.max(0, Math.min(axis.length - size, start));
+  const max = Math.max(...counts.values());
+  const shown = axis.slice(start, start + size);
+  const bars = shown.map(({ grade, n }, k) => {
+    const pct = Math.round(n / total * 100);
+    const label = `${grade}: ${n} ${n === 1 ? 'vía' : 'vías'}, ${pct} %`;
+    const tip = `<span class="bs-gc-tip" aria-hidden="true">${n} · ${pct} %</span>`;
+    const bar = n ? `<span class="bs-gc-bar" style="height:${Math.max(6, Math.round(n / max * 100))}%;background:${getGradeColor(grade)}">${tip}</span>` : `<span class="bs-gc-bar is-empty">${tip}</span>`;
+    // Burbuja con el recuento al seleccionar; en los extremos se alinea hacia dentro para no salirse de la tarjeta
+    const edge = k < 2 ? ' is-first' : k >= shown.length - 2 ? ' is-last' : '';
+    return `<button type="button" class="bs-gc-col${n ? '' : ' is-zero'}${edge}" data-count="${n}" data-pct="${pct}" data-grade="${kxEsc(grade)}" aria-pressed="false" aria-label="${kxEsc(label)}">
+      <span class="bs-gc-track">${bar}</span><span class="bs-gc-grade">${kxEsc(grade)}</span></button>`;
+  }).join('');
+  return `<section class="bs-gc" aria-labelledby="bs-gc-title">
+    <header class="bs-gc-head"><h3 class="bs-gc-title" id="bs-gc-title">Evolución por grado (vías)</h3><button type="button" class="bs-info-btn" aria-expanded="false" aria-controls="bs-gc-note" aria-label="Qué muestra este gráfico">${kxIcon('info', { size: 18 })}</button></header>
+    <p class="bs-gc-note" id="bs-gc-note" hidden>Vías distintas que has encadenado en esta escuela, por grado (${total} en total). Toca una barra para ver el recuento y el porcentaje.</p>
+    <p class="bs-gc-readout" aria-live="polite"></p>
+    <div class="bs-gc-chart" role="group" aria-label="Vías encadenadas por grado">${bars}</div></section>`;
+}
+
+function kxBindGradeChart(root) {
+  const card = root && root.querySelector('.bs-gc');
+  if (!card) return;
+  const chart = card.querySelector('.bs-gc-chart');
+  const readout = card.querySelector('.bs-gc-readout');
+  const info = card.querySelector('.bs-info-btn');
+  const note = card.querySelector('.bs-gc-note');
+  info.addEventListener('click', () => {
+    const open = note.hidden;
+    note.hidden = !open;
+    info.setAttribute('aria-expanded', String(open));
+  });
+  chart.addEventListener('click', (e) => {
+    const col = e.target.closest('.bs-gc-col');
+    if (!col) return;
+    const on = col.getAttribute('aria-pressed') !== 'true';
+    chart.querySelectorAll('.bs-gc-col').forEach(c => c.setAttribute('aria-pressed', String(c === col && on)));
+    chart.classList.toggle('has-sel', on);
+    const n = Number(col.dataset.count);
+    readout.textContent = on ? `${col.dataset.grade} · ${n} ${n === 1 ? 'vía' : 'vías'} · ${col.dataset.pct} % del total` : '';
+  });
 }
 
 async function kxRenderSchoolCards(school) {
@@ -8694,7 +8761,9 @@ async function kxRenderSchoolCards(school) {
         kxKStat(activity.maxGrade || '—', 'Grado máximo'),
         kxKStat(activity.sectors ? String(activity.sectors) : '—', activity.sectors === 1 ? 'Sector visitado' : 'Sectores visitados')
       ].join('')}</div>`;
-    actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity', 'mountain', `Tu actividad en ${school.nombre}`, body);
+    actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity', 'mountain', `Tu actividad en ${school.nombre}`, body)
+      + (signedIn && activity && activity.sends ? kxGradeChartHTML(activity.byGrade, activity.sends) : '');
+    kxBindGradeChart(actSlot);
   }
 
   if (kxSchoolSheet) kxSchoolSheet.refresh();
