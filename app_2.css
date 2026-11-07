@@ -32270,3 +32270,41 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 /* Página 2 de la ficha: el pie fijo ya separa del borde, basta un margen corto bajo el gráfico */
 #school-bottom-sheet .kx-msheet-body:has(.bs-pages) { padding-bottom: 8px; }
 #school-bottom-sheet .bs-gc-col[aria-pressed="true"] { position: relative; z-index: 1; }
+
+/* Buscador del mapa: quitar recientes */
+#map-view .ms-head .ms-clear {
+  margin-left: auto;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--kx-ink-3);
+  font: 700 0.75rem/1 var(--kx-font);
+  cursor: pointer;
+}
+
+#map-view .ms-row .ms-remove {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: -6px -4px -6px auto;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink-3);
+  cursor: pointer;
+}
+
+#map-view .ms-clear:hover,
+#map-view .ms-row .ms-remove:hover {
+  color: var(--kx-ink);
+}
+
+#map-view .ms-clear:focus-visible,
+#map-view .ms-row .ms-remove:focus-visible {
+  outline: 2px solid var(--kx-forest, currentColor);
+  outline-offset: -2px;
+}

@@ -6076,7 +6076,7 @@ let mlPulseAnimId = null;
  * Aplica un highlight visual temporal (anillo pulsante) en la posición de la vía.
  * Usa requestAnimationFrame para rendimiento fluido en WebView móvil.
  */
-function mlApplyRouteHighlight(coords, routeId) {
+function mlApplyRouteHighlight(coords, routeId, opts = {}) {
   // Limpiar highlight anterior
   mlClearRouteHighlight();
 
@@ -6100,7 +6100,7 @@ function mlApplyRouteHighlight(coords, routeId) {
 
   // Resaltado breve y estático (sin pulso continuo): halo salvia + anillo verde bosque alrededor del punto.
   // El anillo crece suavemente desde el tamaño de la vía (transición nativa de MapLibre).
-  const r = mlGetViasRadius() + KX_ROUTE_STROKE;
+  const r = opts.radius || (mlGetViasRadius() + KX_ROUTE_STROKE);
   const ringRadius = r + (mobile ? 5 : 6);
 
   mlMap.addLayer({

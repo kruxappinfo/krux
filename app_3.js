@@ -1557,8 +1557,12 @@ function initGlobalSearch() {
     }
     if (item.kind === 'gym') {
       // La ficha se abre ya (con lo último guardado) mientras el mapa viaja hasta el rocódromo
+      // El mapa viaja hasta el rocódromo y, al llegar, se abre su ficha (que tapa el mapa) y se resalta el icono
       mlMap.flyTo({ center: item.coords, zoom: 16, essential: true });
-      if (window.KruxGymSheet) window.KruxGymSheet.open(item.props, item.coords);
+      mlMap.once('moveend', () => {
+        if (window.KruxGymSheet) window.KruxGymSheet.open(item.props, item.coords);
+        if (typeof mlApplyRouteHighlight === 'function') mlApplyRouteHighlight(item.coords, item.id, { radius: 30 });
+      });
       return;
     }
     const schoolId = item.kind === 'school' ? item.id : item.schoolId;
@@ -1566,6 +1570,8 @@ function initGlobalSearch() {
     if (item.kind === 'school' || !item.coords) return;
     mlMap.flyTo({ center: item.coords, zoom: item.kind === 'route' ? 18 : 16.5, essential: true });
     mlMap.once('moveend', () => {
+      // Resalta el punto en el mapa (la vía con su anillo habitual, el sector con uno mayor)
+      if (typeof mlApplyRouteHighlight === 'function') mlApplyRouteHighlight(item.coords, item.props && item.props.id, item.kind === 'sector' ? { radius: 24 } : {});
       if (item.kind === 'sector') {
         if (!showSectorBottomSheet(item.props, item.coords)) showSectorPopup(item.props, item.coords);
       } else {
@@ -1624,7 +1630,9 @@ function initGlobalSearch() {
       }
     },
     remember: rememberResult,
-    recent: () => getRecent().filter(it => it.type !== 'user')
+    recent: () => getRecent().filter(it => it.type !== 'user'),
+    forget: (item) => setRecent(getRecent().filter(it => recentKey(it) !== recentKey(item))),
+    clearRecent: () => setRecent(getRecent().filter(it => it.type === 'user'))
   };
 
   // Desde fuera del buscador (p. ej. el grado de una ascensión publicada): localiza la vía y la abre en el mapa
