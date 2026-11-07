@@ -7962,9 +7962,11 @@ function initBottomSheet() {
 
   kxSchoolSheet = KXMapSheet.create(bottomSheet, {
     snaps: ['summary', 'expanded'],
-    // El resumen llega hasta el final de la tarjeta del tiempo (donut y tiempo visibles; el pie no los tapa)
-    peek: '#bs-weather-widget',
+    // La altura sigue a la página visible: en la 1 llega hasta el final de la tarjeta del tiempo (la previsión se abre encima);
+    // en la 2 sube hasta mostrar todo el contenido. Solo se amplía más si la página 2 no cabe entera
+    peek: () => document.getElementById(bsPager && bsPager.current() === 1 ? 'bs-page-1' : 'bs-weather-widget'),
     peekMax: 0.92,
+    expandable: () => !!bsPager && bsPager.current() === 1 && !!kxSchoolSheet && kxSchoolSheet.capped,
     onRequestClose: hideBottomSheet,
     onStateChange: state => { bsCurrentState = state; }
   });
@@ -8501,7 +8503,7 @@ function showBottomSheet(school) {
   kxRenderSchoolPhoto(school);
   kxRenderSchoolConditions(school, null);
 
-  // Abre en resumen (gráfico de barras + acciones); el gesto la expande
+  // Abre en resumen ajustado a la página 1 (donut y tiempo), sin vista completa
   kxSchoolSheet.open('summary');
 
   // Cargar estadísticas (esto actualiza los gráficos)
@@ -8787,12 +8789,23 @@ function kxInitSchoolPages(sheetEl, foot) {
     dots.forEach((d, k) => { d.classList.toggle('is-on', k === i); d.setAttribute('aria-selected', String(k === i)); d.tabIndex = k === i ? 0 : -1; });
     sheetEl.dataset.page = String(i);
   };
-  // La zona de páginas mide lo que la página visible (sin huecos al desplazar la más corta)
-  const fit = () => { const p = pages[bsPager ? bsPager.current() : 0]; if (p) stage.style.height = `${p.offsetHeight}px`; };
-  bsPager = kxBindPager(stage, track, { count: pages.length, onChange: (i) => { sync(i); fit(); } });
+  // La zona de páginas mide lo que la página visible (sin huecos al desplazar la más corta).
+  // Al pasar a una página más corta, el recorte espera a que termine el deslizamiento para no cortar la que sale
+  let shrinkT = 0;
+  const fit = ({ defer = false } = {}) => {
+    const p = pages[bsPager ? bsPager.current() : 0];
+    if (!p) return;
+    clearTimeout(shrinkT);
+    const h = p.offsetHeight;
+    if (defer && h < stage.offsetHeight) shrinkT = setTimeout(() => { stage.style.height = `${p.offsetHeight}px`; }, 440);
+    else stage.style.height = `${h}px`;
+  };
+  // Cambio de página: la hoja sube (página 2) o baja (página 1) a la altura de su contenido, animada
+  const resize = () => { if (kxSchoolSheet && kxSchoolSheet.state !== 'hidden') { kxSchoolSheet.measure(); kxSchoolSheet.setState('summary'); } };
+  bsPager = kxBindPager(stage, track, { count: pages.length, onChange: (i) => { sync(i); fit({ defer: true }); resize(); } });
   sync(0);
   fit();
-  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(fit); pages.forEach(p => ro.observe(p)); }
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(() => fit()); pages.forEach(p => ro.observe(p)); }
   foot.querySelector('.bs-pdots').addEventListener('click', (e) => {
     const d = e.target.closest('.bs-pdot');
     if (d) bsPager.go(+d.dataset.page);
