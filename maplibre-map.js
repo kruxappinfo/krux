@@ -8672,23 +8672,25 @@ function kxKStat(value, label) {
 
 // Gráfico «Evolución por grado»: vías encadenadas por el usuario en la escuela, con los colores originales de grado.
 // Pulsar una barra muestra cuántas vías ha hecho el usuario de ese grado.
-function kxGradeChartHTML(byGrade, total) {
+function kxGradeChartHTML(byGrade, total, emptyLabel = 'Todavía no has escalado en esta zona') {
   const scale = typeof GYM_ROCO_GRADE_SCALE !== 'undefined' ? GYM_ROCO_GRADE_SCALE : null;
-  if (!scale || !byGrade || !byGrade.length) return '';
+  if (!scale) return '';
   const counts = new Map();
-  byGrade.forEach(g => { const i = _rocoGradeIndex(g.grade); if (i >= 0) counts.set(i, g.count); });
-  if (!counts.size) return '';
+  (byGrade || []).forEach(g => { const i = _rocoGradeIndex(g.grade); if (i >= 0) counts.set(i, g.count); });
+  // Sin ascensiones (o sin sesión): el mismo gráfico vacío, marcado «Sin información»
+  const noData = !counts.size;
   // Eje como en las guías: sin los «c+» ni los grados de rocódromo (3, 4, 5+…) salvo que tengan vías
   const axis = scale.map((grade, i) => ({ grade, n: counts.get(i) || 0 }))
     .filter(g => g.n || /^[5-9][ab]\+?$|^[5-9]c$/.test(g.grade));
   // Ventana de al menos 12 grados consecutivos centrada en lo escalado: si el rango es corto, deja margen
   // por debajo y por encima (los grados sin vías quedan vacíos); si es largo, ocupa justo el rango
   const pos = axis.map((g, k) => (g.n ? k : -1)).filter(k => k >= 0);
-  const lo = pos[0], hi = pos[pos.length - 1];
+  const mid = axis.findIndex(g => g.grade === '6b');
+  const lo = noData ? mid : pos[0], hi = noData ? mid : pos[pos.length - 1];
   const size = Math.min(axis.length, Math.max(12, hi - lo + 1));
   let start = Math.round((lo + hi) / 2 - (size - 1) / 2);
   start = Math.max(0, Math.min(axis.length - size, start));
-  const max = Math.max(...counts.values());
+  const max = noData ? 1 : Math.max(...counts.values());
   const shown = axis.slice(start, start + size);
   const bars = shown.map(({ grade, n }, k) => {
     const vias = `${n} ${n === 1 ? 'vía' : 'vías'}`;
@@ -8697,14 +8699,17 @@ function kxGradeChartHTML(byGrade, total) {
     const bar = n ? `<span class="bs-gc-bar" style="height:${Math.max(6, Math.round(n / max * 100))}%;background:${getGradeColor(grade)}"></span>` : '<span class="bs-gc-bar is-empty"></span>';
     // Burbuja con el número de vías al seleccionar, siempre por encima de la barra más alta; en los extremos se alinea hacia dentro para no salirse de la tarjeta
     const edge = k < 2 ? ' is-first' : k >= shown.length - 2 ? ' is-last' : '';
-    return `<button type="button" class="bs-gc-col${n ? '' : ' is-zero'}${edge}" data-count="${n}" data-grade="${kxEsc(grade)}" aria-pressed="false" aria-label="${kxEsc(label)}">
+    return `<button type="button" class="bs-gc-col${n ? '' : ' is-zero'}${edge}" data-count="${n}" data-grade="${kxEsc(grade)}" aria-pressed="false" aria-label="${kxEsc(label)}"${noData ? ' disabled tabindex="-1"' : ''}>
       <span class="bs-gc-track">${tip}${bar}</span><span class="bs-gc-grade">${kxEsc(grade)}</span></button>`;
   }).join('');
-  return `<section class="bs-gc" aria-labelledby="bs-gc-title">
+  const note = noData
+    ? 'Cuando encadenes vías en esta escuela, verás aquí cuántas has hecho de cada grado.'
+    : `Vías distintas que has encadenado en esta escuela, por grado (${total} en total). Toca una barra para ver cuántas vías has hecho de ese grado.`;
+  return `<section class="bs-gc${noData ? ' is-nodata' : ''}" aria-labelledby="bs-gc-title">
     <header class="bs-gc-head"><h3 class="bs-gc-title" id="bs-gc-title">Evolución por grado (vías)</h3><button type="button" class="bs-info-btn" aria-expanded="false" aria-controls="bs-gc-note" aria-label="Qué muestra este gráfico">${kxIcon('info', { size: 18 })}</button></header>
-    <p class="bs-gc-note" id="bs-gc-note" hidden>Vías distintas que has encadenado en esta escuela, por grado (${total} en total). Toca una barra para ver cuántas vías has hecho de ese grado.</p>
+    <p class="bs-gc-note" id="bs-gc-note" hidden>${note}</p>
     <p class="bs-gc-readout" aria-live="polite"></p>
-    <div class="bs-gc-chart" role="group" aria-label="Vías encadenadas por grado">${bars}</div></section>`;
+    <div class="bs-gc-chart" role="group" aria-label="Vías encadenadas por grado">${bars}${noData ? '<span class="bs-gc-empty">${kxEsc(emptyLabel)}</span>' : ''}</div></section>`;
 }
 
 function kxBindGradeChart(root) {
@@ -8772,16 +8777,16 @@ async function kxRenderSchoolCards(school) {
     const signedIn = typeof currentUser !== 'undefined' && !!currentUser;
     const empty = (title, text) => `<div class="bs-kempty"><p class="bs-kempty-title">${kxEsc(title)}</p><p class="bs-kempty-text">${kxEsc(text)}</p></div>`;
     let body;
-    if (!signedIn) body = empty('Inicia sesión para ver tu actividad', 'Tus vías encadenadas, tu grado máximo y los sectores que has visitado aparecerán aquí.');
+    if (!signedIn) body = empty('Todavía no tienes vías registradas', 'Inicia sesión y registra tus ascensiones: tus vías encadenadas, tu grado máximo y los sectores que visites aparecerán aquí.');
     else if (!activity) body = empty('No se pudo cargar tu actividad', 'Revisa la conexión y vuelve a abrir la ficha.');
-    else if (!activity.sends) body = empty('Aún no has registrado ascensiones aquí', 'Cuando encadenes tu primera vía en esta escuela, verás aquí tu progreso.');
+    else if (!activity.sends) body = empty('Todavía no has escalado en esta zona', 'Cuando encadenes tu primera vía en esta escuela, verás aquí tu progreso.');
     else body = `<div class="bs-kstats bs-kstats--panel">${[
         kxKStat(String(activity.sends), activity.sends === 1 ? 'Vía encadenada' : 'Vías encadenadas'),
         kxKStat(activity.maxGrade || '—', 'Grado máximo'),
         kxKStat(activity.sectors ? String(activity.sectors) : '—', activity.sectors === 1 ? 'Sector visitado' : 'Sectores visitados')
       ].join('')}</div>`;
     actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity', 'mountain', `Tu actividad en ${school.nombre}`, body)
-      + (signedIn && activity && activity.sends ? kxGradeChartHTML(activity.byGrade, activity.sends) : '');
+      + kxGradeChartHTML(activity && activity.sends ? activity.byGrade : [], activity ? activity.sends : 0, signedIn ? undefined : 'Todavía no tienes vías registradas');
     kxBindGradeChart(actSlot);
   }
 
@@ -8817,12 +8822,24 @@ function kxInitSchoolPages(sheetEl, foot) {
     if (defer && h < stage.offsetHeight) shrinkT = setTimeout(() => { stage.style.height = `${p.offsetHeight}px`; }, 440);
     else stage.style.height = `${h}px`;
   };
+  // Las dos páginas miden lo mismo (la más alta): la hoja no da escalón al pasar de una a otra.
+  // La corta reparte el hueco entre sus bloques (el donut queda centrado); el donut no cambia de tamaño
+  const equalize = () => {
+    pages.forEach(p => { p.style.minHeight = ''; });
+    const h = Math.max(...pages.map(p => p.offsetHeight));
+    pages.forEach(p => { p.style.minHeight = `${h}px`; });
+  };
   // Cambio de página: la hoja sube (página 2) o baja (página 1) a la altura de su contenido, animada
   const resize = () => { if (kxSchoolSheet && kxSchoolSheet.state !== 'hidden') { kxSchoolSheet.measure(); kxSchoolSheet.setState('summary'); } };
   bsPager = kxBindPager(stage, track, { count: pages.length, onChange: (i) => { sync(i); fit({ defer: true }); resize(); } });
   sync(0);
   fit();
-  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(() => fit()); pages.forEach(p => ro.observe(p)); }
+  // Se observa el contenido, no las páginas (su altura mínima la fijamos nosotros)
+  const kids = pages.flatMap(p => [...p.children]);
+  const refit = () => { equalize(); fit(); };
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(refit); kids.forEach(k => ro.observe(k)); }
+  window.addEventListener('resize', refit);
+  equalize();
   foot.querySelector('.bs-pdots').addEventListener('click', (e) => {
     const d = e.target.closest('.bs-pdot');
     if (d) bsPager.go(+d.dataset.page);
