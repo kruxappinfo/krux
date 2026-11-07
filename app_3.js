@@ -1150,14 +1150,21 @@ function initGlobalSearch() {
     if (it.type === 'sector') return `c:${it.schoolId}|${it.name}`;
     return `r:${it.schoolId}|${it.name}|${it.sector || ''}`;
   };
+  // Cada perfil guarda sus propios recientes; sin sesión, los de «guest» (el valor global antiguo se descarta)
+  const recentStoreKey = () => {
+    let uid = 'guest';
+    try { uid = (firebase.auth().currentUser || {}).uid || 'guest'; } catch (_) { /* Firebase aún no listo */ }
+    return `${RECENT_KEY}:${uid}`;
+  };
   function getRecent() {
     try {
-      return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
-        .filter(it => it && typeof it === 'object' && ['user', 'school', 'sector', 'route'].includes(it.type));
+      localStorage.removeItem(RECENT_KEY);
+      return JSON.parse(localStorage.getItem(recentStoreKey()) || '[]')
+        .filter(it => it && typeof it === 'object' && ['user', 'school', 'gym', 'sector', 'route'].includes(it.type));
     } catch (_) { return []; }
   }
   function setRecent(list) {
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX))); } catch (_) { /* almacenamiento no disponible */ }
+    try { localStorage.setItem(recentStoreKey(), JSON.stringify(list.slice(0, RECENT_MAX))); } catch (_) { /* almacenamiento no disponible */ }
   }
   function rememberResult(item) {
     if (!item || !item.type) return;
