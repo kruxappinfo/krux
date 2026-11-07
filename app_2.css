@@ -32313,3 +32313,18 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; touch-action: none; }
 .bs-forecast-panel { touch-action: none; }
 .bs-forecast-scroll { touch-action: pan-y; }
+
+/* Gráfico por grado sin ascensiones: mismas barras vacías con la indicación «Sin información» */
+#school-bottom-sheet .bs-gc.is-nodata .bs-gc-chart { position: relative; }
+#school-bottom-sheet .bs-gc.is-nodata .bs-gc-col { pointer-events: none; cursor: default; }
+#school-bottom-sheet .bs-gc-empty {
+  position: absolute; left: 50%; top: 52px; transform: translate(-50%, -50%);
+  padding: 6px 14px; border-radius: 999px;
+  background: var(--kx-surface, #fff); box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+  color: var(--kx-ink-2); font: 600 0.8125rem/1.2 var(--kx-font); text-align: center; max-width: calc(100% - 16px);
+}
+
+/* Las dos páginas de la ficha miden lo mismo: la más corta reparte el hueco (donut centrado, tiempo abajo) */
+#school-bottom-sheet #bs-page-0 { display: flex; flex-direction: column; }
+#school-bottom-sheet #bs-page-0 .bs-expanded-section { flex: 1 1 auto; display: flex; flex-direction: column; }
+#school-bottom-sheet #bs-page-0 .bs-chart-card { margin-block: auto; }
