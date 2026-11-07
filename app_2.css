@@ -31771,8 +31771,11 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
    una indicación suave explica que los grados se pueden tocar. */
 #school-bottom-sheet .bs-chart-card { background: transparent; padding: 6px 0 0; margin: 0 0 8px; }
 #school-bottom-sheet .bs-chart-header { margin-bottom: 2px; }
-#school-bottom-sheet .bs-donut-chart { width: min(212px, 100%); height: auto; aspect-ratio: 1; }
+/* Tamaño del donut: lo ajusta kxInitSchoolPages para que las dos páginas midan lo mismo */
+#school-bottom-sheet { --bs-donut-size: 212px; }
+#school-bottom-sheet .bs-donut-chart { width: min(var(--bs-donut-size), 100%); height: auto; aspect-ratio: 1; }
 #school-bottom-sheet .bs-skeleton-donut { padding: 8px 0; }
+#school-bottom-sheet .bs-skeleton-ring { width: min(var(--bs-donut-size), 100%); height: auto; aspect-ratio: 1; box-sizing: border-box; }
 
 /* El tirador de las hojas es un botón: sin el aspecto del botón global al tocarlo (fondo blanco, sombra y desplazamiento) */
 .kx-msheet-grip:hover, .kx-msheet-grip:active, .kx-msheet-grip:focus {
