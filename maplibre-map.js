@@ -8787,7 +8787,8 @@ async function kxRenderSchoolConditions(school, weather, { loaded = false, error
   if (loaded) bsConditionsWeather = weather;
   if (!disciplines.includes(bsDiscipline)) bsDiscipline = disciplines[0] || 'sport';
 
-  const head = (pill = '') => `<header class="bs-cond-head">${kxIcon('mountain', { size: 22 })}<h3 class="bs-cond-title" id="bs-cond-title">Condiciones para escalar</h3>${pill}</header>`;
+  const infoBtn = (label) => `<button type="button" class="bs-info-btn" aria-expanded="false" aria-controls="bs-grip-info" aria-label="${kxEsc(label)}">${kxIcon('info', { size: 16 })}</button>`;
+  const head = (pill = '', info = '') => `<header class="bs-cond-head">${kxIcon('mountain', { size: 20 })}<h3 class="bs-cond-title" id="bs-cond-title">Condiciones para escalar</h3>${info}${pill}</header>`;
   const wrap = (inner, cls = '') => `<section class="bs-cond${cls}" aria-labelledby="bs-cond-title">${inner}</section>`;
 
   if (error) {
@@ -8805,24 +8806,18 @@ async function kxRenderSchoolConditions(school, weather, { loaded = false, error
   const f = est.factors;
 
   const cond = est.condition;
-  const pill = cond ? `<span class="bs-cond-pill kx-tone-${cond.tone}">${cond.tone === 'success' ? kxIcon('check', { size: 16, stroke: 2.25 }) : ''}${kxEsc(cond.label)}</span>` : '';
+  const pill = cond ? `<span class="bs-cond-pill kx-tone-${cond.tone}">${cond.tone === 'success' ? kxIcon('check', { size: 14, stroke: 2.25 }) : ''}${kxEsc(cond.label)}</span>` : '';
 
   const seg = disciplines.length > 1 && typeof kxSegmentedHTML === 'function'
     ? `<div class="bs-cond-seg">${kxSegmentedHTML({ items: disciplines.map(d => ({ value: d, label: d === 'boulder' ? 'Bloque' : 'Deportiva' })), value: bsDiscipline, label: 'Modalidad' })}</div>`
     : '';
 
+  // Tarjeta compacta: cifra y barra; la valoración, la confianza y las notas van en el panel de información
   const scoreHTML = est.display !== null
     ? `<p class="bs-grip-score"><b>${kxEsc(est.display)}</b><span>/100</span></p>
-       <div class="bs-grip-side">
-         <p class="bs-grip-label">${kxEsc(kxGripLabel(est.score))}</p>
-         <div class="bs-grip-bar" role="img" aria-label="${kxEsc(`Grip estimado ${est.display} sobre 100`)}"><span style="--v:${est.score}%"></span></div>
-         <p class="bs-grip-conf">Estimación orientativa · ${KX_CONFIDENCE[est.confidence]}</p>
-       </div>`
+       <div class="bs-grip-bar" role="img" aria-label="${kxEsc(`Grip estimado ${est.display} sobre 100: ${kxGripLabel(est.score).toLowerCase()}, ${KX_CONFIDENCE[est.confidence]}`)}"><span style="--v:${est.score}%"></span></div>`
     : `<p class="bs-grip-score is-limited"><b>—</b></p>
-       <div class="bs-grip-side">
-         <p class="bs-grip-label">Estimación limitada</p>
-         <p class="bs-grip-conf">Faltan datos de ${kxEsc((est.missing.length ? est.missing : ['tiempo']).join(', '))}; no se muestra una cifra</p>
-       </div>`;
+       <p class="bs-grip-conf">Faltan datos de ${kxEsc((est.missing.length ? est.missing : ['tiempo']).join(', '))}</p>`;
 
   const rockName = typeof kxcRock === 'function' ? kxcRock(school.rockType).label : 'roca';
   const rockPill = f.rock.score === null ? ['Sin datos', 'neutral'] : f.rock.score >= 70 ? ['Buena', 'success'] : f.rock.score >= 40 ? ['Regular', 'warning'] : ['Mala', 'danger'];
@@ -8830,35 +8825,41 @@ async function kxRenderSchoolConditions(school, weather, { loaded = false, error
     f.temp ? kxFactorRowHTML('thermometer', 'Temperatura', `${Math.round(f.temp.value)} °C`, f.temp.rating, f.temp.tone) : kxFactorRowHTML('thermometer', 'Temperatura', '—', 'Sin datos', 'neutral'),
     f.humidity ? kxFactorRowHTML('droplet', 'Humedad', `${Math.round(f.humidity.value)} %`, f.humidity.rating, f.humidity.tone) : kxFactorRowHTML('droplet', 'Humedad', '—', 'Sin datos', 'neutral'),
     f.wind ? kxFactorRowHTML('wind', 'Viento', `${Math.round(f.wind.value)} km/h`, f.wind.rating, f.wind.tone) : kxFactorRowHTML('wind', 'Viento', '—', 'Sin datos', 'neutral'),
-    kxFactorRowHTML('mountain', `Roca (${rockName})`, f.rock.rating, rockPill[0], rockPill[1])
+    kxFactorRowHTML('mountain', `Roca (${rockName.toLowerCase()})`, f.rock.rating, rockPill[0], rockPill[1])
   ].join('');
 
   const notes = [...est.notes];
   if (est.range) notes.push(`Varía por sector: de ${est.range.lo} (${est.range.worst}) a ${est.range.hi} (${est.range.best})`);
   else if (facts && facts.exposures && facts.exposures.length > 1 && !est.limited) notes.push('Los sectores tienen orientaciones distintas; la estimación es general');
 
+  const summary = est.display !== null
+    ? `${kxGripLabel(est.score)} · estimación orientativa, ${KX_CONFIDENCE[est.confidence]}`
+    : 'Estimación limitada: no se muestra una cifra';
   const info = `<div class="bs-grip-info" id="bs-grip-info" hidden>
+      <p class="bs-grip-sum"><b>${kxEsc(summary)}</b></p>
+      ${notes.length ? `<ul class="bs-cond-notes">${notes.map(n => `<li>${kxEsc(n)}</li>`).join('')}</ul>` : ''}
       <p><b>¿Qué es?</b> Una estimación orientativa de lo bien que agarra la roca ahora. No es una medición real del rozamiento.</p>
       <p><b>Qué tiene en cuenta:</b> temperatura (al sol la roca se calienta más que el aire), humedad y punto de rocío, viento, lluvia de las últimas 72 horas y el tiempo de secado según el tipo de roca y la orientación de los sectores. En bloque pesan más la humedad y el frío.</p>
       <p><b>Por qué varía:</b> cambia con la hora, el sol y la lluvia, y cada sector puede estar distinto. Si faltan datos, la confianza baja y no se muestra una cifra.</p>
       <p class="bs-grip-src">Datos meteorológicos: Open-Meteo</p>
     </div>`;
 
-  slot.innerHTML = wrap(head(pill) + seg + `
+  slot.innerHTML = wrap(head(pill, infoBtn('Qué significan las condiciones para escalar')) + seg + `
     <div class="bs-cond-body">
       <div class="bs-grip">
-        <p class="bs-grip-title">Grip de la roca
-          <button type="button" class="bs-info-btn" aria-expanded="false" aria-controls="bs-grip-info" aria-label="Qué significa el grip de la roca">${kxIcon('info', { size: 18 })}</button></p>
-        <div class="bs-grip-main">${scoreHTML}</div>
+        <p class="bs-grip-title">Grip de la roca ${infoBtn('Qué significa el grip de la roca')}</p>
+        ${scoreHTML}
       </div>
       <div class="bs-factors">${rows}</div>
     </div>
-    ${notes.length ? `<ul class="bs-cond-notes">${notes.map(n => `<li>${kxEsc(n)}</li>`).join('')}</ul>` : ''}
     ${info}`, est.limited ? ' is-limited' : '');
 
-  const btn = slot.querySelector('.bs-info-btn');
   const box = slot.querySelector('#bs-grip-info');
-  btn.addEventListener('click', () => { const open = box.hidden; box.hidden = !open; btn.setAttribute('aria-expanded', String(open)); });
+  const btns = slot.querySelectorAll('.bs-info-btn');
+  btns.forEach(btn => btn.addEventListener('click', () => {
+    const open = box.hidden; box.hidden = !open;
+    btns.forEach(b => b.setAttribute('aria-expanded', String(open)));
+  }));
   const segEl = slot.querySelector('.kx-seg');
   if (segEl && typeof kxBindSegmented === 'function') {
     kxBindSegmented(segEl, (v) => { bsDiscipline = v; kxRenderSchoolConditions(school, bsConditionsWeather, { loaded: true }); });
