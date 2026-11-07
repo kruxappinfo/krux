@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 260" role="img" aria-label="Ilustración genérica de un macizo de granito">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E2DCD3"/><stop offset="1" stop-color="#B9AEA2"/></linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#D6CEC4"/><stop offset="1" stop-color="#AC9F92"/></linearGradient>
+    <radialGradient id="hl" cx=".35" cy=".25" r=".7"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".45"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+  </defs>
+  <path d="M150 260 C150 210 166 176 196 160 C214 150 232 150 246 158 C252 110 280 70 320 58 C352 50 382 62 400 78 L400 260 Z" fill="url(#g)"/>
+  <path d="M246 158 C252 110 280 70 320 58 C352 50 382 62 400 78 L400 140 C370 120 330 116 296 128 C276 136 258 148 246 158 Z" fill="url(#hl)"/>
+  <path d="M90 260 C92 226 108 204 134 196 C156 190 176 198 186 214 C196 230 198 246 198 260 Z" fill="url(#g2)"/>
+  <path d="M300 64 C296 100 302 140 316 170 M352 60 C346 96 352 128 366 150 M214 156 C214 186 222 214 236 240" stroke="#988B7E" stroke-opacity=".5" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <path d="M270 140 C290 132 316 134 336 146" stroke="#988B7E" stroke-opacity=".35" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <ellipse cx="236" cy="188" rx="14" ry="9" fill="#C8BEB2"/>
+  <path d="M70 260 C110 238 150 236 190 244 C230 232 290 234 330 242 C364 236 390 238 400 240 L400 260 Z" fill="#6C8A5C"/>
+  <path d="M104 246 L114 210 L124 246 Z M136 244 L144 220 L152 244 Z M300 240 L312 204 L324 240 Z M350 238 L360 212 L370 238 Z" fill="#4F6E47"/>
+</svg>

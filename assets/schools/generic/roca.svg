@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 260" role="img" aria-label="Ilustración genérica de una pared de escalada">
+  <defs>
+    <linearGradient id="r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E4DACB"/><stop offset="1" stop-color="#BCAA92"/></linearGradient>
+    <linearGradient id="s" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8A7660" stop-opacity="0"/><stop offset="1" stop-color="#8A7660" stop-opacity=".3"/></linearGradient>
+  </defs>
+  <path d="M110 260 C116 220 126 186 142 156 C156 128 176 104 200 84 C222 64 246 52 272 42 C300 32 330 30 356 36 C374 40 390 46 400 52 L400 260 Z" fill="url(#r)"/>
+  <path d="M232 70 C228 120 236 170 230 230 M300 36 C296 90 304 140 298 210" stroke="#A39079" stroke-opacity=".45" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <path d="M320 34 C350 60 372 120 368 260 L400 260 L400 52 C380 40 352 32 320 34 Z" fill="url(#s)"/>
+  <path d="M70 260 C110 238 160 240 210 248 C260 234 320 238 360 246 C384 240 400 242 400 242 L400 260 Z" fill="#5E7D52"/>
+</svg>

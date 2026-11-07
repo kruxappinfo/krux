@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=182" />
+  <link rel="stylesheet" href="./app_2.css?v=183" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -95,11 +95,13 @@
 
   <script defer src="./maplibre-config.js?v=4"></script>
 
-  <script defer src="./map-ui.js?v=19"></script>
+  <script defer src="./map-ui.js?v=20"></script>
   <script defer src="./climb-session.js?v=2"></script>
   <script defer src="./climb-session-ui.js?v=5"></script>
   <script defer src="./gym-info.js?v=16"></script>
-  <script defer src="./maplibre-map.js?v=51"></script>
+  <script defer src="./climb-conditions.js?v=1"></script>
+  <script defer src="./school-photos.js?v=1"></script>
+  <script defer src="./maplibre-map.js?v=52"></script>
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
@@ -2605,6 +2607,10 @@
 
     <!-- Contenido del Bottom Sheet -->
     <div class="bottom-sheet-content kx-msheet-body">
+      <!-- Dos páginas deslizables (maplibre-map.js: kxInitSchoolPages): 1 vías y tiempo · 2 condiciones y actividad -->
+      <div class="bs-pages" id="bs-pages">
+      <div class="bs-pages-track" id="bs-pages-track">
+      <section class="bs-page" id="bs-page-0" role="tabpanel" aria-label="Vías y tiempo">
       <!-- Donut de vías por grado + tiempo (el pronóstico semanal se superpone al donut) -->
       <div class="bs-expanded-section" id="bs-expanded-section">
         <!-- Donut Chart Card -->
@@ -2661,9 +2667,15 @@
           </div>
         </div>
 
+      </div>
+      </section>
+      <section class="bs-page" id="bs-page-1" role="tabpanel" aria-label="Condiciones y actividad">
+        <!-- Condiciones para escalar y grip (maplibre-map.js: kxRenderSchoolConditions; cálculo en climb-conditions.js) -->
+        <div id="bs-conditions-slot"></div>
         <!-- Tu actividad en la escuela (maplibre-map.js: kxRenderSchoolCards) -->
         <div id="bs-activity-slot"></div>
-
+      </section>
+      </div>
       </div>
     </div>
 

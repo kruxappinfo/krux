@@ -4,7 +4,7 @@
  * PWA completa con soporte offline
  */
 
-const CACHE_VERSION = 'v186';
+const CACHE_VERSION = 'v187';
 const CACHE_NAME = `krux-cache-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `krux-data-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
@@ -36,6 +36,11 @@ const STATIC_ASSETS = [
   './climb-session.js',
   './climb-session-ui.js',
   './gym-info.js',
+  './climb-conditions.js',
+  './school-photos.js',
+  './assets/schools/generic/caliza.svg',
+  './assets/schools/generic/granito.svg',
+  './assets/schools/generic/roca.svg',
   './maplibre-map.js',
   './map-search.js',
   './user-features.js',
