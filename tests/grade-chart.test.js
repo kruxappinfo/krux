@@ -227,7 +227,8 @@ describe('ficha de escuela: conserva su donut y su tiempo originales', () => {
   it('la hoja de escuela cuenta como antes: GeoJSON y vías de spotters, solo con grado', () => {
     const f = mapSrc.slice(mapSrc.indexOf('async function loadBottomSheetStats'), mapSrc.indexOf('function hideSkeletonsShowCharts'));
     expect(f).toContain('geojson.features.forEach');
-    expect(f).toContain('await getSpotterGradeCounts(schoolId)');
+    expect(f).toContain('getSpotterGradeCounts(schoolId)');
+    expect(f).toContain('await spotterTask');
     expect(f).toMatch(/if \(grade\) \{/);
   });
   it('el panel de previsión del tiempo sigue ahí con su lógica', () => {

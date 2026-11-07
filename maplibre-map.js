@@ -8800,26 +8800,12 @@ function kxInitSchoolPages(sheetEl, foot) {
     if (defer && h < stage.offsetHeight) shrinkT = setTimeout(() => { stage.style.height = `${p.offsetHeight}px`; }, 440);
     else stage.style.height = `${h}px`;
   };
-  // Las dos páginas miden lo mismo: el donut absorbe la diferencia (crece si la página 2 es más alta, se encoge si es más baja)
-  const equalize = () => {
-    const donut = document.getElementById('bs-donut-chart');
-    const box = donut && donut.parentElement;
-    if (!box || pages.length < 2) return;
-    const delta = pages[1].offsetHeight - pages[0].offsetHeight;
-    if (Math.abs(delta) < 2) return;
-    const cur = parseFloat(getComputedStyle(sheetEl).getPropertyValue('--bs-donut-size')) || 212;
-    const max = Math.min(264, box.clientWidth);
-    const next = Math.round(Math.max(150, Math.min(max, cur + delta)));
-    if (next !== Math.round(cur)) sheetEl.style.setProperty('--bs-donut-size', `${next}px`);
-  };
   // Cambio de página: la hoja sube (página 2) o baja (página 1) a la altura de su contenido, animada
   const resize = () => { if (kxSchoolSheet && kxSchoolSheet.state !== 'hidden') { kxSchoolSheet.measure(); kxSchoolSheet.setState('summary'); } };
   bsPager = kxBindPager(stage, track, { count: pages.length, onChange: (i) => { sync(i); fit({ defer: true }); resize(); } });
   sync(0);
   fit();
-  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(() => { equalize(); fit(); }); pages.forEach(p => ro.observe(p)); }
-  window.addEventListener('resize', equalize);
-  equalize();
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(() => fit()); pages.forEach(p => ro.observe(p)); }
   foot.querySelector('.bs-pdots').addEventListener('click', (e) => {
     const d = e.target.closest('.bs-pdot');
     if (d) bsPager.go(+d.dataset.page);
@@ -9080,14 +9066,28 @@ function renderDonutChart(gradeData) {
 /**
  * Carga estadísticas de la escuela para el Bottom Sheet
  */
+// Recuento de vías por grado de cada escuela ya abierta: al volver a abrirla el donut sale al instante
+const bsGradeCountCache = new Map();
+let bsStatsSeq = 0;
+
 async function loadBottomSheetStats(schoolId) {
   const schoolConfig = MAPLIBRE_SCHOOLS[schoolId];
+  const seq = ++bsStatsSeq;
 
   // Referencias a elementos
   const donutSkeleton = document.getElementById('bs-donut-skeleton');
   const donutContainer = document.getElementById('bs-donut-chart');
 
   // Mostrar skeletons, ocultar gráficos
+  const cached = bsGradeCountCache.get(schoolId);
+  if (cached) {
+    bsGradeData = cached;
+    hideSkeletonsShowCharts();
+    renderDonutChart(cached);
+    if (kxSchoolSheet) kxSchoolSheet.refresh();
+    return;
+  }
+
   if (donutSkeleton) donutSkeleton.classList.remove('hidden');
   if (donutContainer) donutContainer.classList.add('hidden');
 
@@ -9106,7 +9106,10 @@ async function loadBottomSheetStats(schoolId) {
       throw new Error('No hay ruta de vías configurada');
     }
 
+    // Cartografía y vías de spotters a la vez (antes iban una tras otra)
+    const spotterTask = getSpotterGradeCounts(schoolId).catch(() => ({}));
     const response = await fetch(viasPath);
+    if (seq !== bsStatsSeq) return;   // se abrió otra escuela mientras tanto
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -9135,7 +9138,8 @@ async function loadBottomSheetStats(schoolId) {
     });
 
     // Sumar vías aprobadas de Spotters
-    const spotterCounts = await getSpotterGradeCounts(schoolId);
+    const spotterCounts = await spotterTask;
+    if (seq !== bsStatsSeq) return;
     Object.entries(spotterCounts).forEach(([grade, count]) => {
       gradeCount[grade] = (gradeCount[grade] || 0) + count;
       totalVias += count;
@@ -9143,6 +9147,7 @@ async function loadBottomSheetStats(schoolId) {
 
     // Guardar en cache
     bsGradeData = gradeCount;
+    bsGradeCountCache.set(schoolId, gradeCount);
 
     // Ocultar skeletons, mostrar gráficos
     hideSkeletonsShowCharts();
@@ -9249,9 +9254,9 @@ async function loadBottomSheetWeather(school) {
 
       // Actualizar icono según código del tiempo
       const weatherCode = current.weather_code;
-      const iconName = getWeatherIconName(weatherCode);
-      if (iconEl && iconName) {
-        iconEl.src = `icons/weather/${iconName}.png`;
+      const iconPath = getWeatherIcon(weatherCode);
+      if (iconEl && iconPath) {
+        iconEl.src = iconPath;
         iconEl.onerror = () => {
           iconEl.src = 'icons/weather/partly-cloudy.png';
         };
@@ -9297,7 +9302,6 @@ function renderBottomSheetForecast(dailyData) {
     const windSpeed = Math.round(dailyData.wind_speed_10m_max[i]);
     const windDir = getWindDirection(dailyData.wind_direction_10m_dominant[i]);
     const weatherCode = dailyData.weather_code[i];
-    const iconName = getWeatherIconName(weatherCode);
     const isToday = i === 0;
 
     html += `
@@ -9307,7 +9311,7 @@ function renderBottomSheetForecast(dailyData) {
           <div class="bs-forecast-day-date">${dateStr}</div>
         </div>
         <div class="bs-forecast-icon-wrap">
-          <img src="icons/weather/${iconName}.png" alt="${getWeatherDescription(weatherCode)}" onerror="this.src='icons/weather/partly-cloudy.png'">
+          <img src="${getWeatherIcon(weatherCode)}" alt="${getWeatherDescription(weatherCode)}" onerror="this.onerror=null;this.src='icons/weather/partly-cloudy.png'">
         </div>
         <div class="bs-forecast-temps">
           <span class="bs-forecast-temp-max">${maxTemp}°</span>
@@ -9333,7 +9337,7 @@ function renderBottomSheetForecastNow() {
   const n = bsWeatherNow;
   if (!el || !n) return;
   el.innerHTML = `
-    <img class="bs-weather-icon" src="icons/weather/${getWeatherIconName(n.code)}.png" alt="" onerror="this.src='icons/weather/partly-cloudy.png'">
+    <img class="bs-weather-icon" src="${getWeatherIcon(n.code)}" alt="" onerror="this.onerror=null;this.src='icons/weather/partly-cloudy.png'">
     <span class="bs-weather-sep" aria-hidden="true"></span>
     <div class="bs-weather-temp-wrap"><span class="bs-weather-temp">${n.temp}°C</span><span class="bs-weather-desc">${getWeatherDescription(n.code)}</span></div>
     <span class="bs-weather-sep" aria-hidden="true"></span>
@@ -9374,6 +9378,7 @@ function toggleBottomSheetForecast() {
 
   if (forecastPanel.classList.contains('hidden')) {
     forecastPanel.classList.remove('hidden');
+    document.body.classList.add('kx-forecast-open');   // la ficha de detrás no se desplaza
     weatherCard.classList.add('expanded');
     // Pequeño delay para la animación
     requestAnimationFrame(() => forecastPanel.classList.add('visible'));
@@ -9381,6 +9386,7 @@ function toggleBottomSheetForecast() {
     if (close) setTimeout(() => close.focus({ preventScroll: true }), 60);
   } else {
     forecastPanel.classList.remove('visible');
+    document.body.classList.remove('kx-forecast-open');
     weatherCard.classList.remove('expanded');
     // Esperar animación antes de ocultar
     setTimeout(() => {
