@@ -7962,9 +7962,9 @@ function initBottomSheet() {
 
   kxSchoolSheet = KXMapSheet.create(bottomSheet, {
     snaps: ['summary', 'expanded'],
-    // La altura sigue a la página visible: en la 1 llega hasta el final de la tarjeta del tiempo (la previsión se abre encima);
+    // La altura sigue a la página visible: las dos páginas miden lo mismo (el donut absorbe la diferencia);
     // en la 2 sube hasta mostrar todo el contenido. Solo se amplía más si la página 2 no cabe entera
-    peek: () => document.getElementById(bsPager && bsPager.current() === 1 ? 'bs-page-1' : 'bs-weather-widget'),
+    peek: () => document.getElementById(bsPager && bsPager.current() === 1 ? 'bs-page-1' : 'bs-page-0'),
     peekMax: 0.92,
     expandable: () => !!bsPager && bsPager.current() === 1 && !!kxSchoolSheet && kxSchoolSheet.capped,
     onRequestClose: hideBottomSheet,
@@ -8800,12 +8800,26 @@ function kxInitSchoolPages(sheetEl, foot) {
     if (defer && h < stage.offsetHeight) shrinkT = setTimeout(() => { stage.style.height = `${p.offsetHeight}px`; }, 440);
     else stage.style.height = `${h}px`;
   };
+  // Las dos páginas miden lo mismo: el donut absorbe la diferencia (crece si la página 2 es más alta, se encoge si es más baja)
+  const equalize = () => {
+    const donut = document.getElementById('bs-donut-chart');
+    const box = donut && donut.parentElement;
+    if (!box || pages.length < 2) return;
+    const delta = pages[1].offsetHeight - pages[0].offsetHeight;
+    if (Math.abs(delta) < 2) return;
+    const cur = parseFloat(getComputedStyle(sheetEl).getPropertyValue('--bs-donut-size')) || 212;
+    const max = Math.min(264, box.clientWidth);
+    const next = Math.round(Math.max(150, Math.min(max, cur + delta)));
+    if (next !== Math.round(cur)) sheetEl.style.setProperty('--bs-donut-size', `${next}px`);
+  };
   // Cambio de página: la hoja sube (página 2) o baja (página 1) a la altura de su contenido, animada
   const resize = () => { if (kxSchoolSheet && kxSchoolSheet.state !== 'hidden') { kxSchoolSheet.measure(); kxSchoolSheet.setState('summary'); } };
   bsPager = kxBindPager(stage, track, { count: pages.length, onChange: (i) => { sync(i); fit({ defer: true }); resize(); } });
   sync(0);
   fit();
-  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(() => fit()); pages.forEach(p => ro.observe(p)); }
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(() => { equalize(); fit(); }); pages.forEach(p => ro.observe(p)); }
+  window.addEventListener('resize', equalize);
+  equalize();
   foot.querySelector('.bs-pdots').addEventListener('click', (e) => {
     const d = e.target.closest('.bs-pdot');
     if (d) bsPager.go(+d.dataset.page);
