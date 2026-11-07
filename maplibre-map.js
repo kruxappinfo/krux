@@ -9160,6 +9160,7 @@ function hideSkeletonsShowCharts() {
  * Variable global para almacenar datos del pronóstico semanal del Bottom Sheet
  */
 let bsWeatherForecastData = null;
+let bsWeatherNow = null;   // tiempo actual de la escuela abierta (tarjeta y cabecera de la previsión)
 
 /**
  * Carga datos meteorológicos para el Bottom Sheet (actual + 7 días)
@@ -9180,6 +9181,9 @@ async function loadBottomSheetWeather(school) {
   tempEl.textContent = '--°C';
   precipEl.textContent = '--%';
   rainEl.textContent = '-- mm';
+  const descEl = document.getElementById('bs-weather-desc');
+  if (descEl) descEl.textContent = '\u00a0';
+  bsWeatherNow = null;
   if (windDirEl) windDirEl.textContent = '-';
   if (windSpeedEl) windSpeedEl.textContent = '--';
 
@@ -9189,12 +9193,14 @@ async function loadBottomSheetWeather(school) {
     forecastPanel.classList.add('hidden');
     forecastPanel.classList.remove('visible');
   }
+  const nowEl = document.getElementById('bs-forecast-now');
+  if (nowEl) nowEl.innerHTML = '';
   const weatherCard = document.getElementById('bs-weather-widget');
   if (weatherCard) {
     weatherCard.classList.remove('expanded');
   }
   if (forecastScroll) {
-    forecastScroll.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:20px;">Cargando pronóstico...</div>';
+    forecastScroll.innerHTML = '<p class="bs-forecast-msg">Cargando pronóstico…</p>';
   }
 
   try {
@@ -9213,9 +9219,19 @@ async function loadBottomSheetWeather(school) {
     if (current) {
       tempEl.textContent = `${Math.round(current.temperature_2m)}°C`;
       precipEl.textContent = `${current.precipitation_probability || 0}%`;
-      rainEl.textContent = `${current.precipitation || 0} mm`;
+      rainEl.textContent = `${kxFmtMm(current.precipitation)} mm`;
       if (windDirEl) windDirEl.textContent = getWindDirection(current.wind_direction_10m || 0);
       if (windSpeedEl) windSpeedEl.textContent = `${Math.round(current.wind_speed_10m)}`;
+      if (descEl) descEl.textContent = getWeatherDescription(current.weather_code);
+      bsWeatherNow = {
+        code: current.weather_code,
+        temp: Math.round(current.temperature_2m),
+        prob: current.precipitation_probability || 0,
+        mm: current.precipitation,
+        windDir: getWindDirection(current.wind_direction_10m || 0),
+        wind: Math.round(current.wind_speed_10m)
+      };
+      renderBottomSheetForecastNow();
 
       // Actualizar icono según código del tiempo
       const weatherCode = current.weather_code;
@@ -9240,7 +9256,7 @@ async function loadBottomSheetWeather(school) {
     console.warn('Error cargando clima para Bottom Sheet:', error);
     if (bsCurrentSchool === school) kxRenderSchoolConditions(school, null, { error: true });
     if (forecastScroll) {
-      forecastScroll.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:20px;">No se pudo cargar el pronóstico</div>';
+      forecastScroll.innerHTML = '<p class="bs-forecast-msg">No se pudo cargar el pronóstico</p>';
     }
   }
 }
@@ -9263,24 +9279,21 @@ function renderBottomSheetForecast(dailyData) {
     const maxTemp = Math.round(dailyData.temperature_2m_max[i]);
     const minTemp = Math.round(dailyData.temperature_2m_min[i]);
     const precipProb = dailyData.precipitation_probability_max[i] || 0;
-    const precipSum = dailyData.precipitation_sum[i] || 0;
+    const precipSum = kxFmtMm(dailyData.precipitation_sum[i]);
     const windSpeed = Math.round(dailyData.wind_speed_10m_max[i]);
     const windDir = getWindDirection(dailyData.wind_direction_10m_dominant[i]);
     const weatherCode = dailyData.weather_code[i];
     const iconName = getWeatherIconName(weatherCode);
-
-    // Destacar "Hoy" si es el primer día
     const isToday = i === 0;
-    const displayDayName = isToday ? 'Hoy' : dayName;
 
     html += `
-      <div class="bs-forecast-day">
+      <div class="bs-forecast-day${isToday ? ' is-today' : ''}"${isToday ? ' aria-current="date"' : ''}>
         <div class="bs-forecast-day-info">
-          <div class="bs-forecast-day-name">${displayDayName}</div>
+          <div class="bs-forecast-day-name">${isToday ? 'Hoy' : dayName}</div>
           <div class="bs-forecast-day-date">${dateStr}</div>
         </div>
         <div class="bs-forecast-icon-wrap">
-          <img src="icons/weather/${iconName}.png" alt="Clima" onerror="this.src='icons/weather/partly-cloudy.png'">
+          <img src="icons/weather/${iconName}.png" alt="${getWeatherDescription(weatherCode)}" onerror="this.src='icons/weather/partly-cloudy.png'">
         </div>
         <div class="bs-forecast-temps">
           <span class="bs-forecast-temp-max">${maxTemp}°</span>
@@ -9288,8 +9301,8 @@ function renderBottomSheetForecast(dailyData) {
         </div>
         <div class="bs-forecast-details">
           <span class="bs-forecast-precip">
-            <img src="icons/weather/Gota.png" alt="" onerror="this.style.display='none'">
-            ${precipProb}%|${precipSum} mm
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+            ${precipProb}% · ${precipSum} mm
           </span>
           <span class="bs-forecast-wind">${windDir} ${windSpeed} km/h</span>
         </div>
@@ -9298,6 +9311,42 @@ function renderBottomSheetForecast(dailyData) {
   }
 
   forecastScroll.innerHTML = html;
+}
+
+// Cabecera de la previsión: el tiempo de ahora, igual que en la tarjeta
+function renderBottomSheetForecastNow() {
+  const el = document.getElementById('bs-forecast-now');
+  const n = bsWeatherNow;
+  if (!el || !n) return;
+  el.innerHTML = `
+    <img class="bs-weather-icon" src="icons/weather/${getWeatherIconName(n.code)}.png" alt="" onerror="this.src='icons/weather/partly-cloudy.png'">
+    <span class="bs-weather-sep" aria-hidden="true"></span>
+    <div class="bs-weather-temp-wrap"><span class="bs-weather-temp">${n.temp}°C</span><span class="bs-weather-desc">${getWeatherDescription(n.code)}</span></div>
+    <span class="bs-weather-sep" aria-hidden="true"></span>
+    <div class="bs-weather-right">
+      <div class="bs-weather-stat"><svg width="16" height="16" viewBox="0 0 24 24" fill="#3b82f6" aria-hidden="true"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg><span>${n.prob}% · ${kxFmtMm(n.mm)} mm</span></div>
+      <div class="bs-weather-stat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" aria-hidden="true"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg><span>${n.windDir} ${n.wind} km/h</span></div>
+    </div>`;
+}
+
+// Milímetros con coma y como mucho un decimal («0,6», «8»)
+function kxFmtMm(v) {
+  return (Math.round((Number(v) || 0) * 10) / 10).toLocaleString('es-ES', { maximumFractionDigits: 1 });
+}
+
+function getWeatherDescription(code) {
+  if (code === 0) return 'Despejado';
+  if (code === 1) return 'Mayormente despejado';
+  if (code === 2) return 'Parcialmente nuboso';
+  if (code === 3) return 'Nublado';
+  if (code >= 45 && code <= 48) return 'Niebla';
+  if (code >= 51 && code <= 57) return 'Llovizna';
+  if (code >= 61 && code <= 67) return 'Lluvia';
+  if (code >= 71 && code <= 77) return 'Nieve';
+  if (code >= 80 && code <= 82) return 'Chubascos';
+  if (code >= 85 && code <= 86) return 'Chubascos de nieve';
+  if (code >= 95 && code <= 99) return 'Tormenta';
+  return 'Parcialmente nuboso';
 }
 
 /**
@@ -9309,24 +9358,21 @@ function toggleBottomSheetForecast() {
 
   if (!forecastPanel || !weatherCard) return;
 
-  const isHidden = forecastPanel.classList.contains('hidden');
-
-  if (isHidden) {
-    // Mostrar panel
+  if (forecastPanel.classList.contains('hidden')) {
     forecastPanel.classList.remove('hidden');
     weatherCard.classList.add('expanded');
     // Pequeño delay para la animación
-    requestAnimationFrame(() => {
-      forecastPanel.classList.add('visible');
-    });
+    requestAnimationFrame(() => forecastPanel.classList.add('visible'));
+    const close = document.getElementById('bs-forecast-close');
+    if (close) setTimeout(() => close.focus({ preventScroll: true }), 60);
   } else {
-    // Ocultar panel
     forecastPanel.classList.remove('visible');
     weatherCard.classList.remove('expanded');
     // Esperar animación antes de ocultar
     setTimeout(() => {
-      forecastPanel.classList.add('hidden');
+      if (!forecastPanel.classList.contains('visible')) forecastPanel.classList.add('hidden');
     }, 300);
+    weatherCard.focus({ preventScroll: true });
   }
 }
 
@@ -9336,13 +9382,16 @@ function toggleBottomSheetForecast() {
 function initBottomSheetForecastEvents() {
   const weatherCard = document.getElementById('bs-weather-widget');
   const forecastClose = document.getElementById('bs-forecast-close');
+  const panel = document.getElementById('bs-forecast-panel');
+
+  // La previsión es una ventana sobre toda la pantalla: fuera de la hoja (que se desplaza) para no recortarse
+  if (panel && panel.parentElement !== document.body) document.body.appendChild(panel);
 
   if (weatherCard) {
-    weatherCard.addEventListener('click', (e) => {
-      // Evitar toggle si no hay datos
-      if (bsWeatherForecastData) {
-        toggleBottomSheetForecast();
-      }
+    const open = () => { if (bsWeatherForecastData) toggleBottomSheetForecast(); };
+    weatherCard.addEventListener('click', open);
+    weatherCard.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
     });
   }
 
@@ -9351,6 +9400,13 @@ function initBottomSheetForecastEvents() {
       e.stopPropagation();
       toggleBottomSheetForecast();
     });
+  }
+  if (panel) {
+    // Tocar fuera de la tarjeta o pulsar Escape cierra
+    panel.addEventListener('click', (e) => { if (e.target === panel) toggleBottomSheetForecast(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !panel.classList.contains('hidden')) { e.stopPropagation(); toggleBottomSheetForecast(); }
+    }, true);
   }
 }
 

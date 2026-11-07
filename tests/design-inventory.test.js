@@ -64,8 +64,8 @@ describe('inventario de componentes: cifras de lo pendiente', () => {
   const html = read('index.html');
   const n = re => (html.match(re) || []).length;
 
-  it('botones: 2 de 185 usan el botón común', () => {
-    expect(n(/<button\b/g)).toBe(185);
+  it('botones: 2 de 186 usan el botón común', () => {
+    expect(n(/<button\b/g)).toBe(186);
     expect(n(/<button[^>]*\bkx-btn\b/g)).toBe(2);
   });
 

@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=197" />
+  <link rel="stylesheet" href="./app_2.css?v=201" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -101,7 +101,7 @@
   <script defer src="./gym-info.js?v=16"></script>
   <script defer src="./climb-conditions.js?v=1"></script>
   <script defer src="./school-photos.js?v=2"></script>
-  <script defer src="./maplibre-map.js?v=64"></script>
+  <script defer src="./maplibre-map.js?v=65"></script>
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
@@ -2626,44 +2626,51 @@
           <div class="bs-donut-chart hidden" id="bs-donut-chart"></div>
         </div>
 
-        <!-- Widget MeteorolÃ³gico (clickeable para ver pronÃ³stico semanal) -->
-        <div class="bs-weather-card" id="bs-weather-widget">
-          <div class="bs-weather-left">
-            <img class="bs-weather-icon" id="bs-weather-icon" src="icons/weather/partly-cloudy.png" alt="Clima">
-            <span class="bs-weather-temp" id="bs-weather-temp">--°C</span>
-          </div>
-          <div class="bs-weather-divider"></div>
-          <div class="bs-weather-right">
-            <div class="bs-weather-stat">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="#3b82f6">
-                <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
-              </svg>
-              <span><span id="bs-weather-precip">--%</span> <span id="bs-weather-rain">-- mm</span></span>
+        <!-- Tiempo actual: tarjeta con acceso a la previsión de 7 días (maplibre-map.js: loadBottomSheetWeather) -->
+        <div class="bs-weather-card" id="bs-weather-widget" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="bs-forecast-panel" aria-label="Tiempo actual. Consultar previsión de 7 días">
+          <div class="bs-weather-main">
+            <img class="bs-weather-icon" id="bs-weather-icon" src="icons/weather/partly-cloudy.png" alt="">
+            <span class="bs-weather-sep" aria-hidden="true"></span>
+            <div class="bs-weather-temp-wrap">
+              <span class="bs-weather-temp" id="bs-weather-temp">--°C</span>
+              <span class="bs-weather-desc" id="bs-weather-desc">&nbsp;</span>
             </div>
-            <div class="bs-weather-stat">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2">
-                <path
-                  d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" />
-              </svg>
-              <span id="bs-weather-wind"><span id="bs-weather-wind-dir">-</span> <span
-                  id="bs-weather-wind-speed">--</span> km/h</span>
+            <span class="bs-weather-sep" aria-hidden="true"></span>
+            <div class="bs-weather-right">
+              <div class="bs-weather-stat">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="#3b82f6" aria-hidden="true">
+                  <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+                </svg>
+                <span><span id="bs-weather-precip">--%</span> · <span id="bs-weather-rain">-- mm</span></span>
+              </div>
+              <div class="bs-weather-stat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" aria-hidden="true">
+                  <path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" />
+                </svg>
+                <span id="bs-weather-wind"><span id="bs-weather-wind-dir">-</span> <span id="bs-weather-wind-speed">--</span> km/h</span>
+              </div>
             </div>
+            <span class="bs-weather-expand-indicator" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </span>
           </div>
-          <!-- Chevron indicador de desplegable -->
-          <div class="bs-weather-expand-indicator">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
+          <div class="bs-weather-cta">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span>Consultar previsión de 7 días</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </div>
         </div>
 
-        <!-- Panel de PronÃ³stico Semanal (desplegable, cubre el Donut Chart) -->
-        <div class="bs-forecast-panel hidden" id="bs-forecast-panel">
-          <div class="bs-forecast-header">
-            <span class="bs-forecast-title">Pronóstico 7 dí­as</span>
-          </div>
-          <div class="bs-forecast-scroll" id="bs-forecast-scroll">
-            <!-- PronÃ³stico semanal generado dinÃ¡micamente -->
+        <!-- Previsión de 7 días: ventana sobre la ficha (se mueve al <body> al iniciar; maplibre-map.js) -->
+        <div class="bs-forecast-panel hidden" id="bs-forecast-panel" role="dialog" aria-modal="true" aria-labelledby="bs-forecast-title">
+          <div class="bs-forecast-card">
+            <span class="bs-forecast-grip" aria-hidden="true"></span>
+            <button type="button" class="bs-forecast-close" id="bs-forecast-close" aria-label="Cerrar previsión">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+            <h3 class="bs-forecast-title" id="bs-forecast-title">Pronóstico 7 días</h3>
+            <div class="bs-forecast-now" id="bs-forecast-now"></div>
+            <div class="bs-forecast-scroll" id="bs-forecast-scroll"></div>
           </div>
         </div>
 
