@@ -14,6 +14,7 @@
 
 const KX_SCHOOL_PHOTOS = {
   // toledo: { src: 'assets/schools/toledo.webp', width: '64%', height: '200px', position: 'right top' },
+  mora: { src: 'assets/schools/mora.webp', width: '40%', height: '190px', position: 'right top' },
 };
 
 // Sin foto real: ilustración genérica según el tipo de roca. Nunca se presenta como foto de la escuela
