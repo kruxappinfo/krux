@@ -7950,9 +7950,15 @@ function initBottomSheet() {
     // Tipo de roca y restricciones juntos bajo el nombre (la etiqueta de restricciones se añade al conocer los datos)
     metaHTML: kxTagHTML({ icon: 'mountain', textId: 'bs-rock-type', text: 'Caliza' }) + '<span class="bs-tag-slot" id="bs-restriction-slot"></span>'
   });
+  // Puntos de página encima de los botones (fijos en las dos páginas)
   foot.innerHTML =
+    `<div class="bs-pdots" role="tablist" aria-label="Páginas de la ficha">
+      <button type="button" class="bs-pdot is-on" role="tab" data-page="0" aria-selected="true" aria-controls="bs-page-0" aria-label="Vías y tiempo"></button>
+      <button type="button" class="bs-pdot" role="tab" data-page="1" aria-selected="false" aria-controls="bs-page-1" aria-label="Condiciones y actividad"></button>
+    </div>` +
     kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary', size: 'lg', attrs: { id: 'bs-btn-directions' } }) +
     kxButtonHTML({ icon: 'map', label: 'Visitar escuela', variant: 'primary', size: 'lg', attrs: { id: 'bs-btn-visit' } });
+  kxInitSchoolPages(bottomSheet, foot);
 
   kxSchoolSheet = KXMapSheet.create(bottomSheet, {
     snaps: ['summary', 'expanded'],
@@ -8490,6 +8496,11 @@ function showBottomSheet(school) {
   const btnFavorite = document.getElementById('bs-btn-favorite');
   if (btnFavorite) btnFavorite.classList.remove('active');
 
+  // Siempre empieza en la primera página
+  if (bsPager) bsPager.go(0, { animate: false });
+  kxRenderSchoolPhoto(school);
+  kxRenderSchoolConditions(school, null);
+
   // Abre en resumen (gráfico de barras + acciones); el gesto la expande
   kxSchoolSheet.open('summary');
 
@@ -8644,6 +8655,7 @@ async function kxRenderSchoolCards(school) {
   const actSlot = document.getElementById('bs-activity-slot');
   [tagSlot, actSlot].forEach(el => { if (el) el.innerHTML = ''; });
 
+  if (actSlot) actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity is-loading', 'mountain', `Tu actividad en ${school.nombre}`, kxSkeletonHTML('tiles'));
   const [facts, activity] = await Promise.all([kxLoadSchoolFacts(school.id), kxLoadSchoolActivity(school.id)]);
   if (token !== kxSchoolCardsToken) return;   // se abrió otra escuela mientras tanto
 
@@ -8669,18 +8681,188 @@ async function kxRenderSchoolCards(school) {
     tagSlot.innerHTML = chips.join('');
   }
 
-  if (actSlot && activity) {
-    const body = activity.sends
-      ? `<div class="bs-kstats bs-kstats--panel">${[
+  // Solo los datos del propio usuario. Sin sesión, sin ascensos o sin conexión: un estado vacío que lo explica
+  if (actSlot) {
+    const signedIn = typeof currentUser !== 'undefined' && !!currentUser;
+    const empty = (title, text) => `<div class="bs-kempty"><p class="bs-kempty-title">${kxEsc(title)}</p><p class="bs-kempty-text">${kxEsc(text)}</p></div>`;
+    let body;
+    if (!signedIn) body = empty('Inicia sesión para ver tu actividad', 'Tus vías encadenadas, tu grado máximo y los sectores que has visitado aparecerán aquí.');
+    else if (!activity) body = empty('No se pudo cargar tu actividad', 'Revisa la conexión y vuelve a abrir la ficha.');
+    else if (!activity.sends) body = empty('Aún no has registrado ascensiones aquí', 'Cuando encadenes tu primera vía en esta escuela, verás aquí tu progreso.');
+    else body = `<div class="bs-kstats bs-kstats--panel">${[
         kxKStat(String(activity.sends), activity.sends === 1 ? 'Vía encadenada' : 'Vías encadenadas'),
-        activity.maxGrade ? kxKStat(activity.maxGrade, 'Grado máximo') : '',
-        activity.sectors ? kxKStat(String(activity.sectors), activity.sectors === 1 ? 'Sector visitado' : 'Sectores visitados') : ''
-      ].join('')}</div>`
-      : '<p class="bs-kcard-empty">Todavía sin vías registradas en esta escuela.</p>';
+        kxKStat(activity.maxGrade || '—', 'Grado máximo'),
+        kxKStat(activity.sectors ? String(activity.sectors) : '—', activity.sectors === 1 ? 'Sector visitado' : 'Sectores visitados')
+      ].join('')}</div>`;
     actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity', 'mountain', `Tu actividad en ${school.nombre}`, body);
   }
 
   if (kxSchoolSheet) kxSchoolSheet.refresh();
+}
+
+// ============================================
+// FICHA DE ESCUELA EN DOS PÁGINAS: «Vías y tiempo» y «Condiciones y actividad»
+// ============================================
+let bsPager = null;
+let bsDiscipline = 'sport';
+let bsConditionsWeather = null;   // tiempo ya leído de la escuela abierta (para cambiar de modalidad sin pedirlo otra vez)
+
+function kxInitSchoolPages(sheetEl, foot) {
+  const stage = document.getElementById('bs-pages');
+  const track = document.getElementById('bs-pages-track');
+  if (!stage || !track || typeof kxBindPager !== 'function') return;
+  const pages = [...track.querySelectorAll('.bs-page')];
+  const dots = [...foot.querySelectorAll('.bs-pdot')];
+  const sync = (i) => {
+    pages.forEach((p, k) => { const on = k === i; p.toggleAttribute('inert', !on); p.setAttribute('aria-hidden', String(!on)); });
+    dots.forEach((d, k) => { d.classList.toggle('is-on', k === i); d.setAttribute('aria-selected', String(k === i)); d.tabIndex = k === i ? 0 : -1; });
+    sheetEl.dataset.page = String(i);
+  };
+  // La zona de páginas mide lo que la página visible (sin huecos al desplazar la más corta)
+  const fit = () => { const p = pages[bsPager ? bsPager.current() : 0]; if (p) stage.style.height = `${p.offsetHeight}px`; };
+  bsPager = kxBindPager(stage, track, { count: pages.length, onChange: (i) => { sync(i); fit(); } });
+  sync(0);
+  fit();
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(fit); pages.forEach(p => ro.observe(p)); }
+  foot.querySelector('.bs-pdots').addEventListener('click', (e) => {
+    const d = e.target.closest('.bs-pdot');
+    if (d) bsPager.go(+d.dataset.page);
+  });
+  foot.querySelector('.bs-pdots').addEventListener('keydown', (e) => {
+    const go = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (go === undefined) return;
+    e.preventDefault();
+    bsPager.go(bsPager.current() + go);
+    const d = dots[bsPager.current()]; if (d) d.focus();
+  });
+  // Pasar a otra página vuelve arriba (cada página empieza por su título)
+  const body = sheetEl.querySelector('.kx-msheet-body');
+  const origGo = bsPager.go;
+  bsPager.go = (i, opts) => { const prev = bsPager.current(); origGo(i, opts); if (body && bsPager.current() !== prev) body.scrollTo({ top: 0, behavior: 'smooth' }); };
+}
+
+// Imagen de la cabecera (school-photos.js): foto real recortada o ilustración genérica según la roca
+function kxRenderSchoolPhoto(school) {
+  const sheet = document.getElementById('school-bottom-sheet');
+  if (!sheet) return;
+  let hero = sheet.querySelector('.bs-hero');
+  const photo = typeof kxSchoolPhoto === 'function' ? kxSchoolPhoto(school) : null;
+  if (!photo) { if (hero) hero.remove(); sheet.classList.remove('has-hero'); return; }
+  if (!hero) {
+    hero = document.createElement('div');
+    hero.className = 'bs-hero';
+    sheet.insertBefore(hero, sheet.firstChild);
+  }
+  hero.classList.toggle('is-generic', photo.generic);
+  hero.style.setProperty('--hero-w', photo.width);
+  hero.style.setProperty('--hero-h', photo.height);
+  hero.style.setProperty('--hero-x', photo.offsetX);
+  hero.style.setProperty('--hero-y', photo.offsetY);
+  hero.style.setProperty('--hero-pos', photo.position);
+  hero.innerHTML = `<img src="${kxEsc(photo.src)}" alt="${kxEsc(photo.alt)}" title="${kxEsc(photo.generic ? 'Ilustración genérica, no es una foto de esta escuela' : photo.alt)}" decoding="async">`;
+  const img = hero.querySelector('img');
+  img.addEventListener('error', () => { hero.remove(); sheet.classList.remove('has-hero'); }, { once: true });
+  sheet.classList.add('has-hero');
+}
+
+// Valoración textual del grip
+function kxGripLabel(score) {
+  return score >= 80 ? 'Agarre excelente' : score >= 60 ? 'Buen agarre' : score >= 40 ? 'Agarre regular' : 'Agarre pobre';
+}
+
+const KX_CONFIDENCE = { high: 'confianza alta', medium: 'confianza media', low: 'confianza baja' };
+
+function kxFactorRowHTML(icon, label, value, rating, tone) {
+  return `<div class="bs-frow"><span class="bs-frow-ic">${kxIcon(icon, { size: 18 })}</span><span class="bs-frow-l">${kxEsc(label)}</span>`
+    + `<span class="bs-frow-v">${kxEsc(value)}</span><span class="bs-fpill kx-tone-${tone}">${kxEsc(rating)}</span></div>`;
+}
+
+// Tarjeta «Condiciones para escalar» (segunda página). weather: kxcWeatherFromOpenMeteo(...) o null mientras carga
+async function kxRenderSchoolConditions(school, weather, { loaded = false, error = false } = {}) {
+  const slot = document.getElementById('bs-conditions-slot');
+  if (!slot || !school) return;
+  const cfg = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS[school.id] : null;
+  const disciplines = (cfg && Array.isArray(cfg.disciplines) && cfg.disciplines.length ? cfg.disciplines : ['sport']).filter(d => d === 'sport' || d === 'boulder');
+  if (!loaded && !error) { bsConditionsWeather = null; bsDiscipline = disciplines[0] || 'sport'; }
+  if (loaded) bsConditionsWeather = weather;
+  if (!disciplines.includes(bsDiscipline)) bsDiscipline = disciplines[0] || 'sport';
+
+  const head = (pill = '') => `<header class="bs-cond-head">${kxIcon('mountain', { size: 22 })}<h3 class="bs-cond-title" id="bs-cond-title">Condiciones para escalar</h3>${pill}</header>`;
+  const wrap = (inner, cls = '') => `<section class="bs-cond${cls}" aria-labelledby="bs-cond-title">${inner}</section>`;
+
+  if (error) {
+    slot.innerHTML = wrap(head() + `<p class="bs-cond-msg">No se pudo cargar el tiempo de la escuela, así que no hay estimación. Revisa la conexión y vuelve a abrir la ficha.</p>`);
+    return;
+  }
+  if (!loaded || typeof kxcEstimateSchool !== 'function') {
+    slot.innerHTML = wrap(head() + kxSkeletonHTML('lines'), ' is-loading');
+    return;
+  }
+
+  const facts = await kxLoadSchoolFacts(school.id).catch(() => null);
+  if (bsCurrentSchool !== school) return;
+  const est = kxcEstimateSchool(weather, { rockType: school.rockType, exposures: facts ? facts.exposures : [] }, bsDiscipline);
+  const f = est.factors;
+
+  const cond = est.condition;
+  const pill = cond ? `<span class="bs-cond-pill kx-tone-${cond.tone}">${cond.tone === 'success' ? kxIcon('check', { size: 16, stroke: 2.25 }) : ''}${kxEsc(cond.label)}</span>` : '';
+
+  const seg = disciplines.length > 1 && typeof kxSegmentedHTML === 'function'
+    ? `<div class="bs-cond-seg">${kxSegmentedHTML({ items: disciplines.map(d => ({ value: d, label: d === 'boulder' ? 'Bloque' : 'Deportiva' })), value: bsDiscipline, label: 'Modalidad' })}</div>`
+    : '';
+
+  const scoreHTML = est.display !== null
+    ? `<p class="bs-grip-score"><b>${kxEsc(est.display)}</b><span>/100</span></p>
+       <div class="bs-grip-side">
+         <p class="bs-grip-label">${kxEsc(kxGripLabel(est.score))}</p>
+         <div class="bs-grip-bar" role="img" aria-label="${kxEsc(`Grip estimado ${est.display} sobre 100`)}"><span style="--v:${est.score}%"></span></div>
+         <p class="bs-grip-conf">Estimación orientativa · ${KX_CONFIDENCE[est.confidence]}</p>
+       </div>`
+    : `<p class="bs-grip-score is-limited"><b>—</b></p>
+       <div class="bs-grip-side">
+         <p class="bs-grip-label">Estimación limitada</p>
+         <p class="bs-grip-conf">Faltan datos de ${kxEsc((est.missing.length ? est.missing : ['tiempo']).join(', '))}; no se muestra una cifra</p>
+       </div>`;
+
+  const rockName = typeof kxcRock === 'function' ? kxcRock(school.rockType).label : 'roca';
+  const rockPill = f.rock.score === null ? ['Sin datos', 'neutral'] : f.rock.score >= 70 ? ['Buena', 'success'] : f.rock.score >= 40 ? ['Regular', 'warning'] : ['Mala', 'danger'];
+  const rows = [
+    f.temp ? kxFactorRowHTML('thermometer', 'Temperatura', `${Math.round(f.temp.value)} °C`, f.temp.rating, f.temp.tone) : kxFactorRowHTML('thermometer', 'Temperatura', '—', 'Sin datos', 'neutral'),
+    f.humidity ? kxFactorRowHTML('droplet', 'Humedad', `${Math.round(f.humidity.value)} %`, f.humidity.rating, f.humidity.tone) : kxFactorRowHTML('droplet', 'Humedad', '—', 'Sin datos', 'neutral'),
+    f.wind ? kxFactorRowHTML('wind', 'Viento', `${Math.round(f.wind.value)} km/h`, f.wind.rating, f.wind.tone) : kxFactorRowHTML('wind', 'Viento', '—', 'Sin datos', 'neutral'),
+    kxFactorRowHTML('mountain', `Roca (${rockName})`, f.rock.rating, rockPill[0], rockPill[1])
+  ].join('');
+
+  const notes = [...est.notes];
+  if (est.range) notes.push(`Varía por sector: de ${est.range.lo} (${est.range.worst}) a ${est.range.hi} (${est.range.best})`);
+  else if (facts && facts.exposures && facts.exposures.length > 1 && !est.limited) notes.push('Los sectores tienen orientaciones distintas; la estimación es general');
+
+  const info = `<div class="bs-grip-info" id="bs-grip-info" hidden>
+      <p><b>¿Qué es?</b> Una estimación orientativa de lo bien que agarra la roca ahora. No es una medición real del rozamiento.</p>
+      <p><b>Qué tiene en cuenta:</b> temperatura (al sol la roca se calienta más que el aire), humedad y punto de rocío, viento, lluvia de las últimas 72 horas y el tiempo de secado según el tipo de roca y la orientación de los sectores. En bloque pesan más la humedad y el frío.</p>
+      <p><b>Por qué varía:</b> cambia con la hora, el sol y la lluvia, y cada sector puede estar distinto. Si faltan datos, la confianza baja y no se muestra una cifra.</p>
+      <p class="bs-grip-src">Datos meteorológicos: Open-Meteo</p>
+    </div>`;
+
+  slot.innerHTML = wrap(head(pill) + seg + `
+    <div class="bs-cond-body">
+      <div class="bs-grip">
+        <p class="bs-grip-title">Grip de la roca
+          <button type="button" class="bs-info-btn" aria-expanded="false" aria-controls="bs-grip-info" aria-label="Qué significa el grip de la roca">${kxIcon('info', { size: 18 })}</button></p>
+        <div class="bs-grip-main">${scoreHTML}</div>
+      </div>
+      <div class="bs-factors">${rows}</div>
+    </div>
+    ${notes.length ? `<ul class="bs-cond-notes">${notes.map(n => `<li>${kxEsc(n)}</li>`).join('')}</ul>` : ''}
+    ${info}`, est.limited ? ' is-limited' : '');
+
+  const btn = slot.querySelector('.bs-info-btn');
+  const box = slot.querySelector('#bs-grip-info');
+  btn.addEventListener('click', () => { const open = box.hidden; box.hidden = !open; btn.setAttribute('aria-expanded', String(open)); });
+  const segEl = slot.querySelector('.kx-seg');
+  if (segEl && typeof kxBindSegmented === 'function') {
+    kxBindSegmented(segEl, (v) => { bsDiscipline = v; kxRenderSchoolConditions(school, bsConditionsWeather, { loaded: true }); });
+  }
 }
 
 // ============================================
@@ -8936,7 +9118,8 @@ async function loadBottomSheetWeather(school) {
     const lat = school.coords[1];
     const lng = school.coords[0];
     // Solicitar datos actuales + pronóstico de 7 días
-    const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,precipitation_probability,precipitation,wind_speed_10m,wind_direction_10m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,wind_direction_10m_dominant&timezone=auto&forecast_days=7`;
+    // Una sola petición para el tiempo, el pronóstico y las condiciones para escalar (humedad, rocío, sol y lluvia de las últimas 72 h)
+    const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,wind_speed_10m,wind_direction_10m,weather_code,is_day,shortwave_radiation&hourly=precipitation&past_hours=72&forecast_hours=1&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,wind_direction_10m_dominant&timezone=auto&forecast_days=7`;
 
     const response = await fetch(apiUrl);
     if (!response.ok) throw new Error('Weather API error');
@@ -8967,8 +9150,12 @@ async function loadBottomSheetWeather(school) {
       bsWeatherForecastData = data.daily;
       renderBottomSheetForecast(data.daily);
     }
+
+    // Condiciones para escalar (segunda página), con los mismos datos
+    if (bsCurrentSchool === school) kxRenderSchoolConditions(school, typeof kxcWeatherFromOpenMeteo === 'function' ? kxcWeatherFromOpenMeteo(data) : null, { loaded: true });
   } catch (error) {
     console.warn('Error cargando clima para Bottom Sheet:', error);
+    if (bsCurrentSchool === school) kxRenderSchoolConditions(school, null, { error: true });
     if (forecastScroll) {
       forecastScroll.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:20px;">No se pudo cargar el pronóstico</div>';
     }

@@ -75,6 +75,7 @@ const KX_ICON_PATHS = {
   chartBar: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
   compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
   car: '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
+  thermometer: '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   shadeDot: '<circle cx="12" cy="12" r="8" stroke="none" style="fill: var(--kx-ink)"/>',
   logIn: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/>'
@@ -562,6 +563,67 @@ function kxBindGradeChart(el, stats, { onSelect, onViewRoutes } = {}) {
   if (typeof ResizeObserver === 'function') { ro = new ResizeObserver(fit); ro.observe(plot); }
   summary();
   return { select, clear: () => select(-1), destroy() { if (ro) ro.disconnect(); el._kxGchart = false; } };
+}
+
+// ---- Páginas deslizables (ficha de escuela): la pista sigue al dedo y se asienta con una animación suave ----
+// stage: zona que recibe el gesto (touch-action: pan-y, así el desplazamiento vertical sigue siendo nativo);
+// track: fila de páginas (100 % de ancho cada una). onChange(i) al cambiar de página.
+// Solo un gesto claramente horizontal pasa página; uno vertical lo gestiona la hoja o el contenido.
+function kxBindPager(stage, track, { count, onChange } = {}) {
+  if (!stage || !track || stage._kxPager) return stage && stage._kxPager;
+  const n = () => (typeof count === 'function' ? count() : count) || track.children.length;
+  const reduce = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let idx = 0, x0 = 0, y0 = 0, t0 = 0, dx = 0, down = false, drag = false, lastSwipe = 0;
+  const place = (i, extra = 0) => { track.style.transform = `translate3d(calc(${-i * 100}% + ${extra}px), 0, 0)`; };
+  const go = (i, { animate = true } = {}) => {
+    i = Math.max(0, Math.min(n() - 1, i));
+    track.style.transition = animate && !reduce() ? 'transform 0.42s cubic-bezier(0.22, 0.9, 0.28, 1)' : 'none';
+    place(i);
+    if (i !== idx) { idx = i; if (onChange) onChange(i); }
+  };
+  stage.addEventListener('pointerdown', (e) => {
+    if (e.button != null && e.button > 0) return;
+    if (e.target.closest('[data-kx-nopage]')) return;
+    down = true; drag = false; dx = 0; x0 = e.clientX; y0 = e.clientY; t0 = performance.now();
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    const mx = e.clientX - x0, my = e.clientY - y0;
+    if (!drag) {
+      if (Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) { down = false; return; }   // gesto vertical
+      if (Math.abs(mx) < 10 || Math.abs(mx) < Math.abs(my) * 1.3) return;
+      drag = true; track.style.transition = 'none';
+      try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+    const last = n() - 1;
+    dx = (idx === 0 && mx > 0) || (idx === last && mx < 0) ? mx * 0.3 : mx;   // rebote en los extremos
+    place(idx, dx);
+  });
+  const end = () => {
+    if (!down) return;
+    down = false;
+    if (!drag) return;
+    drag = false; lastSwipe = Date.now();
+    const w = stage.clientWidth || 1, v = dx / Math.max(1, performance.now() - t0);
+    let target = idx;
+    if (dx < -w * 0.18 || v < -0.4) target = idx + 1;
+    else if (dx > w * 0.18 || v > 0.4) target = idx - 1;
+    go(target);
+  };
+  stage.addEventListener('pointerup', end);
+  stage.addEventListener('pointercancel', end);
+  // Solo la captura propia: la implícita de un hijo (al tocar un botón) se pierde al empezar a arrastrar
+  stage.addEventListener('lostpointercapture', (e) => { if (e.target === stage) end(); });
+  // Tras deslizar no se activa lo que quedó bajo el dedo
+  stage.addEventListener('click', (e) => { if (Date.now() - lastSwipe < 350) { e.stopPropagation(); e.preventDefault(); } }, true);
+  // Teclado: flechas con el foco en la zona de páginas
+  stage.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, textarea, select, [role="group"]')) return;
+    if (e.key === 'ArrowRight') { go(idx + 1); } else if (e.key === 'ArrowLeft') { go(idx - 1); }
+  });
+  const api = { go, current: () => idx };
+  stage._kxPager = api;
+  return api;
 }
 
 // ============================================
