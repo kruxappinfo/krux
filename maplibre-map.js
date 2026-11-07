@@ -8657,7 +8657,7 @@ function kxKStat(value, label) {
 }
 
 // Gráfico «Evolución por grado»: vías encadenadas por el usuario en la escuela, con los colores originales de grado.
-// Pulsar una barra muestra su recuento exacto y el porcentaje sobre el total.
+// Pulsar una barra muestra cuántas vías ha hecho el usuario de ese grado.
 function kxGradeChartHTML(byGrade, total) {
   const scale = typeof GYM_ROCO_GRADE_SCALE !== 'undefined' ? GYM_ROCO_GRADE_SCALE : null;
   if (!scale || !byGrade || !byGrade.length) return '';
@@ -8677,18 +8677,18 @@ function kxGradeChartHTML(byGrade, total) {
   const max = Math.max(...counts.values());
   const shown = axis.slice(start, start + size);
   const bars = shown.map(({ grade, n }, k) => {
-    const pct = Math.round(n / total * 100);
-    const label = `${grade}: ${n} ${n === 1 ? 'vía' : 'vías'}, ${pct} %`;
-    const tip = `<span class="bs-gc-tip" aria-hidden="true">${n} · ${pct} %</span>`;
-    const bar = n ? `<span class="bs-gc-bar" style="height:${Math.max(6, Math.round(n / max * 100))}%;background:${getGradeColor(grade)}">${tip}</span>` : `<span class="bs-gc-bar is-empty">${tip}</span>`;
-    // Burbuja con el recuento al seleccionar; en los extremos se alinea hacia dentro para no salirse de la tarjeta
+    const vias = `${n} ${n === 1 ? 'vía' : 'vías'}`;
+    const label = `${grade}: ${vias}`;
+    const tip = `<span class="bs-gc-tip" aria-hidden="true">${vias}</span>`;
+    const bar = n ? `<span class="bs-gc-bar" style="height:${Math.max(6, Math.round(n / max * 100))}%;background:${getGradeColor(grade)}"></span>` : '<span class="bs-gc-bar is-empty"></span>';
+    // Burbuja con el número de vías al seleccionar, siempre por encima de la barra más alta; en los extremos se alinea hacia dentro para no salirse de la tarjeta
     const edge = k < 2 ? ' is-first' : k >= shown.length - 2 ? ' is-last' : '';
-    return `<button type="button" class="bs-gc-col${n ? '' : ' is-zero'}${edge}" data-count="${n}" data-pct="${pct}" data-grade="${kxEsc(grade)}" aria-pressed="false" aria-label="${kxEsc(label)}">
-      <span class="bs-gc-track">${bar}</span><span class="bs-gc-grade">${kxEsc(grade)}</span></button>`;
+    return `<button type="button" class="bs-gc-col${n ? '' : ' is-zero'}${edge}" data-count="${n}" data-grade="${kxEsc(grade)}" aria-pressed="false" aria-label="${kxEsc(label)}">
+      <span class="bs-gc-track">${tip}${bar}</span><span class="bs-gc-grade">${kxEsc(grade)}</span></button>`;
   }).join('');
   return `<section class="bs-gc" aria-labelledby="bs-gc-title">
     <header class="bs-gc-head"><h3 class="bs-gc-title" id="bs-gc-title">Evolución por grado (vías)</h3><button type="button" class="bs-info-btn" aria-expanded="false" aria-controls="bs-gc-note" aria-label="Qué muestra este gráfico">${kxIcon('info', { size: 18 })}</button></header>
-    <p class="bs-gc-note" id="bs-gc-note" hidden>Vías distintas que has encadenado en esta escuela, por grado (${total} en total). Toca una barra para ver el recuento y el porcentaje.</p>
+    <p class="bs-gc-note" id="bs-gc-note" hidden>Vías distintas que has encadenado en esta escuela, por grado (${total} en total). Toca una barra para ver cuántas vías has hecho de ese grado.</p>
     <p class="bs-gc-readout" aria-live="polite"></p>
     <div class="bs-gc-chart" role="group" aria-label="Vías encadenadas por grado">${bars}</div></section>`;
 }
@@ -8712,7 +8712,7 @@ function kxBindGradeChart(root) {
     chart.querySelectorAll('.bs-gc-col').forEach(c => c.setAttribute('aria-pressed', String(c === col && on)));
     chart.classList.toggle('has-sel', on);
     const n = Number(col.dataset.count);
-    readout.textContent = on ? `${col.dataset.grade} · ${n} ${n === 1 ? 'vía' : 'vías'} · ${col.dataset.pct} % del total` : '';
+    readout.textContent = on ? `${col.dataset.grade}: ${n} ${n === 1 ? 'vía' : 'vías'}` : '';
   });
 }
 
@@ -8881,13 +8881,6 @@ async function kxRenderSchoolConditions(school, weather, { loaded = false, error
     ? `<div class="bs-cond-seg">${kxSegmentedHTML({ items: disciplines.map(d => ({ value: d, label: d === 'boulder' ? 'Bloque' : 'Deportiva' })), value: bsDiscipline, label: 'Modalidad' })}</div>`
     : '';
 
-  // Tarjeta compacta: cifra y barra; la valoración, la confianza y las notas van en el panel de información
-  const scoreHTML = est.display !== null
-    ? `<p class="bs-grip-score"><b>${kxEsc(est.display)}</b><span>/100</span></p>
-       <div class="bs-grip-bar" role="img" aria-label="${kxEsc(`Grip estimado ${est.display} sobre 100: ${kxGripLabel(est.score).toLowerCase()}, ${KX_CONFIDENCE[est.confidence]}`)}"><span style="--v:${est.score}%"></span></div>`
-    : `<p class="bs-grip-score is-limited"><b>—</b></p>
-       <p class="bs-grip-conf">Faltan datos de ${kxEsc((est.missing.length ? est.missing : ['tiempo']).join(', '))}</p>`;
-
   const rockName = typeof kxcRock === 'function' ? kxcRock(school.rockType).label : 'roca';
   const rockPill = f.rock.score === null ? ['Sin datos', 'neutral'] : f.rock.score >= 70 ? ['Buena', 'success'] : f.rock.score >= 40 ? ['Regular', 'warning'] : ['Mala', 'danger'];
   const rows = [
@@ -8901,9 +8894,10 @@ async function kxRenderSchoolConditions(school, weather, { loaded = false, error
   if (est.range) notes.push(`Varía por sector: de ${est.range.lo} (${est.range.worst}) a ${est.range.hi} (${est.range.best})`);
   else if (facts && facts.exposures && facts.exposures.length > 1 && !est.limited) notes.push('Los sectores tienen orientaciones distintas; la estimación es general');
 
+  // Sin tarjeta de grip en la ficha: la cifra estimada queda en el panel de información
   const summary = est.display !== null
-    ? `${kxGripLabel(est.score)} · estimación orientativa, ${KX_CONFIDENCE[est.confidence]}`
-    : 'Estimación limitada: no se muestra una cifra';
+    ? `Grip estimado ${est.display}/100 · ${kxGripLabel(est.score).toLowerCase()} · estimación orientativa, ${KX_CONFIDENCE[est.confidence]}`
+    : `Estimación limitada: faltan datos de ${(est.missing.length ? est.missing : ['tiempo']).join(', ')}`;
   const info = `<div class="bs-grip-info" id="bs-grip-info" hidden>
       <p class="bs-grip-sum"><b>${kxEsc(summary)}</b></p>
       ${notes.length ? `<ul class="bs-cond-notes">${notes.map(n => `<li>${kxEsc(n)}</li>`).join('')}</ul>` : ''}
@@ -8914,13 +8908,7 @@ async function kxRenderSchoolConditions(school, weather, { loaded = false, error
     </div>`;
 
   slot.innerHTML = wrap(head(pill, infoBtn('Qué significan las condiciones para escalar')) + seg + `
-    <div class="bs-cond-body">
-      <div class="bs-grip">
-        <p class="bs-grip-title">Grip de la roca ${infoBtn('Qué significa el grip de la roca')}</p>
-        ${scoreHTML}
-      </div>
-      <div class="bs-factors">${rows}</div>
-    </div>
+    <div class="bs-factors">${rows}</div>
     ${info}`, est.limited ? ' is-limited' : '');
 
   const box = slot.querySelector('#bs-grip-info');
