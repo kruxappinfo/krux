@@ -220,7 +220,7 @@ function initMapSearch() {
       : target.kind === 'sector'
         ? { type: 'sector', schoolId: target.schoolId, schoolName: target.schoolName, name: target.name }
         : { type: 'route', schoolId: target.schoolId, schoolName: target.schoolName, name: target.name, grade: target.grade, sector: target.sector });
-    input.value = target.name;
+    input.value = '';   // el texto no se queda: al volver al campo se ven los recientes
     updateClear();
     setOpen(false);
     input.blur();
