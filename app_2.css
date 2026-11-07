@@ -31771,8 +31771,8 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
    una indicación suave explica que los grados se pueden tocar. */
 #school-bottom-sheet .bs-chart-card { background: transparent; padding: 6px 0 0; margin: 0 0 8px; }
 #school-bottom-sheet .bs-chart-header { margin-bottom: 2px; }
-/* Tamaño del donut: lo ajusta kxInitSchoolPages para que las dos páginas midan lo mismo */
-#school-bottom-sheet { --bs-donut-size: 212px; }
+/* Tamaño fijo del donut (y de su esqueleto): abre ya grande, sin crecer después */
+#school-bottom-sheet { --bs-donut-size: 248px; }
 #school-bottom-sheet .bs-donut-chart { width: min(var(--bs-donut-size), 100%); height: auto; aspect-ratio: 1; }
 #school-bottom-sheet .bs-skeleton-donut { padding: 8px 0; }
 #school-bottom-sheet .bs-skeleton-ring { width: min(var(--bs-donut-size), 100%); height: auto; aspect-ratio: 1; box-sizing: border-box; }
@@ -32308,3 +32308,8 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
   outline: 2px solid var(--kx-forest, currentColor);
   outline-offset: -2px;
 }
+
+/* Con la previsión abierta, la ficha de detrás no se desplaza */
+body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; touch-action: none; }
+.bs-forecast-panel { touch-action: none; }
+.bs-forecast-scroll { touch-action: pan-y; }
