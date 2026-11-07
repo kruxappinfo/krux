@@ -708,7 +708,8 @@ const KXMapSheet = (() => {
     if (ov) ov.addEventListener('click', () => { const open = anyOpen(); if (open) open.requestClose(); });
   }
 
-  function create(el, { snaps = ['expanded'], peek = null, peekMax, initial = null, onRequestClose = null, onStateChange = null } = {}) {
+  // expandable(): si devuelve false, la hoja se queda en el resumen (no se puede subir a la vista completa)
+  function create(el, { snaps = ['expanded'], peek = null, peekMax, initial = null, expandable = null, onRequestClose = null, onStateChange = null } = {}) {
     if (!el) return null;
     bindGlobal();
     el.classList.add('kx-msheet');
@@ -718,15 +719,17 @@ const KXMapSheet = (() => {
     const grip = () => el.querySelector('.kx-msheet-grip');
 
     const sheet = {
-      el, state: 'hidden', summaryY: null, H: 0, y: 0,
+      el, state: 'hidden', summaryY: null, capped: false, H: 0, y: 0,
       requestClose() { if (onRequestClose) onRequestClose(); else sheet.close(); },
       open, close, setState, measure, refresh: () => { measure(); if (sheet.state !== 'hidden') place(sheet.state === 'summary' ? sheet.summaryY : 0, false); }
     };
     sheets.add(sheet);
+    const canExpand = () => sheet.summaryY === null || !expandable || !!expandable();
 
     function measure() {
       sheet.H = el.offsetHeight || window.innerHeight * 0.9;
       sheet.summaryY = null;
+      sheet.capped = false;
       if (!snaps.includes('summary')) return;
       const peekEl = typeof peek === 'function' ? peek() : (peek ? el.querySelector(peek) : null);
       if (!peekEl) return;
@@ -736,10 +739,13 @@ const KXMapSheet = (() => {
       const peekBottom = peekEl.getBoundingClientRect().bottom - el.getBoundingClientRect().top;
       if (b) b.scrollTop = prevScroll;
       const f = foot();
-      const visible = kxSummaryPeek({ peekBottom, footH: f ? f.offsetHeight : 0, vh: window.innerHeight, ...(peekMax ? { maxRatio: peekMax } : {}) });
+      const footH = f ? f.offsetHeight : 0;
+      const visible = kxSummaryPeek({ peekBottom, footH, vh: window.innerHeight, ...(peekMax ? { maxRatio: peekMax } : {}) });
+      sheet.capped = peekBottom + footH + 12 > visible;   // el contenido no cabe entero en el resumen
       const y = sheet.H - visible;
-      // Si el resumen apenas se diferencia de la vista completa, la hoja tiene una sola altura
-      sheet.summaryY = y > 72 ? y : null;
+      // Si el resumen apenas se diferencia de la vista completa, la hoja tiene una sola altura; con bloqueo
+      // (expandable) se respeta la altura exacta del contenido para no dejar hueco bajo él
+      sheet.summaryY = y > 72 || (expandable && y > 0) ? y : null;
     }
 
     // Coloca la hoja en y (px). El pie se mantiene en el borde inferior visible
@@ -753,6 +759,7 @@ const KXMapSheet = (() => {
 
     function setState(next, { animate = true } = {}) {
       if (next === 'summary' && sheet.summaryY === null) next = 'expanded';
+      if (next === 'expanded' && !canExpand()) next = 'summary';
       const prev = sheet.state;
       sheet.state = next;
       el.classList.toggle('snap-summary', next === 'summary');
@@ -761,7 +768,7 @@ const KXMapSheet = (() => {
       if (next === 'summary' && body()) body().scrollTop = 0;
       const g = grip();
       if (g) {
-        const single = sheet.summaryY === null;   // una sola altura: el tirador solo indica que se puede arrastrar
+        const single = sheet.summaryY === null || !canExpand();   // una sola altura: el tirador solo indica que se puede arrastrar
         g.classList.toggle('is-single', single);
         g.tabIndex = single ? -1 : 0;
         if (single) {
@@ -832,7 +839,8 @@ const KXMapSheet = (() => {
       if (g.mode !== 'sheet') return;
       if (e && e.cancelable) e.preventDefault();
       let next = g.startY + (y - g.y0);
-      if (next < 0) next = -Math.sqrt(-next) * 2;   // resistencia por encima de la vista completa
+      const top = canExpand() ? 0 : sheet.summaryY;   // sin vista completa, el tope es el resumen
+      if (next < top) next = top - Math.sqrt(top - next) * 2;   // resistencia por encima del tope
       place(next, false);
       g.samples.push([performance.now(), y]);
       if (g.samples.length > 5) g.samples.shift();
@@ -844,7 +852,7 @@ const KXMapSheet = (() => {
       if (cur.mode !== 'sheet') {
         // Toque sin arrastre en el tirador o en la cabecera del resumen: alterna la altura
         if (!cur.mode && performance.now() - cur.t0 < 350 && !cur.target.closest('button:not(.kx-msheet-grip), a, input')) {
-          if (sheet.summaryY !== null && (cur.target.closest('.kx-msheet-grip') || (sheet.state === 'summary' && cur.target.closest('.kx-msheet-drag')))) {
+          if (sheet.summaryY !== null && canExpand() && (cur.target.closest('.kx-msheet-grip') || (sheet.state === 'summary' && cur.target.closest('.kx-msheet-drag')))) {
             setState(sheet.state === 'summary' ? 'expanded' : 'summary');
           }
         }
@@ -877,7 +885,7 @@ const KXMapSheet = (() => {
     el.addEventListener('click', e => {
       if (e.target.closest('[data-kx-close]')) { e.preventDefault(); sheet.requestClose(); return; }
       const gripBtn = e.target.closest('.kx-msheet-grip');
-      if (gripBtn && e.detail === 0 && sheet.summaryY !== null) setState(sheet.state === 'summary' ? 'expanded' : 'summary');
+      if (gripBtn && e.detail === 0 && sheet.summaryY !== null && canExpand()) setState(sheet.state === 'summary' ? 'expanded' : 'summary');
     });
 
     // El contenido asíncrono (gráficos, votos) cambia la altura del resumen
