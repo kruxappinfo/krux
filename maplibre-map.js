@@ -1998,6 +1998,7 @@ function disable3DMode() {
  */
 function onMapLoad() {
   console.log('Mapa MapLibre cargado');
+  kxPrewarmSchoolSheet();
 
   // FIX: Configurar pinch-to-zoom para que el zoom se centre en el punto del gesto
   // Esto reemplaza el handler nativo de MapLibre que causa el "avance" del mapa
@@ -8582,6 +8583,17 @@ async function kxFetchFeatures(path) {
   }
 }
 
+// Con el mapa en reposo se adelantan los datos de la ficha (pastillas y fotos): al abrirla ya están en memoria
+function kxPrewarmSchoolSheet() {
+  const run = () => {
+    try {
+      Object.keys(MAPLIBRE_SCHOOLS).forEach(id => { kxLoadSchoolFacts(id).catch(() => {}); });
+      if (typeof KX_SCHOOL_PHOTOS !== 'undefined') Object.values(KX_SCHOOL_PHOTOS).forEach(ph => { if (ph && ph.src) { const im = new Image(); im.decoding = 'async'; im.src = ph.src; } });
+    } catch (e) { /* adelantar datos es opcional */ }
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 3000 }); else setTimeout(run, 1500);
+}
+
 function kxLoadSchoolFacts(schoolId) {
   const cfg = MAPLIBRE_SCHOOLS[schoolId];
   if (!cfg || !cfg.geojson) return Promise.resolve(null);
@@ -8725,7 +8737,9 @@ async function kxRenderSchoolCards(school) {
   [tagSlot, actSlot].forEach(el => { if (el) el.innerHTML = ''; });
 
   if (actSlot) actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity is-loading', 'mountain', `Tu actividad en ${school.nombre}`, kxSkeletonHTML('tiles'));
-  const [facts, activity] = await Promise.all([kxLoadSchoolFacts(school.id), kxLoadSchoolActivity(school.id)]);
+  // Las pastillas salen en cuanto llegan los datos de la escuela, sin esperar a la actividad (consulta a Firestore)
+  const activityTask = kxLoadSchoolActivity(school.id);
+  const facts = await kxLoadSchoolFacts(school.id).catch(() => null);
   if (token !== kxSchoolCardsToken) return;   // se abrió otra escuela mientras tanto
 
   const TAGS = {
@@ -8748,7 +8762,10 @@ async function kxRenderSchoolCards(school) {
     facts.exposures.forEach(k => chips.push(kxTagHTML({ icon: SUN[k].icon, text: SUN[k].text, attrs: { title: SUN[k].label } })));
     if (facts.parking !== null) chips.push(kxTagHTML({ icon: 'car', text: facts.parking ? 'Sí' : 'No', attrs: { title: facts.parking ? 'Con aparcamiento' : 'Sin aparcamiento' } }));
     tagSlot.innerHTML = chips.join('');
+    if (kxSchoolSheet) kxSchoolSheet.refresh();
   }
+  const activity = await activityTask;
+  if (token !== kxSchoolCardsToken) return;
 
   // Solo los datos del propio usuario. Sin sesión, sin ascensos o sin conexión: un estado vacío que lo explica
   if (actSlot) {
