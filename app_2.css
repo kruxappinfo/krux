@@ -32472,3 +32472,23 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 /* Ficha de sector: el gráfico no es seleccionable */
 #sector-bottom-sheet .kx-gchart.is-static .kx-gbar { pointer-events: none; cursor: default; }
 #sector-bottom-sheet .kx-gchart.is-static .kx-gchart-bars { cursor: default; }
+
+/* Comentarios de un rocódromo (gym-info.js) */
+.kxg-empty { margin: 10px 2px 14px; text-align: center; }
+.kxg-cm-count { margin-left: 4px; color: var(--kx-ink-3); font-weight: 600; }
+.kxg-cm-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.kxg-cm { display: flex; gap: 10px; align-items: flex-start; }
+.kxg-cm-av { position: relative; flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; overflow: hidden; background: var(--kx-sage); color: var(--kx-forest); font-weight: 800; font-size: var(--kx-fs-meta); }
+.kxg-cm-av img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.kxg-cm-main { min-width: 0; flex: 1 1 auto; }
+.kxg-cm-head { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--kx-fs-meta); color: var(--kx-ink-3); }
+.kxg-cm-head strong { color: var(--kx-ink); font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kxg-cm-head span { flex: none; font-size: var(--kx-fs-caption); }
+.kxg-cm-del { margin-left: auto; }
+.kxg-cm-text { margin-top: 2px; }
+.kxg-more { display: block; margin: 10px auto 0; padding: 8px 14px; border: 0; border-radius: var(--kx-radius-pill); background: transparent; color: var(--kx-forest); font: inherit; font-size: var(--kx-fs-meta); font-weight: 700; cursor: pointer; }
+.kxg-cm-form { display: flex; align-items: flex-end; gap: 8px; margin-top: 12px; }
+.kxg-cm-input { flex: 1 1 auto; min-width: 0; box-sizing: border-box; min-height: 44px; max-height: 140px; padding: 10px 14px; border: 1px solid var(--kx-line); border-radius: var(--kx-radius-md); background: var(--kx-surface); color: var(--kx-ink); font: inherit; font-size: var(--kx-fs-body); line-height: 1.35; resize: none; }
+.kxg-cm-input:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 1px; }
+.kxg-cm-send { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--kx-radius-pill); background: var(--kx-forest); color: #fff; font: inherit; font-size: var(--kx-fs-meta); font-weight: 700; cursor: pointer; }
+.kxg-cm-send[aria-busy="true"] { opacity: 0.6; pointer-events: none; }

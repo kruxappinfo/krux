@@ -83,3 +83,22 @@ describe('redes y web', () => {
     expect(v.links[1].href).toBe('https://nuevo.es/');
   });
 });
+
+describe('comentarios', () => {
+  const list = get('kxgCommentList'), ago = get('kxgAgo'), route = get('kxgCommentRoute');
+  it('usan la colección de comentarios con una clave propia de rocódromo', () => {
+    expect(route('abc')).toBe('gym_abc');
+  });
+  it('más recientes primero y sin textos vacíos', () => {
+    const out = list([{ id: 'a', text: 'viejo', createdAt: 1 }, { id: 'b', text: '  ', createdAt: 9 }, { id: 'c', text: 'nuevo', createdAt: 5 }]);
+    expect(out.map(c => c.id)).toEqual(['c', 'a']);
+  });
+  it('tiempo relativo', () => {
+    const now = 10 * 24 * 3600e3;
+    expect(ago(now - 20e3, now)).toBe('Ahora');
+    expect(ago(now - 5 * 60e3, now)).toBe('Hace 5 min');
+    expect(ago(now - 3 * 3600e3, now)).toBe('Hace 3 h');
+    expect(ago(now - 2 * 24 * 3600e3, now)).toBe('Hace 2 d');
+    expect(ago(0, now)).toBe('');
+  });
+});
