@@ -22,7 +22,19 @@ describe('formato del nombre de usuario', () => {
     expect(kxValidateUsername('jaime.')).toMatch(/punto/);
     expect(kxValidateUsername('jai..me')).toMatch(/dos puntos/);
     expect(kxValidateUsername('12345')).toMatch(/una letra/);
-    expect(kxValidateUsername('admin')).toMatch(/no está disponible/);
+    expect(kxValidateUsername('admin')).toMatch(/reservado/);
+    expect(kxValidateUsername('krux')).toMatch(/reservado/);
+  });
+});
+
+describe('nombres reservados', () => {
+  it('la cuenta administradora sí puede usarlos', () => {
+    expect(kxValidateUsername('krux', { allowReserved: true })).toBeNull();
+    expect(kxUsernameBase('Krux', '', { allowReserved: true })).toBe('krux');
+    expect(kxUsernameBase('Krux', '')).toBe('escalador');
+  });
+  it('el formato se sigue exigiendo aunque se permitan', () => {
+    expect(kxValidateUsername('kr', { allowReserved: true })).toMatch(/Mínimo/);
   });
 });
 
