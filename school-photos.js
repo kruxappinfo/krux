@@ -45,6 +45,29 @@ function kxSchoolPhoto(school) {
     alt: `Ilustración genérica de ${rock && KX_SCHOOL_GENERIC_PHOTOS[rock] ? `una pared de ${rock}` : 'una pared de escalada'}; no es una fotografía de ${school.nombre || 'la escuela'}` };
 }
 
+// Fotos propias de un sector (ficha de sector). Clave: «idEscuela/nombre del sector» en minúsculas.
+// Mismos campos que KX_SCHOOL_PHOTOS. Ejemplo: 'mora/central': { src: 'assets/sectors/mora-central.webp' }
+const KX_SECTOR_PHOTOS = {};
+
+function kxSectorPhotoKey(schoolId, sectorName) {
+  return `${schoolId || ''}/${String(sectorName || '').toLowerCase().trim()}`;
+}
+
+// Imagen de la cabecera de un sector: la suya si existe; si no, la de su escuela (foto o ilustración),
+// con un texto alternativo que no la presenta como foto del sector.
+function kxSectorPhoto(school, sectorName) {
+  const name = sectorName || 'el sector';
+  const own = KX_SECTOR_PHOTOS[kxSectorPhotoKey(school && school.id, sectorName)];
+  if (own && own.src) {
+    return { width: '58%', height: '176px', position: 'right top', offsetX: '0px', offsetY: '0px', ...own, generic: false,
+      alt: `Fotografía del sector ${name}${own.credit ? ` (${own.credit})` : ''}` };
+  }
+  const base = kxSchoolPhoto(school);
+  if (!base) return null;
+  if (base.generic) return { ...base, alt: base.alt.replace(/no es una fotografía de .*$/, `no es una fotografía del sector ${name}`) };
+  return { ...base, generic: true, alt: `Fotografía de la escuela ${school.nombre || ''}; no es una fotografía del sector ${name}`.replace(/\s+;/, ';') };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { kxSchoolPhoto, kxSchoolRockKey, KX_SCHOOL_PHOTOS, KX_SCHOOL_GENERIC_PHOTOS };
+  module.exports = { kxSchoolPhoto, kxSchoolRockKey, kxSectorPhoto, kxSectorPhotoKey, KX_SCHOOL_PHOTOS, KX_SCHOOL_GENERIC_PHOTOS, KX_SECTOR_PHOTOS };
 }

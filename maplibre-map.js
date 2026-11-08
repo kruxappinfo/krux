@@ -5312,6 +5312,7 @@ async function mlVoteEstado(routeId, schoolId, level) {
 
     const userId = auth.currentUser.uid;
     const docId = `${schoolId}_${routeId}`;
+    kxSectorEstadoCache.clear();   // la media del sector cambia con este voto
 
     const db = firebase.firestore();
     const estadoRef = db.collection('estado_votes').doc(docId);
@@ -5471,20 +5472,36 @@ function getRouteIdsForSector(sectorName) {
  * @param {string} sectorName - Nombre del sector
  * @returns {Promise<{avg: number|null, ratedCount: number, totalCount: number}>}
  */
-async function getSectorEstadoAverage(schoolId, sectorName) {
+// Medias de estado ya calculadas por sector (evita releer todos los votos al reabrir la ficha).
+// mlVoteEstado la vacía al votar.
+const kxSectorEstadoCache = new Map();   // "schoolId|sector" → { at, promise }
+const KX_SECTOR_ESTADO_TTL = 5 * 60 * 1000;
+
+async function getSectorEstadoAverage(schoolId, sectorName, routeIdsIn) {
+  const key = `${schoolId}|${String(sectorName || '').toLowerCase().trim()}`;
+  const hit = kxSectorEstadoCache.get(key);
+  if (hit && Date.now() - hit.at < KX_SECTOR_ESTADO_TTL) return hit.promise;
+  const promise = kxComputeSectorEstado(schoolId, sectorName, routeIdsIn);
+  kxSectorEstadoCache.set(key, { at: Date.now(), promise });
+  promise.then(r => { if (r.error) kxSectorEstadoCache.delete(key); });
+  return promise;
+}
+
+async function kxComputeSectorEstado(schoolId, sectorName, routeIdsIn) {
   try {
     if (typeof firebase === 'undefined' || !firebase.firestore) {
-      return { avg: null, ratedCount: 0, totalCount: 0 };
+      return { avg: null, ratedCount: 0, totalCount: 0, votesCount: 0 };
     }
 
-    const routeIds = getRouteIdsForSector(sectorName);
+    const routeIds = Array.isArray(routeIdsIn) ? routeIdsIn : getRouteIdsForSector(sectorName);
     const totalCount = routeIds.length;
 
-    if (totalCount === 0) return { avg: null, ratedCount: 0, totalCount: 0 };
+    if (totalCount === 0) return { avg: null, ratedCount: 0, totalCount: 0, votesCount: 0 };
 
     const db = firebase.firestore();
     const BATCH_SIZE = 10; // Firestore 'in' queries limited to 10
     const allAvgs = [];
+    let votesCount = 0;
 
     // Batch query estado_votes documents
     for (let i = 0; i < routeIds.length; i += BATCH_SIZE) {
@@ -5504,6 +5521,7 @@ async function getSectorEstadoAverage(schoolId, sectorName) {
           if (values.length > 0) {
             const avg = values.reduce((a, b) => a + b, 0) / values.length;
             allAvgs.push(avg);
+            votesCount += values.length;
           }
         }
       });
@@ -5513,14 +5531,14 @@ async function getSectorEstadoAverage(schoolId, sectorName) {
     const minRequired = Math.ceil(totalCount * 0.4);
 
     if (ratedCount < minRequired) {
-      return { avg: null, ratedCount, totalCount };
+      return { avg: null, ratedCount, totalCount, votesCount };
     }
 
     const sectorAvg = allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length;
-    return { avg: sectorAvg, ratedCount, totalCount };
+    return { avg: sectorAvg, ratedCount, totalCount, votesCount };
   } catch (e) {
     console.error('[SectorEstado] Error calculando media del sector:', e);
-    return { avg: null, ratedCount: 0, totalCount: 0 };
+    return { avg: null, ratedCount: 0, totalCount: 0, votesCount: 0, error: true };
   }
 }
 
@@ -6343,11 +6361,27 @@ async function kxSectorGradeStats(schoolId, sectorName) {
   return kxGradeStats(acc.counts, { ungraded: acc.ungraded });
 }
 
+// Vías de un sector (GeoJSON completo de la escuela + vías de spotters ya cargadas): [{ id, name }]
+async function kxSectorRoutes(schoolId, sectorName) {
+  const target = String(sectorName || '').toLowerCase().trim();
+  const routes = [];
+  const add = f => {
+    const p = f.properties || {};
+    if (String(p.sector || '').toLowerCase().trim() === target) routes.push({ id: p.id, name: p.nombre || '' });
+  };
+  (await kxSchoolRouteFeatures(schoolId)).forEach(add);
+  (kxSpotterRouteFeatures(schoolId) || []).forEach(add);
+  return routes;
+}
+
 let kxPendingChartGrade = null;   // grado que se selecciona al volver al gráfico desde el filtro del mapa
 
 function kxMountGradeChart(container, stats, ctx) {
-  container.innerHTML = kxGradeChartHTML(stats, { id: `${container.id || 'kx'}-gc`, title: 'Vías por grado' });
+  container.innerHTML = kxGradeChartHTML(stats, { id: `${container.id || 'kx'}-gc`, title: ctx.title || 'Vías por grado' });
   const el = container.querySelector('.kx-gchart');
+  // Ficha de sector: «Vías por Grado (31 total)»
+  const totalEl = ctx.compactTotal && el && el.querySelector('.kx-gchart-total');
+  if (totalEl) totalEl.textContent = `(${stats.graded} total)`;
   const ctl = kxBindGradeChart(el, stats, { onViewRoutes: e => kxFocusGrade({ ...ctx, grade: e.grade, count: e.count }) });
   const sameCtx = mlGradeFocus && mlGradeFocus.schoolId === ctx.schoolId && (mlGradeFocus.sector || '') === (ctx.sector || '');
   const want = kxPendingChartGrade || (sameCtx ? mlGradeFocus.grade : null);
@@ -6361,7 +6395,7 @@ async function kxLoadGradeChart(container, ctx) {
   if (!container || !ctx || !ctx.schoolId) return;
   const token = {};
   container._kxGcToken = token;
-  container.innerHTML = kxGradeChartStateHTML('loading');
+  container.innerHTML = kxGradeChartStateHTML('loading', { title: ctx.title });
   try {
     const stats = await kxSectorGradeStats(ctx.schoolId, ctx.sector);
     if (container._kxGcToken !== token || !container.isConnected) return;   // ya se abrió otra ficha
@@ -6369,7 +6403,7 @@ async function kxLoadGradeChart(container, ctx) {
   } catch (e) {
     console.warn('Gráfico de grados:', e);
     if (container._kxGcToken !== token) return;
-    container.innerHTML = kxGradeChartStateHTML('error');
+    container.innerHTML = kxGradeChartStateHTML('error', { title: ctx.title });
     const retry = container.querySelector('[data-kx-retry]');
     if (retry) retry.addEventListener('click', () => kxLoadGradeChart(container, ctx));
   }
@@ -8064,12 +8098,12 @@ function initSectorBottomSheet() {
     return;
   }
 
-  drag.innerHTML = kxSheetDragHTML({ titleId: 'secbs-sector-name', upper: true });
+  drag.innerHTML = kxSheetDragHTML({ titleId: 'secbs-sector-name' });
   foot.innerHTML = kxButtonHTML({ icon: 'image', label: 'Ver sector', variant: 'primary', size: 'lg', attrs: { id: 'secbs-btn-view' } });
 
+  // Una sola altura: la del contenido (cabecera, tarjetas y gráfico), sin ocupar toda la pantalla
   kxSectorSheet = KXMapSheet.create(sheet, {
-    snaps: ['summary', 'expanded'],
-    peek: '#secbs-estado-container',
+    snaps: ['expanded'],
     onRequestClose: hideSectorBottomSheet,
     onStateChange: state => { secBsCurrentState = state; }
   });
@@ -8114,12 +8148,16 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
   const exposicion = props.exposicion || '';
   const isRestricted = hasRestriction && isCurrentlyRestricted(fechaInicio, fechaFin);
 
-  // Guardar estado actual del sector
-  secBsCurrentSector = { name: sectorName, props: props, coords: coords };
+  const schoolId = mlCurrentSchool || 'valeria';
 
-  // --- Título ---
+  // Guardar estado actual del sector
+  secBsCurrentSector = { name: sectorName, props: props, coords: coords, schoolId };
+
+  // --- Título y foto de la pared ---
   const titleEl = document.getElementById('secbs-sector-name');
-  if (titleEl) titleEl.textContent = sectorName.toUpperCase();
+  if (titleEl) titleEl.textContent = sectorName;
+  const school = typeof SCHOOL_MARKERS !== 'undefined' ? SCHOOL_MARKERS.find(s => s.id === schoolId) : null;
+  kxRenderSheetPhoto(sheet, typeof kxSectorPhoto === 'function' && school ? kxSectorPhoto(school, sectorName) : null);
 
   // --- Fila de restricción ---
   const restrictionIconEl = document.getElementById('secbs-restriction-icon');
@@ -8139,7 +8177,7 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
   const restrictionDatesEl = document.getElementById('secbs-restriction-dates');
   if (restrictionDatesEl) {
     restrictionDatesEl.textContent = hasRestriction
-      ? `(Restricción: ${fechaInicio} - ${fechaFin})`
+      ? `(Restricción: ${fechaInicio} – ${fechaFin})`
       : '';
   }
 
@@ -8158,25 +8196,28 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
 
   // --- Reset contenedores async ---
   const estadoContainer = document.getElementById('secbs-estado-container');
-  if (estadoContainer) estadoContainer.innerHTML = '';
+  if (estadoContainer) estadoContainer.innerHTML = kxSectorEquipHTML({ loading: true });
+  kxRenderSectorExplore();
 
 
-  // --- Mostrar sheet (abre en resumen; el gesto la expande) ---
-  if (kxSectorSheet) kxSectorSheet.open('summary');
+  // --- Mostrar sheet (altura del contenido) ---
+  if (kxSectorSheet) kxSectorSheet.open('expanded');
 
   // --- Cargar datos async ---
   // Gráfico de grados
-  kxLoadGradeChart(document.getElementById('secbs-grade-chart'), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] } });
+  kxLoadGradeChart(document.getElementById('secbs-grade-chart'), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] }, title: 'Vías por Grado', compactTotal: true });
 
-  // Estado del sector
-  const schoolId = mlCurrentSchool || 'valeria';
-  getSectorEstadoAverage(schoolId, sectorName).then(result => {
-    const container = document.getElementById('secbs-estado-container');
-    if (!container) return;
-    if (result.avg !== null) {
-      container.innerHTML = generateSectorEstadoHTML(result.avg, result.ratedCount, result.totalCount);
-    }
-  });
+  // Equipamiento: votos de estado de todas las vías del sector (GeoJSON completo, no solo las dibujadas)
+  const current = secBsCurrentSector;
+  kxSectorRoutes(schoolId, sectorName)
+    .then(routes => routes.map(r => Number(r.id)).filter(id => !isNaN(id)))
+    .catch(() => undefined)
+    .then(ids => getSectorEstadoAverage(schoolId, sectorName, ids && [...new Set(ids)]))
+    .then(result => {
+      const container = document.getElementById('secbs-estado-container');
+      if (!container || secBsCurrentSector !== current) return;
+      container.innerHTML = kxSectorEquipHTML(result);
+    });
 
   // Admin actions
   const adminActionsEl = document.getElementById('secbs-admin-actions');
@@ -8184,6 +8225,101 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
 
   return true;
 }
+
+// ============================================
+// FICHA DE SECTOR: EQUIPAMIENTO Y «TU EXPLORACIÓN»
+// ============================================
+
+// «Equipamiento»: media de «Estado de la vía» votada por la comunidad (estado_votes). Nunca una cifra inventada:
+// sin votos suficientes (getSectorEstadoAverage pide el 40 % de las vías valoradas) dice «Sin valoraciones».
+function kxSectorEquipHTML(result) {
+  const r = result || {};
+  const votes = r.votesCount || 0;
+  let value, sub;
+  if (r.loading) {
+    value = '<span class="secbs-equip-none">Cargando…</span>';
+    sub = '';
+  } else if (r.avg != null) {
+    const avg = r.avg.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    value = `<span class="secbs-equip-num">${avg}</span>${kxIcon('star', { size: 26, cls: 'secbs-equip-star' })}<span class="secbs-equip-of">/ 5</span>`;
+    sub = `${votes} ${votes === 1 ? 'valoración' : 'valoraciones'}`;
+  } else {
+    value = '<span class="secbs-equip-none">Sin valoraciones</span>';
+    sub = r.ratedCount ? `${r.ratedCount} de ${r.totalCount} vías valoradas, aún pocas para una media` : 'Valora el estado de sus vías';
+  }
+  return `<section class="secbs-card secbs-equip${r.loading ? ' is-loading' : ''}" title="Valoración de la comunidad sobre el estado de las vías; no es una certificación de seguridad">
+    <span class="secbs-equip-badge" aria-hidden="true">${kxIcon('shieldCheck', { size: 30 })}</span>
+    <div class="secbs-equip-main">
+      <h3 class="secbs-card-title">Equipamiento</h3>
+      <div class="secbs-equip-value">${value}</div>
+      ${sub ? `<p class="secbs-card-sub">${kxEsc(sub)}</p>` : ''}
+    </div>
+  </section>`;
+}
+
+// «Tu exploración». view: resultado de kxSectorProgress o { kind: 'guest' | 'loading' | 'error' }; fromPct: anchura de partida de la barra
+function kxSectorExploreHTML(view, fromPct = 0) {
+  const head = tag => `<div class="secbs-explore-head"><h3 class="secbs-card-title">Tu exploración</h3>${tag || ''}</div>`;
+  const msg = text => `<section class="secbs-card secbs-explore is-msg">${head()}<p class="secbs-explore-msg">${kxEsc(text)}</p></section>`;
+  if (!view || view.kind === 'loading') {
+    return `<section class="secbs-card secbs-explore is-loading" aria-busy="true">${head()}<div class="secbs-explore-nums"><span class="secbs-skel secbs-skel--num"></span><span class="secbs-skel secbs-skel--pct"></span></div><div class="secbs-explore-bar"></div><div class="secbs-explore-foot"><span class="secbs-skel secbs-skel--line"></span></div></section>`;
+  }
+  if (view.kind === 'guest') return msg('Inicia sesión y registra tus ascensiones para ver cuántas vías de este sector has encadenado.');
+  if (view.kind === 'error') return msg('No se pudo cargar tu progreso. Revisa la conexión.');
+  if (view.state === 'no-routes') return msg('Este sector todavía no tiene vías registradas.');
+  const tag = view.state === 'progress' ? '<span class="secbs-explore-tag">En progreso</span>'
+    : view.state === 'complete' ? '<span class="secbs-explore-tag is-done">Completado</span>' : '';
+  const caption = view.state === 'empty' ? '¡Empieza a explorar este sector!'
+    : view.state === 'complete' ? '¡Sector completado!' : null;
+  const right = view.state === 'complete' ? '' : `<span class="secbs-explore-pending">${view.pending} ${view.pending === 1 ? 'pendiente' : 'pendientes'}</span>`;
+  return `<section class="secbs-card secbs-explore is-${view.state}">
+    ${head(tag)}
+    <div class="secbs-explore-nums">
+      <span class="secbs-explore-count"><strong>${view.sent}</strong> / ${view.total} ${view.total === 1 ? 'vía' : 'vías'}</span>
+      <span class="secbs-explore-pct">${view.pct}%</span>
+    </div>
+    <div class="secbs-explore-bar" role="progressbar" aria-label="Vías encadenadas en este sector" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${view.pct}" aria-valuetext="${view.sent} de ${view.total} vías, ${view.pct}%">
+      <span class="secbs-explore-fill" style="width:${fromPct}%" data-pct="${view.pct}"></span>
+    </div>
+    <div class="secbs-explore-foot"><span class="secbs-explore-caption">${caption ? kxEsc(caption) : 'Vías encadenadas<span class="secbs-explore-long"> en este sector</span>'}</span>${right}</div>
+  </section>`;
+}
+
+let secBsExploreSeq = 0;
+
+// Pinta «Tu exploración» del sector abierto con los ascensos ya cargados (userAscentsCache): sin consultas nuevas.
+// Se repinta sola al registrar o borrar un ascenso (evento kx:ascents-changed).
+async function kxRenderSectorExplore() {
+  const el = document.getElementById('secbs-explore');
+  const cur = secBsCurrentSector;
+  if (!el || !cur) return;
+  const seq = ++secBsExploreSeq;
+  const paint = view => {
+    if (seq !== secBsExploreSeq || secBsCurrentSector !== cur) return;
+    const prevFill = el.querySelector('.secbs-explore-fill');
+    const from = prevFill ? parseFloat(prevFill.style.width) || 0 : 0;
+    el.innerHTML = kxSectorExploreHTML(view, from);
+    const fill = el.querySelector('.secbs-explore-fill');
+    if (fill) requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = `${fill.dataset.pct}%`; }));
+  };
+  if (typeof currentUser === 'undefined' || !currentUser) return paint({ kind: 'guest' });
+  const cacheState = typeof userAscentsCacheState !== 'undefined' ? userAscentsCacheState : 'ready';
+  if (cacheState === 'error') return paint({ kind: 'error' });
+  if (cacheState !== 'ready') return paint({ kind: 'loading' });   // al terminar la carga llega kx:ascents-changed
+  let routes;
+  try {
+    routes = await kxSectorRoutes(cur.schoolId, cur.name);
+  } catch (e) {
+    console.warn('Progreso del sector:', e);
+    return paint({ kind: 'error' });
+  }
+  const schoolId = cur.schoolId;
+  // Por id de vía; los ascensos antiguos sin id se guardaron por nombre
+  const sent = r => hasUserSentRoute(schoolId, r.id) || (!!r.name && hasUserSentRoute(schoolId, r.name));
+  paint(kxSectorProgress(routes, sent));
+}
+
+document.addEventListener('kx:ascents-changed', () => { if (secBsCurrentSector) kxRenderSectorExplore(); });
 
 /**
  * Oculta el Sector Bottom Sheet
@@ -8672,7 +8808,7 @@ function kxKStat(value, label) {
 
 // Gráfico «Evolución por grado»: vías encadenadas por el usuario en la escuela, con los colores originales de grado.
 // Pulsar una barra muestra cuántas vías ha hecho el usuario de ese grado.
-function kxGradeChartHTML(byGrade, total, emptyLabel = 'Todavía no has escalado en esta zona') {
+function kxEvoChartHTML(byGrade, total, emptyLabel = 'Todavía no has escalado en esta zona') {
   const scale = typeof GYM_ROCO_GRADE_SCALE !== 'undefined' ? GYM_ROCO_GRADE_SCALE : null;
   if (!scale) return '';
   const counts = new Map();
@@ -8712,7 +8848,7 @@ function kxGradeChartHTML(byGrade, total, emptyLabel = 'Todavía no has escalado
     <div class="bs-gc-chart" role="group" aria-label="Vías encadenadas por grado">${bars}${noData ? '<span class="bs-gc-empty">${kxEsc(emptyLabel)}</span>' : ''}</div></section>`;
 }
 
-function kxBindGradeChart(root) {
+function kxBindEvoChart(root) {
   const card = root && root.querySelector('.bs-gc');
   if (!card) return;
   const chart = card.querySelector('.bs-gc-chart');
@@ -8786,8 +8922,8 @@ async function kxRenderSchoolCards(school) {
         kxKStat(activity.sectors ? String(activity.sectors) : '—', activity.sectors === 1 ? 'Sector visitado' : 'Sectores visitados')
       ].join('')}</div>`;
     actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity', 'mountain', `Tu actividad en ${school.nombre}`, body)
-      + kxGradeChartHTML(activity && activity.sends ? activity.byGrade : [], activity ? activity.sends : 0, signedIn ? undefined : 'Todavía no tienes vías registradas');
-    kxBindGradeChart(actSlot);
+      + kxEvoChartHTML(activity && activity.sends ? activity.byGrade : [], activity ? activity.sends : 0, signedIn ? undefined : 'Todavía no tienes vías registradas');
+    kxBindEvoChart(actSlot);
   }
 
   if (kxSchoolSheet) kxSchoolSheet.refresh();
@@ -8859,10 +8995,14 @@ function kxInitSchoolPages(sheetEl, foot) {
 
 // Imagen de la cabecera (school-photos.js): foto real recortada o ilustración genérica según la roca
 function kxRenderSchoolPhoto(school) {
-  const sheet = document.getElementById('school-bottom-sheet');
+  kxRenderSheetPhoto(document.getElementById('school-bottom-sheet'), typeof kxSchoolPhoto === 'function' ? kxSchoolPhoto(school) : null,
+    'Ilustración genérica, no es una foto de esta escuela');
+}
+
+// Pone (o quita) la imagen recortada arriba a la derecha de una hoja. genericTitle: aviso al pasar el ratón
+function kxRenderSheetPhoto(sheet, photo, genericTitle) {
   if (!sheet) return;
   let hero = sheet.querySelector('.bs-hero');
-  const photo = typeof kxSchoolPhoto === 'function' ? kxSchoolPhoto(school) : null;
   if (!photo) { if (hero) hero.remove(); sheet.classList.remove('has-hero'); return; }
   if (!hero) {
     hero = document.createElement('div');
@@ -8875,7 +9015,7 @@ function kxRenderSchoolPhoto(school) {
   hero.style.setProperty('--hero-x', photo.offsetX);
   hero.style.setProperty('--hero-y', photo.offsetY);
   hero.style.setProperty('--hero-pos', photo.position);
-  hero.innerHTML = `<img src="${kxEsc(photo.src)}" alt="${kxEsc(photo.alt)}" title="${kxEsc(photo.generic ? 'Ilustración genérica, no es una foto de esta escuela' : photo.alt)}" decoding="async">`;
+  hero.innerHTML = `<img src="${kxEsc(photo.src)}" alt="${kxEsc(photo.alt)}" title="${kxEsc(photo.generic && genericTitle ? genericTitle : photo.alt)}" decoding="async">`;
   const img = hero.querySelector('img');
   img.addEventListener('error', () => { hero.remove(); sheet.classList.remove('has-hero'); }, { once: true });
   sheet.classList.add('has-hero');

@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=207" />
+  <link rel="stylesheet" href="./app_2.css?v=208" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -89,7 +89,7 @@
 
   <script defer src="./auth.js?v=6"></script>
 
-  <script defer src="./user-features.js?v=8"></script>
+  <script defer src="./user-features.js?v=9"></script>
 
   <script defer src="./route-photos.js?v=2"></script>
 
@@ -100,8 +100,9 @@
   <script defer src="./climb-session-ui.js?v=5"></script>
   <script defer src="./gym-info.js?v=16"></script>
   <script defer src="./climb-conditions.js?v=1"></script>
-  <script defer src="./school-photos.js?v=2"></script>
-  <script defer src="./maplibre-map.js?v=73"></script>
+  <script defer src="./school-photos.js?v=3"></script>
+  <script defer src="./sector-progress.js?v=1"></script>
+  <script defer src="./maplibre-map.js?v=74"></script>
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
@@ -2709,8 +2710,11 @@
         <span class="secbs-info-text" id="secbs-exposure-text"></span>
       </div>
 
-      <!-- Estado del sector (estrellas, cargado async) -->
+      <!-- Equipamiento: media del estado de las vías votada por la comunidad (cargado async) -->
       <div id="secbs-estado-container"></div>
+
+      <!-- Tu exploración: vías del sector encadenadas por el usuario (sector-progress.js) -->
+      <div id="secbs-explore"></div>
 
       <!-- Gráfico de vías por grado -->
       <div class="secbs-chart-container" id="secbs-grade-chart">
