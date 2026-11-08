@@ -6377,6 +6377,11 @@ async function kxSectorRoutes(schoolId, sectorName) {
 let kxPendingChartGrade = null;   // grado que se selecciona al volver al gráfico desde el filtro del mapa
 
 function kxMountGradeChart(container, stats, ctx) {
+  // Ficha de sector: las vías sin grado entran en el gráfico como una última barra «?»
+  if (ctx.withUngraded && stats.ungraded > 0) {
+    const entries = [...stats.entries, { grade: '?', count: stats.ungraded, pct: (stats.ungraded / stats.total) * 100, family: '', ungraded: true }];
+    stats = { ...stats, entries, graded: stats.total, max: Math.max(stats.max, stats.ungraded) };
+  }
   container.innerHTML = kxGradeChartHTML(stats, { id: `${container.id || 'kx'}-gc`, title: ctx.title || 'Vías por grado' });
   const el = container.querySelector('.kx-gchart');
   // Ficha de sector: «Vías por Grado (31 total)»
@@ -8205,7 +8210,7 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
 
   // --- Cargar datos async ---
   // Gráfico de grados
-  kxLoadGradeChart(document.getElementById('secbs-grade-chart'), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] }, title: 'Vías por Grado', compactTotal: true });
+  kxLoadGradeChart(document.getElementById('secbs-grade-chart'), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] }, title: 'Vías por Grado', compactTotal: true, withUngraded: true });
 
   // Equipamiento: votos de estado de todas las vías del sector (GeoJSON completo, no solo las dibujadas)
   const current = secBsCurrentSector;
