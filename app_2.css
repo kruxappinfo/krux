@@ -32407,8 +32407,8 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 #sector-bottom-sheet .kx-gchart-grid { display: none; }
 #sector-bottom-sheet .kx-gchart { --kx-gplot-h: clamp(76px, 12vh, 104px); gap: 10px; }
 #sector-bottom-sheet .kx-gchart-readout { min-height: 0; }
-#sector-bottom-sheet .kx-gchart:not(.has-sel) .kx-gchart-readout { display: none; }
-#sector-bottom-sheet .kx-gchart-sel { min-height: 44px; }
+/* Al pulsar un grado no se abre el panel de selección */
+#sector-bottom-sheet .kx-gchart-readout { display: none; }
 #sector-bottom-sheet .kx-gbar-fill { width: calc(100% - 2px); border-radius: 4px 4px 0 0; }
 #sector-bottom-sheet .kx-gbar-val { font-size: 0.8125rem; font-weight: 700; color: var(--kx-ink); }
 #sector-bottom-sheet .kx-gchart-bars { border-bottom: 0; }
