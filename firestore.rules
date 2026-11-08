@@ -19,13 +19,40 @@ service cloud.firestore {
     }
 
     // Users collection
+    // Formato de un nombre de usuario (usernames.js: kxValidateUsername)
+    function validUsername(name) {
+      return name is string && name.matches('^[a-z0-9._]{3,30}$')
+        && !name.matches('^[.].*') && !name.matches('.*[.]$') && !name.matches('.*[.][.].*');
+    }
+
+    // Nombres de usuario únicos: usernames/{nombre} → { uid }. Se crea y se libera en la misma transacción
+    // que cambia users/{uid}.username, así nadie reserva nombres que no usa ni libera el que tiene puesto.
+    match /usernames/{name} {
+      allow read: if true;
+      allow create: if isAuthenticated() && validUsername(name)
+        && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == name;
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('username', '') != name;
+      allow update: if false;
+    }
+
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isOwner(userId);
+      allow create: if isOwner(userId) && usernameKept();
       // Allow owner full write, OR allow any authenticated user to update stats or savedPosts
-      allow update: if isOwner(userId) || 
+      allow update: if (isOwner(userId) && usernameKept()) ||
                       (isAuthenticated() && 
                        (onlyStatsChanged() || onlySavedPostsChanged()));
+
+      // El nombre de usuario solo cambia a uno reservado para esta cuenta en usernames/ (y no se puede quitar)
+      function usernameKept() {
+        let before = resource == null ? null : resource.data.get('username', null);
+        let after = request.resource.data.get('username', null);
+        return after == before || (validUsername(after)
+          && getAfter(/databases/$(database)/documents/usernames/$(after)).data.uid == userId);
+      }
       allow delete: if isOwner(userId);
       
       // Helper to check if only stats fields are being modified

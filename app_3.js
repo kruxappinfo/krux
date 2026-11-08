@@ -1072,45 +1072,41 @@ document.addEventListener('DOMContentLoaded', () => {
 // - Búsquedas recientes: solo en este dispositivo (localStorage).
 // No hay hashtags: los posts no guardan hashtags y Firestore no busca dentro del texto.
 
+// @usuario bajo el nombre del perfil (propio o ajeno); se oculta si la cuenta aún no tiene
+function kxSetProfileHandle(username) {
+  const el = document.getElementById('profile-handle');
+  if (!el) return;
+  el.textContent = username ? `@${username}` : '';
+  el.hidden = !username;
+}
+
 // Real search for users in Firestore (también la usa el autocompletado de menciones)
 async function searchUsersGlobal(query) {
-  try {
-    const queryLower = query.toLowerCase();
-    // Approach 1: Try to search with displayNameLower field
-    let snapshot = await db.collection('users')
-      .orderBy('displayNameLower')
-      .startAt(queryLower)
-      .endAt(queryLower + '')
-      .limit(10)
-      .get();
-
-    if (snapshot.empty) {
-      // Approach 2: Fallback to client side filter
-      const allUsersSnapshot = await db.collection('users').limit(50).get();
-      return allUsersSnapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(user => {
-          const name = (user.displayName || '').toLowerCase();
-          const email = (user.email || '').toLowerCase();
-          return name.includes(queryLower) || email.includes(queryLower);
-        })
-        .slice(0, 10);
-    }
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  } catch (error) {
-    console.error('Error searching users:', error);
-    // Try fallback approach if index error
-    if (error.code === 'failed-precondition' || error.message.includes('index')) {
-      try {
-        const allUsersSnapshot = await db.collection('users').limit(50).get();
-        return allUsersSnapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter(user => (user.displayName || '').toLowerCase().includes(query.toLowerCase()))
-          .slice(0, 10);
-      } catch (e) { throw e; }
-    }
-    throw error;
-  }
+  const queryLower = String(query || '').toLowerCase().trim();
+  const handleQ = queryLower.replace(/^@+/, '');
+  if (!handleQ) return [];
+  // Por nombre de usuario: prefijo exacto en Firestore (las cuentas sin usuario no aparecen aquí)
+  const byHandle = db.collection('users')
+    .orderBy('username')
+    .startAt(handleQ)
+    .endAt(handleQ + '\uf8ff')
+    .limit(10)
+    .get()
+    .then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() })))
+    .catch(e => { console.warn('Búsqueda por usuario no disponible:', e); return []; });
+  // Por nombre de perfil o correo: filtro en cliente sobre una muestra (Firestore no busca dentro del texto)
+  const byName = db.collection('users').limit(50).get()
+    .then(snap => snap.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(user => {
+        const name = (user.displayName || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        const handle = (user.username || '').toLowerCase();
+        return name.includes(queryLower) || email.includes(queryLower) || handle.includes(handleQ);
+      }));
+  const [handles, names] = await Promise.all([byHandle, byName]);
+  const seen = new Set();
+  return [...handles, ...names].filter(u => !seen.has(u.id) && seen.add(u.id)).slice(0, 10);
 }
 // Expose searchUsersGlobal globally so MentionAutocomplete can use it
 window.searchUsersGlobal = searchUsersGlobal;
@@ -1893,6 +1889,7 @@ window.openPublicProfile = async function (userId) {
   document.getElementById('profile-header-username').textContent = '@...';
   document.getElementById('profile-bio').textContent = '';
   document.getElementById('profile-name').textContent = '';
+  kxSetProfileHandle('');
 
   try {
     // Check if this request is still valid (prevents race conditions)
@@ -1925,8 +1922,9 @@ window.openPublicProfile = async function (userId) {
     }
 
     // Populate header with username and profile with displayname
-    document.getElementById('profile-header-username').textContent = `@${userData.username || displayName.toLowerCase().replace(/\s+/g, '')}`;
+    document.getElementById('profile-header-username').textContent = userData.username ? `@${userData.username}` : '';
     document.getElementById('profile-name').textContent = displayName;
+    kxSetProfileHandle(userData.username);
     document.getElementById('profile-location').textContent = userData.location || 'España';
     document.getElementById('profile-bio').textContent = userData.bio || 'Sin biografí­a';
     // Mostrar "Administrador" para la cuenta de Krux, "Escalador" para el resto
@@ -5538,6 +5536,7 @@ async function initProfile() {
 
       const nameEl = document.getElementById('profile-name');
       if (nameEl) nameEl.textContent = data.displayName || authUser.displayName;
+      kxSetProfileHandle(data.username);
 
       const bioEl = document.getElementById('profile-bio');
       if (bioEl) bioEl.textContent = data.bio || 'Sin biografí­a';
@@ -6199,6 +6198,10 @@ function initEditProfile() {
   if (!modal || !form) return;
 
   let selectedPhotoFile = null;
+  let currentUsername = '';
+  const usernameInput = document.getElementById('edit-username');
+  const usernameField = usernameInput && typeof kxBindUsernameField === 'function'
+    ? kxBindUsernameField(usernameInput, document.getElementById('edit-username-status')) : null;
 
 
   // Photo upload trigger - click on photo or overlay opens file selector
@@ -6239,6 +6242,11 @@ function initEditProfile() {
 
       // Pre-fill form with current data
       document.getElementById('edit-display-name').value = currentUser.displayName || '';
+      if (usernameInput) {
+        usernameInput.value = '';
+        const st = document.getElementById('edit-username-status');
+        if (st) { st.textContent = ''; st.dataset.tone = ''; }
+      }
       if (photoPreview) {
         photoPreview.src = currentUser.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=100';
       }
@@ -6248,6 +6256,9 @@ function initEditProfile() {
           const data = doc.data();
           document.getElementById('edit-bio').value = data.bio || '';
           document.getElementById('edit-location').value = data.location || '';
+          currentUsername = data.username || '';
+          if (usernameInput) usernameInput.value = currentUsername;
+          if (usernameField) usernameField.setCurrent(currentUsername);
           if (bioCharCount) bioCharCount.textContent = (data.bio || '').length;
         }
       });
@@ -6277,6 +6288,31 @@ function initEditProfile() {
     submitBtn.disabled = true;
 
     try {
+      // Nombre de usuario: si cambió, se reserva antes de guardar el resto (si está cogido, no se guarda nada)
+      const wantedUsername = usernameField ? usernameField.value() : '';
+      if (usernameField && wantedUsername && wantedUsername !== currentUsername) {
+        submitBtn.textContent = 'Comprobando usuario...';
+        if (!(await usernameField.check())) {
+          submitBtn.textContent = originalText;
+          submitBtn.disabled = false;
+          usernameInput.focus();
+          return;
+        }
+        try {
+          currentUsername = await KruxUsernames.claim(wantedUsername);
+          usernameField.setCurrent(currentUsername);
+        } catch (claimError) {
+          const st = document.getElementById('edit-username-status');
+          if (st) { st.textContent = kxUsernameClaimError(claimError); st.dataset.tone = 'error'; }
+          submitBtn.textContent = originalText;
+          submitBtn.disabled = false;
+          return;
+        }
+      } else if (usernameField && !wantedUsername && currentUsername) {
+        // No se puede quedar sin nombre de usuario: se mantiene el actual
+        usernameInput.value = currentUsername;
+      }
+
       let photoURL = currentUser.photoURL;
 
       // Upload new photo if selected
@@ -7941,8 +7977,8 @@ function renderTextWithMentions(text, mentions) {
   // Recalculate indices for each mention to handle trim/offset issues
   const recalculated = [];
   for (const mention of mentions) {
-    if (!mention.uid || !mention.displayName) continue;
-    const mentionStr = '@' + mention.displayName;
+    if (!mention.uid || !kxMentionLabel(mention)) continue;
+    const mentionStr = '@' + kxMentionLabel(mention);
 
     // Check if stored indices are valid
     const segment = text.slice(mention.startIndex, mention.endIndex);
@@ -7957,8 +7993,7 @@ function renderTextWithMentions(text, mentions) {
         );
         if (!alreadyClaimed) {
           recalculated.push({
-            uid: mention.uid,
-            displayName: mention.displayName,
+            ...mention,
             startIndex: idx,
             endIndex: idx + mentionStr.length
           });
@@ -8003,7 +8038,7 @@ function extractMentionsFromText(text, mentionsList) {
   const validMentions = [];
 
   for (const m of mentionsList) {
-    const mentionStr = '@' + m.displayName;
+    const mentionStr = '@' + kxMentionLabel(m);
 
     // 1. Try exact index match first (fast path)
     const segment = text.slice(m.startIndex, m.endIndex);
@@ -8022,8 +8057,7 @@ function extractMentionsFromText(text, mentionsList) {
       );
       if (!alreadyClaimed) {
         validMentions.push({
-          uid: m.uid,
-          displayName: m.displayName,
+          ...m,
           startIndex: idx,
           endIndex: idx + mentionStr.length
         });
@@ -8168,7 +8202,7 @@ class MentionAutocomplete {
 
     // Una mención ya elegida no vuelve a abrir las sugerencias
     const confirmed = this.mentions.some(m =>
-      m.startIndex === atIndex && text.slice(atIndex, m.endIndex) === '@' + m.displayName && cursorPos <= m.endIndex);
+      m.startIndex === atIndex && text.slice(atIndex, m.endIndex) === '@' + kxMentionLabel(m) && cursorPos <= m.endIndex);
     if (confirmed) {
       this._hide();
       return;
@@ -8264,11 +8298,12 @@ class MentionAutocomplete {
     const html = this.results.map((user, index) => {
       const photoUrl = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=153E35&color=fff&size=32`;
       const name = escapeHtmlMention(user.displayName || 'Usuario');
+      const handle = user.username ? `<span class="mention-dropdown-handle">@${escapeHtmlMention(user.username)}</span>` : '';
       return `
         <div class="mention-dropdown-item ${index === this.selectedIndex ? 'selected' : ''}" data-index="${index}">
           <img src="${photoUrl}" alt="${name}" class="mention-dropdown-avatar" referrerPolicy="no-referrer" onerror="this.src='https://ui-avatars.com/api/?name=U&background=153E35&color=fff&size=32'; this.onerror=null;">
           <div class="mention-dropdown-info">
-            <span class="mention-dropdown-name">${name}</span>
+            <span class="mention-dropdown-name">${name}</span>${handle}
           </div>
         </div>
       `;
@@ -8304,11 +8339,13 @@ class MentionAutocomplete {
     const text = this.input.value;
     const cursorPos = this.input.selectionStart;
     const displayName = user.displayName || 'Usuario';
+    // Se menciona con el @usuario; las cuentas que aún no lo tienen, con su nombre
+    const username = user.username || '';
 
-    // Replace @query with @displayName
+    // Replace @query with @usuario
     const before = text.slice(0, this.mentionStart);
     const after = text.slice(cursorPos);
-    const mentionText = '@' + displayName;
+    const mentionText = '@' + (username || displayName);
     const newText = before + mentionText + ' ' + after;
 
     this.input.value = newText;
@@ -8333,6 +8370,7 @@ class MentionAutocomplete {
     this.mentions.push({
       uid: user.id,
       displayName: displayName,
+      ...(username ? { username } : {}),
       startIndex: this.mentionStart,
       endIndex: this.mentionStart + mentionText.length
     });
