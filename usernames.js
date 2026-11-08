@@ -7,6 +7,9 @@ const KX_USERNAME_MIN = 3;
 const KX_USERNAME_MAX = 30;
 
 // Nombres que no puede coger nadie (rutas, marca, cuentas de sistema)
+// Cuenta que sí puede usarlos (la super-administradora de KRUX)
+const KX_USERNAME_ADMIN_EMAIL = 'krux.app.info@gmail.com';
+const KX_USERNAME_ADMIN_UID = 'akqgKt9WmQRNrpPub9xVKiPKmcn2';   // el mismo perfil oficial que ADMIN_UID de app_3.js
 const KX_USERNAME_RESERVED = new Set(['krux', 'admin', 'administrador', 'soporte', 'support', 'ayuda', 'help', 'root',
   'system', 'sistema', 'moderador', 'staff', 'oficial', 'official', 'null', 'undefined', 'usuario', 'user', 'me', 'yo']);
 
@@ -20,7 +23,8 @@ function kxNormalizeUsername(input) {
 }
 
 // null si es válido; si no, el motivo para mostrar en el campo
-function kxValidateUsername(input) {
+// allowReserved: la cuenta administradora puede quedarse nombres reservados como «krux»
+function kxValidateUsername(input, { allowReserved = false } = {}) {
   const u = kxNormalizeUsername(input);
   if (!u) return 'Escribe un nombre de usuario';
   if (u.length < KX_USERNAME_MIN) return `Mínimo ${KX_USERNAME_MIN} caracteres`;
@@ -29,31 +33,40 @@ function kxValidateUsername(input) {
   if (u.startsWith('.') || u.endsWith('.')) return 'No puede empezar ni acabar en punto';
   if (u.includes('..')) return 'No puede tener dos puntos seguidos';
   if (/^[0-9._]+$/.test(u)) return 'Tiene que llevar al menos una letra';
-  if (KX_USERNAME_RESERVED.has(u)) return 'Ese nombre no está disponible';
+  if (!allowReserved && KX_USERNAME_RESERVED.has(u)) return 'Ese nombre está reservado';
   return null;
 }
 
 // Base de una sugerencia a partir del nombre o del correo: «Jaime Lillo» → «jaime.lillo»
-function kxUsernameBase(displayName, email) {
+function kxUsernameBase(displayName, email, opts) {
   const from = String(displayName || '').trim() || String(email || '').split('@')[0];
   let base = from.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
     .replace(/ñ/g, 'n').replace(/[\s-]+/g, '.').replace(/[^a-z0-9._]/g, '')
     .replace(/\.{2,}/g, '.').replace(/^[._]+|[._]+$/g, '');
   if (base.length > KX_USERNAME_MAX - 4) base = base.slice(0, KX_USERNAME_MAX - 4).replace(/[._]+$/, '');
-  if (base.length < KX_USERNAME_MIN || kxValidateUsername(base)) base = 'escalador';
+  if (base.length < KX_USERNAME_MIN || kxValidateUsername(base, opts)) base = 'escalador';
   return base;
 }
 
 // Candidatas en orden: la base, sin puntos y con números (para cuando la base ya está cogida)
-function kxUsernameCandidates(displayName, email, seed = Date.now()) {
-  const base = kxUsernameBase(displayName, email);
+function kxUsernameCandidates(displayName, email, seed = Date.now(), opts) {
+  const base = kxUsernameBase(displayName, email, opts);
   const flat = base.replace(/\./g, '');
   const out = [base];
-  if (flat !== base && !kxValidateUsername(flat)) out.push(flat);
+  if (flat !== base && !kxValidateUsername(flat, opts)) out.push(flat);
   let n = Math.abs(Math.floor(seed)) % 900 + 100;
   for (let i = 0; i < 6; i++, n = (n * 7 + 13) % 900 + 100) out.push(`${base}${n}`.slice(0, KX_USERNAME_MAX));
-  return out.filter(c => !kxValidateUsername(c));
+  return out.filter(c => !kxValidateUsername(c, opts));
 }
+
+// ¿La cuenta actual puede usar nombres reservados?
+function kxCanUseReserved() {
+  try {
+    const u = firebase.auth().currentUser || {};
+    return (u.email || '').toLowerCase() === KX_USERNAME_ADMIN_EMAIL || u.uid === KX_USERNAME_ADMIN_UID;
+  } catch (_) { return false; }
+}
+const kxUsernameOpts = () => ({ allowReserved: kxCanUseReserved() });
 
 // Texto con el que se menciona a alguien: su @usuario, o su nombre si aún no tiene (menciones antiguas)
 function kxMentionLabel(m) {
@@ -69,14 +82,14 @@ const KruxUsernames = (() => {
   // true si está libre o ya es de esta cuenta
   async function isAvailable(name, uid) {
     const u = kxNormalizeUsername(name);
-    if (kxValidateUsername(u)) return false;
+    if (kxValidateUsername(u, kxUsernameOpts())) return false;
     const snap = await ref(u).get();
     return !snap.exists || (snap.data() || {}).uid === uid;
   }
 
   // Primera candidata libre para sugerir
   async function suggest(displayName, email, uid) {
-    for (const c of kxUsernameCandidates(displayName, email)) {
+    for (const c of kxUsernameCandidates(displayName, email, Date.now(), kxUsernameOpts())) {
       try { if (await isAvailable(c, uid)) return c; } catch (_) { return c; }
     }
     return '';
@@ -88,7 +101,7 @@ const KruxUsernames = (() => {
     const user = firebase.auth().currentUser;
     if (!user) throw new Error('auth');
     const u = kxNormalizeUsername(name);
-    if (kxValidateUsername(u)) throw new Error('invalid');
+    if (kxValidateUsername(u, kxUsernameOpts())) throw new Error('invalid');
     const userRef = db.collection('users').doc(user.uid);
     await db.runTransaction(async (tx) => {
       const [taken, me] = await Promise.all([tx.get(ref(u)), tx.get(userRef)]);
@@ -125,7 +138,7 @@ function kxBindUsernameField(input, statusEl, { current = '' } = {}) {
     clearTimeout(timer);
     const v = kxNormalizeUsername(input.value);
     const my = ++seq;
-    const err = kxValidateUsername(v);
+    const err = kxValidateUsername(v, kxUsernameOpts());
     if (err) { show(err, 'error'); lastOk = null; return false; }
     if (v === current) { show('Es tu nombre de usuario actual', 'ok'); lastOk = v; return true; }
     if (lastOk === v) return true;
