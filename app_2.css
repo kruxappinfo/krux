@@ -32469,3 +32469,6 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   #sector-bottom-sheet .kx-gchart-total { font-size: var(--kx-fs-body); }
 }
 @media (max-width: 359px) { #sector-bottom-sheet .secbs-explore-long { display: none; } }
+/* Ficha de sector: el gráfico no es seleccionable */
+#sector-bottom-sheet .kx-gchart.is-static .kx-gbar { pointer-events: none; cursor: default; }
+#sector-bottom-sheet .kx-gchart.is-static .kx-gchart-bars { cursor: default; }

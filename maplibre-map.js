@@ -6387,6 +6387,12 @@ function kxMountGradeChart(container, stats, ctx) {
   // Ficha de sector: «Vías por Grado (31 total)»
   const totalEl = ctx.compactTotal && el && el.querySelector('.kx-gchart-total');
   if (totalEl) totalEl.textContent = `(${stats.graded} total)`;
+  // Ficha de sector: gráfico solo informativo, sin selección de grados
+  if (ctx.static) {
+    if (el) el.classList.add('is-static');
+    container.querySelectorAll('.kx-gbar').forEach(b => { b.tabIndex = -1; b.removeAttribute('aria-pressed'); });
+    return null;
+  }
   const ctl = kxBindGradeChart(el, stats, { onViewRoutes: e => kxFocusGrade({ ...ctx, grade: e.grade, count: e.count }) });
   const sameCtx = mlGradeFocus && mlGradeFocus.schoolId === ctx.schoolId && (mlGradeFocus.sector || '') === (ctx.sector || '');
   const want = kxPendingChartGrade || (sameCtx ? mlGradeFocus.grade : null);
@@ -8210,7 +8216,7 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
 
   // --- Cargar datos async ---
   // Gráfico de grados
-  kxLoadGradeChart(document.getElementById('secbs-grade-chart'), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] }, title: 'Vías por Grado', compactTotal: true, withUngraded: true });
+  kxLoadGradeChart(document.getElementById('secbs-grade-chart'), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] }, title: 'Vías por Grado', compactTotal: true, withUngraded: true, static: true });
 
   // Equipamiento: votos de estado de todas las vías del sector (GeoJSON completo, no solo las dibujadas)
   const current = secBsCurrentSector;
