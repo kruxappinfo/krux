@@ -247,15 +247,35 @@ let userFavorites = new Map(); // Map of "type:id" -> timestamp
 let userProjects = new Map(); // Map of "route_id" -> {name, grade, addedAt, notes}
 
 // Global ascents cache - para mostrar check en vías completadas
-let userAscentsCache = new Map(); // Map of "schoolId:routeId" -> {date, style, grade}
+let userAscentsCache = new Map(); // Map of "schoolId:routeId" -> {date, style, grade, sent}
+let userAscentsCacheState = 'idle'; // idle | loading | ready | error (carga de los ascensos del usuario)
+
+// Encadenada: cualquier estilo menos intento/proyecto (sector-progress.js)
+function isSendAscentStyle(style) {
+    return typeof kxIsSendStyle === 'function' ? kxIsSendStyle(style) : style !== 'project';
+}
+
+// Avisa a las fichas abiertas (progreso del sector) de que cambiaron los ascensos
+function notifyAscentsChanged() {
+    try { document.dispatchEvent(new CustomEvent('kx:ascents-changed')); } catch (_) {}
+}
+
+// ¿El usuario ha encadenado esta vía? (cualquier ascenso que no sea intento)
+function hasUserSentRoute(schoolId, routeId) {
+    const info = userAscentsCache.get(`${schoolId}:${routeId}`);
+    return !!(info && info.sent);
+}
 
 // Load user ascents into cache
 async function loadUserAscentsCache() {
     if (!currentUser) {
         userAscentsCache.clear();
+        userAscentsCacheState = 'idle';
+        notifyAscentsChanged();
         return;
     }
 
+    userAscentsCacheState = 'loading';
     try {
         const ascents = await getUserAscents(500); // Cargar hasta 500 ascensos
         userAscentsCache.clear();
@@ -264,15 +284,21 @@ async function loadUserAscentsCache() {
             // Crear clave única: schoolId + routeId (fallback to routeName for old data)
             const id = ascent.routeId || ascent.routeName;
             const key = `${ascent.schoolId}:${id}`;
-            // Solo guardar el primer (más reciente) ascenso de cada vía
+            const sent = isSendAscentStyle(ascent.style);
+            // Solo guardar el primer ascenso de cada vía; «sent» se acumula: basta un encadenamiento
             if (!userAscentsCache.has(key)) {
                 userAscentsCache.set(key, {
                     date: ascent.date,
                     style: ascent.style,
-                    grade: ascent.grade
+                    grade: ascent.grade,
+                    sent
                 });
+            } else if (sent) {
+                userAscentsCache.get(key).sent = true;
             }
         });
+        userAscentsCacheState = 'ready';
+        notifyAscentsChanged();
 
         console.log(`Ascents cache loaded: ${userAscentsCache.size} routes`);
 
@@ -282,6 +308,8 @@ async function loadUserAscentsCache() {
         }
     } catch (error) {
         console.error('Error loading ascents cache:', error);
+        userAscentsCacheState = 'error';
+        notifyAscentsChanged();
     }
 }
 
@@ -312,11 +340,14 @@ function getAscentStyleSVG(style) {
 // Add ascent to cache (called after successful logAscent)
 function addAscentToCache(schoolId, routeId, ascentData) {
     const key = `${schoolId}:${routeId}`;
+    const prev = userAscentsCache.get(key);
     userAscentsCache.set(key, {
         date: ascentData.date || new Date(),
         style: ascentData.style,
-        grade: ascentData.grade
+        grade: ascentData.grade,
+        sent: !!(prev && prev.sent) || isSendAscentStyle(ascentData.style)
     });
+    notifyAscentsChanged();
 
     // Actualizar ticks en el mapa inmediatamente
     if (typeof updateAscentTicksLayer === 'function') {
@@ -336,19 +367,19 @@ async function removeAscentFromCache(schoolId, routeId) {
             .where('userId', '==', currentUser.uid)
             .where('schoolId', '==', schoolId)
             .where('routeId', '==', routeId)
-            .limit(1)
             .get();
 
         if (remaining.empty) {
             // No more ascents for this route - remove from cache
             userAscentsCache.delete(key);
         } else {
-            // Still has ascents - update cache with the remaining one
+            // Still has ascents - update cache with the remaining one (sigue encadenada si alguno lo es)
             const data = remaining.docs[0].data();
             userAscentsCache.set(key, {
                 date: data.date && data.date.toDate ? data.date.toDate() : new Date(data.date),
                 style: data.style,
-                grade: data.grade
+                grade: data.grade,
+                sent: remaining.docs.some(d => isSendAscentStyle(d.data().style))
             });
         }
     } catch (error) {
@@ -356,6 +387,7 @@ async function removeAscentFromCache(schoolId, routeId) {
         console.error('Error checking remaining ascents:', error);
         userAscentsCache.delete(key);
     }
+    notifyAscentsChanged();
 
     // Actualizar ticks en el mapa inmediatamente
     if (typeof updateAscentTicksLayer === 'function') {

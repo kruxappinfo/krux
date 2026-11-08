@@ -32011,7 +32011,8 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
    ==================================================================== */
 
 /* ---- Imagen de la pared (school-photos.js): arriba a la derecha, fundida con el fondo ---- */
-#school-bottom-sheet .bs-hero {
+#school-bottom-sheet .bs-hero,
+#sector-bottom-sheet .bs-hero {
   position: absolute;
   top: 0;
   right: 0;
@@ -32022,7 +32023,8 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
   border-top-right-radius: var(--kx-radius-sheet);
   overflow: hidden;
 }
-#school-bottom-sheet .bs-hero img {
+#school-bottom-sheet .bs-hero img,
+#sector-bottom-sheet .bs-hero img {
   display: block;
   width: 100%;
   height: 100%;
@@ -32035,12 +32037,17 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
   mask-image: linear-gradient(to right, transparent 0%, #000 48%), linear-gradient(to bottom, #000 52%, transparent 100%);
   mask-composite: intersect;
 }
-#school-bottom-sheet .bs-hero.is-generic img { opacity: 0.85; }
+#school-bottom-sheet .bs-hero.is-generic img,
+#sector-bottom-sheet .bs-hero.is-generic img { opacity: 0.85; }
 #school-bottom-sheet.has-hero .kx-msheet-drag,
-#school-bottom-sheet.has-hero .kx-msheet-body { position: relative; z-index: 1; background: transparent; }
+#school-bottom-sheet.has-hero .kx-msheet-body,
+#sector-bottom-sheet.has-hero .kx-msheet-drag,
+#sector-bottom-sheet.has-hero .kx-msheet-body { position: relative; z-index: 1; background: transparent; }
 /* El nombre siempre legible aunque la imagen llegue debajo */
-#school-bottom-sheet.has-hero .kx-close { background: rgba(255, 255, 255, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-#school-bottom-sheet.has-hero .kx-fhead-title { text-shadow: 0 0 18px var(--kx-chalk), 0 0 6px var(--kx-chalk); }
+#school-bottom-sheet.has-hero .kx-close,
+#sector-bottom-sheet.has-hero .kx-close { background: rgba(255, 255, 255, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#school-bottom-sheet.has-hero .kx-fhead-title,
+#sector-bottom-sheet.has-hero .kx-fhead-title { text-shadow: 0 0 18px var(--kx-chalk), 0 0 6px var(--kx-chalk); }
 #school-bottom-sheet.has-hero .kx-fhead-meta .kx-tag { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4); }
 
 /* ---- Páginas ---- */
@@ -32328,3 +32335,137 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 #school-bottom-sheet #bs-page-0 { display: flex; flex-direction: column; }
 #school-bottom-sheet #bs-page-0 .bs-expanded-section { flex: 1 1 auto; display: flex; flex-direction: column; }
 #school-bottom-sheet #bs-page-0 .bs-chart-card { margin-block: auto; }
+
+
+/* ====================================================================
+   FICHA DE SECTOR (maplibre-map.js: showSectorBottomSheet)
+   Cabecera con foto, acceso, exposición, Equipamiento, «Tu exploración» y vías por grado.
+   ==================================================================== */
+#sector-bottom-sheet .kx-fhead-title { font-size: 1.75rem; font-weight: var(--kx-fw-heavy); letter-spacing: var(--kx-ls-tight); line-height: var(--kx-lh-tight); max-width: 78%; }
+#sector-bottom-sheet .secbs-info-row { border-bottom-color: var(--kx-line); padding: 10px 0; }
+#sector-bottom-sheet .secbs-info-text { font-size: 1.0625rem; }
+#sector-bottom-sheet .secbs-restriction-dates { font-size: var(--kx-fs-caption); color: var(--kx-ink-3); }
+#sector-bottom-sheet #secbs-exposure-row { border-bottom: 1px solid var(--kx-line); }
+
+#sector-bottom-sheet .secbs-card {
+  margin-top: var(--kx-space-3);
+  padding: var(--kx-space-4) var(--kx-space-4);
+  border-radius: var(--kx-radius-lg);
+  background: var(--kx-surface);
+  border: 1px solid var(--kx-line);
+  box-shadow: var(--kx-shadow-card);
+}
+#sector-bottom-sheet .secbs-card-title { margin: 0; font-size: var(--kx-fs-lead); font-weight: var(--kx-fw-strong); color: var(--kx-ink); line-height: var(--kx-lh-tight); }
+#sector-bottom-sheet .secbs-card-sub { margin: 2px 0 0; font-size: var(--kx-fs-meta); color: var(--kx-ink-3); }
+
+/* Equipamiento: superficie salvia, escudo en círculo, media grande con estrella ámbar */
+#sector-bottom-sheet .secbs-equip { display: flex; align-items: center; gap: var(--kx-space-4); background: var(--kx-sage-soft); border-color: transparent; box-shadow: none; }
+#sector-bottom-sheet .secbs-equip-badge { flex: none; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: var(--kx-sage); color: var(--kx-forest); }
+#sector-bottom-sheet .secbs-equip-main { min-width: 0; }
+#sector-bottom-sheet .secbs-equip-value { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+#sector-bottom-sheet .secbs-equip-num { font-size: 1.875rem; font-weight: var(--kx-fw-heavy); color: var(--kx-ink); line-height: 1.1; font-variant-numeric: tabular-nums; }
+#sector-bottom-sheet .secbs-equip-star { fill: #F5B82E; stroke: #F5B82E; }
+#sector-bottom-sheet .secbs-equip-of { font-size: var(--kx-fs-lead); font-weight: var(--kx-fw-strong); color: var(--kx-ink-3); }
+#sector-bottom-sheet .secbs-equip-none { font-size: var(--kx-fs-lead); font-weight: var(--kx-fw-strong); color: var(--kx-ink-2); }
+#sector-bottom-sheet .secbs-equip.is-loading .secbs-equip-none { color: var(--kx-ink-3); font-weight: var(--kx-fw-text); }
+
+/* Tu exploración */
+#sector-bottom-sheet .secbs-explore-head { display: flex; align-items: center; justify-content: space-between; gap: var(--kx-space-2); }
+#sector-bottom-sheet .secbs-explore-tag { flex: none; padding: 4px 12px; border-radius: var(--kx-radius-pill); background: var(--kx-success-soft); color: var(--kx-success-ink); font-size: var(--kx-fs-meta); font-weight: var(--kx-fw-strong); }
+#sector-bottom-sheet .secbs-explore-tag.is-done { background: var(--kx-forest); color: #fff; }
+#sector-bottom-sheet .secbs-explore-nums { display: flex; align-items: baseline; justify-content: space-between; gap: var(--kx-space-2); margin-top: var(--kx-space-2); min-height: 2.5rem; }
+#sector-bottom-sheet .secbs-explore-count { font-size: var(--kx-fs-lead); font-weight: var(--kx-fw-text); color: var(--kx-ink-2); font-variant-numeric: tabular-nums; }
+#sector-bottom-sheet .secbs-explore-count strong { font-size: 2.125rem; font-weight: var(--kx-fw-heavy); color: var(--kx-forest); letter-spacing: var(--kx-ls-tight); margin-right: 2px; }
+#sector-bottom-sheet .secbs-explore-pct { font-size: 1.75rem; font-weight: var(--kx-fw-heavy); color: var(--kx-forest); letter-spacing: var(--kx-ls-tight); font-variant-numeric: tabular-nums; }
+#sector-bottom-sheet .secbs-explore-bar { position: relative; height: 12px; margin-top: var(--kx-space-2); border-radius: var(--kx-radius-pill); background: #DDE5DF; overflow: hidden; }
+#sector-bottom-sheet .secbs-explore-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; background: var(--kx-forest); transition: width 900ms var(--kx-ease); }
+#sector-bottom-sheet .secbs-explore-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--kx-space-2); margin-top: var(--kx-space-2); font-size: var(--kx-fs-meta); color: var(--kx-ink-3); }
+#sector-bottom-sheet .secbs-explore-pending { flex: none; font-weight: var(--kx-fw-strong); color: var(--kx-forest); }
+#sector-bottom-sheet .secbs-explore.is-empty .secbs-explore-caption,
+#sector-bottom-sheet .secbs-explore.is-complete .secbs-explore-caption { font-weight: var(--kx-fw-strong); color: var(--kx-forest); }
+#sector-bottom-sheet .secbs-explore-msg { margin: var(--kx-space-2) 0 0; font-size: var(--kx-fs-meta); line-height: var(--kx-lh-body); color: var(--kx-ink-2); }
+#sector-bottom-sheet .secbs-skel { display: inline-block; border-radius: 8px; background: var(--kx-stone-card); animation: secbs-skel 1.2s ease-in-out infinite alternate; }
+#sector-bottom-sheet .secbs-skel--num { width: 110px; height: 30px; }
+#sector-bottom-sheet .secbs-skel--pct { width: 64px; height: 30px; }
+#sector-bottom-sheet .secbs-skel--line { width: 60%; height: 14px; }
+@keyframes secbs-skel { to { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  #sector-bottom-sheet .secbs-explore-fill { transition: none; }
+  #sector-bottom-sheet .secbs-skel { animation: none; }
+}
+
+/* Vías por grado: tarjeta blanca, «Vías por Grado (31 total)», solo barras y grados.
+   Se conserva la selección de un grado (readout .kx-gchart-sel) y su acción «Ver las vías». */
+#sector-bottom-sheet .secbs-chart-container { margin-top: var(--kx-space-3); padding: var(--kx-space-4); border-radius: var(--kx-radius-lg); background: var(--kx-surface); border: 1px solid var(--kx-line); box-shadow: var(--kx-shadow-card); min-height: 0; }
+#sector-bottom-sheet #secbs-grade-chart { margin-top: var(--kx-space-3); }
+#sector-bottom-sheet .kx-gchart-head { justify-content: flex-start; gap: 6px; align-items: baseline; }
+#sector-bottom-sheet .kx-gchart-title { font-size: 1.25rem; font-weight: var(--kx-fw-strong); text-transform: none; letter-spacing: 0; color: var(--kx-ink); }
+#sector-bottom-sheet .kx-gchart-total { font-size: 1.25rem; font-weight: var(--kx-fw-strong); color: var(--kx-ink-3); }
+#sector-bottom-sheet .kx-gchart-sum,
+#sector-bottom-sheet .kx-gchart-note,
+#sector-bottom-sheet .kx-gchart-table,
+#sector-bottom-sheet .kx-gchart-grid { display: none; }
+#sector-bottom-sheet .kx-gchart { --kx-gplot-h: clamp(76px, 12vh, 104px); gap: 10px; }
+#sector-bottom-sheet .kx-gchart-readout { min-height: 0; }
+#sector-bottom-sheet .kx-gchart:not(.has-sel) .kx-gchart-readout { display: none; }
+#sector-bottom-sheet .kx-gchart-sel { min-height: 44px; }
+#sector-bottom-sheet .kx-gbar-fill { width: calc(100% - 2px); border-radius: 4px 4px 0 0; }
+#sector-bottom-sheet .kx-gbar-val { font-size: 0.8125rem; font-weight: 700; color: var(--kx-ink); }
+#sector-bottom-sheet .kx-gchart-bars { border-bottom: 0; }
+#sector-bottom-sheet .kx-gchart-xl { font-size: var(--kx-fs-caption); color: var(--kx-ink-3); }
+#sector-bottom-sheet .secbs-equip { padding-block: var(--kx-space-3); }
+#sector-bottom-sheet .kx-msheet-body > .secbs-info-row:first-child { padding-top: 4px; }
+/* «Tu exploración» más compacta */
+#sector-bottom-sheet .secbs-explore { padding: var(--kx-space-3) var(--kx-space-4); }
+#sector-bottom-sheet .secbs-explore-tag { padding: 2px 10px; font-size: var(--kx-fs-caption); }
+#sector-bottom-sheet .secbs-explore-nums { margin-top: 2px; min-height: 0; }
+#sector-bottom-sheet .secbs-explore-count strong { font-size: 1.625rem; }
+#sector-bottom-sheet .secbs-explore-count { font-size: var(--kx-fs-body); }
+#sector-bottom-sheet .secbs-explore-pct { font-size: 1.375rem; }
+#sector-bottom-sheet .secbs-explore-bar { height: 8px; margin-top: 6px; }
+#sector-bottom-sheet .secbs-explore-foot { margin-top: 6px; font-size: var(--kx-fs-caption); }
+#sector-bottom-sheet .secbs-skel--num, #sector-bottom-sheet .secbs-skel--pct { height: 24px; }
+/* Ficha de sector compacta: altura del contenido, como en el diseño */
+#sector-bottom-sheet .kx-fhead-title { font-size: 1.625rem; }
+#sector-bottom-sheet .secbs-info-row { padding: 6px 0; gap: 10px; }
+#sector-bottom-sheet .secbs-info-icon img { width: 28px; height: 28px; }
+#sector-bottom-sheet .secbs-card,
+#sector-bottom-sheet #secbs-grade-chart { margin-top: 10px; }
+#sector-bottom-sheet .secbs-equip { padding: 10px var(--kx-space-4); gap: var(--kx-space-3); }
+#sector-bottom-sheet .secbs-equip-badge { width: 48px; height: 48px; }
+#sector-bottom-sheet .secbs-equip-num { font-size: 1.625rem; }
+#sector-bottom-sheet .secbs-equip-value { margin-top: 0; }
+#sector-bottom-sheet .secbs-chart-container { padding: var(--kx-space-3) var(--kx-space-4); }
+#sector-bottom-sheet .kx-gchart-title,
+#sector-bottom-sheet .kx-gchart-total { font-size: 1.125rem; }
+/* Pantallas bajas (320×640…): todo cabe sin desplazar */
+@media (max-height: 700px) {
+  #sector-bottom-sheet .kx-fhead-title { font-size: 1.375rem; }
+  #sector-bottom-sheet .secbs-info-row { padding: 3px 0; }
+  #sector-bottom-sheet .secbs-info-icon img { width: 24px; height: 24px; }
+  #sector-bottom-sheet .secbs-info-text { font-size: var(--kx-fs-body); }
+  #sector-bottom-sheet .secbs-card,
+  #sector-bottom-sheet #secbs-grade-chart { margin-top: 8px; }
+  #sector-bottom-sheet .secbs-card-title { font-size: var(--kx-fs-body); }
+  #sector-bottom-sheet .secbs-equip { padding: 8px var(--kx-space-3); gap: 10px; border-radius: var(--kx-radius-md); }
+  #sector-bottom-sheet .secbs-equip-badge { width: 36px; height: 36px; }
+  #sector-bottom-sheet .secbs-equip-badge svg { width: 22px; height: 22px; }
+  #sector-bottom-sheet .secbs-equip-num { font-size: 1.25rem; }
+  #sector-bottom-sheet .secbs-equip-star { width: 18px; height: 18px; }
+  #sector-bottom-sheet .secbs-equip-of,
+  #sector-bottom-sheet .secbs-equip-none { font-size: var(--kx-fs-meta); }
+  #sector-bottom-sheet .secbs-card-sub { font-size: var(--kx-fs-caption); margin-top: 0; }
+  #sector-bottom-sheet .secbs-explore { padding: 8px var(--kx-space-3); border-radius: var(--kx-radius-md); }
+  #sector-bottom-sheet .secbs-explore-tag { font-size: 0.75rem; padding: 1px 8px; }
+  #sector-bottom-sheet .secbs-explore-count strong { font-size: 1.25rem; }
+  #sector-bottom-sheet .secbs-explore-count { font-size: var(--kx-fs-meta); }
+  #sector-bottom-sheet .secbs-explore-pct { font-size: 1.125rem; }
+  #sector-bottom-sheet .secbs-explore-bar { height: 6px; margin-top: 4px; }
+  #sector-bottom-sheet .secbs-explore-foot { margin-top: 4px; font-size: 0.75rem; }
+  #sector-bottom-sheet .secbs-explore-caption { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sector-bottom-sheet .secbs-chart-container { padding: 8px var(--kx-space-3); border-radius: var(--kx-radius-md); }
+  #sector-bottom-sheet .kx-gchart { --kx-gplot-h: 64px; gap: 6px; }
+  #sector-bottom-sheet .kx-gchart-title,
+  #sector-bottom-sheet .kx-gchart-total { font-size: var(--kx-fs-body); }
+}
+@media (max-width: 359px) { #sector-bottom-sheet .secbs-explore-long { display: none; } }
