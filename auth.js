@@ -30,7 +30,10 @@ function initAuthStateObserver() {
 
             if (user) {
                 // User signed in - Create/update user document in Firestore
-                createUserDocument(user);
+                // y, si la cuenta aún no tiene @usuario, se le pide que elija uno (usernames.js)
+                createUserDocument(user).then(() => {
+                    if (typeof KruxUsernamePrompt !== 'undefined') KruxUsernamePrompt.maybeShow(user);
+                });
 
                 // Seed default gym tests on first login (defined by src/boot/gymBoot.ts)
                 window.__kruxSeedTests?.().catch(console.error);

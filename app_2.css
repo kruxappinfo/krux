@@ -32492,3 +32492,26 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 .kxg-cm-input:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 1px; }
 .kxg-cm-send { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--kx-radius-pill); background: var(--kx-forest); color: #fff; font: inherit; font-size: var(--kx-fs-meta); font-weight: 700; cursor: pointer; }
 .kxg-cm-send[aria-busy="true"] { opacity: 0.6; pointer-events: none; }
+
+/* ====================================================================
+   NOMBRE DE USUARIO (usernames.js): campo @usuario, pantalla de elección y @ en el perfil
+   ==================================================================== */
+.kx-uname-field { display: flex; align-items: center; min-height: 48px; border: 1px solid var(--kx-line); border-radius: var(--kx-radius-sm); background: var(--kx-surface); padding-left: 14px; }
+.kx-uname-field:focus-within { border-color: var(--kx-forest); box-shadow: 0 0 0 3px var(--kx-primary-soft); }
+.kx-uname-field > span { color: var(--kx-ink-3); font-weight: 700; font-size: var(--kx-fs-body); }
+.edit-form-group .kx-uname-field input { flex: 1 1 auto; min-width: 0; border: 0 !important; outline: 0; box-shadow: none !important; background: transparent; padding-left: 4px; font-size: var(--kx-fs-body); }
+.kx-uname-status { min-height: 1.2em; margin: 6px 2px 0; font-size: var(--kx-fs-caption); color: var(--kx-ink-3); }
+.kx-uname-status[data-tone="ok"] { color: var(--kx-success-ink); }
+.kx-uname-status[data-tone="error"] { color: var(--kx-danger-ink); }
+.kx-uname-help { margin: 2px 2px 0; font-size: var(--kx-fs-caption); color: var(--kx-ink-3); }
+.kx-uname-intro { margin: 0 0 16px; color: var(--kx-ink-2); font-size: var(--kx-fs-meta); line-height: var(--kx-lh-body); }
+.kx-uname-overlay { z-index: 10050; }
+.kx-uname-later { display: block; width: 100%; min-height: 44px; margin-top: 6px; border: 0; background: transparent; color: var(--kx-ink-3); font: inherit; font-size: var(--kx-fs-meta); font-weight: 600; cursor: pointer; }
+.profile-handle-ig { margin: 2px 0 6px; color: var(--kx-ink-3); font-size: var(--kx-fs-meta); font-weight: 600; }
+.mention-dropdown-handle { display: block; color: var(--kx-ink-3); font-size: var(--kx-fs-caption); }
+/* Botón principal de «Editar perfil» y de la elección de usuario: verde bosque corporativo (antes, degradado morado) */
+.edit-profile-form .submit-btn { min-height: 48px; background: var(--kx-forest); border-radius: var(--kx-radius-pill); box-shadow: none; }
+.edit-profile-form .submit-btn:hover { background: var(--kx-primary-hover); box-shadow: none; transform: none; }
+.edit-profile-form .submit-btn:active { background: var(--kx-primary-pressed); box-shadow: none; }
+.edit-profile-form .submit-btn:disabled { background: var(--kx-forest); opacity: 0.55; }
+.kx-uname-modal .kx-uname-later { background: transparent; box-shadow: none; border-radius: var(--kx-radius-pill); }

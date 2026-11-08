@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=213" />
+  <link rel="stylesheet" href="./app_2.css?v=214" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -87,7 +87,8 @@
 
   <script defer src="./firebase-config.js"></script>
 
-  <script defer src="./auth.js?v=6"></script>
+  <script defer src="./usernames.js?v=1"></script>
+  <script defer src="./auth.js?v=7"></script>
 
   <script defer src="./user-features.js?v=9"></script>
 
@@ -107,7 +108,7 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=106"></script>
+  <script defer src="./app_3.js?v=107"></script>
   <script defer src="./activity-ui.js?v=7"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -342,6 +343,8 @@
               <div class="profile-info-ig">
                 <!-- Nombre grande -->
                 <h1 class="profile-displayname-ig" id="profile-name">Nombre</h1>
+                <!-- Nombre de usuario (usernames.js) -->
+                <p class="profile-handle-ig" id="profile-handle" hidden></p>
                 <!-- Stats inline -->
                 <div class="profile-stats-inline">
                   <button class="stat-inline" data-modal="followers">
@@ -2460,10 +2463,17 @@
           <p class="edit-photo-hint">Pulsa para cambiar foto</p>
         </div>
 
-        <!-- Display Name -->
+        <!-- Nombre de perfil -->
         <div class="edit-form-group">
           <label for="edit-display-name">Nombre</label>
           <input type="text" id="edit-display-name" placeholder="Tu nombre" required>
+        </div>
+
+        <!-- Nombre de usuario (único, usernames.js) -->
+        <div class="edit-form-group">
+          <label for="edit-username">Nombre de usuario</label>
+          <div class="kx-uname-field"><span aria-hidden="true">@</span><input type="text" id="edit-username" placeholder="tu.usuario" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="30" aria-describedby="edit-username-status"></div>
+          <p class="kx-uname-status" id="edit-username-status" aria-live="polite"></p>
         </div>
 
         <!-- Bio -->
