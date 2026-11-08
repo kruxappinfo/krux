@@ -32045,7 +32045,7 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
 #sector-bottom-sheet.has-hero .kx-msheet-body { position: relative; z-index: 1; background: transparent; }
 /* El nombre siempre legible aunque la imagen llegue debajo */
 #school-bottom-sheet.has-hero .kx-close,
-#sector-bottom-sheet.has-hero .kx-close { background: rgba(255, 255, 255, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#sector-bottom-sheet.has-hero .kx-close { background: rgba(255, 255, 255, 0.4); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 #school-bottom-sheet.has-hero .kx-fhead-title,
 #sector-bottom-sheet.has-hero .kx-fhead-title { text-shadow: 0 0 18px var(--kx-chalk), 0 0 6px var(--kx-chalk); }
 #school-bottom-sheet.has-hero .kx-fhead-meta .kx-tag { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4); }

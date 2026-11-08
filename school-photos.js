@@ -13,7 +13,7 @@
 //   credit    autoría de la foto (se muestra en el texto alternativo)
 
 const KX_SCHOOL_PHOTOS = {
-  // toledo: { src: 'assets/schools/toledo.webp', width: '64%', height: '200px', position: 'right top' },
+  toledo: { src: 'assets/schools/toledo.webp', width: '52%', height: '130px', position: 'right top' },
   mora: { src: 'assets/schools/mora.webp', width: '40%', height: '190px', position: 'right top' },
 };
 
