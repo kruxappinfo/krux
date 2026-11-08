@@ -13,6 +13,8 @@
 const KXG_KINDS = ['photo', 'hours', 'price', 'contact', 'facility', 'link'];
 const KXG_SINGLE = ['hours', 'price', 'contact'];   // una sola versión visible: la más reciente
 const KXG_TEXT_MAX = 500;
+const KXG_COMMENT_MAX = 500;
+const KXG_COMMENTS_PAGE = 10;   // comentarios visibles de golpe; «Ver más» enseña otros tantos
 // Redes y web: cada enlace es una aportación con red + dirección. De cada red se muestra la más reciente.
 // Solo se admiten direcciones https de la red elegida (la web puede ser cualquier dominio); se normaliza al guardar y al mostrar.
 const KXG_NETWORKS = [
@@ -80,6 +82,25 @@ function kxgMillis(t) {
 // Más recientes primero
 function kxgSort(items) {
   return items.slice().sort((a, b) => kxgMillis(b.createdAt) - kxgMillis(a.createdAt));
+}
+
+// Comentarios de un rocódromo: viven en la colección global «comments» (la misma que las vías) con routeId «gym_<id>»
+function kxgCommentRoute(gymId) { return `gym_${gymId}`; }
+
+// Más recientes primero; los textos vacíos o ajenos al rocódromo se descartan
+function kxgCommentList(items) {
+  return (items || []).filter(c => c && String(c.text || '').trim()).sort((a, b) => kxgMillis(b.createdAt) - kxgMillis(a.createdAt));
+}
+
+// «Ahora», «Hace 5 min», «Hace 3 h», «Hace 2 d» y, pasada una semana, «12 mar»
+function kxgAgo(ms, now = Date.now()) {
+  if (!ms) return '';
+  const m = Math.floor((now - ms) / 60000);
+  if (m < 1) return 'Ahora';
+  if (m < 60) return `Hace ${m} min`;
+  if (m < 1440) return `Hace ${Math.floor(m / 60)} h`;
+  if (m < 10080) return `Hace ${Math.floor(m / 1440)} d`;
+  return new Date(ms).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 }
 
 const KXG_REASONS = [
@@ -186,6 +207,23 @@ const KruxGymInfo = (() => {
     };
   }
 
+  // Comentarios (sin caché: se leen siempre frescos). Se ordenan en cliente para no depender de un índice compuesto.
+  async function comments(gymId) {
+    const snap = await db.collection('comments').where('routeId', '==', kxgCommentRoute(gymId)).get();
+    return kxgCommentList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  }
+  async function addComment(gymId, text) {
+    const u = firebase.auth().currentUser;
+    if (!u) throw new Error('auth');
+    const clean = String(text || '').trim().slice(0, KXG_COMMENT_MAX);
+    if (!clean) throw new Error('empty');
+    await db.collection('comments').add({
+      routeId: kxgCommentRoute(gymId), userId: u.uid, userName: (u.displayName || 'Usuario').slice(0, 80),
+      userPhoto: u.photoURL || null, text: clean, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }
+  async function removeComment(id) { await db.collection('comments').doc(id).delete(); }
+
   async function addText(gymId, kind, text) {
     if (!uid()) throw new Error('auth');
     const clean = String(text || '').trim().slice(0, KXG_TEXT_MAX);
@@ -236,7 +274,7 @@ const KruxGymInfo = (() => {
     try { const d = await db.collection('admins').doc(u.uid).get(); return d.exists && d.data().role === 'admin'; } catch (_) { return false; }
   }
 
-  return { list, cached, warm, report, addText, addFacility, addLink, addPhoto, adminUpdate, adminRemove, isAdmin };
+  return { list, cached, warm, report, comments, addComment, removeComment, addText, addFacility, addLink, addPhoto, adminUpdate, adminRemove, isAdmin };
 })();
 
 // ============================================
@@ -245,6 +283,7 @@ const KruxGymInfo = (() => {
 const KruxGymSheet = (() => {
   let el = null, sheet = null;
   let gym = null;           // { id, nombre, pago, cuerda, bloque, auto, coords }
+  let comments = [], commentDraft = '', commentsShown = KXG_COMMENTS_PAGE;
   let items = [], adminOk = false, editItem = null, photoIdx = 0, facPage = 0, view = 'info', reportReason = 'incorrect', addKind = 'hours', linkNet = 'instagram', busy = false;
   const toast = (msg, type = 'info') => { if (typeof showToast === 'function') showToast(msg, type); };
   const me = () => (firebase.auth().currentUser || {}).uid || null;
@@ -263,7 +302,8 @@ const KruxGymSheet = (() => {
     sheet = KXMapSheet.create(el, { snaps: ['expanded'], onStateChange: (s) => document.body.classList.toggle('kx-gym-open', s !== 'hidden') });
     el.addEventListener('click', onClick);
     el.addEventListener('change', onChange);
-    el.addEventListener('input', (e) => { if (e.target.id === 'kxg-url') kxSetFieldError('kxg-url', ''); if (e.target.id === 'kxg-proposal') kxSetFieldError('kxg-proposal', ''); });
+    el.addEventListener('submit', (e) => { if (e.target.matches('[data-kxg-form="comment"]')) { e.preventDefault(); sendComment(); } });
+    el.addEventListener('input', (e) => { if (e.target.id === 'kxg-comment') commentDraft = e.target.value; if (e.target.id === 'kxg-url') kxSetFieldError('kxg-url', ''); if (e.target.id === 'kxg-proposal') kxSetFieldError('kxg-proposal', ''); });
   }
 
   // Controles solo para la cuenta administradora: editar (textos y enlaces) y borrar
@@ -300,14 +340,34 @@ const KruxGymSheet = (() => {
     </div>`;
   }
 
+  // Las secciones sin información no se muestran: se rellenan desde «Aportar»
   function textRowHTML(kind, icon, title, it) {
-    const body = it
-      ? `<p class="kxg-text">${kxEsc(it.text)}</p><p class="kxg-by">Aportado por ${kxEsc(it.authorName || 'Usuario')}</p>`
-      : '<p class="kxg-none">Nadie lo ha añadido todavía.</p>';
+    if (!it) return '';
     return `<section class="kxg-card">
       <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon(icon, { size: 18 })}</span><h3 class="kxg-card-title">${title}</h3>
         ${adminHTML(it)}</div>
-      ${body}</section>`;
+      <p class="kxg-text">${kxEsc(it.text)}</p><p class="kxg-by">Aportado por ${kxEsc(it.authorName || 'Usuario')}</p></section>`;
+  }
+
+  function commentsHTML() {
+    const shown = comments.slice(0, commentsShown);
+    const mineId = me();
+    const initial = (n) => kxEsc(String(n || 'U').trim().charAt(0).toUpperCase() || 'U');
+    const row = (c) => `<li class="kxg-cm">
+      <span class="kxg-cm-av" aria-hidden="true">${c.userPhoto ? `<img src="${kxEsc(c.userPhoto)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}${initial(c.userName)}</span>
+      <div class="kxg-cm-main">
+        <p class="kxg-cm-head"><strong>${kxEsc(c.userName || 'Usuario')}</strong><span>${kxEsc(kxgAgo(kxgMillis(c.createdAt)))}</span>${mineId && c.userId === mineId ? `<button type="button" class="kxg-adm kxg-adm--del kxg-cm-del" data-kxg="c-del" data-id="${kxEsc(c.id)}" aria-label="Borrar mi comentario">${kxIcon('trash', { size: 16 })}</button>` : ''}</p>
+        <p class="kxg-text kxg-cm-text">${kxEsc(c.text)}</p>
+      </div></li>`;
+    return `<section class="kxg-card kxg-comments" id="kxg-comments">
+      <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon('messageCircle', { size: 18 })}</span><h3 class="kxg-card-title">Comentarios${comments.length ? ` <span class="kxg-cm-count">${comments.length}</span>` : ''}</h3></div>
+      ${shown.length ? `<ul class="kxg-cm-list">${shown.map(row).join('')}</ul>` : '<p class="kxg-none">Todavía no hay comentarios. Cuenta tu experiencia en este rocódromo.</p>'}
+      ${comments.length > shown.length ? '<button type="button" class="kxg-more" data-kxg="c-more">Ver más comentarios</button>' : ''}
+      <form class="kxg-cm-form" data-kxg-form="comment" novalidate>
+        <textarea id="kxg-comment" class="kxg-cm-input" rows="2" maxlength="${KXG_COMMENT_MAX}" placeholder="Escribe un comentario…" aria-label="Escribe un comentario">${kxEsc(commentDraft)}</textarea>
+        <button type="submit" class="kxg-cm-send" data-kxg="c-send" aria-label="Publicar comentario">${kxIcon('send', { size: 18 })}<span>Publicar</span></button>
+      </form>
+    </section>`;
   }
 
   function infoHTML() {
@@ -328,29 +388,25 @@ const KruxGymSheet = (() => {
           <div class="kxg-photo-actions">${adminHTML(cur)}</div>
         </div>`
       : '<p class="kxg-none">Aún no hay fotos. Sé la primera persona en subir una.</p>';
-    const facilities = v.facilities.length
-      ? facilitiesHTML(v.facilities)
-      : '<p class="kxg-none">Nadie ha indicado instalaciones todavía.</p>';
-    return `${tags ? `<div class="kxg-tags">${tags}</div>` : ''}
-      <section class="kxg-card">
-        <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon('image', { size: 18 })}</span><h3 class="kxg-card-title">Fotos</h3></div>
-        ${photos}</section>
-      ${textRowHTML('hours', 'clock', 'Horario', v.hours)}
-      ${textRowHTML('price', 'star', 'Precios', v.price)}
-      <section class="kxg-card">
-        <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon('mountain', { size: 18 })}</span><h3 class="kxg-card-title">Instalaciones</h3></div>
-        ${facilities}</section>
-      <section class="kxg-card">
-        <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon('link', { size: 18 })}</span><h3 class="kxg-card-title">Redes y web</h3></div>
-        ${v.links.length
-          ? `<ul class="kxg-links">${v.links.map(l => { const n = kxgNetwork(l.network); return `<li class="kxg-linkrow">
+    const section = (icon, title, body) => `<section class="kxg-card">
+        <div class="kxg-card-head"><span class="kxg-card-ic">${kxIcon(icon, { size: 18 })}</span><h3 class="kxg-card-title">${title}</h3></div>
+        ${body}</section>`;
+    const linksBody = `<ul class="kxg-links">${v.links.map(l => { const n = kxgNetwork(l.network); return `<li class="kxg-linkrow">
               <a class="kxg-link" href="${kxEsc(l.href)}" target="_blank" rel="noopener noreferrer" aria-label="${kxEsc(n.label)}: abrir ${kxEsc(kxgLinkDisplay(l.href))} (se abre en otra página)">
                 <span class="kxg-link-ic">${kxIcon(n.icon, { size: 20 })}</span>
                 <span class="kxg-link-text"><strong>${kxEsc(n.label)}</strong><small>${kxEsc(kxgLinkDisplay(l.href))}</small></span>
                 ${kxIcon('externalLink', { size: 16, cls: 'kxg-link-out' })}
-              </a>${adminHTML(l)}</li>`; }).join('')}</ul>`
-          : '<p class="kxg-none">Nadie ha añadido redes sociales ni web todavía.</p>'}</section>
+              </a>${adminHTML(l)}</li>`; }).join('')}</ul>`;
+    const empty = !cur && !v.hours && !v.price && !v.contact && !v.facilities.length && !v.links.length;
+    return `${tags ? `<div class="kxg-tags">${tags}</div>` : ''}
+      ${cur ? section('image', 'Fotos', photos) : ''}
+      ${textRowHTML('hours', 'clock', 'Horario', v.hours)}
+      ${textRowHTML('price', 'star', 'Precios', v.price)}
+      ${v.facilities.length ? section('mountain', 'Instalaciones', facilitiesHTML(v.facilities)) : ''}
+      ${v.links.length ? section('link', 'Redes y web', linksBody) : ''}
       ${textRowHTML('contact', 'messageCircle', 'Contacto', v.contact)}
+      ${empty ? '<p class="kxg-none kxg-empty">Aún no hay información de este rocódromo. Pulsa «Aportar» para añadir horario, precios, fotos o instalaciones.</p>' : ''}
+      ${commentsHTML()}
       <p class="kxg-note">La información la aporta la comunidad. Si algo está mal, pulsa ${kxIcon('triangleAlert', { size: 14 })} para avisarnos y proponer un cambio: lo revisaremos.</p>`;
   }
 
@@ -444,8 +500,11 @@ const KruxGymSheet = (() => {
   }
 
   async function load() {
+    const commentsTask = KruxGymInfo.comments(gym.id).catch(e => { console.warn('[Rocódromos] No se pudieron cargar los comentarios:', e); return null; });
     try {
       items = await KruxGymInfo.list(gym.id);
+      const c = await commentsTask;
+      if (c) comments = c;
     } catch (e) {
       console.warn('[Rocódromos] No se pudo cargar la información:', e);
       items = [];
@@ -459,6 +518,7 @@ const KruxGymSheet = (() => {
     ['hideBottomSheet', 'hideSectorBottomSheet', 'hideRouteBottomSheet'].forEach(fn => { try { if (typeof window[fn] === 'function') window[fn](); } catch (_) {} });
     gym = { ...p, coords };
     photoIdx = 0; facPage = 0;
+    comments = []; commentDraft = ''; commentsShown = KXG_COMMENTS_PAGE;
     closeLightbox();
     const known = KruxGymInfo.cached(p.id);
     items = known || [];
@@ -469,9 +529,37 @@ const KruxGymSheet = (() => {
     const before = known ? JSON.stringify(known.map(i => [i.id, i.text, i.url])) : null;
     await load();
     if (!gym || gym.id !== p.id || lb) return;
-    // Con datos ya pintados solo se vuelve a dibujar si algo cambió
-    if (known && JSON.stringify(items.map(i => [i.id, i.text, i.url])) === before) return;
+    // Con datos ya pintados solo se vuelve a dibujar si algo cambió (los comentarios llegan siempre después)
+    if (known && !comments.length && JSON.stringify(items.map(i => [i.id, i.text, i.url])) === before) return;
     if (view === 'loading' || view === 'info') { view = 'info'; render({ keepScroll: !!known }); }
+  }
+
+  async function sendComment() {
+    if (busy) return;
+    const input = el.querySelector('#kxg-comment');
+    const text = input ? input.value.trim() : '';
+    if (!text) { if (input) input.focus(); return; }
+    if (!me()) { askLogin(); return; }
+    busy = true;
+    const btn = el.querySelector('[data-kxg="c-send"]');
+    if (btn) btn.setAttribute('aria-busy', 'true');
+    const gymId = gym.id;
+    try {
+      await KruxGymInfo.addComment(gymId, text);
+      commentDraft = '';
+      const fresh = await KruxGymInfo.comments(gymId);
+      if (!gym || gym.id !== gymId) return;
+      comments = fresh;
+      render({ keepScroll: true });
+      toast('Comentario publicado', 'success');
+    } catch (e) {
+      console.error('[Rocódromos] Error al comentar:', e);
+      toast('No se pudo publicar el comentario. Revisa la conexión.', 'error');
+    } finally {
+      busy = false;
+      const b = el.querySelector('[data-kxg="c-send"]');
+      if (b) b.removeAttribute('aria-busy');
+    }
   }
 
   async function submit() {
@@ -716,6 +804,21 @@ const KruxGymSheet = (() => {
     },
     back() { view = 'info'; render(); },
     submit,
+    'c-send': sendComment,
+    'c-more'() { commentsShown += KXG_COMMENTS_PAGE; render({ keepScroll: true }); },
+    async 'c-del'(btn) {
+      if (busy) return;
+      busy = true;
+      try {
+        await KruxGymInfo.removeComment(btn.dataset.id);
+        comments = comments.filter(c => c.id !== btn.dataset.id);
+        render({ keepScroll: true });
+        toast('Comentario borrado', 'info');
+      } catch (e) {
+        console.error('[Rocódromos] Error al borrar el comentario:', e);
+        toast('No se pudo borrar el comentario', 'error');
+      } finally { busy = false; }
+    },
     go() { window.open(`https://www.google.com/maps/dir/?api=1&destination=${gym.coords[1]},${gym.coords[0]}`, '_blank'); },
     'a-edit'(btn) {
       editItem = items.find(i => i.id === btn.dataset.id) || null;
