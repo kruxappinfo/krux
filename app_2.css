@@ -32022,6 +32022,10 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
   pointer-events: none;
   border-top-right-radius: var(--kx-radius-sheet);
   overflow: hidden;
+  /* Fundido hacia la izquierda (nombre y etiquetas). Una sola máscara por elemento: la composición de dos
+     máscaras no se aplicaba en iOS y dejaba el borde de la foto cortado en seco */
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 55%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 55%);
 }
 #school-bottom-sheet .bs-hero img,
 #sector-bottom-sheet .bs-hero img {
@@ -32031,11 +32035,9 @@ button.kxs-entry:focus-visible { outline: 2px solid var(--kx-forest); outline-of
   object-fit: contain;
   object-position: var(--hero-pos, right top);
   transform: translate(var(--hero-x, 0px), var(--hero-y, 0px));
-  /* Se funde hacia la izquierda (nombre y etiquetas) y hacia abajo (contenido) */
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 48%), linear-gradient(to bottom, #000 52%, transparent 100%);
-  -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(to right, transparent 0%, #000 48%), linear-gradient(to bottom, #000 52%, transparent 100%);
-  mask-composite: intersect;
+  /* Se funde hacia abajo (contenido); el fundido lateral va en el contenedor */
+  -webkit-mask-image: linear-gradient(to bottom, #000 52%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 52%, transparent 100%);
 }
 #school-bottom-sheet .bs-hero.is-generic img,
 #sector-bottom-sheet .bs-hero.is-generic img { opacity: 0.85; }
