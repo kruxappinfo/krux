@@ -9145,7 +9145,7 @@ function renderDonutChart(gradeData) {
   if (!container) return;
 
   if (!gradeData || Object.keys(gradeData).length === 0) {
-    container.innerHTML = '<div style="color: #9ca3af; text-align: center; font-size: 14px; padding: 40px;">Todavía sin información</div>';
+    container.innerHTML = '<div class="bs-soon"><span class="bs-soon-badge">Próximamente</span><p class="bs-soon-text">Estamos preparando las vías de esta escuela.</p></div>';
     return;
   }
 
