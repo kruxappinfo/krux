@@ -4,7 +4,7 @@
  * PWA completa con soporte offline
  */
 
-const CACHE_VERSION = 'v232';
+const CACHE_VERSION = 'v233';
 const CACHE_NAME = `krux-cache-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `krux-data-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
@@ -47,6 +47,7 @@ const STATIC_ASSETS = [
   './assets/schools/toledo.webp',
   './assets/schools/sanmartin.webp',
   './assets/schools/cuenca.webp',
+  './assets/schools/pedriza.webp',
   './maplibre-map.js',
   './map-search.js',
   './user-features.js',
