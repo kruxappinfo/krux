@@ -14,6 +14,7 @@
 
 const KX_SCHOOL_PHOTOS = {
   toledo: { src: 'assets/schools/toledo.webp', width: '52%', height: '130px', position: 'right top' },
+  sanmartin: { src: 'assets/schools/sanmartin.webp', width: '60%', height: '150px', position: 'right top' },
   mora: { src: 'assets/schools/mora.webp', width: '40%', height: '190px', position: 'right top' },
 };
 
