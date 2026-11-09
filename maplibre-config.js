@@ -271,7 +271,7 @@ const MAPLIBRE_SCHOOLS = {
 const SCHOOL_MARKERS = [
   {
     id: 'patones',
-    nombre: 'Pontón de la Oliva',
+    nombre: 'Patones',
     coords: [-3.4436, 40.8874],
     zoom: 16,
     isOpen: false,
