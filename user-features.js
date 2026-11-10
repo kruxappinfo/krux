@@ -746,6 +746,108 @@ async function getUserStats() {
         return null;
     }
 }
+// ==================== VOTOS DE LA VÍA EN EL REGISTRO DE ASCENSO ====================
+// Grado, aleje y estado se votan aquí; la ficha de vía solo los muestra (maplibre-map.js).
+const KX_AVOTE_ALEJE = ['Muy pequeño', 'Pequeño', 'Normal', 'Expuesto', 'Muy expuesto'];
+
+const kxAscentVotes = {
+    ctx: null, // { schoolId, routeId, gradeOptions, initial, current, touched }
+
+    available(routeId) {
+        return Number.isFinite(Number(routeId)) && typeof kxSaveRouteVotes === 'function' &&
+            typeof getGradeVotes === 'function' && typeof ALL_GRADES_ORDERED !== 'undefined';
+    },
+
+    async open(schoolId, routeId, grade) {
+        this.reset();
+        if (!this.available(routeId) || !schoolId) return;
+        const rid = Number(routeId);
+        const officialIdx = ALL_GRADES_ORDERED.indexOf(grade);
+        const gradeOptions = [];
+        if (officialIdx !== -1) {
+            for (let i = Math.max(0, officialIdx - 2); i <= Math.min(ALL_GRADES_ORDERED.length - 1, officialIdx + 2); i++) gradeOptions.push(i);
+        }
+        const empty = { gradeIdx: null, aleje: null, estado: null };
+        this.ctx = { schoolId, routeId: rid, gradeOptions, initial: { ...empty }, current: { ...empty }, touched: {} };
+        document.getElementById('ascent-votes')?.classList.remove('hidden');
+        this.render();
+
+        // Votos que ya tenía el usuario
+        const ctx = this.ctx;
+        try {
+            const [g, a, e] = await Promise.all([getGradeVotes(schoolId, rid), getAlejeVotes(schoolId, rid), getEstadoVotes(schoolId, rid)]);
+            if (this.ctx !== ctx) return;
+            ctx.initial = { gradeIdx: g.userVoteIdx ?? null, aleje: a.userVote ?? null, estado: e.userVote ?? null };
+            Object.keys(ctx.initial).forEach(k => { if (!ctx.touched[k]) ctx.current[k] = ctx.initial[k]; });
+            const own = ctx.initial.gradeIdx;
+            if (own !== null && !ctx.gradeOptions.includes(own)) ctx.gradeOptions = [...ctx.gradeOptions, own].sort((x, y) => x - y);
+            this.render();
+        } catch (err) {
+            console.warn('[AscentVotes] No se han podido cargar tus votos:', err);
+        }
+    },
+
+    reset() {
+        this.ctx = null;
+        document.getElementById('ascent-votes')?.classList.add('hidden');
+        ['avote-grade', 'avote-aleje', 'avote-estado'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '';
+        });
+    },
+
+    pick(key, value) {
+        if (!this.ctx) return;
+        this.ctx.current[key] = this.ctx.current[key] === value ? null : value;
+        this.ctx.touched[key] = true;
+        this.render();
+    },
+
+    render() {
+        const ctx = this.ctx;
+        if (!ctx) return;
+        const opt = (key, value, label, extra = '') => {
+            const on = ctx.current[key] === value;
+            return `<button type="button" role="radio" aria-checked="${on}" class="kx-avote-opt${on ? ' is-on' : ''}${extra}" onclick="kxAscentVotes.pick('${key}', ${value})">${label}</button>`;
+        };
+
+        const gradeEl = document.getElementById('avote-grade');
+        if (gradeEl) {
+            gradeEl.closest('.kx-avote-row').hidden = ctx.gradeOptions.length === 0;
+            gradeEl.innerHTML = ctx.gradeOptions.map(i => opt('gradeIdx', i, ALL_GRADES_ORDERED[i])).join('');
+        }
+
+        const alejeEl = document.getElementById('avote-aleje');
+        if (alejeEl) {
+            alejeEl.innerHTML = KX_AVOTE_ALEJE.map((name, i) =>
+                opt('aleje', i + 1, `<span class="kx-avote-dot is-l${i + 1}" aria-hidden="true"></span>${name}`)).join('');
+        }
+
+        const estadoEl = document.getElementById('avote-estado');
+        if (estadoEl) {
+            const v = ctx.current.estado || 0;
+            let html = '';
+            for (let i = 1; i <= 5; i++) {
+                html += `<button type="button" role="radio" aria-checked="${v === i}" aria-label="${i} de 5" class="kx-avote-star${i <= v ? ' is-on' : ''}" onclick="kxAscentVotes.pick('estado', ${i})"><svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 6 6.5.8-4.8 4.5 1.2 6.5L12 17.3l-5.8 3.1 1.2-6.5L2.6 9.4l6.5-.8z"/></svg></button>`;
+            }
+            estadoEl.innerHTML = html;
+        }
+    },
+
+    // Guarda los votos cambiados. No bloquea el registro del ascenso si falla.
+    async save() {
+        const ctx = this.ctx;
+        const form = document.getElementById('ascent-form');
+        if (!ctx || (form && form.dataset.gymMode === 'true')) return;
+        try {
+            await kxSaveRouteVotes(ctx.schoolId, ctx.routeId, ctx.current, ctx.initial);
+        } catch (err) {
+            console.error('[AscentVotes] Error guardando votos:', err);
+            showToast('No se han podido guardar tus votos de la vía', 'error');
+        }
+    }
+};
+
 // Open ascent modal
 function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector) {
     if (!currentUser) {
@@ -779,6 +881,7 @@ function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector
     dateInput.max = todayStr;
     dateInput.valueAsDate = new Date();
 
+    kxAscentVotes.open(schoolId, routeId, grade);
     modal.classList.remove('hidden');
 }
 
@@ -790,6 +893,7 @@ function closeAscentModal() {
 
     modal.classList.add('hidden');
     form.reset();
+    kxAscentVotes.reset();
 
     // Reset style dropdown to default (redpoint)
     document.getElementById('ascent-style').value = 'redpoint';
@@ -894,6 +998,7 @@ function openEditAscentModal(ascent) {
     const submitBtn = form.querySelector('.submit-btn');
     submitBtn.textContent = 'Actualizar';
 
+    kxAscentVotes.open(ascent.schoolId, ascent.routeId, ascent.grade);
     modal.classList.remove('hidden');
 }
 
@@ -2509,6 +2614,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (isEditMode && ascentId) {
                     // Update existing ascent
                     await updateAscent(ascentId, ascentData);
+                    await kxAscentVotes.save();
                     closeAscentModal();
                     showToast('Ascenso actualizado', 'success');
                     // Reload and reopen My Routes list
@@ -2516,6 +2622,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     // Create new ascent
                     await logAscent(ascentData);
+                    await kxAscentVotes.save();
                     closeAscentModal();
                     showToast('Ascenso registrado', 'success');
                     if (typeof loadActivityData === 'function') loadActivityData();
