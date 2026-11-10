@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=77" />
+  <link rel="stylesheet" href="./app_2.css?v=218" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -87,28 +87,50 @@
 
   <script defer src="./firebase-config.js"></script>
 
-  <script defer src="./auth.js?v=5"></script>
+  <script defer src="./usernames.js?v=2"></script>
+  <script defer src="./auth.js?v=7"></script>
 
-  <script defer src="./user-features.js?v=4"></script>
+  <script defer src="./user-features.js?v=10"></script>
 
   <script defer src="./route-photos.js?v=2"></script>
 
-  <script defer src="./maplibre-config.js?v=3"></script>
+  <script defer src="./maplibre-config.js?v=5"></script>
 
-  <script defer src="./maplibre-map.js?v=15"></script>
+  <script defer src="./map-ui.js?v=23"></script>
+  <script defer src="./climb-session.js?v=2"></script>
+  <script defer src="./climb-session-ui.js?v=5"></script>
+  <script defer src="./gym-info.js?v=17"></script>
+  <script defer src="./climb-conditions.js?v=1"></script>
+  <script defer src="./school-photos.js?v=10"></script>
+  <script defer src="./sector-progress.js?v=1"></script>
+  <script defer src="./maplibre-map.js?v=78"></script>
 
-  <script defer src="./app_3.js?v=72"></script>
+  <script defer src="./train-catalog-data.js?v=2"></script>
+  <script defer src="./train-exercises.js?v=3"></script>
+  <script defer src="./train-plans.js?v=4"></script>
+  <script defer src="./app_3.js?v=107"></script>
+  <script defer src="./activity-ui.js?v=7"></script>
+  <script defer src="./train-library.js?v=3"></script>
+  <script defer src="./train-plans-ui.js?v=2"></script>
+  <script defer src="./train-profile.js?v=3"></script>
+  <script defer src="./train-recommender.js?v=4"></script>
+  <script defer src="./train-coach-ui.js?v=15"></script>
+  <script defer src="./train-hub-ui.js?v=2"></script>
+  <script defer src="./train-mental-data.js?v=1"></script>
+  <script defer src="./train-mental-ops.js?v=1"></script>
+  <script defer src="./train-mental-ui.js?v=3"></script>
 
   <script defer src="./mobile-auth.js?v=2"></script>
 
-  <script defer src="./dev-route-editor.js?v=2"></script>
+  <script defer src="./dev-route-editor.js?v=5"></script>
+  <script defer src="./map-search.js?v=6"></script>
 
   <script defer src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-  <script defer src="./sector-images.js?v=3"></script>
+  <script defer src="./sector-images.js?v=4"></script>
 
   <!-- Route Drawing Module -->
-  <link rel="stylesheet" href="./route-drawing.css?v=1">
-  <script defer src="./route-drawing.js?v=3"></script>
+  <link rel="stylesheet" href="./route-drawing.css?v=2">
+  <script defer src="./route-drawing.js?v=4"></script>
 </head>
 
 <body>
@@ -122,7 +144,7 @@
         <div class="feed-top">
         <header class="feed-header">
           <div class="feed-logo-container">
-            <span class="feed-wordmark" role="img" aria-label="KRUX">KRUX</span>
+            <span class="feed-wordmark" id="feed-wordmark" role="button" tabindex="0" aria-label="KRUX, volver arriba">KRUX</span>
           </div>
           <div class="feed-actions">
             <button class="icon-btn feed-search-btn" id="nav-search-btn" type="button" aria-label="Buscar">
@@ -154,6 +176,17 @@
         <div class="feed-composer-wrap">
           <button type="button" class="feed-composer" id="nav-create-btn" aria-label="Crear publicación">
             <img id="feed-composer-avatar" class="feed-composer-avatar" alt="">
+            <script>
+              // Foto del último usuario antes de que cargue el JS: evita el parpadeo con las iniciales
+              try {
+                var kxLast = JSON.parse(localStorage.getItem('kx-last-user') || 'null');
+                if (kxLast && kxLast.photo) {
+                  var kxAv = document.getElementById('feed-composer-avatar');
+                  kxAv.referrerPolicy = 'no-referrer';
+                  kxAv.src = kxLast.photo;
+                }
+              } catch (e) {}
+            </script>
             <span class="feed-composer-field">¿Qué quieres compartir?</span>
             <span class="feed-composer-icon" aria-hidden="true"></span>
           </button>
@@ -178,6 +211,30 @@
       <!-- VISTA 2: MAPA -->
       <div id="map-view" class="view hidden">
         <div id="map"></div>
+        <!-- Barra superior flotante: buscador propio del mapa (escuelas, sectores y vías, con sugerencias en línea) y leyenda -->
+        <div class="map-topbar" id="map-topbar">
+          <div class="map-search-wrap" id="map-search-wrap">
+            <label class="map-search" id="map-search">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <line x1="20" y1="20" x2="16.2" y2="16.2"></line>
+              </svg>
+              <input type="search" id="map-search-input" placeholder="Buscar escuelas, rocódromos, sectores o vías"
+                autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search"
+                role="combobox" aria-label="Buscar escuelas, rocódromos, sectores o vías" aria-autocomplete="list"
+                aria-expanded="false" aria-controls="map-suggest">
+              <button type="button" class="map-search-clear" id="map-search-clear" aria-label="Borrar búsqueda" hidden>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </label>
+            <div class="map-suggest" id="map-suggest" role="listbox" aria-label="Sugerencias" hidden></div>
+          </div>
+        </div>
         <!-- Admin: floating toolbar for drag-to-edit geometry -->
         <div id="admin-edit-toolbar" class="hidden" style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(15,23,42,0.92);border-radius:12px;padding:10px 16px;display:flex;gap:10px;align-items:center;pointer-events:auto;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
           <span style="color:white;font-size:13px;font-weight:600;">✏️ Arrastra los marcadores</span>
@@ -286,6 +343,8 @@
               <div class="profile-info-ig">
                 <!-- Nombre grande -->
                 <h1 class="profile-displayname-ig" id="profile-name">Nombre</h1>
+                <!-- Nombre de usuario (usernames.js) -->
+                <p class="profile-handle-ig" id="profile-handle" hidden></p>
                 <!-- Stats inline -->
                 <div class="profile-stats-inline">
                   <button class="stat-inline" data-modal="followers">
@@ -431,309 +490,84 @@
       <div id="activity-view" class="view hidden">
         <div class="activity-scroll-container">
 
-          <!-- Header con toggle -->
-          <header class="activity-header">
-            <h1 class="activity-title">Actividad</h1>
-            <div class="act-mode-toggle" id="activity-mode-toggle">
-              <button class="act-mode-btn active" id="btn-roca" data-mode="roca">Roca</button>
-              <button class="act-mode-btn" id="btn-rocodromo" data-mode="rocodromo">Rocódromo</button>
+          <!-- Cabecera: título, nueva ascensión y selector Roca / Rocódromo -->
+          <header class="activity-header ax-header">
+            <div class="ax-header-row">
+              <div class="ax-title-wrap">
+                <span class="ax-wordmark" aria-hidden="true">KRUX</span>
+                <h1 class="activity-title ax-title">Actividad</h1>
+              </div>
+              <button class="ax-add" id="new-ascent-btn" type="button" aria-label="Nueva ascensión">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </div>
+            <div class="act-mode-toggle ax-mode" id="activity-mode-toggle" role="group" aria-label="Tipo de escalada">
+              <button class="act-mode-btn active" id="btn-roca" data-mode="roca" type="button" aria-pressed="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 19 6.5-11 4 6.5 2.5-3.5 5 8z"/></svg>Roca</button>
+              <button class="act-mode-btn" id="btn-rocodromo" data-mode="rocodromo" type="button" aria-pressed="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></svg>Rocódromo</button>
             </div>
           </header>
 
           <!-- MODO ROCA -->
           <div id="content-roca">
+            <section class="ax-sec" id="ax-project" aria-label="Proyecto activo"></section>
+            <section class="ax-sec" id="ax-perf" aria-label="Tu rendimiento"></section>
+            <section class="ax-sec" id="ax-meters" aria-label="Metros escalados"></section>
+            <section class="ax-sec" id="ax-evolution" aria-label="Evolución"></section>
+            <section class="ax-sec" id="ax-pyramid" aria-label="Pirámide de grados"></section>
+            <section class="ax-sec" id="ax-consistency" aria-label="Consistencia anual"></section>
+            <section class="ax-sec" id="ax-records" aria-label="Tus mejores marcas"></section>
+            <section class="ax-sec" id="ax-places" aria-label="Tus lugares favoritos"></section>
 
-            <!-- Hero Card -->
-            <div class="act-hero">
-              <div class="act-hero-left">
-                <div class="act-hero-label">Proyecto activo</div>
-                <div class="act-hero-grade" id="hero-project-grade">-</div>
-                <div class="act-hero-sub" id="hero-project-name">Sin proyecto activo</div>
-                <div class="act-hero-badges" id="hero-badges-roca"></div>
-              </div>
-              <div class="act-hero-right">
-                <div class="act-hero-compare" id="hero-compare-roca">Cargando datos...</div>
-                <svg class="act-sparkline" id="hero-sparkline-roca" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>
-              </div>
-              <div class="act-hero-milestone" id="hero-milestone">
-                <div class="act-hero-milestone-row">
-                  <span class="act-hero-milestone-current">
-                    <strong id="hero-meters">0 m</strong>
-                    <span id="hero-milestone-name"></span>
-                  </span>
-                  <span class="act-hero-milestone-next" id="hero-milestone-next"></span>
-                </div>
-                <div class="act-hero-progress-track">
-                  <div class="act-hero-progress-fill" id="hero-progress-fill"></div>
-                </div>
-              </div>
-            </div>
+            <section class="ax-sec" id="ax-climb" aria-label="Sesiones de escalada"></section>
 
-            <!-- Progress Cards -->
-            <div class="pc-wrap">
-              <div class="pc-header">
-                <div class="act-histogram-tabs" id="pc-tabs">
-                  <button class="act-htab" data-pc="week">Semana</button>
-                  <button class="act-htab active" data-pc="month">Mes</button>
-                  <button class="act-htab" data-pc="year">Año</button>
-                  <button class="act-htab" data-pc="custom">Personalizado</button>
-                </div>
-                <select id="pc-time-nav" class="pc-time-nav"></select>
+            <section class="ax-sec" aria-label="Últimas sesiones">
+              <div class="ax-bare-head"><h2 class="ax-h2 ax-h2--lg">Últimas sesiones</h2></div>
+              <div class="ax-seg ax-seg--chips act-timeline-filters" id="act-timeline-filters" role="group" aria-label="Filtrar sesiones">
+                <button class="ax-seg-btn act-tf is-active active" data-filter="all" type="button" aria-pressed="true">Todo</button>
+                <button class="ax-seg-btn act-tf" data-filter="flash" type="button" aria-pressed="false">Flash</button>
+                <button class="ax-seg-btn act-tf" data-filter="redpoint" type="button" aria-pressed="false">Encadenadas</button>
+                <button class="ax-seg-btn act-tf" data-filter="project" type="button" aria-pressed="false">Proyectos</button>
               </div>
-              <div class="pc-custom-banner hidden" id="pc-custom-banner">
-                <span id="pc-banner-text"></span>
-                <span class="pc-banner-clear" id="pc-banner-clear">Limpiar</span>
-              </div>
-              <div class="pc-nav" id="pc-nav">
-                <button class="pc-nav-arrow pc-nav-arrow-prev" id="pc-arrow-prev" aria-label="Anterior">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-                <div class="pc-carousel-outer" id="pc-carousel-outer">
-                  <div class="pc-carousel" id="pc-carousel"></div>
-                </div>
-                <button class="pc-nav-arrow pc-nav-arrow-next" id="pc-arrow-next" aria-label="Siguiente">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-              </div>
-              <div class="pc-carousel-dots" id="pc-carousel-dots"></div>
-            </div>
-
-            <!-- Custom date popup -->
-            <div class="pc-overlay hidden" id="pc-overlay">
-              <div class="pc-popup">
-                <div class="pc-popup-title">Rango personalizado</div>
-                <div class="pc-popup-sub">Selecciona el periodo a analizar</div>
-                <div class="pc-preset-row">
-                  <button class="pc-preset" data-days="7">Últimos 7 días</button>
-                  <button class="pc-preset" data-days="30">Últimos 30 días</button>
-                  <button class="pc-preset" data-days="90">Últimos 3 meses</button>
-                </div>
-                <div class="pc-date-row">
-                  <div class="pc-date-field">
-                    <label>Desde</label>
-                    <input type="date" id="pc-date-from" />
-                  </div>
-                  <div class="pc-date-field">
-                    <label>Hasta</label>
-                    <input type="date" id="pc-date-to" />
-                  </div>
-                </div>
-                <div class="pc-popup-actions">
-                  <button class="pc-btn-cancel" id="pc-btn-cancel">Cancelar</button>
-                  <button class="pc-btn-apply" id="pc-btn-apply">Aplicar</button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Pirámide de grados -->
-            <div class="act-section-title">Pirámide de grados</div>
-            <div class="act-pyramid-wrap">
-              <div class="act-pyramid-subtitle">Grado encadenado (nº vías)</div>
-              <div id="act-pyramid-roca"></div>
-              <div class="act-pyramid-footer">Grado consolidado: <span id="act-consolidated-grade">-</span> · ≥5 vías encadenadas</div>
-            </div>
-
-            <!-- Heatmap -->
-            <div class="act-section-title">Consistencia anual</div>
-            <div class="act-heatmap-wrap">
-              <div class="act-heatmap-months" id="act-heatmap-months-roca"></div>
-              <div class="act-heatmap-grid">
-                <div class="act-heatmap-days">
-                  <div class="act-heatmap-day-label">L</div>
-                  <div class="act-heatmap-day-label">M</div>
-                  <div class="act-heatmap-day-label">X</div>
-                  <div class="act-heatmap-day-label">J</div>
-                  <div class="act-heatmap-day-label">V</div>
-                  <div class="act-heatmap-day-label">S</div>
-                  <div class="act-heatmap-day-label">D</div>
-                </div>
-                <div class="act-heatmap-weeks" id="act-heatmap-weeks-roca"></div>
-              </div>
-              <div class="act-heatmap-legend">
-                <span>Menos</span>
-                <div class="act-hl-cell hm-0"></div>
-                <div class="act-hl-cell hm-r1"></div>
-                <div class="act-hl-cell hm-r2"></div>
-                <div class="act-hl-cell hm-r3"></div>
-                <div class="act-hl-cell hm-r4"></div>
-                <span>Más</span>
-              </div>
-            </div>
-
-            <!-- Récords -->
-            <div class="act-section-title">Récords personales</div>
-            <div class="act-records-grid">
-              <div class="act-rec-card">
-                <div class="act-rec-label">Grado máximo</div>
-                <div class="act-rec-value" id="record-highest-grade">-</div>
-                <div class="act-rec-sub" id="record-highest-route">-</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Flash más alto</div>
-                <div class="act-rec-value" id="record-highest-flash">-</div>
-                <div class="act-rec-sub" id="record-flash-route">-</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Mejor racha</div>
-                <div class="act-rec-value" id="record-streak">-</div>
-                <div class="act-rec-sub">Días escalando</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Más vías en un día</div>
-                <div class="act-rec-value" id="record-most-day">-</div>
-                <div class="act-rec-sub" id="record-most-date">-</div>
-              </div>
-            </div>
-
-            <!-- Histograma de progreso (oculto - mantener para futura reactivación) -->
-            <!--
-            <div class="act-histogram-header">
-              <div class="act-section-title" id="histogram-title">Progreso mensual</div>
-              <div class="act-histogram-tabs">
-                <button class="act-htab" data-histogram="week">Semana</button>
-                <button class="act-htab active" data-histogram="month">Mes</button>
-                <button class="act-htab" data-histogram="year">Año</button>
-              </div>
-            </div>
-            <div class="act-histogram-card">
-              <div class="histogram-legend">
-                <div class="legend-item"><span class="legend-bar"></span><span class="legend-text">Nº ascensiones</span></div>
-                <div class="legend-item"><span class="legend-line legend-line-avg"></span><span class="legend-text">Grado medio</span></div>
-                <div class="legend-item"><span class="legend-line legend-line-max"></span><span class="legend-text">Grado máximo</span></div>
-                <div class="legend-item"><span class="legend-line legend-line-min"></span><span class="legend-text">Grado mínimo</span></div>
-              </div>
-              <div class="combined-histogram-container" id="combined-histogram-container">
-                <div class="histogram-bar-labels-row">
-                  <div class="histogram-x-axis-spacer"></div>
-                  <div class="histogram-bar-labels" id="histogram-bar-labels"></div>
-                  <div class="histogram-x-axis-spacer"></div>
-                </div>
-                <div class="histogram-wrapper">
-                  <div class="histogram-y-axis histogram-y-axis-left" id="histogram-grade-axis"></div>
-                  <div class="histogram-chart-area" id="histogram-chart-area">
-                    <svg class="histogram-grid" id="histogram-grid" preserveAspectRatio="none"></svg>
-                    <div class="histogram-bars" id="histogram-bars"></div>
-                    <svg class="histogram-lines" id="histogram-lines" preserveAspectRatio="none"></svg>
-                  </div>
-                  <div class="histogram-y-axis histogram-y-axis-right" id="histogram-ascent-axis"></div>
-                </div>
-                <div class="histogram-x-axis-row">
-                  <div class="histogram-x-axis-spacer"></div>
-                  <div class="histogram-x-axis" id="histogram-x-axis"></div>
-                  <div class="histogram-x-axis-spacer"></div>
-                </div>
-                <div id="histogram-tooltip" class="histogram-tooltip hidden"></div>
-              </div>
-            </div>
-            -->
-
-
-
-            <!-- Timeline de ascensiones -->
-            <div class="act-section-title">Últimas sesiones</div>
-            <div class="act-timeline-filters" id="act-timeline-filters">
-              <button class="act-tf active" data-filter="all">Todo</button>
-              <button class="act-tf" data-filter="flash">Flash ⚡</button>
-              <button class="act-tf" data-filter="redpoint">Encadenadas 🔴</button>
-              <button class="act-tf" data-filter="project">Proyectos 🎯</button>
-            </div>
-            <div class="activity-list" id="activity-list">
-              <div class="activity-empty-state" id="activity-empty">
-                <div class="empty-icon">
-                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <circle cx="12" cy="8" r="4"></circle>
-                    <path d="M12 14l-4 8h8l-4-8z"></path>
-                    <path d="M8 22l2-4"></path>
-                    <path d="M16 22l-2-4"></path>
-                  </svg>
-                </div>
-                <h3>Sin ascensiones registradas</h3>
-                <p>¡Comienza a registrar tus ascensiones!</p>
-              </div>
-            </div>
-
+              <div class="activity-list ax-sess-list" id="activity-list"></div>
+            </section>
           </div><!-- /content-roca -->
 
           <!-- MODO ROCÓDROMO -->
           <div id="content-rocodromo" style="display:none;">
 
-            <!-- Mis rocódromos -->
-            <div id="gym-mis-rocodromos"></div>
-
-            <!-- Test Header Rocódromo -->
-            <div id="test-header-root"></div>
-
-            <!-- Hero Card Rocódromo -->
-            <div class="act-hero act-hero-gym">
-              <div class="act-hero-left">
-                <div class="act-hero-label">Esta semana</div>
-                <div class="act-hero-grade act-hero-grade-gym" id="hero-gym-week-routes">- vías</div>
-                <div class="act-hero-sub" id="hero-gym-goal">Registra sesiones para ver tu progreso</div>
-                <div class="act-hero-badges" id="hero-badges-gym"></div>
-              </div>
-              <div class="act-hero-right">
-                <div class="act-hero-compare" id="hero-compare-gym">Registra sesiones de rocódromo para ver estadísticas.</div>
-                <svg class="act-sparkline act-sparkline-gym" id="hero-sparkline-gym" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>
-              </div>
-            </div>
-
-            <!-- Pirámide de grados Rocódromo -->
-            <div id="gym-pyramid-wrap"></div>
-
-            <!-- Heatmap Rocódromo -->
-            <div class="act-section-title">Consistencia anual</div>
-            <div id="gym-activity-heatmap"></div>
-
-            <!-- Stats Rocódromo -->
-            <div class="act-section-title">Estadísticas de entrenamiento</div>
-            <div class="act-records-grid">
-              <div class="act-rec-card">
-                <div class="act-rec-label">Sesiones / semana</div>
-                <div class="act-rec-value act-rec-gym" id="gym-sessions-week">-</div>
-                <div class="act-rec-sub">Media últimas 8 semanas</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Flash rate</div>
-                <div class="act-rec-value act-rec-gym" id="gym-flash-rate">-</div>
-                <div class="act-rec-sub">En rocódromo</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Grado máximo</div>
-                <div class="act-rec-value act-rec-gym" id="gym-max-grade">-</div>
-                <div class="act-rec-sub">En rocódromo</div>
-              </div>
-              <div class="act-rec-card">
-                <div class="act-rec-label">Total sesiones</div>
-                <div class="act-rec-value act-rec-gym" id="gym-total-sessions">-</div>
-                <div class="act-rec-sub">Registradas</div>
-              </div>
-            </div>
-
-            <!-- Timeline Rocódromo -->
-            <div class="act-section-title">Últimas sesiones</div>
-            <div class="activity-list" id="activity-list-gym">
-              <div class="activity-empty-state">
-                <div class="empty-icon">
-                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <circle cx="12" cy="8" r="4"></circle>
-                    <path d="M12 14l-4 8h8l-4-8z"></path>
-                  </svg>
+            <!-- 1. Resumen de entrenamiento -->
+            <section class="ax-sec" aria-label="Resumen de entrenamiento">
+              <article class="ax-panel">
+                <header class="ax-panel-head"><h2 class="ax-h2">Resumen de entrenamiento</h2></header>
+                <div class="ax-metrics">
+                  <div class="ax-metric"><strong class="ax-metric-val" id="gym-sessions-week">-</strong><span class="ax-metric-lbl">Sesiones por semana <small>(últimas 8)</small></span></div>
+                  <div class="ax-metric"><strong class="ax-metric-val" id="gym-flash-rate">-</strong><span class="ax-metric-lbl">Flash rate</span></div>
+                  <div class="ax-metric"><strong class="ax-metric-val" id="gym-max-grade">-</strong><span class="ax-metric-lbl">Grado máximo</span></div>
+                  <div class="ax-metric"><strong class="ax-metric-val" id="gym-total-sessions">-</strong><span class="ax-metric-lbl">Sesiones totales</span></div>
                 </div>
-                <h3>Sin sesiones en rocódromo</h3>
-                <p>Añade "Rocódromo" al registrar una ascensión</p>
-              </div>
-            </div>
+              </article>
+            </section>
+
+            <!-- 2. Tests de rendimiento -->
+            <div id="test-header-root" class="ax-sec"></div>
+
+            <!-- 3. Evolución física -->
+            <section class="ax-sec" id="ax-physical" aria-label="Evolución física"></section>
+
+            <!-- 4. Consistencia anual -->
+            <section class="ax-sec" id="ax-gym-consistency" aria-label="Consistencia anual"></section>
+
+            <!-- 5. Últimas sesiones -->
+            <section class="ax-sec" aria-label="Últimas sesiones de rocódromo">
+              <div class="ax-bare-head"><h2 class="ax-h2 ax-h2--lg">Últimas sesiones</h2></div>
+              <div class="activity-list ax-sess-list" id="activity-list-gym"></div>
+            </section>
+
+            <!-- Pirámide y rocódromos visitados -->
+            <div id="gym-pyramid-wrap" class="ax-sec"></div>
+            <div id="gym-mis-rocodromos" class="ax-sec"></div>
 
           </div><!-- /content-rocodromo -->
-
-          <!-- FAB Nueva Ascensión -->
-          <button class="act-fab" id="new-ascent-btn">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            Nueva ascensión
-          </button>
 
           <!-- Nodos legacy que el JS aún puede referenciar (ocultos) -->
           <div style="display:none;">
@@ -1244,77 +1078,120 @@
       <div id="train-view" class="view hidden">
         <div class="train-wrap">
 
-          <!-- Header fijo -->
+          <!-- Cabecera -->
           <header class="train-header">
             <h1 class="train-title">Entrena</h1>
             <div class="train-gear-wrap">
-            <button class="train-settings-btn" id="train-new-plan-btn" aria-label="Opciones de plan">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
-            <!-- Dropdown menu -->
-            <div class="train-gear-menu hidden" id="train-gear-menu">
-              <button class="train-gear-item" id="train-gear-new">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                Mis planes
+              <button class="train-settings-btn" id="train-new-plan-btn" aria-label="Opciones de plan" aria-haspopup="menu" aria-expanded="false" aria-controls="train-gear-menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               </button>
+              <div class="train-gear-menu hidden" id="train-gear-menu" role="menu">
+                <button class="train-gear-item" id="train-gear-plans" role="menuitem" hidden>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/></svg>
+                  Mis planes
+                </button>
+                <button class="train-gear-item" id="train-gear-profile" role="menuitem" hidden>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  Mi perfil de escalador
+                </button>
+                <button class="train-gear-item" id="train-gear-new" role="menuitem">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="2.5" x2="8" y2="5.5"/><line x1="16" y1="2.5" x2="16" y2="5.5"/><line x1="12" y1="13" x2="12" y2="18"/><line x1="9.5" y1="15.5" x2="14.5" y2="15.5"/></svg>
+                  Crear plan
+                </button>
+                <button class="train-gear-item" id="train-gear-wizard" role="menuitem">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.7 1.8L21.5 17.5l-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z"/></svg>
+                  Crear con asistente
+                </button>
+                <button class="train-gear-item" id="train-gear-edit" role="menuitem">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  Editar plan activo
+                </button>
+                <button class="train-gear-item" id="train-gear-library" role="menuitem">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                  Biblioteca de ejercicios
+                </button>
+                <button class="train-gear-item" id="train-gear-mental" role="menuitem" hidden>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/><path d="M9 21h6"/></svg>
+                  Biblioteca mental
+                </button>
+              </div>
             </div>
-            </div><!-- /train-gear-wrap -->
           </header>
 
-          <!-- Contenido scrollable -->
+          <!-- Contenido con scroll -->
           <div class="train-content">
 
+            <!-- Estado de sincronización (sin conexión / pendientes / conflictos) -->
+            <div class="mp-notice hidden" id="train-sync" role="status" aria-live="polite"></div>
+
+            <!-- Resumen de la semana -->
+            <section class="train-hero" aria-labelledby="train-hero-title">
+              <div class="train-hero-text">
+                <h2 class="train-hero-title" id="train-hero-title">Tu semana</h2>
+                <p class="train-hero-sub" id="train-hero-sub"></p>
+                <div class="train-hero-meter" id="train-hero-meter" aria-hidden="true"></div>
+                <p class="train-hero-note" id="train-hero-note"></p>
+                <button type="button" class="train-hero-cta hidden" id="train-hero-cta">Crear plan</button>
+              </div>
+              <div class="train-hero-photo" aria-hidden="true"></div>
+            </section>
+
+            <!-- Para ti: perfil del escalador (solo con KRUX_COACH) -->
+            <section class="cx-foryou hidden" id="train-foryou" aria-label="Para ti"></section>
+
             <!-- Calendario semanal -->
-            <div class="train-section">
+            <section class="train-week" aria-label="Calendario semanal">
               <div class="train-week-header">
-                <span class="train-week-title" id="train-week-title"></span>
+                <span class="train-week-title" id="train-week-title" aria-live="polite"></span>
                 <div class="train-week-nav">
                   <button class="train-week-btn" id="train-week-prev" aria-label="Semana anterior">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
                   </button>
                   <button class="train-week-btn" id="train-week-next" aria-label="Semana siguiente">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
                   </button>
                 </div>
               </div>
               <div class="train-days-row" id="train-days-row"></div>
+            </section>
 
-              <!-- Auto-progresión -->
-              <div class="train-suggestion" id="train-suggestion">
-                <svg class="train-suggestion-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line>
-                  <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
-                  <line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line>
-                  <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
-                </svg>
-                <span class="train-suggestion-text"><strong>Sugerencia:</strong> última sesión hiciste Max Hang 4×10s +20kg · RPE 7 → prueba +22kg hoy</span>
-              </div>
-            </div>
+            <!-- Último registro (solo con datos reales de una sesión hecha) -->
+            <section class="train-suggestion hidden" id="train-suggestion" aria-label="Último registro"></section>
 
-            <!-- Sesión del día -->
-            <div class="train-section">
-              <div class="train-session-card">
-                <div class="train-session-top">
-                  <div>
-                    <div class="train-session-name" id="train-session-name">Fuerza en media llave</div>
-                    <div class="train-session-meta" id="train-session-meta">4 ejercicios · ~60 min</div>
-                  </div>
-                  <span class="train-session-badge" id="train-session-badge">Hoy</span>
+            <!-- Sesión del día seleccionado -->
+            <section class="train-session" aria-labelledby="train-session-name">
+              <div class="train-session-top">
+                <div class="train-session-head">
+                  <h2 class="train-session-name" id="train-session-name">Sesión</h2>
+                  <p class="train-session-meta" id="train-session-meta"></p>
                 </div>
-                <div class="train-exercise-list" id="train-exercise-list"></div>
+                <span class="train-session-badge" id="train-session-badge">Hoy</span>
               </div>
-            </div>
+              <div class="train-exercise-list" id="train-exercise-list" role="list"></div>
+              <div class="mx-session hidden" id="train-mental-session"></div>
+            </section>
+
+            <!-- Acceso a la biblioteca -->
+            <button type="button" class="train-lib-link" id="train-lib-link">
+              <span class="train-lib-link-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+              <span class="train-lib-link-text"><strong>Biblioteca de ejercicios</strong><small>Busca, filtra y añade ejercicios a tu plan</small></span>
+              <svg class="train-lib-link-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+
+            <!-- Biblioteca mental (solo con KRUX_COACH) -->
+            <button type="button" class="train-lib-link" id="train-mental-link" hidden>
+              <span class="train-lib-link-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/><path d="M9 21h6"/></svg></span>
+              <span class="train-lib-link-text"><strong>Biblioteca mental</strong><small>Lecciones y ejercicios guiados</small></span>
+              <svg class="train-lib-link-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
 
           </div><!-- /train-content -->
 
-          <!-- Botón anclado al fondo -->
+          <!-- Acción principal -->
           <div class="train-footer">
             <button class="train-start-btn" id="train-start-btn">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-              Iniciar sesión activa ↗
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
+              <span id="train-start-label">Comenzar entrenamiento</span>
             </button>
           </div>
 
@@ -1337,13 +1214,11 @@
       <button class="nav-item" id="nav-train-btn" data-target="train-view">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6.5 6.5h11"></path>
-          <path d="M6.5 17.5h11"></path>
-          <line x1="12" y1="6.5" x2="12" y2="17.5"></line>
-          <rect x="2" y="4.5" width="4" height="4" rx="1"></rect>
-          <rect x="2" y="15.5" width="4" height="4" rx="1"></rect>
-          <rect x="18" y="4.5" width="4" height="4" rx="1"></rect>
-          <rect x="18" y="15.5" width="4" height="4" rx="1"></rect>
+          <rect x="2.5" y="9" width="2.5" height="6" rx="1.25"></rect>
+          <rect x="5.5" y="6" width="3" height="12" rx="1.5"></rect>
+          <line x1="8.5" y1="12" x2="15.5" y2="12"></line>
+          <rect x="15.5" y="6" width="3" height="12" rx="1.5"></rect>
+          <rect x="19" y="9" width="2.5" height="6" rx="1.25"></rect>
         </svg>
         <span>Entrena</span>
       </button>
@@ -1437,7 +1312,7 @@
       </div>
       <div id="notification-list" class="notification-list kx-sheet-body"></div>
       <div class="kx-sheet-footer" id="notifications-footer" hidden>
-        <button type="button" class="kx-btn kx-btn--primary kx-sheet-footer-btn" id="notifications-mark-read">Marcar todas como leídas</button>
+        <button type="button" class="kx-btn kx-btn--primary kx-btn--lg kx-btn--block kx-sheet-footer-btn" id="notifications-mark-read">Marcar todas como leídas</button>
       </div>
     </section>
   </div>
@@ -1545,7 +1420,7 @@
         <p class="rr-error" id="route-report-error" role="alert" hidden></p>
       </form>
       <div class="kx-sheet-footer">
-        <button type="submit" form="route-report-form" class="kx-btn kx-btn--primary kx-sheet-footer-btn" id="route-report-submit">Enviar</button>
+        <button type="submit" form="route-report-form" class="kx-btn kx-btn--primary kx-btn--lg kx-btn--block kx-sheet-footer-btn" id="route-report-submit">Enviar</button>
       </div>
     </section>
   </div>
@@ -1860,6 +1735,26 @@
             <input type="radio" id="star1" name="rating" value="1" /><label for="star1">★</label>
           </div>
         </div>
+
+        <!-- Votos de la vía (grado, aleje, estado): alimentan la ficha de vía. user-features.js: kxAscentVotes -->
+        <fieldset class="kx-avote hidden" id="ascent-votes">
+          <legend class="kx-avote-legend">Tu opinión sobre la vía <span>Opcional</span></legend>
+
+          <div class="kx-avote-row">
+            <span class="kx-avote-label" id="avote-grade-label">Grado</span>
+            <div class="kx-avote-opts" id="avote-grade" role="radiogroup" aria-labelledby="avote-grade-label"></div>
+          </div>
+
+          <div class="kx-avote-row">
+            <span class="kx-avote-label" id="avote-aleje-label">Aleje</span>
+            <div class="kx-avote-opts kx-avote-opts--aleje" id="avote-aleje" role="radiogroup" aria-labelledby="avote-aleje-label"></div>
+          </div>
+
+          <div class="kx-avote-row">
+            <span class="kx-avote-label" id="avote-estado-label">Estado de la vía <small>Seguros y roca</small></span>
+            <div class="kx-avote-stars" id="avote-estado" role="radiogroup" aria-labelledby="avote-estado-label"></div>
+          </div>
+        </fieldset>
 
         <button type="submit" class="submit-btn">Registrar</button>
       </form>
@@ -2588,10 +2483,17 @@
           <p class="edit-photo-hint">Pulsa para cambiar foto</p>
         </div>
 
-        <!-- Display Name -->
+        <!-- Nombre de perfil -->
         <div class="edit-form-group">
           <label for="edit-display-name">Nombre</label>
           <input type="text" id="edit-display-name" placeholder="Tu nombre" required>
+        </div>
+
+        <!-- Nombre de usuario (único, usernames.js) -->
+        <div class="edit-form-group">
+          <label for="edit-username">Nombre de usuario</label>
+          <div class="kx-uname-field"><span aria-hidden="true">@</span><input type="text" id="edit-username" placeholder="tu.usuario" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="30" aria-describedby="edit-username-status"></div>
+          <p class="kx-uname-status" id="edit-username-status" aria-live="polite"></p>
         </div>
 
         <!-- Bio -->
@@ -2730,136 +2632,99 @@
   <div id="dropdown-portal"></div>
 
   <!-- Bottom Sheet para escuelas (solo mÃ³vil) -->
-  <div id="school-bottom-sheet" class="bottom-sheet hidden">
-    <!-- Handle para arrastrar -->
-    <div class="bottom-sheet-handle">
-      <div class="bottom-sheet-handle-bar"></div>
-    </div>
-
-    <!-- Header con tÃ­tulo centrado -->
-    <div class="bs-header">
-      <h2 class="bs-title" id="bs-school-name">HOZ DEL RÍO GRITOS</h2>
-    </div>
+  <div id="school-bottom-sheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="bs-school-name">
+    <!-- Tirador + cabecera (map-ui.js: kxSheetDragHTML) -->
+    <div class="kx-msheet-drag" id="bs-school-drag"></div>
 
     <!-- Contenido del Bottom Sheet -->
-    <div class="bottom-sheet-content">
-      <!-- SNAP 1 - RESUMEN: Solo BarChart (se oculta en expandido) -->
-      <div class="bs-summary-section" id="bs-summary-section">
-        <div class="bs-chart-card">
-          <div class="bs-chart-header">
-            <span class="bs-chart-title">Ví­as por Grado</span>
-            <span class="bs-chart-total" id="bs-total-vias-bar"></span>
-          </div>
-          <!-- Skeleton loader -->
-          <div class="bs-skeleton" id="bs-bar-skeleton">
-            <div class="bs-skeleton-bars">
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-              <div class="bs-skeleton-bar"></div>
-            </div>
-          </div>
-          <!-- GrÃ¡fico de barras -->
-          <div class="bs-bar-chart hidden" id="bs-bar-chart"></div>
-        </div>
-      </div>
-
-      <!-- SNAP 2 - EXPANDIDO: DonutChart + Weather + Actions (se muestra al expandir) -->
+    <div class="bottom-sheet-content kx-msheet-body">
+      <!-- Dos páginas deslizables (maplibre-map.js: kxInitSchoolPages): 1 vías y tiempo · 2 condiciones y actividad -->
+      <div class="bs-pages" id="bs-pages">
+      <div class="bs-pages-track" id="bs-pages-track">
+      <section class="bs-page" id="bs-page-0" role="tabpanel" aria-label="Vías y tiempo">
+      <!-- Donut de vías por grado + tiempo (el pronóstico semanal se superpone al donut) -->
       <div class="bs-expanded-section" id="bs-expanded-section">
         <!-- Donut Chart Card -->
-        <div class="bs-chart-card">
+        <div class="bs-chart-card" id="bs-donut-card">
           <div class="bs-chart-header">
-            <span class="bs-chart-title">Ví­as por Grado</span>
+            <span class="bs-chart-title">Vías por Grado</span>
           </div>
           <!-- Skeleton loader donut -->
           <div class="bs-skeleton-donut" id="bs-donut-skeleton">
             <div class="bs-skeleton-ring"></div>
           </div>
-          <!-- GrÃ¡fico Donut -->
+          <!-- Gráfico Donut -->
           <div class="bs-donut-chart hidden" id="bs-donut-chart"></div>
         </div>
 
-        <!-- Widget MeteorolÃ³gico (clickeable para ver pronÃ³stico semanal) -->
-        <div class="bs-weather-card" id="bs-weather-widget">
-          <div class="bs-weather-left">
-            <img class="bs-weather-icon" id="bs-weather-icon" src="icons/weather/partly-cloudy.png" alt="Clima">
-            <span class="bs-weather-temp" id="bs-weather-temp">--°C</span>
-          </div>
-          <div class="bs-weather-divider"></div>
-          <div class="bs-weather-right">
-            <div class="bs-weather-stat">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="#3b82f6">
-                <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
-              </svg>
-              <span><span id="bs-weather-precip">--%</span> <span id="bs-weather-rain">-- mm</span></span>
+        <!-- Tiempo actual: tarjeta con acceso a la previsión de 7 días (maplibre-map.js: loadBottomSheetWeather) -->
+        <div class="bs-weather-card" id="bs-weather-widget" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="bs-forecast-panel" aria-label="Tiempo actual. Consultar previsión de 7 días">
+          <div class="bs-weather-main">
+            <img class="bs-weather-icon" id="bs-weather-icon" src="icons/weather/partly-cloudy.png" alt="">
+            <span class="bs-weather-sep" aria-hidden="true"></span>
+            <div class="bs-weather-temp-wrap">
+              <span class="bs-weather-temp" id="bs-weather-temp">--°C</span>
+              <span class="bs-weather-desc" id="bs-weather-desc">&nbsp;</span>
             </div>
-            <div class="bs-weather-stat">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2">
-                <path
-                  d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" />
-              </svg>
-              <span id="bs-weather-wind"><span id="bs-weather-wind-dir">-</span> <span
-                  id="bs-weather-wind-speed">--</span> km/h</span>
+            <span class="bs-weather-sep" aria-hidden="true"></span>
+            <div class="bs-weather-right">
+              <div class="bs-weather-stat">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="#3b82f6" aria-hidden="true">
+                  <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+                </svg>
+                <span><span id="bs-weather-precip">--%</span> · <span id="bs-weather-rain">-- mm</span></span>
+              </div>
+              <div class="bs-weather-stat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" aria-hidden="true">
+                  <path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" />
+                </svg>
+                <span id="bs-weather-wind"><span id="bs-weather-wind-dir">-</span> <span id="bs-weather-wind-speed">--</span> km/h</span>
+              </div>
             </div>
           </div>
-          <!-- Chevron indicador de desplegable -->
-          <div class="bs-weather-expand-indicator">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
+          <div class="bs-weather-cta">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span>Consultar previsión de 7 días</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </div>
         </div>
 
-        <!-- Panel de PronÃ³stico Semanal (desplegable, cubre el Donut Chart) -->
-        <div class="bs-forecast-panel hidden" id="bs-forecast-panel">
-          <div class="bs-forecast-header">
-            <span class="bs-forecast-title">Pronóstico 7 dí­as</span>
-          </div>
-          <div class="bs-forecast-scroll" id="bs-forecast-scroll">
-            <!-- PronÃ³stico semanal generado dinÃ¡micamente -->
+        <!-- Previsión de 7 días: ventana sobre la ficha (se mueve al <body> al iniciar; maplibre-map.js) -->
+        <div class="bs-forecast-panel hidden" id="bs-forecast-panel" role="dialog" aria-modal="true" aria-labelledby="bs-forecast-title">
+          <div class="bs-forecast-card">
+            <span class="bs-forecast-grip" aria-hidden="true"></span>
+            <button type="button" class="bs-forecast-close" id="bs-forecast-close" aria-label="Cerrar previsión">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+            <h3 class="bs-forecast-title" id="bs-forecast-title">Pronóstico 7 días</h3>
+            <div class="bs-forecast-now" id="bs-forecast-now"></div>
+            <div class="bs-forecast-scroll" id="bs-forecast-scroll"></div>
           </div>
         </div>
 
-        <!-- Tipo de Roca -->
-        <div class="bs-rock-info">
-          <span class="bs-rock-icon">🏔️</span>
-          <span class="bs-rock-text" id="bs-rock-type">Caliza</span>
-        </div>
-
-        <!-- Botones de AcciÃ³n (Pixel Perfect) -->
-        <div class="bs-actions">
-          <button class="bs-btn bs-btn-dark" id="bs-btn-directions">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="3 11 22 2 13 21 11 13 3 11" />
-            </svg>
-            ¿Cómo ir?
-          </button>
-          <button class="bs-btn bs-btn-light" id="bs-btn-visit">
-            Visitar escuela
-          </button>
-        </div>
+      </div>
+      </section>
+      <section class="bs-page" id="bs-page-1" role="tabpanel" aria-label="Condiciones y actividad">
+        <!-- Condiciones para escalar y grip (maplibre-map.js: kxRenderSchoolConditions; cálculo en climb-conditions.js) -->
+        <div id="bs-conditions-slot"></div>
+        <!-- Tu actividad en la escuela (maplibre-map.js: kxRenderSchoolCards) -->
+        <div id="bs-activity-slot"></div>
+      </section>
+      </div>
       </div>
     </div>
+
+    <!-- Acciones fijas al pie (map-ui.js) -->
+    <footer class="kx-msheet-foot" id="bs-school-foot"></footer>
   </div>
 
   <!-- Bottom Sheet para Sectores (solo móvil) -->
-  <div id="sector-bottom-sheet" class="bottom-sheet hidden">
-    <!-- Handle para arrastrar -->
-    <div class="bottom-sheet-handle">
-      <div class="bottom-sheet-handle-bar"></div>
-    </div>
-
-    <!-- Header con título centrado -->
-    <div class="bs-header">
-      <h2 class="bs-title" id="secbs-sector-name">SECTOR</h2>
-    </div>
+  <div id="sector-bottom-sheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="secbs-sector-name">
+    <!-- Tirador + cabecera (map-ui.js: kxSheetDragHTML) -->
+    <div class="kx-msheet-drag" id="secbs-drag"></div>
 
     <!-- Contenido del Sector Bottom Sheet -->
-    <div class="bottom-sheet-content">
+    <div class="bottom-sheet-content kx-msheet-body">
       <!-- Fila de restricción -->
       <div class="secbs-info-row" id="secbs-restriction-row">
         <span class="secbs-info-icon" id="secbs-restriction-icon"></span>
@@ -2875,89 +2740,73 @@
         <span class="secbs-info-text" id="secbs-exposure-text"></span>
       </div>
 
-      <!-- Estado del sector (estrellas, cargado async) -->
+      <!-- Equipamiento: media del estado de las vías votada por la comunidad (cargado async) -->
       <div id="secbs-estado-container"></div>
+
+      <!-- Tu exploración: vías del sector encadenadas por el usuario (sector-progress.js) -->
+      <div id="secbs-explore"></div>
 
       <!-- Gráfico de vías por grado -->
       <div class="secbs-chart-container" id="secbs-grade-chart">
         <div style="text-align: center; color: #888;">Cargando...</div>
       </div>
 
-      <!-- Botón Ver Sector -->
-      <div class="secbs-actions">
-        <button class="secbs-view-btn" id="secbs-btn-view">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-            <circle cx="8.5" cy="8.5" r="1.5"/>
-            <polyline points="21 15 16 10 5 21"/>
-          </svg>
-          Ver Sector
-        </button>
-      </div>
-
       <!-- Acciones de admin (solo visible para admins) -->
       <div id="secbs-admin-actions"></div>
     </div>
+
+    <!-- Acción principal fija al pie (map-ui.js) -->
+    <footer class="kx-msheet-foot" id="secbs-foot"></footer>
   </div>
 
   <!-- Bottom Sheet para Vías/Rutas (solo móvil) -->
-  <div id="route-bottom-sheet" class="bottom-sheet hidden">
-    <!-- Handle para arrastrar -->
-    <div class="bottom-sheet-handle">
-      <div class="bottom-sheet-handle-bar"></div>
-    </div>
-
-    <!-- Header: Check + Nombre + Grado -->
-    <div class="rbs-header">
-      <span class="rbs-ascent-check hidden" id="rbs-ascent-check">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      </span>
-      <span class="rbs-ascent-style hidden" id="rbs-ascent-style"></span>
-      <span class="rbs-route-name" id="rbs-route-name">Vía</span>
+  <div id="route-bottom-sheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="rbs-route-name">
+    <!-- Tirador + cabecera: nombre, sector, grado y cerrar -->
+    <div class="kx-msheet-drag">
+    <button type="button" class="kx-msheet-grip" aria-label="Arrastra hacia abajo para cerrar" tabindex="-1"></button>
+    <div class="rbs-head">
+      <div class="rbs-head-main">
+        <h2 class="rbs-route-name" id="rbs-route-name">Vía</h2>
+        <p class="rbs-route-sector" id="rbs-route-sector"></p>
+      </div>
       <span class="rbs-route-grade" id="rbs-route-grade">?</span>
-      <span class="ml-grade-consensus-badge" id="rbs-consensus-badge" style="display:none"></span>
+      <button type="button" class="kx-close" data-kx-close aria-label="Cerrar"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
     </div>
 
-    <!-- Contenido del Route Bottom Sheet -->
-    <div class="bottom-sheet-content">
-      <!-- Info items (tipo, express, metros) -->
-      <div class="rbs-info" id="rbs-info-items"></div>
+    <!-- Contenido de la ficha de vía (maplibre-map.js: kxFillRouteSheet) -->
+    <div class="bottom-sheet-content kx-msheet-body">
+      <!-- Estilo, expreses y longitud -->
+      <div id="rbs-info-items"></div>
 
-      <!-- Grado (votación) -->
+      <!-- Descripción (atributo «descripcion» del GeoJSON cuando no es un estilo) -->
+      <div id="rbs-desc-container"></div>
+
+      <!-- Grado recomendado, Aleje y Estado: solo lectura (se vota al registrar un ascenso) -->
       <div id="rbs-grade-container"></div>
-
-      <!-- Aleje (votación) -->
       <div id="rbs-aleje-container"></div>
-
-      <!-- Estado de la vía (estrellas) -->
       <div id="rbs-estado-container"></div>
 
-      <!-- Botonera de acciones -->
-      <div class="rbs-actions" id="rbs-actions"></div>
+      <!-- Ascenso, Guardar, Comentarios, Compartir -->
+      <div id="rbs-actions"></div>
 
-      <!-- Notificar un problema (vías de KRUX) -->
-      <div class="ml-route-report-section" id="rbs-report-section"></div>
-
-      <!-- Botón Ver vía -->
+      <!-- Ver vía -->
       <div class="rbs-view-section hidden" id="rbs-view-section">
-        <button class="rbs-view-btn" id="rbs-btn-view">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
+        <button type="button" class="rbs-view-btn" id="rbs-btn-view">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 12S5.5 4.5 12 4.5 22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12z"/><circle cx="12" cy="12" r="3.2"/></svg>
           Ver vía
         </button>
       </div>
 
-      <!-- Botón de desarrollador (admin) -->
-      <div class="rbs-dev-section hidden" id="rbs-dev-section">
-        <button class="rbs-dev-btn" id="rbs-btn-dev">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-          </svg>
-          Vincular con imagen del sector
-        </button>
+      <!-- Enlaces discretos: notificar un problema y, para admins, vincular con la imagen -->
+      <div class="rbs-links">
+        <div class="ml-route-report-section" id="rbs-report-section"></div>
+        <div class="rbs-dev-section hidden" id="rbs-dev-section">
+          <button type="button" class="rbs-dev-btn" id="rbs-btn-dev">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            Vincular con imagen del sector
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -3798,23 +3647,32 @@
         <div class="ex-field-row">
           <div class="ex-field">
             <label class="ex-field-label">Tiempo trabajo (seg)</label>
-            <input class="ex-field-input ex-field-num" id="ex-field-work" type="number" min="0" max="600" inputmode="numeric" placeholder="0">
+            <input class="ex-field-input ex-field-num" id="ex-field-work" type="number" min="0" max="3600" inputmode="numeric" placeholder="0">
           </div>
           <div class="ex-field">
             <label class="ex-field-label">Peso adicional (kg)</label>
-            <input class="ex-field-input ex-field-num" id="ex-field-weight" type="number" min="0" max="200" inputmode="numeric" placeholder="0">
+            <input class="ex-field-input ex-field-num" id="ex-field-weight" type="number" min="0" max="200" step="0.5" inputmode="decimal" placeholder="0">
           </div>
         </div>
         <div class="ex-field-row">
           <div class="ex-field">
             <label class="ex-field-label">Descanso (seg)</label>
-            <input class="ex-field-input ex-field-num" id="ex-field-rest" type="number" min="0" max="600" inputmode="numeric">
+            <input class="ex-field-input ex-field-num" id="ex-field-rest" type="number" min="0" max="900" inputmode="numeric">
           </div>
           <div class="ex-field">
             <label class="ex-field-label">RPE objetivo (0 = ninguno)</label>
             <input class="ex-field-input ex-field-num" id="ex-field-rpe" type="number" min="0" max="10" inputmode="numeric">
           </div>
         </div>
+        <!-- Parámetros propios del ejercicio (se rellenan según su ficha) -->
+        <div class="ex-extra hidden" id="ex-extra">
+          <div class="ex-field-row" id="ex-extra-fields"></div>
+        </div>
+        <div class="ex-field ex-field--full">
+          <label class="ex-field-label" for="ex-field-notes">Notas</label>
+          <textarea class="ex-field-input ex-field-notes" id="ex-field-notes" rows="2" maxlength="300" placeholder="Ej: regleta de 20 mm, goma azul…"></textarea>
+        </div>
+        <div class="ex-links" id="ex-links"></div>
         <!-- Preview generado automáticamente -->
         <div class="ex-preview">
           <span class="ex-preview-label">Vista previa</span>
@@ -3828,96 +3686,163 @@
   </div>
 
   <!-- ACTIVE SESSION MODAL -->
-  <div id="session-modal" class="session-modal hidden" aria-modal="true" role="dialog">
+  <div id="session-modal" class="session-modal hidden" aria-modal="true" role="dialog" aria-labelledby="session-ex-name">
     <div class="session-screen" id="session-screen">
 
-      <!-- Top bar -->
-      <div class="session-topbar">
-        <div class="session-topbar-left">
-          <button class="session-close-btn" id="session-close-btn" aria-label="Cerrar sesión">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      <!-- Cabecera del ejercicio -->
+      <header class="session-hero">
+        <div class="session-hero-bar">
+          <button class="session-round-btn" id="session-close-btn" aria-label="Salir del entrenamiento">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
           </button>
-          <div>
-            <div class="session-session-name" id="session-session-name">Fuerza en media llave</div>
-            <div class="session-session-sub" id="session-session-sub">Semana 2 · Viernes</div>
+          <span class="session-hero-name" id="session-session-name"></span>
+          <button class="session-finish-btn" id="session-finish-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h11l-1.5 4L16 12H5"/></svg>
+            Finalizar
+          </button>
+        </div>
+        <div class="session-hero-body">
+          <h2 class="session-ex-name" id="session-ex-name" tabindex="-1"></h2>
+          <div class="session-ex-specs">
+            <span class="session-ex-detail" id="session-ex-detail"></span>
+            <span class="session-ex-rpe hidden" id="session-ex-rpe"></span>
+          </div>
+          <button type="button" class="xg-btn xg-btn--photo" id="session-guide-btn" data-guide="" hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h5"/></svg><span>Cómo hacerlo</span>
+          </button>
+          <div class="session-steps-wrap">
+            <ol class="session-steps" id="session-steps"></ol>
+            <span class="session-ex-counter" id="session-ex-counter"></span>
           </div>
         </div>
-        <span class="session-elapsed" id="session-elapsed">00:00</span>
-      </div>
+      </header>
 
-      <!-- Progress bar -->
-      <div class="session-progress-wrap">
-        <div class="session-progress-bar" id="session-progress-bar"></div>
-      </div>
-
-      <!-- Scrollable main area -->
+      <!-- Zona de trabajo -->
       <div class="session-main">
-
-        <!-- Exercise info -->
-        <div class="session-ex-main">
-          <div class="session-ex-counter" id="session-ex-counter"></div>
-          <div class="session-ex-name" id="session-ex-name"></div>
-          <div class="session-ex-detail" id="session-ex-detail"></div>
-          <div class="session-sets-row" id="session-sets-row"></div>
-        </div>
-
-        <!-- Timer block -->
-        <div class="session-timer-block" id="session-timer-block">
-          <div class="session-timer-label" id="session-timer-label">CRONÓMETRO DE TRABAJO</div>
+        <section class="session-timer-block" id="session-timer-block" aria-label="Cronómetro">
+          <div class="session-timer-top">
+            <span class="session-set-chip" id="session-set-chip"></span>
+            <span class="session-timer-label" id="session-timer-label"></span>
+            <button type="button" class="session-auto-btn" id="session-auto-btn" aria-pressed="true" aria-label="Modo manos libres: el entrenamiento avanza solo y te habla">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>
+              <span>Manos libres</span>
+            </button>
+          </div>
           <div class="session-ring-wrap">
-            <svg viewBox="0 0 120 120" width="210" height="210">
-              <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(0,0,0,0.07)" stroke-width="5"/>
-              <circle id="session-ring-arc" cx="60" cy="60" r="50" fill="none" stroke="#1D9E75" stroke-width="5"
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="session-ring-track" cx="60" cy="60" r="50" fill="none" stroke-width="6"/>
+              <circle id="session-ring-arc" cx="60" cy="60" r="50" fill="none" stroke-width="6"
                 stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="314"
                 transform="rotate(-90 60 60)"/>
             </svg>
-            <div class="session-ring-center">
-              <div class="session-ring-time" id="session-ring-time">0:10</div>
-              <div class="session-ring-lbl" id="session-ring-lbl">objetivo</div>
+            <div class="session-ring-center" role="timer" aria-live="off">
+              <div class="session-ring-time" id="session-ring-time"></div>
+              <div class="session-ring-lbl" id="session-ring-lbl"></div>
             </div>
           </div>
+          <div class="session-sets-row" id="session-sets-row" aria-hidden="true"></div>
           <div class="session-timer-controls">
-            <button class="session-ctrl-btn" id="session-btn-reset">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 .49-4.5"></path></svg>
-              Reset
+            <button class="session-round-ctrl" id="session-btn-reset" aria-label="Reiniciar cronómetro">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 .49-4.5"></path></svg>
             </button>
-            <button class="session-ctrl-btn session-ctrl-primary" id="session-btn-main">
-              <span id="session-btn-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></span>
+            <button class="session-main-btn" id="session-btn-main">
+              <span class="session-btn-icon" id="session-btn-icon"></span>
               <span id="session-btn-label">Iniciar</span>
             </button>
-            <button class="session-ctrl-btn" id="session-btn-set">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              Serie
+            <button class="session-round-ctrl session-round-ctrl--done" id="session-btn-set" aria-label="Completar serie">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
             </button>
           </div>
+          <p class="session-sr-status" id="session-sr-status" aria-live="polite"></p>
+        </section>
+
+        <!-- Registro rápido: carga, RPE y descanso -->
+        <section class="session-metrics" aria-label="Registro de la serie">
+          <div class="session-metric">
+            <span class="session-metric-lbl">Carga</span>
+            <div class="session-load">
+              <button class="session-step-btn" id="session-load-minus" aria-label="Quitar 1 kg">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <span class="session-metric-val" id="session-load-val">0 kg</span>
+              <button class="session-step-btn" id="session-load-plus" aria-label="Añadir 1 kg">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+            </div>
+          </div>
+          <button class="session-metric session-metric--btn" id="session-rpe-btn" aria-expanded="false" aria-controls="session-rpe-section">
+            <span class="session-metric-lbl" id="session-rpe-lbl">RPE</span>
+            <span class="session-metric-val" id="session-rpe-val">—</span>
+          </button>
+          <div class="session-metric">
+            <span class="session-metric-lbl">Descanso</span>
+            <span class="session-metric-val" id="session-rest-val">—</span>
+          </div>
+        </section>
+
+        <!-- Selector de RPE de la última serie -->
+        <div class="session-rpe-section hidden" id="session-rpe-section">
+          <div class="session-rpe-label" id="session-rpe-label">¿Cómo ha ido la serie?</div>
+          <div class="session-rpe-dots" id="session-rpe-dots" role="group" aria-labelledby="session-rpe-label"></div>
         </div>
 
-        <!-- RPE selector (visible during rest) -->
-        <div class="session-rpe-section" id="session-rpe-section" style="display:none">
-          <div class="session-rpe-label">¿Cómo fue? RPE percibido</div>
-          <div class="session-rpe-dots" id="session-rpe-dots"></div>
-        </div>
-
+        <!-- Historial -->
+        <section class="session-history" aria-labelledby="session-history-title">
+          <h3 class="session-history-title" id="session-history-title">Series de este ejercicio</h3>
+          <ol class="session-history-list" id="session-history"></ol>
+        </section>
       </div><!-- /session-main -->
 
-      <!-- Next up — fijo al fondo -->
-      <div class="session-next-up" id="session-next-up">
-        <div class="session-next-label" id="session-next-label">SIGUIENTE</div>
-        <div class="session-next-row">
-          <div class="session-next-icon">···</div>
-          <div class="session-next-info">
-            <div class="session-next-name" id="session-next-name"></div>
-            <div class="session-next-detail" id="session-next-detail"></div>
+      <!-- Tiempo total y siguiente ejercicio -->
+      <footer class="session-footer">
+        <div class="session-total">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M9.5 2.5h5"/></svg>
+          <div>
+            <span class="session-foot-lbl">Tiempo total</span>
+            <span class="session-elapsed" id="session-elapsed">00:00:00</span>
           </div>
-          <button class="session-skip-btn" id="session-skip-btn">Saltar →</button>
         </div>
-      </div>
+        <button class="session-next" id="session-skip-btn">
+          <span class="session-next-text">
+            <span class="session-foot-lbl" id="session-next-label">Siguiente</span>
+            <span class="session-next-name" id="session-next-name"></span>
+          </span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
+      </footer>
 
     </div>
   </div>
 
   <!-- PLAN EDITOR MODAL -->
   <div id="plan-editor-modal" class="plan-editor-modal hidden" role="dialog" aria-modal="true"></div>
+
+  <!-- Guía rápida «Cómo hacerlo» (se superpone al entrenamiento sin desmontarlo) -->
+  <div id="ex-guide-sheet" class="xg-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="xg-title">
+    <div class="xg-backdrop" data-xg-close></div>
+    <div class="xg-panel">
+      <div class="xg-handle" aria-hidden="true"></div>
+      <header class="xg-head">
+        <div class="xg-head-text">
+          <p class="xg-kicker">Cómo hacerlo</p>
+          <h2 class="xg-title" id="xg-title" tabindex="-1"></h2>
+        </div>
+        <button type="button" class="xg-close" data-xg-close aria-label="Cerrar la guía">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </header>
+      <div class="xg-body" id="xg-body"></div>
+      <footer class="xg-foot">
+        <button type="button" class="xg-full" id="xg-full" hidden>Ver ficha completa</button>
+        <button type="button" class="pe-save-btn pe-save-btn--wide" id="xg-done" data-xg-close><span>Cerrar</span></button>
+      </footer>
+    </div>
+  </div>
+  <div id="ex-library-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Ejercicios"></div>
+  <div id="plan-wizard-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Asistente de planes"></div>
+  <div id="coach-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Perfil del escalador"></div>
+  <div id="mental-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Biblioteca mental"></div>
+  <div id="my-plans-modal" class="plan-editor-modal xl-modal hidden" role="dialog" aria-modal="true" aria-label="Mis planes"></div>
 
   <!-- Gym Picker Sheet -->
   <div id="gym-picker-sheet" class="modal hidden">

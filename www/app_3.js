@@ -780,7 +780,7 @@ document.addEventListener('click', async (e) => {
     } else {
       // Fallback
       navigator.clipboard.writeText(window.location.href);
-      showToast('Enlace copiado al portapapeles', 'success');
+      showToast('Enlace copiado al portapapeles', 'info');
     }
     return;
   }
@@ -806,7 +806,7 @@ document.addEventListener('click', async (e) => {
       try {
         if (typeof uploadRoutePhoto === 'function') {
           await uploadRoutePhoto(schoolId, uploadRouteId, routeName, file);
-          showToast('Foto subida correctamente', 'success');
+          showToast('Foto subida', 'success');
 
           // Refresh the popup to show new photo
           // Trigger click on the same feature again
@@ -887,7 +887,7 @@ document.addEventListener('click', async (e) => {
     try {
       if (typeof deleteRoutePhoto === 'function') {
         await deleteRoutePhoto(photoId, uploaderUid);
-        showToast('Foto eliminada correctamente', 'success');
+        showToast('Foto eliminada', 'success');
 
         // Refresh popup
         if (routeInfoWindow) routeInfoWindow.close();
@@ -1072,45 +1072,41 @@ document.addEventListener('DOMContentLoaded', () => {
 // - Búsquedas recientes: solo en este dispositivo (localStorage).
 // No hay hashtags: los posts no guardan hashtags y Firestore no busca dentro del texto.
 
+// @usuario bajo el nombre del perfil (propio o ajeno); se oculta si la cuenta aún no tiene
+function kxSetProfileHandle(username) {
+  const el = document.getElementById('profile-handle');
+  if (!el) return;
+  el.textContent = username ? `@${username}` : '';
+  el.hidden = !username;
+}
+
 // Real search for users in Firestore (también la usa el autocompletado de menciones)
 async function searchUsersGlobal(query) {
-  try {
-    const queryLower = query.toLowerCase();
-    // Approach 1: Try to search with displayNameLower field
-    let snapshot = await db.collection('users')
-      .orderBy('displayNameLower')
-      .startAt(queryLower)
-      .endAt(queryLower + '')
-      .limit(10)
-      .get();
-
-    if (snapshot.empty) {
-      // Approach 2: Fallback to client side filter
-      const allUsersSnapshot = await db.collection('users').limit(50).get();
-      return allUsersSnapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(user => {
-          const name = (user.displayName || '').toLowerCase();
-          const email = (user.email || '').toLowerCase();
-          return name.includes(queryLower) || email.includes(queryLower);
-        })
-        .slice(0, 10);
-    }
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  } catch (error) {
-    console.error('Error searching users:', error);
-    // Try fallback approach if index error
-    if (error.code === 'failed-precondition' || error.message.includes('index')) {
-      try {
-        const allUsersSnapshot = await db.collection('users').limit(50).get();
-        return allUsersSnapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter(user => (user.displayName || '').toLowerCase().includes(query.toLowerCase()))
-          .slice(0, 10);
-      } catch (e) { throw e; }
-    }
-    throw error;
-  }
+  const queryLower = String(query || '').toLowerCase().trim();
+  const handleQ = queryLower.replace(/^@+/, '');
+  if (!handleQ) return [];
+  // Por nombre de usuario: prefijo exacto en Firestore (las cuentas sin usuario no aparecen aquí)
+  const byHandle = db.collection('users')
+    .orderBy('username')
+    .startAt(handleQ)
+    .endAt(handleQ + '\uf8ff')
+    .limit(10)
+    .get()
+    .then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() })))
+    .catch(e => { console.warn('Búsqueda por usuario no disponible:', e); return []; });
+  // Por nombre de perfil o correo: filtro en cliente sobre una muestra (Firestore no busca dentro del texto)
+  const byName = db.collection('users').limit(50).get()
+    .then(snap => snap.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(user => {
+        const name = (user.displayName || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        const handle = (user.username || '').toLowerCase();
+        return name.includes(queryLower) || email.includes(queryLower) || handle.includes(handleQ);
+      }));
+  const [handles, names] = await Promise.all([byHandle, byName]);
+  const seen = new Set();
+  return [...handles, ...names].filter(u => !seen.has(u.id) && seen.add(u.id)).slice(0, 10);
 }
 // Expose searchUsersGlobal globally so MentionAutocomplete can use it
 window.searchUsersGlobal = searchUsersGlobal;
@@ -1137,7 +1133,7 @@ function initGlobalSearch() {
   let searchTimeout = null;
   let searchSeq = 0;               // descarta respuestas de búsquedas ya superadas
   const userCache = new Map();     // consulta → personas (evita repetir la misma consulta)
-  let placesIndexPromise = null;   // índice de escuelas, sectores y vías (se carga una vez)
+  let placesIndexPromise = null;   // índice de escuelas, rocódromos, sectores y vías (se carga una vez)
 
   const esc = (t) => escapeHtmlMention(String(t ?? ''));
   const norm = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -1146,17 +1142,25 @@ function initGlobalSearch() {
   const recentKey = (it) => {
     if (it.type === 'user') return `u:${it.id}`;
     if (it.type === 'school') return `s:${it.id}`;
+    if (it.type === 'gym') return `g:${it.id}`;
     if (it.type === 'sector') return `c:${it.schoolId}|${it.name}`;
     return `r:${it.schoolId}|${it.name}|${it.sector || ''}`;
   };
+  // Cada perfil guarda sus propios recientes; sin sesión, los de «guest» (el valor global antiguo se descarta)
+  const recentStoreKey = () => {
+    let uid = 'guest';
+    try { uid = (firebase.auth().currentUser || {}).uid || 'guest'; } catch (_) { /* Firebase aún no listo */ }
+    return `${RECENT_KEY}:${uid}`;
+  };
   function getRecent() {
     try {
-      return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
-        .filter(it => it && typeof it === 'object' && ['user', 'school', 'sector', 'route'].includes(it.type));
+      localStorage.removeItem(RECENT_KEY);
+      return JSON.parse(localStorage.getItem(recentStoreKey()) || '[]')
+        .filter(it => it && typeof it === 'object' && ['user', 'school', 'gym', 'sector', 'route'].includes(it.type));
     } catch (_) { return []; }
   }
   function setRecent(list) {
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX))); } catch (_) { /* almacenamiento no disponible */ }
+    try { localStorage.setItem(recentStoreKey(), JSON.stringify(list.slice(0, RECENT_MAX))); } catch (_) { /* almacenamiento no disponible */ }
   }
   function rememberResult(item) {
     if (!item || !item.type) return;
@@ -1188,14 +1192,22 @@ function initGlobalSearch() {
   function loadPlacesIndex() {
     if (placesIndexPromise) return placesIndexPromise;
     const schoolsConfig = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS : {};
-    placesIndexPromise = Promise.all(Object.values(schoolsConfig).map(async (school) => {
+    // Rocódromos (capa propia): si no cargan, el resto de la búsqueda sigue funcionando
+    const gymsTask = fetchGeoJSON('Cartografia/Rocodromos/rocodromos.geojson').catch(() => []);
+    placesIndexPromise = Promise.all([gymsTask, Promise.all(Object.values(schoolsConfig).map(async (school) => {
       const [sectorFeatures, routeFeatures] = await Promise.all([
         fetchGeoJSON(school.geojson?.sectores),
         fetchGeoJSON(school.geojson?.vias)
       ]);
       return { school, sectorFeatures, routeFeatures };
-    })).then(perSchool => {
-      const index = { schools: [], sectors: [], routes: [] };
+    }))]).then(([gymFeatures, perSchool]) => {
+      const index = { schools: [], sectors: [], routes: [], gyms: [] };
+      gymFeatures.forEach(f => {
+        const name = f.properties?.nombre;
+        if (!name || !Array.isArray(f.geometry?.coordinates)) return;
+        index.gyms.push({ kind: 'gym', id: f.properties.id || name, name, key: norm(name), props: f.properties, coords: f.geometry.coordinates.slice(0, 2) });
+      });
+      index.gyms.sort((x, y) => x.name.localeCompare(y.name, 'es'));
       perSchool.forEach(({ school, sectorFeatures, routeFeatures }) => {
         index.schools.push({
           kind: 'school', id: school.id, name: school.name, key: norm(school.name),
@@ -1237,6 +1249,12 @@ function initGlobalSearch() {
       .sort((x, y) => rank(x.key, nq) - rank(y.key, nq) || (x.kind === 'school' ? -1 : 1) || x.name.localeCompare(y.name, 'es'));
     return places;
   }
+  function matchGyms(index, q) {
+    const nq = norm(q);
+    return (index.gyms || [])
+      .filter(g => g.key.includes(nq))
+      .sort((x, y) => rank(x.key, nq) - rank(y.key, nq) || x.name.localeCompare(y.name, 'es'));
+  }
   function matchRoutes(index, q) {
     const nq = norm(q);
     // Por nombre o por grado exacto (p. ej. «6a+»)
@@ -1252,6 +1270,7 @@ function initGlobalSearch() {
     chevron: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>',
     user: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
     mountain: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20l6.5-11 4 6.5 2.5-4L21 20z"></path></svg>',
+    gym: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5v11"></path><path d="M17.5 6.5v11"></path><path d="M3 9v6"></path><path d="M21 9v6"></path><path d="M6.5 12h11"></path></svg>',
     sector: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19l4-12 4 6 3-4 5 10z"></path><circle cx="16.5" cy="5.5" r="1.5"></circle></svg>',
     route: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21c0-5 10-6 10-11a4 4 0 0 0-8 0"></path><circle cx="9" cy="10" r="1"></circle><circle cx="17" cy="21" r="0.5"></circle></svg>'
   };
@@ -1318,6 +1337,19 @@ function initGlobalSearch() {
       </div>`;
   }
 
+  function gymRow(g, i) {
+    const tags = [g.props?.pago === 'no' ? 'Gratuito' : g.props?.pago === 'si' ? 'De pago' : ''].filter(Boolean).join(' · ');
+    return `
+      <div class="search-row" role="button" tabindex="0" data-open="gym" data-index="${i}">
+        <span class="search-thumb search-thumb--soft">${ICONS.gym}</span>
+        <div class="search-info">
+          <div class="search-title">${esc(g.name)}</div>
+          <div class="search-meta">Rocódromo${tags ? ` · ${tags}` : ''}</div>
+        </div>
+        <span class="search-chevron">${ICONS.chevron}</span>
+      </div>`;
+  }
+
   function routeRow(r, i) {
     const meta = [r.sector ? `Sector ${esc(r.sector)}` : '', esc(r.schoolName)].filter(Boolean).join(' · ');
     return `
@@ -1342,6 +1374,7 @@ function initGlobalSearch() {
   // Resultados pintados: se guardan para abrirlos al tocar (data-index)
   let shownPlaces = [];
   let shownRoutes = [];
+  let shownGyms = [];
 
   function renderExplore() {
     const recent = getRecent();
@@ -1358,6 +1391,9 @@ function initGlobalSearch() {
         } else if (it.type === 'school') {
           lead = `<span class="search-thumb">${ICONS.mountain}</span>`;
           meta = 'Escuela';
+        } else if (it.type === 'gym') {
+          lead = `<span class="search-thumb search-thumb--soft">${ICONS.gym}</span>`;
+          meta = 'Rocódromo';
         } else if (it.type === 'sector') {
           lead = `<span class="search-thumb search-thumb--soft">${ICONS.sector}</span>`;
           meta = `Sector · ${esc(it.schoolName || '')}`;
@@ -1383,7 +1419,7 @@ function initGlobalSearch() {
       <div class="search-section-head"><h3>Explorar</h3></div>
       <div class="search-explore">
         <button type="button" class="search-explore-tile" data-category="users">${'<span class="search-explore-icon">' + ICONS.user + '</span>'}<span class="search-explore-title">Personas</span><span class="search-explore-desc">Encuentra escaladores</span></button>
-        <button type="button" class="search-explore-tile" data-category="places">${'<span class="search-explore-icon">' + ICONS.mountain + '</span>'}<span class="search-explore-title">Escuelas</span><span class="search-explore-desc">Escuelas y sectores</span></button>
+        <button type="button" class="search-explore-tile" data-category="places">${'<span class="search-explore-icon">' + ICONS.mountain + '</span>'}<span class="search-explore-title">Escuelas</span><span class="search-explore-desc">Escuelas, rocódromos y sectores</span></button>
         <button type="button" class="search-explore-tile" data-category="routes">${'<span class="search-explore-icon">' + ICONS.route + '</span>'}<span class="search-explore-title">Vías</span><span class="search-explore-desc">Por nombre o grado</span></button>
       </div>`;
     resultsContainer.innerHTML = html;
@@ -1445,8 +1481,9 @@ function initGlobalSearch() {
     const index = indexRes.status === 'fulfilled' ? indexRes.value : null;
     const places = index && wantsPlaces ? matchPlaces(index, q) : [];
     const routes = index && wantsRoutes ? matchRoutes(index, q) : [];
+    const gyms = index && wantsPlaces ? matchGyms(index, q) : [];
 
-    if (!users.length && !places.length && !routes.length) {
+    if (!users.length && !places.length && !routes.length && !gyms.length) {
       if (failed) {
         resultsContainer.innerHTML = stateBox('No se pudo completar la búsqueda', 'Revisa tu conexión e inténtalo de nuevo.', '<button type="button" class="kx-btn kx-btn--secondary search-retry">Reintentar</button>');
       } else {
@@ -1461,9 +1498,11 @@ function initGlobalSearch() {
     const limit = (list) => (type === 'all' ? list.slice(0, SECTION_LIMIT) : list);
     shownPlaces = limit(places);
     shownRoutes = limit(routes);
+    shownGyms = limit(gyms);
     let html = '';
     if (users.length) html += sectionHead('Personas', type === 'all' ? 'users' : null, users.length) + limit(users).map(x => userRow(x.user, x.following)).join('');
     if (places.length) html += sectionHead('Escuelas y sectores', type === 'all' ? 'places' : null, places.length) + shownPlaces.map(placeRow).join('');
+    if (gyms.length) html += sectionHead('Rocódromos', type === 'all' ? 'places' : null, gyms.length) + shownGyms.map(gymRow).join('');
     if (routes.length) html += sectionHead('Vías', type === 'all' ? 'routes' : null, routes.length) + shownRoutes.map(routeRow).join('');
     if (failed) html += stateBox('Algunos resultados no se pudieron cargar', 'Revisa tu conexión.');
     resultsContainer.innerHTML = html;
@@ -1502,12 +1541,24 @@ function initGlobalSearch() {
     });
   }
 
-  async function openOnMap(item) {
-    sheet.classList.add('hidden');
-    switchView('map-view');
+  async function openOnMap(item, { stayOnMap = false } = {}) {
+    if (!stayOnMap) {
+      sheet.classList.add('hidden');
+      switchView('map-view');
+    }
     const ready = await waitForMap();
     if (!ready || typeof mlLoadSchool !== 'function') {
       showToast('El mapa todavía no está listo. Inténtalo de nuevo.', 'info');
+      return;
+    }
+    if (item.kind === 'gym') {
+      // La ficha se abre ya (con lo último guardado) mientras el mapa viaja hasta el rocódromo
+      // El mapa viaja hasta el rocódromo y, al llegar, se abre su ficha (que tapa el mapa) y se resalta el icono
+      mlMap.flyTo({ center: item.coords, zoom: 16, essential: true });
+      mlMap.once('moveend', () => {
+        if (window.KruxGymSheet) window.KruxGymSheet.open(item.props, item.coords);
+        if (typeof mlApplyRouteHighlight === 'function') mlApplyRouteHighlight(item.coords, item.id, { radius: 30 });
+      });
       return;
     }
     const schoolId = item.kind === 'school' ? item.id : item.schoolId;
@@ -1515,6 +1566,8 @@ function initGlobalSearch() {
     if (item.kind === 'school' || !item.coords) return;
     mlMap.flyTo({ center: item.coords, zoom: item.kind === 'route' ? 18 : 16.5, essential: true });
     mlMap.once('moveend', () => {
+      // Resalta el punto en el mapa (la vía con su anillo habitual, el sector con uno mayor)
+      if (typeof mlApplyRouteHighlight === 'function') mlApplyRouteHighlight(item.coords, item.props && item.props.id, item.kind === 'sector' ? { radius: 24 } : {});
       if (item.kind === 'sector') {
         if (!showSectorBottomSheet(item.props, item.coords)) showSectorPopup(item.props, item.coords);
       } else {
@@ -1537,6 +1590,7 @@ function initGlobalSearch() {
     try {
       const index = await loadPlacesIndex();
       if (item.type === 'school') target = index.schools.find(x => x.id === item.id);
+      else if (item.type === 'gym') target = (index.gyms || []).find(x => x.id === item.id);
       else if (item.type === 'sector') target = index.sectors.find(x => x.schoolId === item.schoolId && x.name === item.name);
       else target = index.routes.find(x => x.schoolId === item.schoolId && x.name === item.name && (x.sector || '') === (item.sector || ''));
     } catch (err) {
@@ -1554,6 +1608,48 @@ function initGlobalSearch() {
     rememberResult(item);
     openOnMap(target);
   }
+
+  // API para el buscador del mapa (map-search.js): mismo índice de lugares y misma apertura de destinos,
+  // sin personas; desde el mapa no se cambia de vista
+  window.KruxPlaces = {
+    load: loadPlacesIndex,
+    matchPlaces,
+    matchRoutes,
+    matchGyms,
+    norm,
+    open: async (item) => {
+      await openOnMap(item, { stayOnMap: true });
+      // Una escuela se abre acercándose a ella (zoom propio de su configuración); sectores y vías ya vuelan a su sitio
+      if (item.kind === 'school' && typeof MAPLIBRE_SCHOOLS !== 'undefined' && MAPLIBRE_SCHOOLS[item.id] && typeof mlMap !== 'undefined' && mlMap) {
+        const school = MAPLIBRE_SCHOOLS[item.id];
+        mlMap.flyTo({ center: school.center, zoom: school.zoom || 14, essential: true });
+      }
+    },
+    remember: rememberResult,
+    recent: () => getRecent().filter(it => it.type !== 'user'),
+    forget: (item) => setRecent(getRecent().filter(it => recentKey(it) !== recentKey(item))),
+    clearRecent: () => setRecent(getRecent().filter(it => it.type === 'user'))
+  };
+
+  // Desde fuera del buscador (p. ej. el grado de una ascensión publicada): localiza la vía y la abre en el mapa
+  window.kxOpenAscentOnMap = async function (ascent) {
+    let index;
+    try {
+      index = await loadPlacesIndex();
+    } catch (err) {
+      console.error('Error cargando la cartografía:', err);
+      showToast('No se pudo cargar la cartografía. Revisa tu conexión.', 'error');
+      return;
+    }
+    const key = norm(ascent.routeName || '');
+    const sameName = index.routes.filter(r => r.key === key && (!ascent.schoolId || r.schoolId === ascent.schoolId));
+    const target = sameName.find(r => ascent.sector && norm(r.sector) === norm(ascent.sector)) || sameName[0];
+    if (!target) {
+      showToast('Esa vía ya no está en el mapa', 'info');
+      return;
+    }
+    openOnMap(target);
+  };
 
   // ---------- Eventos ----------
   function setCategory(type) {
@@ -1585,6 +1681,7 @@ function initGlobalSearch() {
     if (sheet.classList.contains('hidden')) openSearchSheet();
     else closeFeedSheet(sheet);
   });
+
 
   categories?.addEventListener('click', (e) => {
     const chip = e.target.closest('.kx-chip');
@@ -1658,6 +1755,12 @@ function initGlobalSearch() {
       if (school) {
         rememberResult({ type: 'school', id: school.id, name: school.name });
         openOnMap(school);
+      }
+    } else if (kind === 'gym') {
+      const item = shownGyms[Number(row.dataset.index)];
+      if (item) {
+        rememberResult({ type: 'gym', id: item.id, name: item.name });
+        openOnMap(item);
       }
     } else if (kind === 'sector') {
       const item = shownPlaces[Number(row.dataset.index)];
@@ -1786,6 +1889,7 @@ window.openPublicProfile = async function (userId) {
   document.getElementById('profile-header-username').textContent = '@...';
   document.getElementById('profile-bio').textContent = '';
   document.getElementById('profile-name').textContent = '';
+  kxSetProfileHandle('');
 
   try {
     // Check if this request is still valid (prevents race conditions)
@@ -1818,8 +1922,9 @@ window.openPublicProfile = async function (userId) {
     }
 
     // Populate header with username and profile with displayname
-    document.getElementById('profile-header-username').textContent = `@${userData.username || displayName.toLowerCase().replace(/\s+/g, '')}`;
+    document.getElementById('profile-header-username').textContent = userData.username ? `@${userData.username}` : '';
     document.getElementById('profile-name').textContent = displayName;
+    kxSetProfileHandle(userData.username);
     document.getElementById('profile-location').textContent = userData.location || 'España';
     document.getElementById('profile-bio').textContent = userData.bio || 'Sin biografí­a';
     // Mostrar "Administrador" para la cuenta de Krux, "Escalador" para el resto
@@ -3706,6 +3811,8 @@ function initNotifications() {
       // Use notification ID directly - Firestore IDs are safe for HTML attributes
       const notificationId = String(n.id);
       const fromName = escapeHtmlMention(n.fromUserName || 'Usuario');
+      // Las notificaciones de seguimiento antiguas ya traen el nombre dentro del texto
+      const bodyText = String(n.text || '').replace(/^\s*<strong>[^<]*<\/strong>\s*/, '');
 
       return `${groupHeader}
         <div class="notification-item ${unreadClass}" data-id="${notificationId}" data-notification-id="${notificationId}">
@@ -3715,7 +3822,7 @@ function initNotifications() {
               <span class="notification-type" aria-hidden="true">${getNotificationIcon(n.type)}</span>
             </span>
             <div class="notification-content">
-              <div class="notification-text"><strong>${fromName}</strong> ${n.text}</div>
+              <div class="notification-text"><strong>${fromName}</strong> ${bodyText}</div>
               <div class="notification-time">${timeAgo}${n.read ? '' : '<span class="kx-visually-hidden">, sin leer</span>'}</div>
             </div>
           </div>
@@ -3877,7 +3984,7 @@ function initNotifications() {
             notificationItem.classList.remove('is-deleting');
           }
           deletingNotificationIds.delete(notificationId);
-          alert('Error al borrar la notificación');
+          showToast('No se ha podido borrar la notificación', 'error', { detail: kxFriendlyError(error) });
         }
       }, 500); // Match CSS transition duration
     }
@@ -4046,11 +4153,7 @@ window.deleteNotificationById = async function (notificationId) {
   } catch (error) {
     console.error('Error deleting notification:', error);
     // Try to show toast, but fallback to alert if showToast is not available
-    if (typeof showToast === 'function') {
-      showToast('Error al borrar la notificación', 'error');
-    } else {
-      alert('Error al borrar la notificación');
-    }
+    showToast('No se ha podido borrar la notificación', 'error', { detail: kxFriendlyError(error) });
     throw error; // Re-throw to let caller handle it
   }
 };
@@ -4970,9 +5073,120 @@ function initImageLightbox() {
   });
 }
 
+// Tirar hacia abajo desde arriba del todo recarga el feed (solo táctil)
+function initFeedPullToRefresh() {
+  const container = document.getElementById('feed-container');
+  const view = document.getElementById('feed-view');
+  if (!container || !view || container._kxPtr) return;
+  container._kxPtr = true;
+
+  if (getComputedStyle(view).position === 'static') view.style.position = 'relative';
+
+  const indicator = document.createElement('div');
+  indicator.className = 'kx-ptr';
+  indicator.setAttribute('aria-hidden', 'true');
+  indicator.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>';
+  view.appendChild(indicator);
+
+  const THRESHOLD = 70, MAX = 110;
+  let startY = 0, startX = 0, pull = 0, tracking = false, refreshing = false;
+
+  const place = (y, animate) => {
+    indicator.style.transition = animate ? 'transform .25s ease, opacity .2s ease' : 'none';
+    indicator.style.top = container.offsetTop + 'px';
+    indicator.style.transform = `translate(-50%, ${y / 2 - 13}px)`;
+    // Centrado en el hueco entre la línea de arriba y la primera publicación (el contenedor deja 14px de aire)
+    indicator.style.opacity = y > 4 ? String(Math.min(1, y / 40)) : '0';
+  };
+  const setContent = (y, animate) => {
+    container.style.transition = animate ? 'transform .25s ease' : 'none';
+    container.style.transform = y ? `translateY(${y}px)` : '';
+  };
+  const reset = () => {
+    pull = 0;
+    indicator.classList.remove('is-ready', 'is-spinning');
+    indicator.firstElementChild.style.transform = '';
+    setContent(0, true);
+    place(0, true);
+  };
+
+  container.addEventListener('touchstart', (e) => {
+    if (refreshing || e.touches.length !== 1 || container.scrollTop > 0 ||
+        document.body.classList.contains('kx-sheet-open')) { tracking = false; return; }
+    startY = e.touches[0].clientY;
+    startX = e.touches[0].clientX;
+    tracking = true;
+    pull = 0;
+  }, { passive: true });
+
+  container.addEventListener('touchmove', (e) => {
+    if (!tracking) return;
+    const dy = e.touches[0].clientY - startY;
+    const dx = e.touches[0].clientX - startX;
+    if (container.scrollTop > 0 || Math.abs(dx) > Math.abs(dy)) {
+      if (pull) reset();
+      tracking = false;
+      return;
+    }
+    if (dy <= 0) { if (pull) reset(); return; }
+    if (e.cancelable) e.preventDefault();
+    pull = Math.min(MAX, dy * 0.5);
+    setContent(pull, false);
+    place(pull, false);
+    indicator.classList.toggle('is-ready', pull >= THRESHOLD);
+    indicator.firstElementChild.style.transform = `rotate(${pull * 3}deg)`;
+  }, { passive: false });
+
+  const end = async () => {
+    if (!tracking) return;
+    tracking = false;
+    if (pull < THRESHOLD) { reset(); return; }
+    refreshing = true;
+    indicator.classList.add('is-spinning');
+    indicator.firstElementChild.style.transform = '';
+    setContent(56, true);
+    place(56, true);
+    try {
+      await Promise.all([loadFeed({ silent: true }), new Promise(r => setTimeout(r, 600))]);
+    } catch (_) {
+      if (typeof showToast === 'function') showToast('No se pudo actualizar', 'error');
+    }
+    refreshing = false;
+    reset();
+  };
+  container.addEventListener('touchend', end);
+  container.addEventListener('touchcancel', end);
+}
+
+// Pulsar el logo sube el feed hasta arriba del todo
+function initFeedScrollTop() {
+  const logo = document.getElementById('feed-wordmark');
+  const container = document.getElementById('feed-container');
+  if (!logo || !container || logo._kxTop) return;
+  logo._kxTop = true;
+
+  const goTop = () => {
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    logo.classList.remove('is-tapped');
+    void logo.offsetWidth;
+    if (!reduce) logo.classList.add('is-tapped');
+    // En escritorio es la propia vista la que se desplaza
+    [container, document.getElementById('feed-view')].forEach(el => {
+      if (el && el.scrollTop > 0) el.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+    });
+  };
+  logo.addEventListener('click', goTop);
+  logo.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTop(); }
+  });
+  logo.addEventListener('animationend', () => logo.classList.remove('is-tapped'));
+}
+
 function initFeed() {
   // Load feed from Firebase (will fallback to mock if empty)
   loadFeed();
+  initFeedPullToRefresh();
+  initFeedScrollTop();
 
   // Initialize feed tabs
   initFeedTabs();
@@ -4987,10 +5201,34 @@ function initFeedTabs() {
 
 // Fila "¿Qué quieres compartir?": es el propio #nav-create-btn, así que initCreatePost la engancha
 // y abre el flujo real de crear publicación (validaciones, fotos y envío incluidos).
+// Última sesión conocida: pinta la foto del compositor al instante mientras Firebase restaura la sesión
+const KX_LAST_USER_KEY = 'kx-last-user';
+function kxReadLastUser() {
+  try { return JSON.parse(localStorage.getItem(KX_LAST_USER_KEY) || 'null'); } catch (_) { return null; }
+}
+function kxWriteLastUser(u) {
+  try {
+    if (u) localStorage.setItem(KX_LAST_USER_KEY, JSON.stringify({ photo: u.photoURL || '', name: u.displayName || u.email || 'Usuario' }));
+    else localStorage.removeItem(KX_LAST_USER_KEY);
+  } catch (_) { /* sin almacenamiento */ }
+}
+
 function updateFeedComposer(user) {
   const avatar = document.getElementById('feed-composer-avatar');
   if (!avatar) return;
   const u = user || (typeof currentUser !== 'undefined' ? currentUser : null);
+  // user === null llega desde auth con la sesión ya resuelta (cerrada); undefined es el arranque
+  if (user !== undefined) kxWriteLastUser(user);
+  if (!u && user === undefined) {
+    const last = kxReadLastUser();
+    if (last) {
+      // Ya la puso el script de index.html: no la recargamos para que no parpadee
+      if (!avatar.getAttribute('src')) setAvatarWithFallback(avatar, last.photo, last.name, 80);
+      return;
+    }
+  }
+  // Misma foto ya pintada (script de arranque o sesión anterior): no la recargamos, así no parpadea
+  if (u && u.photoURL && avatar.getAttribute('src') === u.photoURL && avatar.complete && avatar.naturalWidth) return;
   setAvatarWithFallback(avatar, u ? u.photoURL : '', u ? (u.displayName || u.email || 'Usuario') : 'Usuario', 80);
 }
 
@@ -5298,6 +5536,7 @@ async function initProfile() {
 
       const nameEl = document.getElementById('profile-name');
       if (nameEl) nameEl.textContent = data.displayName || authUser.displayName;
+      kxSetProfileHandle(data.username);
 
       const bioEl = document.getElementById('profile-bio');
       if (bioEl) bioEl.textContent = data.bio || 'Sin biografí­a';
@@ -5959,6 +6198,10 @@ function initEditProfile() {
   if (!modal || !form) return;
 
   let selectedPhotoFile = null;
+  let currentUsername = '';
+  const usernameInput = document.getElementById('edit-username');
+  const usernameField = usernameInput && typeof kxBindUsernameField === 'function'
+    ? kxBindUsernameField(usernameInput, document.getElementById('edit-username-status')) : null;
 
 
   // Photo upload trigger - click on photo or overlay opens file selector
@@ -5999,6 +6242,11 @@ function initEditProfile() {
 
       // Pre-fill form with current data
       document.getElementById('edit-display-name').value = currentUser.displayName || '';
+      if (usernameInput) {
+        usernameInput.value = '';
+        const st = document.getElementById('edit-username-status');
+        if (st) { st.textContent = ''; st.dataset.tone = ''; }
+      }
       if (photoPreview) {
         photoPreview.src = currentUser.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=100';
       }
@@ -6008,6 +6256,9 @@ function initEditProfile() {
           const data = doc.data();
           document.getElementById('edit-bio').value = data.bio || '';
           document.getElementById('edit-location').value = data.location || '';
+          currentUsername = data.username || '';
+          if (usernameInput) usernameInput.value = currentUsername;
+          if (usernameField) usernameField.setCurrent(currentUsername);
           if (bioCharCount) bioCharCount.textContent = (data.bio || '').length;
         }
       });
@@ -6037,6 +6288,31 @@ function initEditProfile() {
     submitBtn.disabled = true;
 
     try {
+      // Nombre de usuario: si cambió, se reserva antes de guardar el resto (si está cogido, no se guarda nada)
+      const wantedUsername = usernameField ? usernameField.value() : '';
+      if (usernameField && wantedUsername && wantedUsername !== currentUsername) {
+        submitBtn.textContent = 'Comprobando usuario...';
+        if (!(await usernameField.check())) {
+          submitBtn.textContent = originalText;
+          submitBtn.disabled = false;
+          usernameInput.focus();
+          return;
+        }
+        try {
+          currentUsername = await KruxUsernames.claim(wantedUsername);
+          usernameField.setCurrent(currentUsername);
+        } catch (claimError) {
+          const st = document.getElementById('edit-username-status');
+          if (st) { st.textContent = kxUsernameClaimError(claimError); st.dataset.tone = 'error'; }
+          submitBtn.textContent = originalText;
+          submitBtn.disabled = false;
+          return;
+        }
+      } else if (usernameField && !wantedUsername && currentUsername) {
+        // No se puede quedar sin nombre de usuario: se mantiene el actual
+        usernameInput.value = currentUsername;
+      }
+
       let photoURL = currentUser.photoURL;
 
       // Upload new photo if selected
@@ -6068,7 +6344,7 @@ function initEditProfile() {
       }
     } catch (error) {
       console.error('Error updating profile:', error);
-      showToast('Error al guardar: ' + error.message, 'error');
+      showToast('Error al guardar', 'error', { detail: kxFriendlyError(error) });
     }
 
     submitBtn.textContent = originalText;
@@ -7701,8 +7977,8 @@ function renderTextWithMentions(text, mentions) {
   // Recalculate indices for each mention to handle trim/offset issues
   const recalculated = [];
   for (const mention of mentions) {
-    if (!mention.uid || !mention.displayName) continue;
-    const mentionStr = '@' + mention.displayName;
+    if (!mention.uid || !kxMentionLabel(mention)) continue;
+    const mentionStr = '@' + kxMentionLabel(mention);
 
     // Check if stored indices are valid
     const segment = text.slice(mention.startIndex, mention.endIndex);
@@ -7717,8 +7993,7 @@ function renderTextWithMentions(text, mentions) {
         );
         if (!alreadyClaimed) {
           recalculated.push({
-            uid: mention.uid,
-            displayName: mention.displayName,
+            ...mention,
             startIndex: idx,
             endIndex: idx + mentionStr.length
           });
@@ -7763,7 +8038,7 @@ function extractMentionsFromText(text, mentionsList) {
   const validMentions = [];
 
   for (const m of mentionsList) {
-    const mentionStr = '@' + m.displayName;
+    const mentionStr = '@' + kxMentionLabel(m);
 
     // 1. Try exact index match first (fast path)
     const segment = text.slice(m.startIndex, m.endIndex);
@@ -7782,8 +8057,7 @@ function extractMentionsFromText(text, mentionsList) {
       );
       if (!alreadyClaimed) {
         validMentions.push({
-          uid: m.uid,
-          displayName: m.displayName,
+          ...m,
           startIndex: idx,
           endIndex: idx + mentionStr.length
         });
@@ -7928,7 +8202,7 @@ class MentionAutocomplete {
 
     // Una mención ya elegida no vuelve a abrir las sugerencias
     const confirmed = this.mentions.some(m =>
-      m.startIndex === atIndex && text.slice(atIndex, m.endIndex) === '@' + m.displayName && cursorPos <= m.endIndex);
+      m.startIndex === atIndex && text.slice(atIndex, m.endIndex) === '@' + kxMentionLabel(m) && cursorPos <= m.endIndex);
     if (confirmed) {
       this._hide();
       return;
@@ -8024,11 +8298,12 @@ class MentionAutocomplete {
     const html = this.results.map((user, index) => {
       const photoUrl = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=153E35&color=fff&size=32`;
       const name = escapeHtmlMention(user.displayName || 'Usuario');
+      const handle = user.username ? `<span class="mention-dropdown-handle">@${escapeHtmlMention(user.username)}</span>` : '';
       return `
         <div class="mention-dropdown-item ${index === this.selectedIndex ? 'selected' : ''}" data-index="${index}">
           <img src="${photoUrl}" alt="${name}" class="mention-dropdown-avatar" referrerPolicy="no-referrer" onerror="this.src='https://ui-avatars.com/api/?name=U&background=153E35&color=fff&size=32'; this.onerror=null;">
           <div class="mention-dropdown-info">
-            <span class="mention-dropdown-name">${name}</span>
+            <span class="mention-dropdown-name">${name}</span>${handle}
           </div>
         </div>
       `;
@@ -8064,11 +8339,13 @@ class MentionAutocomplete {
     const text = this.input.value;
     const cursorPos = this.input.selectionStart;
     const displayName = user.displayName || 'Usuario';
+    // Se menciona con el @usuario; las cuentas que aún no lo tienen, con su nombre
+    const username = user.username || '';
 
-    // Replace @query with @displayName
+    // Replace @query with @usuario
     const before = text.slice(0, this.mentionStart);
     const after = text.slice(cursorPos);
-    const mentionText = '@' + displayName;
+    const mentionText = '@' + (username || displayName);
     const newText = before + mentionText + ' ' + after;
 
     this.input.value = newText;
@@ -8093,6 +8370,7 @@ class MentionAutocomplete {
     this.mentions.push({
       uid: user.id,
       displayName: displayName,
+      ...(username ? { username } : {}),
       startIndex: this.mentionStart,
       endIndex: this.mentionStart + mentionText.length
     });
@@ -8303,7 +8581,7 @@ function initCreatePost() {
       const tooBig = files.filter(f => f.size > KX_VIDEO_MAX_BYTES);
       const accepted = files.filter(f => f.size <= KX_VIDEO_MAX_BYTES).slice(0, Math.max(room, 0));
       if (tooBig.length) showToast(`Los vídeos no pueden pesar más de ${Math.round(KX_VIDEO_MAX_BYTES / 1048576)} MB`, 'error');
-      else if (files.length > room) showToast(`Máximo ${KX_MAX_POST_VIDEOS} vídeos por publicación`, 'info');
+      else if (files.length > room) showToast(`Máximo ${KX_MAX_POST_VIDEOS} vídeos por publicación`, 'warning');
       if (accepted.length) {
         postData.media.push(...accepted.map(file => ({ id: ++cpMediaSeq, kind: 'video', file })));
         updatePreview();
@@ -8723,9 +9001,13 @@ function kxAscentCardHTML(ascent, { removable = false, index = 0 } = {}) {
   const place = [ascent.schoolName, ascent.sector].filter(Boolean).map(escapeHtmlMention).join(' · ');
   const sub = [style, kxAscentDateLabel(ascent)].filter(Boolean).map(escapeHtmlMention).join(' · ');
   const attempt = ascent.style === 'project' ? ' is-attempt' : '';
+  // Publicada: el grado lleva a la vía en el mapa
+  const grade = removable
+    ? kxGradeChipHTML(ascent.grade)
+    : `<button type="button" class="kx-ascent-grade-link" data-ascent-map data-route-name="${escapeHtmlMention(ascent.routeName)}" data-school-id="${escapeHtmlMention(ascent.schoolId || '')}" data-sector="${escapeHtmlMention(ascent.sector || '')}" aria-label="Ver ${escapeHtmlMention(ascent.routeName)} en el mapa">${kxGradeChipHTML(ascent.grade)}</button>`;
   return `
     <div class="kx-ascent-card${attempt}${removable ? ' is-removable' : ''}"${removable ? ' role="button" tabindex="0" data-change-ascent aria-label="Editar ascensiones"' : ''}>
-      ${kxGradeChipHTML(ascent.grade)}
+      ${grade}
       <div class="kx-ascent-info">
         <span class="kx-ascent-name">${escapeHtmlMention(ascent.routeName)}</span>
         ${place ? `<span class="kx-ascent-meta">${place}</span>` : ''}
@@ -8734,6 +9016,20 @@ function kxAscentCardHTML(ascent, { removable = false, index = 0 } = {}) {
       ${removable ? `<button type="button" class="remove-preview-btn" data-type="ascent" data-index="${index}" aria-label="Quitar ${escapeHtmlMention(ascent.routeName)}">${CP_REMOVE_ICON}</button>` : ''}
     </div>`;
 }
+
+// El grado de una ascensión publicada abre la vía en el mapa (captura: no abre además la publicación)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('[data-ascent-map]');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (typeof window.kxOpenAscentOnMap !== 'function') return;
+  window.kxOpenAscentOnMap({
+    routeName: btn.dataset.routeName,
+    schoolId: btn.dataset.schoolId,
+    sector: btn.dataset.sector
+  });
+}, true);
 
 function kxNormalizeText(t) {
   return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -8840,7 +9136,7 @@ function toggleAscentSelection(id) {
     cpPickerSel.splice(i, 1);
   } else {
     if (cpPickerSel.length >= KX_MAX_POST_ASCENTS) {
-      showToast(`Máximo ${KX_MAX_POST_ASCENTS} ascensiones por publicación`, 'info');
+      showToast(`Máximo ${KX_MAX_POST_ASCENTS} ascensiones por publicación`, 'warning');
       return;
     }
     cpPickerSel.push(id);
@@ -10119,10 +10415,11 @@ async function submitPost() {
         const url = await storageRef.getDownloadURL();
         videoUrls.push(url);
         const entry = { type: 'video', url };
-        if (item.cover) {
-          // Portada elegida: imagen aparte que se usa como miniatura del vídeo
-          const posterRef = storageRef0(`portada_${item.cover.file.name}`);
-          await kxStoragePut(posterRef, item.cover.file);
+        // Portada elegida o, si no, el primer fotograma: imagen aparte que se usa como miniatura del vídeo
+        const coverFile = item.cover ? item.cover.file : await kxVideoPosterFromFile(video);
+        if (coverFile) {
+          const posterRef = storageRef0(`portada_${coverFile.name}`);
+          await kxStoragePut(posterRef, coverFile);
           entry.poster = await posterRef.getDownloadURL();
         }
         mediaList.push(entry);
@@ -10196,7 +10493,7 @@ async function submitPost() {
       sendMentionNotifications(postDataToSave.mentions, { type: 'post', postId: docRef.id });
     }
 
-    showToast('Publicación creada exitosamente', 'success');
+    showToast('Publicación creada', 'success');
     closeCreatePostModal();
 
     // Reload feed and profile grid after a short delay to ensure data is indexed
@@ -10369,12 +10666,14 @@ function showEmptyFeedState(container) {
 }
 
 // Load feed from Firebase - Timeline de seguidos
-async function loadFeed() {
+async function loadFeed(opts) {
   const container = document.getElementById('feed-container');
   if (!container) return;
+  // silent: recarga por gesto; la lista sigue visible hasta que llegan las publicaciones nuevas
+  const silent = !!(opts && opts.silent);
 
   try {
-    container.innerHTML = '<div class="loading-spinner">Cargando publicaciones...</div>';
+    if (!silent) container.innerHTML = '<div class="loading-spinner">Cargando publicaciones...</div>';
 
     // Get the list of users the current user follows
     let followingIds = [];
@@ -10393,11 +10692,17 @@ async function loadFeed() {
       followingIds.push(currentUser.uid);
     }
 
-    container.innerHTML = '';
+    if (!silent) container.innerHTML = '';
 
     // Vista previa local sin sesión: publicaciones de demostración (ver isLocalDevPreview en auth.js)
     if (!currentUser && typeof isLocalDevPreview === 'function' && isLocalDevPreview()) {
       renderLocalPreviewFeed(container);
+      return;
+    }
+
+    // Sesión aún sin restaurar pero con usuario recordado: auth volverá a llamar a loadFeed, no mostramos «vacío»
+    if (!currentUser && kxReadLastUser() && !silent) {
+      container.innerHTML = '<div class="loading-spinner">Cargando publicaciones...</div>';
       return;
     }
 
@@ -10480,6 +10785,7 @@ async function loadFeed() {
       return;
     }
 
+    if (silent) container.innerHTML = '';
     allPosts.forEach(post => {
       renderPostCard(post, container);
     });
@@ -10489,6 +10795,7 @@ async function loadFeed() {
 
   } catch (error) {
     console.error('Error loading feed:', error);
+    if (silent) throw error;
 
     container.innerHTML = `
         <div class="feed-state feed-state-error">
@@ -12107,7 +12414,7 @@ async function handleUpdateComment(postId, commentId, container) {
     } else if (error.code === 'not-found') {
       showToast('El comentario no existe', 'error');
     } else {
-      showToast('Error al actualizar comentario: ' + (error.message || 'Error desconocido'), 'error');
+      showToast('Error al actualizar comentario', 'error', { detail: kxFriendlyError(error) });
     }
   }
 }
@@ -12185,7 +12492,7 @@ async function deleteInlineComment(postId, commentId, container, commentAuthorId
     } else if (error.code === 'not-found') {
       showToast('El comentario no existe', 'error');
     } else {
-      showToast('Error al eliminar comentario: ' + (error.message || 'Error desconocido'), 'error');
+      showToast('Error al eliminar comentario', 'error', { detail: kxFriendlyError(error) });
     }
   }
 }
@@ -12318,7 +12625,7 @@ async function handleUpdatePost(postId, container) {
     } else if (error.code === 'not-found') {
       showToast('La publicación no existe', 'error');
     } else {
-      showToast('Error al actualizar publicación: ' + (error.message || 'Error desconocido'), 'error');
+      showToast('Error al actualizar publicación', 'error', { detail: kxFriendlyError(error) });
     }
   }
 }
@@ -12387,7 +12694,7 @@ async function handleDeletePost(postId, container) {
     } else if (error.code === 'not-found') {
       showToast('La publicación no existe', 'error');
     } else {
-      showToast('Error al eliminar publicación: ' + (error.message || 'Error desconocido'), 'error');
+      showToast('Error al eliminar publicación', 'error', { detail: kxFriendlyError(error) });
     }
   }
 }
@@ -12507,13 +12814,11 @@ async function handleFeedBookmark(postId, button) {
       await userRef.update({
         savedPosts: firebase.firestore.FieldValue.arrayRemove(postId)
       });
-      showToast('Eliminado de guardados', 'info');
     } else {
       // Add to saved
       await userRef.update({
         savedPosts: firebase.firestore.FieldValue.arrayUnion(postId)
       });
-      showToast('Guardado', 'success');
     }
   } catch (error) {
     console.error('Error toggling bookmark:', error);
@@ -12528,7 +12833,7 @@ async function handleFeedBookmark(postId, button) {
         svg.setAttribute('stroke', 'currentColor');
       }
     }
-    showToast('Error al guardar', 'error');
+    showToast('No se ha podido guardar la publicación', 'error', { detail: kxFriendlyError(error) });
   }
 }
 
@@ -12567,7 +12872,7 @@ async function handleFeedShare(postId) {
     // Fallback: Copy URL to clipboard (desktop)
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(shareUrl);
-      showToast('Enlace copiado al portapapeles', 'success');
+      showToast('Enlace copiado al portapapeles', 'info');
     } else {
       // Legacy fallback for older browsers
       const textArea = document.createElement('textarea');
@@ -12578,7 +12883,7 @@ async function handleFeedShare(postId) {
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      showToast('Enlace copiado al portapapeles', 'success');
+      showToast('Enlace copiado al portapapeles', 'info');
     }
   } catch (error) {
     console.error('Error sharing post:', error);
@@ -12753,6 +13058,36 @@ function kxMediaHTML(items, { modal = false, tag = '' } = {}) {
 }
 
 // Casilla de vídeo del collage: primer fotograma + botón de reproducir. Al pulsarla se abre el visor.
+// Fotograma inicial del vídeo como JPEG ligero: se sube como portada para que el feed lo pinte al instante
+// sin descargar el vídeo. Devuelve null si el navegador no puede decodificarlo.
+async function kxVideoPosterFromFile(file) {
+  const objUrl = URL.createObjectURL(file);
+  try {
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    v.src = objUrl;
+    await new Promise((resolve, reject) => { v.onloadeddata = resolve; v.onerror = reject; setTimeout(reject, 8000); });
+    const t = Math.min(0.1, (v.duration || 0) / 2);
+    if (t > 0) {
+      await new Promise((resolve) => { v.onseeked = resolve; v.currentTime = t; setTimeout(resolve, 3000); });
+    }
+    if (!v.videoWidth || !v.videoHeight) return null;
+    const k = Math.min(1, 960 / Math.max(v.videoWidth, v.videoHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(2, Math.round(v.videoWidth * k));
+    canvas.height = Math.max(2, Math.round(v.videoHeight * k));
+    canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+    return blob ? new File([blob], 'portada.jpg', { type: 'image/jpeg' }) : null;
+  } catch (_) {
+    return null;
+  } finally {
+    URL.revokeObjectURL(objUrl);
+  }
+}
+
 function kxVideoTileHTML(url, index, poster) {
   const src = escapeHtmlMention(url);
   // Con portada elegida se ve esa imagen; si no, el primer fotograma del propio vídeo
@@ -13435,7 +13770,7 @@ async function deletePost(postId, post) {
     // Delete post from Firestore
     await db.collection('posts').doc(postId).delete();
 
-    showToast('Publicación eliminada exitosamente', 'success');
+    showToast('Publicación eliminada', 'success');
 
     // Close modal
     const viewModal = document.getElementById('view-post-modal');
@@ -13459,7 +13794,7 @@ async function deletePost(postId, post) {
 
   } catch (error) {
     console.error('Error deleting post:', error);
-    showToast('Error al eliminar la publicación: ' + error.message, 'error');
+    showToast('Error al eliminar la publicación', 'error', { detail: kxFriendlyError(error) });
   }
 }
 
@@ -13776,7 +14111,7 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, videos, 
 
     await db.collection('posts').doc(postId).update(updateData);
 
-    showToast('Publicación actualizada exitosamente', 'success');
+    showToast('Publicación actualizada', 'success');
 
     // Reload post in modal
     await openPostModal(postId);
@@ -13793,7 +14128,7 @@ async function savePostEdit(postId, content, existingPhotos, newPhotos, videos, 
 
   } catch (error) {
     console.error('Error updating post:', error);
-    showToast('Error al actualizar la publicaciÃ³n: ' + error.message, 'error');
+    showToast('Error al actualizar la publicación', 'error', { detail: kxFriendlyError(error) });
   } finally {
     saveBtn.disabled = false;
     saveBtn.textContent = 'Guardar cambios';
@@ -13836,8 +14171,9 @@ function initActivityView() {
   document.querySelectorAll('.act-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       currentActivityMode = btn.dataset.mode;
-      document.querySelectorAll('.act-mode-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.act-mode-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       document.getElementById('content-roca').style.display = currentActivityMode === 'roca' ? '' : 'none';
       document.getElementById('content-rocodromo').style.display = currentActivityMode === 'rocodromo' ? '' : 'none';
     });
@@ -13846,9 +14182,10 @@ function initActivityView() {
   // Timeline filter chips
   document.querySelectorAll('.act-tf').forEach(chip => {
     chip.addEventListener('click', () => {
-      document.querySelectorAll('.act-tf').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      filterActivitySessions(chip.dataset.filter);
+      document.querySelectorAll('.act-tf').forEach(c => { c.classList.remove('active', 'is-active'); c.setAttribute('aria-pressed', 'false'); });
+      chip.classList.add('active', 'is-active');
+      chip.setAttribute('aria-pressed', 'true');
+      if (window.KruxActivity) KruxActivity.setSessionFilter(chip.dataset.filter);
     });
   });
 
@@ -13859,7 +14196,9 @@ function initActivityView() {
       if (currentActivityMode === 'rocodromo') {
         openNewGymAscent();
       } else {
-        showToast('Funcionalidad de nueva ascensión próximamente', 'info');
+        // Las ascensiones de roca se registran sobre una vía concreta: se lleva al mapa
+        showToast('Elige una vía en el mapa y pulsa el check para registrarla', 'info');
+        switchView('map-view');
       }
     });
   }
@@ -14749,6 +15088,7 @@ async function loadActivityData() {
       if (emptyState) emptyState.style.display = 'flex';
       resetAllStats();
       buildGymMisRocodromos([]);
+      if (window.KruxActivity) KruxActivity.render([]);
       return;
     }
 
@@ -14786,33 +15126,19 @@ async function loadActivityData() {
     }
     calculateAndUpdateStats(statsAscents);
 
-    // Build new activity components from real data
+    // Interfaz nueva (activity-ui.js) con los mismos datos ya cargados
     requestAnimationFrame(() => {
-      buildActivityHeroCard(allAscents, yearAscents);
-      buildActivityPyramid(allAscents);
-      buildGymPyramid(allAscents);
-      buildActivityHeatmap(allAscents);
       buildGymStats(allAscents);
       buildGymMisRocodromos(allAscents);
-      updateActivityRecords(allAscents);
-      updateCombinedHistogram(allAscents);
-      renderProgressCards(_pcCurrentPeriod || 'month', allAscents);
-      updatePcTimeNav(_pcCurrentPeriod || 'month');
+      buildGymPyramid(allAscents);
+      if (window.KruxActivity) KruxActivity.render(allAscents);
       const activeChartTab = document.querySelector('.chart-tab.active');
       updateActivityChart(activeChartTab ? activeChartTab.dataset.chart : 'week');
     });
 
-    // Activity list grouped by session
-    renderActivityList(allAscents.slice(0, 100));
-
-    // Show/hide empty state
-    const emptyState = document.getElementById('activity-empty');
-    if (emptyState) {
-      emptyState.style.display = allAscents.length === 0 ? 'flex' : 'none';
-    }
-
   } catch (error) {
     console.error('Error loading activity data:', error);
+    if (window.KruxActivity) KruxActivity.showError();
   }
 }
 
@@ -15173,348 +15499,6 @@ async function detectGymByGPS() {
   );
 }
 
-const HERO_MILESTONES = [
-  { m: 33,    name: 'Coloso de Rodas',         emoji: '🗿' },
-  { m: 93,    name: 'Estatua de la Libertad',  emoji: '🗽' },
-  { m: 138,   name: 'Pirámide de Guiza',       emoji: '🔺' },
-  { m: 172,   name: 'Sagrada Familia',         emoji: '⛪' },
-  { m: 324,   name: 'Torre Eiffel',            emoji: '🗼' },
-  { m: 443,   name: 'Empire State',            emoji: '🏙️' },
-  { m: 508,   name: 'Taipei 101',              emoji: '🏢' },
-  { m: 828,   name: 'Burj Khalifa',            emoji: '🏗️' },
-  { m: 914,   name: 'El Capitán',              emoji: '🧗' },
-  { m: 2428,  name: 'Peñalara',                emoji: '🗻' },
-  { m: 2519,  name: 'Naranjo de Bulnes',       emoji: '⛰️' },
-  { m: 3478,  name: 'Mulhacén',                emoji: '🏔️' },
-  { m: 3718,  name: 'Teide',                   emoji: '🌋' },
-  { m: 4810,  name: 'Mont Blanc',              emoji: '🏔️' },
-  { m: 5895,  name: 'Kilimanjaro',             emoji: '🌍' },
-  { m: 6962,  name: 'Aconcagua',               emoji: '🏔️' },
-  { m: 8091,  name: 'Annapurna',               emoji: '❄️' },
-  { m: 8611,  name: 'K2',                      emoji: '⛏️' },
-  { m: 8848,  name: 'Everest',                 emoji: '🏔️' },
-  { m: 12000, name: 'Troposfera',              emoji: '☁️' },
-  { m: 50000, name: 'Estratosfera',            emoji: '🌌' },
-  { m: 85000, name: 'Mesoesfera',              emoji: '🌠' },
-  { m: 408000,name: 'ISS',                     emoji: '🛰️' },
-];
-
-function estimateRouteMeters(grade) {
-  if (!grade) return 20;
-  const g = String(grade).toLowerCase();
-  if (g.startsWith('3') || g.startsWith('4')) return 15;
-  if (g.startsWith('5')) return 18;
-  if (g.startsWith('6')) return 22;
-  if (g.startsWith('7')) return 25;
-  return 28;
-}
-
-function buildActivityHeroMilestone(allAscents) {
-  const rockAscents = allAscents.filter(a => !isGymAscent(a) && a.grade && a.style !== 'project');
-  const totalMeters = rockAscents.reduce((sum, a) => {
-    const fromRoute = parseFloat(a.routeLength || a.long1);
-    const m = !isNaN(fromRoute) && fromRoute > 0 ? fromRoute : estimateRouteMeters(a.grade);
-    return sum + m;
-  }, 0);
-
-  const metersEl = document.getElementById('hero-meters');
-  if (metersEl) metersEl.textContent = `${Math.round(totalMeters).toLocaleString('es-ES')} m`;
-
-  let currentIdx = -1;
-  for (let i = HERO_MILESTONES.length - 1; i >= 0; i--) {
-    if (totalMeters >= HERO_MILESTONES[i].m) { currentIdx = i; break; }
-  }
-  const current = currentIdx >= 0 ? HERO_MILESTONES[currentIdx] : null;
-  const next = HERO_MILESTONES[currentIdx + 1] || null;
-
-  const nameEl = document.getElementById('hero-milestone-name');
-  const fillEl = document.getElementById('hero-progress-fill');
-  const nextEl = document.getElementById('hero-milestone-next');
-
-  if (totalMeters === 0) {
-    if (nameEl) nameEl.textContent = '· registra vías para ver hitos';
-    if (fillEl) fillEl.style.width = '0%';
-    if (nextEl) nextEl.textContent = '';
-    return;
-  }
-
-  if (nameEl) {
-    nameEl.innerHTML = current
-      ? `· ${current.emoji} <strong>${current.name}</strong>`
-      : `· camino al primer hito`;
-  }
-
-  if (next) {
-    const baseM = current ? current.m : 0;
-    const pct = Math.max(0, Math.min(100, ((totalMeters - baseM) / (next.m - baseM)) * 100));
-    if (fillEl) fillEl.style.width = `${pct}%`;
-    const remaining = Math.max(0, Math.round(next.m - totalMeters));
-    if (nextEl) nextEl.innerHTML = `Próximo: ${next.emoji} <strong>${next.name}</strong> · faltan <strong>${remaining.toLocaleString('es-ES')} m</strong>`;
-  } else {
-    if (fillEl) fillEl.style.width = '100%';
-    if (nextEl) nextEl.innerHTML = '🎉 Todos los hitos alcanzados';
-  }
-}
-
-function buildActivityHeroCard(allAscents, yearAscents) {
-  buildActivityHeroMilestone(allAscents);
-  const rockAscents = allAscents.filter(a => !isGymAscent(a));
-  const rockYear = yearAscents.filter(a => !isGymAscent(a));
-
-  // Max grade as "proyecto activo" (highest grade attempted this year)
-  const grades = rockYear.map(a => a.grade).filter(Boolean);
-  const maxGrade = findMaxGrade(grades) || '-';
-  const gradeEl = document.getElementById('hero-project-grade');
-  if (gradeEl) gradeEl.textContent = maxGrade;
-
-  // Route name of that grade
-  const topAscent = rockYear.find(a => a.grade && a.grade.toLowerCase() === (maxGrade || '').toLowerCase());
-  const nameEl = document.getElementById('hero-project-name');
-  if (nameEl) {
-    const loc = [topAscent?.routeName, topAscent?.sectorName || topAscent?.sector, topAscent?.schoolName || topAscent?.school].filter(Boolean).join(' · ');
-    nameEl.textContent = loc || (maxGrade !== '-' ? 'Mejor encadenamiento del año' : 'Sin ascensiones este año');
-  }
-
-  // Streak
-  const streak = calculateStreak(rockAscents);
-  const flashCount = rockYear.filter(a => a.style === 'flash' || a.style === 'onsight').length;
-  const flashRate = rockYear.length > 0 ? Math.round((flashCount / rockYear.length) * 100) : 0;
-
-  const badgesEl = document.getElementById('hero-badges-roca');
-  if (badgesEl) {
-    badgesEl.innerHTML = [
-      streak > 2 ? `<span class="act-badge act-badge-orange">🔥 Racha ${streak} días</span>` : '',
-      rockYear.length > 0 ? `<span class="act-badge act-badge-blue">${rockYear.length} vías este año</span>` : '',
-      flashRate > 0 ? `<span class="act-badge act-badge-green">Flash ${flashRate}%</span>` : '',
-    ].join('');
-  }
-
-  // Comparison vs previous year
-  const now = new Date();
-  const prevYear = now.getFullYear() - 1;
-  const prevYearAscents = allAscents.filter(a => {
-    const d = parseAscentDate(a.date);
-    return d && d.getFullYear() === prevYear && !isGymAscent(a);
-  });
-  const compareEl = document.getElementById('hero-compare-roca');
-  if (compareEl) {
-    if (prevYearAscents.length > 0 && rockYear.length > 0) {
-      const pct = Math.round(((rockYear.length - prevYearAscents.length) / prevYearAscents.length) * 100);
-      const sign = pct >= 0 ? '+' : '';
-      const prevMax = findMaxGrade(prevYearAscents.map(a => a.grade).filter(Boolean));
-      compareEl.innerHTML = `Vs. ${prevYear}:<br><strong>${sign}${pct}% vías</strong><br>Grado máximo: <strong>${prevMax || '-'} → ${maxGrade}</strong>`;
-    } else if (rockYear.length > 0) {
-      compareEl.innerHTML = `<strong>${rockYear.length} vías</strong> este año<br>Flash rate: <strong>${flashRate}%</strong>`;
-    } else {
-      compareEl.innerHTML = 'Registra ascensiones<br>para ver tu progreso.';
-    }
-  }
-
-  // Sparkline — últimas 30 sesiones agrupadas por día
-  buildSparkline(rockAscents, 'hero-sparkline-roca', '#6366f1', '#e0e7ff');
-}
-
-function buildSparkline(ascents, svgId, strokeColor, fillColor) {
-  const svgEl = document.getElementById(svgId);
-  if (!svgEl) return;
-
-  const byDay = {};
-  ascents.slice(0, 210).forEach(a => {
-    const d = parseAscentDate(a.date);
-    if (!d) return;
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    byDay[key] = (byDay[key] || 0) + 1;
-  });
-
-  const days = Object.values(byDay).slice(0, 30).reverse();
-  if (days.length < 2) { svgEl.innerHTML = ''; return; }
-
-  const maxV = Math.max(...days);
-  const w = 200, h = 48, pad = 4;
-  const pts = days.map((v, i) => {
-    const x = (i / (days.length - 1)) * w;
-    const y = h - pad - ((v / maxV) * (h - pad * 2));
-    return `${x},${y}`;
-  }).join(' ');
-
-  svgEl.innerHTML = `
-    <polyline points="${pts}" fill="none" stroke="${strokeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    <polyline points="${pts} ${w},${h} 0,${h}" fill="${fillColor}" stroke="none" opacity="0.5"/>
-  `;
-}
-
-function buildActivityPyramid(allAscents) {
-  const el = document.getElementById('act-pyramid-roca');
-  if (!el) return;
-
-  const rockAscents = allAscents.filter(a => !isGymAscent(a) && a.style !== 'project' && a.grade);
-
-  const gradeCounts = {};
-  rockAscents.forEach(a => {
-    const g = a.grade.toLowerCase();
-    if (GRADE_ORDER.includes(g)) gradeCounts[g] = (gradeCounts[g] || 0) + 1;
-  });
-
-  const sorted = GRADE_ORDER
-    .filter(g => gradeCounts[g] > 0)
-    .reverse();
-
-  if (sorted.length === 0) {
-    el.innerHTML = '<div style="text-align:center;padding:1rem;font-size:12px;color:var(--text-muted)">Sin ascensiones encadenadas</div>';
-    const consolidatedEl = document.getElementById('act-consolidated-grade');
-    if (consolidatedEl) consolidatedEl.textContent = '-';
-    return;
-  }
-
-  const maxCount = Math.max(...sorted.map(g => gradeCounts[g]));
-
-  el.innerHTML = sorted.map(grade => {
-    const count = gradeCounts[grade];
-    const pct = Math.max(8, Math.round((count / maxCount) * 100));
-    const bg = typeof getGradeColor === 'function' ? getGradeColor(grade) : '#818cf8';
-    return `<div class="act-pyramid-row">
-      <div class="act-pyramid-label">${grade}</div>
-      <div class="act-pyramid-bar-wrap">
-        <div class="act-pyramid-bar" style="width:${pct}%;background:${bg};"></div>
-        <div class="act-pyramid-count">${count}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // Consolidated grade: highest grade with ≥5 ascents
-  const consolidated = sorted.find(g => gradeCounts[g] >= 5);
-  const consolidatedEl = document.getElementById('act-consolidated-grade');
-  if (consolidatedEl) consolidatedEl.textContent = consolidated || '-';
-}
-
-function buildActivityHeatmap(allAscents) {
-  buildHeatmapFor(allAscents.filter(a => !isGymAscent(a)), 'act-heatmap-weeks-roca', 'act-heatmap-months-roca', 'hm-r');
-
-  const gymAscents = allAscents.filter(a => isGymAscent(a));
-  if (window._gymActivityHeatmap) window._gymActivityHeatmap.destroy();
-  window._gymActivityHeatmap = new ActivityHeatmap('gym-activity-heatmap');
-  window._gymActivityHeatmap.initWithData(gymAscents);
-}
-
-function getHmTooltip() {
-  let tip = document.getElementById('hm-tooltip');
-  if (!tip) {
-    tip = document.createElement('div');
-    tip.id = 'hm-tooltip';
-    tip.className = 'hm-tooltip';
-    document.body.appendChild(tip);
-  }
-  return tip;
-}
-
-function buildHeatmapFor(ascents, weeksId, monthsId, colorPrefix) {
-  const weeksEl = document.getElementById(weeksId);
-  const monthsEl = document.getElementById(monthsId);
-  if (!weeksEl || !monthsEl) return;
-  weeksEl.innerHTML = '';
-  monthsEl.innerHTML = '';
-
-  const dayCount = {};
-  ascents.forEach(a => {
-    const d = parseAscentDate(a.date);
-    if (!d) return;
-    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    dayCount[key] = (dayCount[key] || 0) + 1;
-  });
-
-  const today = new Date();
-  const year = today.getFullYear();
-  const months = ['E','F','M','A','M','J','J','A','S','O','N','D'];
-  const currentMonth = today.getMonth();
-
-  // Render each month as its own block of week-columns, with empty cells
-  // padding the start/end so each month shows EXACTLY its real days.
-  for (let m = 0; m <= currentMonth; m++) {
-    const firstDay = new Date(year, m, 1);
-    const daysInMonth = new Date(year, m + 1, 0).getDate();
-    const fdDow = firstDay.getDay();
-    const fdGridDay = fdDow === 0 ? 6 : fdDow - 1; // 0=Mon..6=Sun
-    const totalCells = fdGridDay + daysInMonth;
-    const weeksInMonth = Math.ceil(totalCells / 7);
-
-    for (let w = 0; w < weeksInMonth; w++) {
-      const weekDiv = document.createElement('div');
-      weekDiv.className = 'act-heatmap-week';
-      if (w === 0 && m > 0) weekDiv.classList.add('hm-month-start');
-
-      for (let d = 0; d < 7; d++) {
-        const dayOfMonth = w * 7 + d - fdGridDay + 1;
-        const inMonth = dayOfMonth >= 1 && dayOfMonth <= daysInMonth;
-        const cell = document.createElement('div');
-
-        if (!inMonth) {
-          cell.className = 'act-heatmap-cell hm-empty';
-        } else {
-          const date = new Date(year, m, dayOfMonth);
-          const afterToday = date > today;
-          if (afterToday) {
-            cell.className = 'act-heatmap-cell hm-empty';
-          } else {
-            const key = `${year}-${String(m).padStart(2,'0')}-${String(dayOfMonth).padStart(2,'0')}`;
-            const count = dayCount[key] || 0;
-            const level = count === 0 ? 0 : count <= 2 ? 1 : count <= 4 ? 2 : count <= 7 ? 3 : 4;
-            cell.className = `act-heatmap-cell ${level === 0 ? 'hm-0' : colorPrefix + level}`;
-            if (count > 0) {
-              const label = `${count} ${count === 1 ? 'vía' : 'vías'} · ${date.toLocaleDateString('es-ES', { day:'numeric', month:'short' })}`;
-              cell.addEventListener('mouseenter', e => {
-                const tip = getHmTooltip();
-                tip.textContent = label;
-                const r = cell.getBoundingClientRect();
-                tip.style.left = `${r.left + r.width / 2}px`;
-                tip.style.top = `${r.top - 8}px`;
-                tip.style.transform = 'translateX(-50%) translateY(-100%)';
-                tip.classList.add('visible');
-              });
-              cell.addEventListener('mouseleave', () => {
-                getHmTooltip().classList.remove('visible');
-              });
-            }
-          }
-        }
-        weekDiv.appendChild(cell);
-      }
-      weeksEl.appendChild(weekDiv);
-
-      const span = document.createElement('div');
-      span.className = 'act-heatmap-month';
-      span.textContent = (w === 0) ? months[m] : '';
-      monthsEl.appendChild(span);
-    }
-  }
-}
-
-function calculateStreak(ascents) {
-  if (!ascents || ascents.length === 0) return 0;
-  const days = new Set();
-  ascents.forEach(a => {
-    const d = parseAscentDate(a.date);
-    if (d) days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
-  });
-
-  const sorted = Array.from(days).sort().reverse();
-  let streak = 0;
-  const today = new Date();
-  let cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-  for (const dayKey of sorted) {
-    const [y, m, d] = dayKey.split('-').map(Number);
-    const dayDate = new Date(y, m, d);
-    const diff = Math.round((cursor - dayDate) / 86400000);
-    if (diff <= 1) {
-      streak++;
-      cursor = dayDate;
-    } else {
-      break;
-    }
-  }
-  return streak;
-}
-
 // ============================================
 // PIRÁMIDE DE GRADOS — Rocódromo
 // ============================================
@@ -15704,7 +15688,7 @@ function buildGymStats(allAscents) {
     const d = parseAscentDate(a.date);
     return d ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : null;
   }).filter(Boolean));
-  const sessionsPerWeek = gymDays.size > 0 ? (gymDays.size / 8).toFixed(1) : '-';
+  const sessionsPerWeek = gymDays.size > 0 ? (gymDays.size / 8).toFixed(1).replace('.', ',') : '-';
 
   // Max grade in gym
   const gymGrades = gymAscents.map(a => a.grade).filter(Boolean);
@@ -15722,11 +15706,6 @@ function buildGymStats(allAscents) {
   setVal('gym-max-grade', gymMaxGrade);
   setVal('gym-total-sessions', allGymDays.size > 0 ? allGymDays.size : '-');
 
-  // Sparkline gym
-  buildSparkline(gymAscents, 'hero-sparkline-gym', '#7c3aed', '#ede9fe');
-
-  // Gym timeline
-  renderGymTimeline(gymAscents.slice(0, 50));
 }
 
 // ============================================================
@@ -15971,6 +15950,7 @@ let _gthUnsubMeasures = null;
 let _gthDefs = [];
 let _gthMeasures = [];
 let _gthAuthHooked = false;
+let _gthSeeding = false;
 
 // Built-in test templates (9 tests imprescindibles — Lattice/Eva López/Beastmaker)
 const _GTH_TEMPLATES = [
@@ -16009,9 +15989,12 @@ function initTestHeader() {
     _gthUnsubDefs = defsRef.onSnapshot(
       async (snap) => {
         _gthDefs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Seed defaults if the user has never had any test definitions
-        if (_gthDefs.length === 0) {
-          await _gthSeedDefaults(defsRef);
+        // Seed defaults if the user has never had any test definitions.
+        // Con la caché local el primer snapshot llega vacío antes de confirmarse el servidor: sin
+        // este cerrojo se sembraban los tests dos veces y la pantalla los mostraba duplicados.
+        if (_gthDefs.length === 0 && !snap.metadata.fromCache && !_gthSeeding) {
+          _gthSeeding = true;
+          try { await _gthSeedDefaults(defsRef); } finally { _gthSeeding = false; }
         }
         _gthRender();
       },
@@ -16129,11 +16112,19 @@ function _gthBuildCardState(def, allMeasures) {
   }
   const daysSince = Math.floor((new Date(now) - new Date(latest._iso)) / MS);
   const sparkline = sorted.slice(-8).map(m => m.value);
-  return { def, latest, previous, delta, daysSince, sparkline };
+  // Mejor resultado histórico según la dirección del test
+  const useGrade = def.unit === 'grade';
+  const score = m => useGrade ? _rocoGradeIndex(m.gradeValue) : m.value;
+  let best = sorted[0];
+  sorted.forEach(m => {
+    const a = score(m), b = score(best);
+    if (def.progressDirection === 'higher_is_better' ? a > b : a < b) best = m;
+  });
+  return { def, latest, previous, delta, daysSince, sparkline, best, count: sorted.length };
 }
 
 function _gthCardHTML(state) {
-  const { def, latest, delta, daysSince, sparkline } = state;
+  const { def, latest, delta, daysSince, sparkline, best, count } = state;
   const unit = _gthUnitLabel(def);
   const ctx = def.defaults && def.defaults.edgeMm
     ? `${def.defaults.edgeMm}mm`
@@ -16160,9 +16151,16 @@ function _gthCardHTML(state) {
 
   const daysStr = _gthFormatDays(daysSince);
 
+  let bestStr = '';
+  if (best && latest && count > 1) {
+    const bv = def.unit === 'grade' ? best.gradeValue : `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(best.value)}${unit ? ' ' + unit : ''}`;
+    const bd = new Date(best._iso);
+    bestStr = `<div class="gth-card-best">Mejor: <strong>${bv}</strong> · ${bd.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</div>`;
+  }
+
   return `<article class="gth-card" data-test-id="${def.id}" role="button" tabindex="0" aria-label="${def.name}: ${numStr} ${unitStr}">
     <div class="gth-card-top">
-      <span class="gth-card-name">${def.name.toUpperCase()}</span>
+      <span class="gth-card-name">${def.name}</span>
       ${ctx ? `<span class="gth-card-ctx">${ctx}</span>` : ''}
     </div>
     <div class="gth-card-value">${numStr}${unitStr ? `<span class="gth-card-unit"> ${unitStr}</span>` : ''}</div>
@@ -16170,7 +16168,9 @@ function _gthCardHTML(state) {
       <span class="gth-badge ${badgeClass}">${badgeText}</span>
       ${daysStr ? `<span class="gth-card-days">${daysStr}</span>` : ''}
     </div>
+    ${bestStr}
     ${_gthSparkline(sparkline)}
+    <svg class="gth-card-go" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
   </article>`;
 }
 
@@ -16178,9 +16178,12 @@ function _gthRender() {
   const root = document.getElementById('test-header-root');
   if (!root) return;
 
+  // Un test por plantilla: si quedaron definiciones repetidas de siembras anteriores, solo se muestra la primera
+  const seenKeys = new Set();
   const pinned = _gthDefs
     .filter(d => d.pinned)
-    .sort((a, b) => (a.order || 0) - (b.order || 0));
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .filter(d => { const k = d.templateKey || d.id; if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
 
   const cardsHTML = pinned.map(def => {
     const state = _gthBuildCardState(def, _gthMeasures);
@@ -16191,18 +16194,18 @@ function _gthRender() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
       <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
     </svg>
-    <span class="gth-add-card-label">Añadir test<br>al header</span>
+    <span class="gth-add-card-label">Añadir test</span>
   </button>`;
 
   root.innerHTML = `<div class="gth-root">
     <div class="gth-header-row">
-      <p class="gth-section-title">TESTS DE RENDIMIENTO</p>
+      <h2 class="gth-section-title">Tests de rendimiento</h2>
       <button class="gth-btn-outline" id="btn-gth-configure">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
-        Configurar tests
+        Configurar
       </button>
     </div>
     <div class="gth-grid">
@@ -16226,6 +16229,7 @@ function _gthRender() {
   root.querySelectorAll('.gth-card').forEach(card => {
     card.addEventListener('click', () => _gthOpenRecord(card.dataset.testId));
   });
+  if (window.KruxActivity) KruxActivity.renderPhysical();
 }
 
 // ============================================================
@@ -16319,7 +16323,7 @@ function _gthOpenConfigure() {
       close();
     } catch (e) {
       console.error('[TestHeader] save config failed', e);
-      alert('Error guardando: ' + e.message);
+      showToast('No se ha podido guardar', 'error', { detail: kxFriendlyError(e) });
     }
   };
 }
@@ -16331,9 +16335,11 @@ function _gthOpenRecord(preselectedTestId) {
   const user = firebase.auth().currentUser;
   if (!user) return;
 
-  const pinned = _gthDefs.filter(d => d.pinned).sort((a, b) => (a.order || 0) - (b.order || 0));
+  const seenKeys = new Set();
+  const pinned = _gthDefs.filter(d => d.pinned).sort((a, b) => (a.order || 0) - (b.order || 0))
+    .filter(d => { const k = d.templateKey || d.id; if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
   if (pinned.length === 0) {
-    alert('Primero configura algún test desde "Configurar tests"');
+    showToast('Primero configura algún test desde «Configurar tests»', 'warning');
     return;
   }
   const selectedId = preselectedTestId && pinned.find(d => d.id === preselectedTestId)
@@ -16442,61 +16448,10 @@ function _gthOpenRecord(preselectedTestId) {
       close();
     } catch (e) {
       console.error('[TestHeader] save measurement failed', e);
-      alert('Error guardando: ' + e.message);
+      showToast('No se ha podido guardar', 'error', { detail: kxFriendlyError(e) });
     }
   };
 }
-
-function renderGymTimeline(ascents) {
-  const listEl = document.getElementById('activity-list-gym');
-  if (!listEl) return;
-  if (ascents.length === 0) return;
-  listEl.innerHTML = '';
-  renderSessionCards(ascents, listEl, true);
-}
-
-function updateActivityRecords(allAscents) {
-  const rockAscents = allAscents.filter(a => !isGymAscent(a));
-  if (rockAscents.length === 0) return;
-
-  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-
-  // Highest grade
-  const grades = rockAscents.map(a => a.grade).filter(Boolean);
-  const maxGrade = findMaxGrade(grades) || '-';
-  setEl('record-highest-grade', maxGrade);
-  const topAscent = rockAscents.find(a => a.grade && a.grade.toLowerCase() === maxGrade.toLowerCase());
-  setEl('record-highest-route', [topAscent?.routeName, topAscent?.schoolName || topAscent?.school].filter(Boolean).join(' · ') || '-');
-
-  // Highest flash
-  const flashAscents = rockAscents.filter(a => a.style === 'flash' || a.style === 'onsight');
-  const flashGrades = flashAscents.map(a => a.grade).filter(Boolean);
-  const maxFlash = findMaxGrade(flashGrades) || '-';
-  setEl('record-highest-flash', maxFlash);
-  const topFlash = flashAscents.find(a => a.grade && a.grade.toLowerCase() === maxFlash.toLowerCase());
-  setEl('record-flash-route', [topFlash?.routeName, topFlash?.schoolName || topFlash?.school].filter(Boolean).join(' · ') || '-');
-
-  // Streak
-  const streak = calculateStreak(rockAscents);
-  setEl('record-streak', streak > 0 ? streak + ' días' : '-');
-
-  // Most routes in a day
-  const dayMap = {};
-  rockAscents.forEach(a => {
-    const d = parseAscentDate(a.date);
-    if (!d) return;
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    if (!dayMap[key]) dayMap[key] = { count: 0, date: d };
-    dayMap[key].count++;
-  });
-  const bestDay = Object.values(dayMap).sort((a, b) => b.count - a.count)[0];
-  if (bestDay) {
-    setEl('record-most-day', bestDay.count);
-    setEl('record-most-date', bestDay.date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }));
-  }
-}
-
-// ========================================
 
 function resetAllStats() {
   // Reset to empty state when user has no ascents
@@ -16703,91 +16658,6 @@ function findMaxGrade(grades) {
 
   return maxGrade;
 }
-
-let _allActivityAscents = [];
-
-function filterActivitySessions(filter) {
-  if (!_allActivityAscents.length) return;
-  const filtered = filter === 'all'
-    ? _allActivityAscents
-    : _allActivityAscents.filter(a => a.style === filter);
-  const listEl = document.getElementById('activity-list');
-  if (!listEl) return;
-  listEl.innerHTML = '';
-  if (filtered.length === 0) {
-    listEl.innerHTML = '<div class="activity-empty-state"><h3>Sin ascensiones para este filtro</h3></div>';
-    return;
-  }
-  renderSessionCards(filtered, listEl, false);
-}
-
-function renderSessionCards(ascents, container, isGym) {
-  const styleMap = { flash: 'F', redpoint: 'R', onsight: 'O', project: 'P', toprope: 'T' };
-  const styleDot = { flash: 'act-sd-yellow', redpoint: 'act-sd-red', onsight: 'act-sd-blue', project: 'act-sd-gray', toprope: 'act-sd-gray' };
-
-  const sessions = {};
-  ascents.forEach(a => {
-    const d = parseAscentDate(a.date);
-    const dateKey = d
-      ? d.getFullYear() + '-' + String(d.getMonth()).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0')
-      : 'unknown';
-    const sector = a.sectorName || a.sector || 'Sector desconocido';
-    const key = dateKey + '__' + sector;
-    if (!sessions[key]) sessions[key] = { date: d, sector, school: a.schoolName || a.school || '', ascents: [] };
-    sessions[key].ascents.push(a);
-  });
-
-  Object.values(sessions).forEach(function(session) {
-    const grades = session.ascents.map(a => a.grade).filter(Boolean);
-    const topGrade = findMaxGrade(grades) || '-';
-    const styles = [...new Set(session.ascents.map(a => a.style).filter(Boolean))];
-    const dateStr = session.date
-      ? session.date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
-      : '';
-    const locationStr = [dateStr, session.school, session.sector].filter(Boolean).join(' · ');
-
-    let avgGrade = '-';
-    if (grades.length > 0) {
-      const avgIdx = Math.round(grades.reduce(function(acc, g) { return acc + (GRADE_ORDER.indexOf(g.toLowerCase()) || 0); }, 0) / grades.length);
-      avgGrade = GRADE_ORDER[avgIdx] || '-';
-    }
-
-    const dotsHtml = styles.map(s =>
-      '<div class="act-style-dot ' + (styleDot[s] || 'act-sd-gray') + '" title="' + s + '">' + (styleMap[s] || '?') + '</div>'
-    ).join('');
-
-    const card = document.createElement('div');
-    card.className = 'act-session-card';
-    card.innerHTML =
-      '<div class="act-session-left">' +
-        '<div class="act-session-date">' + locationStr + '</div>' +
-        '<div class="act-session-sector">' + session.sector + '</div>' +
-        '<div class="act-session-meta">' + session.ascents.length + ' vía' + (session.ascents.length !== 1 ? 's' : '') + ' · Grado medio ' + avgGrade + '</div>' +
-      '</div>' +
-      '<div class="act-session-right">' +
-        '<div class="act-session-grade">' + topGrade + '</div>' +
-        '<div class="act-session-styles">' + dotsHtml + '</div>' +
-      '</div>';
-    container.appendChild(card);
-  });
-}
-
-function renderActivityList(ascents) {
-  _allActivityAscents = ascents.filter(a => !isGymAscent(a));
-  const activityList = document.getElementById('activity-list');
-  if (!activityList) return;
-
-  const emptyState = activityList.querySelector('.activity-empty-state');
-  activityList.innerHTML = '';
-
-  if (_allActivityAscents.length === 0) {
-    if (emptyState) activityList.appendChild(emptyState);
-    return;
-  }
-
-  renderSessionCards(_allActivityAscents, activityList, false);
-}
-
 
 // ========================================
 // ASCENT LOGBOOK
@@ -17153,231 +17023,1551 @@ document.addEventListener('DOMContentLoaded', () => {
   initViewPostModal();
   initActivityView();
   initLogbook();
-  initProgressCards();
   initTrainView();
 });
 
 // ── Datos compartidos de sesión (train view ↔ session module) ──────────
+// Sin plan activo se muestra esta sesión marcada como «Ejemplo» para poder probar el modo activo.
 window.kruxTrainData = {
   name: 'Fuerza en media llave',
+  demo: true,
   exercises: [
-    { name: 'Max hang · 20mm',      sets: 4, workSec: 10, reps: 0,  weight: 20, restSec: 180, rpeTarget: 8, active: true  },
-    { name: 'Campus board · 1-5-9', sets: 3, workSec: 0,  reps: 5,  weight: 0,  restSec: 120, rpeTarget: 7, active: false },
-    { name: 'Pullover isométrico',  sets: 3, workSec: 7,  reps: 0,  weight: 0,  restSec: 120, rpeTarget: 6, active: false },
-    { name: 'Manguito rotador',     sets: 2, workSec: 0,  reps: 15, weight: 0,  restSec: 60,  rpeTarget: 0, active: false },
+    { name: 'Max hang · 20mm',      sets: 4, workSec: 10, reps: 0,  weight: 20, restSec: 180, rpeTarget: 8 },
+    { name: 'Campus board · 1-5-9', sets: 3, workSec: 0,  reps: 5,  weight: 0,  restSec: 120, rpeTarget: 7 },
+    { name: 'Pullover isométrico',  sets: 3, workSec: 7,  reps: 0,  weight: 0,  restSec: 120, rpeTarget: 6 },
+    { name: 'Manguito rotador',     sets: 2, workSec: 0,  reps: 15, weight: 0,  restSec: 60,  rpeTarget: 0 },
   ]
 };
+const KRUX_TRAIN_DEMO = window.kruxTrainData;
+
+// Sesiones realizadas (se cargan de la cuenta al iniciar sesión)
+window.kruxTrainLog = window.kruxTrainLog || [];
+
+// Interruptor de la arquitectura de múltiples planes (users/{uid}/training_plans). Activado por defecto.
+// Apagado en un dispositivo (?multiplan=0): Entrena vuelve a usar users/{uid}/training_plan/active, que nunca se modifica.
+window.KRUX_MULTIPLAN = (() => {
+  // ?multiplan=0 lo apaga en este dispositivo (se recuerda); ?multiplan=1 lo vuelve a encender
+  try {
+    const q = new URLSearchParams(location.search).get('multiplan');
+    if (q === '0') localStorage.setItem('krux.multiplan', '0');
+    else if (q === '1') localStorage.removeItem('krux.multiplan');
+    return q === '0' ? false : q === '1' ? true : localStorage.getItem('krux.multiplan') !== '0';
+  } catch (_) { return new URLSearchParams(location.search).get('multiplan') !== '0'; }
+})();
+
+
+// ============================================
+// PERSISTENCIA DE ENTRENA (Firestore)
+// ============================================
+// users/{uid}/training_plan/active        → plan activo
+// users/{uid}/training_sessions/{autoId}  → sesiones realizadas
+const KruxTrainStore = (() => {
+  const SESSION_WEEKS = 12; // historial que se carga al iniciar sesión
+  let planTouched = false;  // el usuario guardó un plan antes de que terminase la carga
+
+  const uid = () => (firebase.auth().currentUser || {}).uid || null;
+  const userRef = () => db.collection('users').doc(uid());
+
+  // Sin red, Firestore deja la escritura en cola y la promesa no se resuelve nunca: se corta a
+  // los 15 s para poder avisar. La escritura puede aplicarse luego; reintentar es seguro porque
+  // el plan es un único documento y cada sesión conserva su propio id.
+  const ACK_MS = 15000;
+  const ack = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('Sin respuesta del servidor'), { code: 'kx/timeout' })), ms || ACK_MS))
+  ]);
+  const int = v => Math.max(0, Math.round(Number(v) || 0));
+  const str = (v, max) => String(v ?? '').slice(0, max);
+
+  // Transacción con límite de tiempo que NO se aplica más tarde: si falla o se agota el tiempo (sin red), se
+  // marca como cancelada. El SDK puede reintentarla o reanudar sus lecturas al volver la conexión, y entonces
+  // cualquier lectura o escritura aborta en vez de ejecutar una acción (archivar, borrar, activar…) de la que
+  // ya se avisó que había fallado. Cada intento tiene además un plazo propio.
+  function txRun(run) {
+    if (navigator.onLine === false) return Promise.reject(Object.assign(new Error('Sin conexión'), { code: 'kx/offline' }));
+    let cancelled = false;
+    const deadline = Date.now() + 12000;
+    const dead = () => cancelled || Date.now() > deadline;
+    const stop = () => Object.assign(new Error('Cancelada'), { code: 'kx/cancelled' });
+    const p = db.runTransaction(async tx => {
+      if (dead()) throw stop();
+      const safe = {
+        get: async (...a) => { const r = await tx.get(...a); if (dead()) throw stop(); return r; },
+        set: (...a) => { if (dead()) throw stop(); return tx.set(...a); },
+        update: (...a) => { if (dead()) throw stop(); return tx.update(...a); },
+        delete: (...a) => { if (dead()) throw stop(); return tx.delete(...a); }
+      };
+      return run(safe);
+    });
+    return ack(p).then(r => r, error => { cancelled = true; throw error; });
+  }
+
+  // Prescripción plana (compatible con planes e historial anteriores) + referencia opcional a la ficha.
+  // La ficha nunca se copia: solo exerciseId y la versión de contenido con la que se añadió.
+  function exercisePayload(e) {
+    const out = { name: str(e.name, 80), sets: Math.max(1, int(e.sets)), workSec: int(e.workSec), reps: int(e.reps), weight: Math.max(0, Number(e.weight) || 0), restSec: int(e.restSec), rpeTarget: Math.min(10, int(e.rpeTarget)) };
+    if (e.exerciseId) {
+      out.exerciseId = str(e.exerciseId, 80);
+      out.exerciseContentVersion = Math.max(1, int(e.exerciseContentVersion) || 1);
+    }
+    if (e.notes) out.notes = str(e.notes, 300);
+    if (Number(e.assistanceKg) > 0) out.assistanceKg = Math.min(80, Number(e.assistanceKg));
+    if (Number(e.distanceM) > 0) out.distanceM = Math.min(5000, int(e.distanceM));
+    if (Number(e.recoverySec) > 0) out.recoverySec = Math.min(1800, int(e.recoverySec));
+    if (typeof e.tempo === 'string' && /^\d{1,2}(-\d{1,2}){1,3}$/.test(e.tempo)) out.tempo = e.tempo;
+    return out;
+  }
+
+  function planPayload(plan) {
+    const out = {
+      name: str(plan.name || 'Mi plan', 80),
+      weeks: Math.min(16, Math.max(1, int(plan.weeks) || 4)),
+      activeDays: Array.from({ length: 7 }, (_, i) => !!(plan.activeDays || [])[i]),
+      sessions: (plan.sessions || []).slice(0, 7).map(sess => {
+        const o = { day: str(sess.day, 2), name: str(sess.name, 80), exercises: (sess.exercises || []).slice(0, 30).map(exercisePayload) };
+        const mental = PL().normalizeMental(sess.mental);
+        if (mental.length) o.mental = mental;
+        return o;
+      })
+    };
+    // Respuestas del asistente (opcionales): permiten reabrir el plan con su contexto
+    if (plan.goal) out.goal = str(plan.goal, 20);
+    if (plan.level >= 1 && plan.level <= 3) out.level = Math.round(plan.level);
+    if (Array.isArray(plan.equipment)) out.equipment = plan.equipment.slice(0, 10).map(x => str(x, 20));
+    return out;
+  }
+
+  function sessionPayload(rec) {
+    return {
+      dateKey: str(rec.dateKey, 10),
+      sessionName: str(rec.sessionName, 80),
+      ...(rec.planId ? { planId: str(rec.planId, 60), planName: str(rec.planName, 80) } : {}),
+      ...(rec.planRevision ? { planRevision: int(rec.planRevision) } : {}),
+      ...(rec.planSessionId ? { planSessionId: str(rec.planSessionId, 60) } : {}),
+      startedAt: Number(rec.startedAt) || Date.now(),
+      durationSec: int(rec.durationSec),
+      exercises: rec.exercises.slice(0, 30).map(e => ({
+        name: str(e.name, 80),
+        ...(e.exerciseId ? { exerciseId: str(e.exerciseId, 80), exerciseContentVersion: Math.max(1, int(e.exerciseContentVersion) || 1) } : {}),
+        target: exercisePayload({ name: e.name, ...e.target }),
+        sets: e.sets.slice(0, 50).map(st => ({
+          n: int(st.n), workSec: int(st.workSec), reps: int(st.reps), weight: Math.max(0, Number(st.weight) || 0), rpe: Math.min(10, int(st.rpe)), time: str(st.time, 5),
+          ...(Number(st.assistanceKg) > 0 ? { assistanceKg: Math.min(80, Number(st.assistanceKg)) } : {})
+        }))
+      }))
+    };
+  }
+
+  function reportError(title, error) {
+    console.error(title, error);
+    if (typeof showToast === 'function') {
+      showToast(title, 'error', { detail: typeof kxFriendlyError === 'function' ? kxFriendlyError(error) : 'Inténtalo de nuevo.' });
+    }
+  }
+
+
+  // ══════════════════════════════════════════════════════════════════
+  // MÚLTIPLES PLANES  (solo con window.KRUX_MULTIPLAN)
+  //   training_plans/{planId}        un documento por plan (modelo: train-plans.js)
+  //   training_state/current         { activePlanId } → el plan activo es un puntero
+  // Todo cambio que afecta a varios documentos va en una transacción: nunca queda un plan archivado
+  // apuntado como activo, ni dos activos. Ninguna operación escribe en training_plan/active.
+  // ══════════════════════════════════════════════════════════════════
+  const MULTI = () => !!window.KRUX_MULTIPLAN && !!window.KruxPlans;
+  const PL = () => window.KruxPlans;
+  const plansCol = () => userRef().collection('training_plans');
+  const stateRef = () => userRef().collection('training_state').doc('current');
+  const legacyRef = () => userRef().collection('training_plan').doc('active');
+  const stamp = () => firebase.firestore.FieldValue.serverTimestamp();
+  const kxError = (code, message) => Object.assign(new Error(message || code), { code });
+  const fromDoc = d => ({ id: d.id, ...d.data() });
+
+  function publish(plans, state) {
+    window.kruxPlans = plans;
+    window.kruxPlanState = state || { activePlanId: null };
+    // Vista del plan activo: el resto de Entrena sigue leyendo window.kruxActivePlan
+    window.kruxActivePlan = PL().resolveActive(plans, window.kruxPlanState);
+  }
+
+  function clearPlans() {
+    window.kruxPlans = [];
+    window.kruxPlanState = { activePlanId: null };
+    window.kruxPlanNotice = null;
+  }
+
+  // Cambiar de plan o destruir datos no se puede hacer a mitad de un entrenamiento
+  function sessionBlocks() {
+    if (window.KruxTrainSession && window.KruxTrainSession.isRunning()) {
+      if (typeof showToast === 'function') showToast('Hay un entrenamiento en curso', 'info', { detail: 'Termínalo o abandónalo antes de cambiar de plan.' });
+      return true;
+    }
+    return false;
+  }
+
+  const stateFor = (prev, activePlanId) => ({
+    activePlanId,
+    migratedAt: (prev && prev.migratedAt) || stamp(),
+    migratedFrom: prev && prev.migratedFrom !== undefined ? prev.migratedFrom : null,
+    updatedAt: stamp()
+  });
+
+  // Migración perezosa del documento antiguo. Idempotente: id fijo + transacción; nunca sobrescribe
+  // un plan existente ni toca training_plan/active. Devuelve 'migrated' | 'already' | 'nothing' | 'completed'.
+  async function migrate() {
+    return txRun(async tx => {
+      const planRef = plansCol().doc(PL().LEGACY_PLAN_ID);
+      const [st, legacy, existing] = await Promise.all([tx.get(stateRef()), tx.get(legacyRef()), tx.get(planRef)]);
+      const prev = st.exists ? st.data() : null;
+      if (prev && prev.migratedAt) return 'already';
+      if (!legacy.exists) return 'nothing';
+      if (existing.exists) {
+        // Un intento anterior creó el plan pero no el marcador: solo se completa el marcador
+        if (existing.data().migratedFrom !== 'training_plan/active') throw kxError('kx/migration-conflict', 'Ya existe un plan con el identificador de la migración y no procede de ella.');
+        tx.set(stateRef(), { ...stateFor({ migratedFrom: 'training_plan/active' }, prev && prev.activePlanId ? prev.activePlanId : PL().LEGACY_PLAN_ID) });
+        return 'completed';
+      }
+      tx.set(planRef, PL().fromLegacy(legacy.data(), stamp()));
+      tx.set(stateRef(), stateFor({ migratedFrom: 'training_plan/active' }, prev && prev.activePlanId ? prev.activePlanId : PL().LEGACY_PLAN_ID));
+      return 'migrated';
+    });
+  }
+
+  // ¿Hay cambios en el documento antiguo hechos después de migrar (con una versión antigua de la app)?
+  async function detectLegacyDrift(state) {
+    try {
+      if (!state || !state.migratedAt || state.migratedFrom !== 'training_plan/active') return false;
+      const doc = await legacyRef().get();
+      const t = doc.exists && doc.data().updatedAt;
+      return !!(t && t.seconds != null && t.seconds > state.migratedAt.seconds + 1);
+    } catch (_) { return false; }
+  }
+
+  // Tras una escritura que YA se confirmó en el servidor, recargar la vista no puede convertirla en un error:
+  // si falla la lectura (p. ej. se perdió la conexión justo después), se aplica el cambio en memoria.
+  const nowTs = () => ({ seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 });
+  async function settle(patch) {
+    try { await refreshPlans(); }
+    catch (_) {
+      const plans = (window.kruxPlans || []).map(p => ({ ...p }));
+      const state = { ...(window.kruxPlanState || { activePlanId: null }) };
+      patch(plans, state);
+      publish(plans, state);
+    }
+  }
+
+  async function refreshPlans() {
+    const [stateDoc, snap] = await Promise.all([stateRef().get(), plansCol().get()]);
+    const state = stateDoc.exists ? stateDoc.data() : null;
+    publish(snap.docs.map(fromDoc), state);
+    writeCache();
+    return state;
+  }
+
+  async function loadPlans() {
+    planTouched = false;
+    window.kruxPlanNotice = null;
+    try {
+      await q.migrate();
+    } catch (error) {
+      // Conflicto o fallo: no se elige una versión en silencio; se avisa y se puede reintentar
+      window.kruxPlanNotice = { type: 'migration-error', code: error.code || '' };
+      reportError('No se han podido preparar tus planes', error);
+    }
+    const state = await refreshPlans();
+    if (!window.kruxPlanNotice && await detectLegacyDrift(state)) window.kruxPlanNotice = { type: 'legacy-drift' };
+    await announceSchedule(await q.applySchedule());
+  }
+
+  function announceSchedule(res) {
+    if (res && res.applied && typeof showToast === 'function') showToast(`Hoy empieza «${res.applied.name}»`, 'success', { detail: 'Ya es tu plan activo.' });
+  }
+
+  async function createPlan(content, opts) {
+    if (!uid()) return null;
+    const activate = !!(opts && opts.activate);
+    const ref = plansCol().doc();
+    try {
+      await txRun(async tx => {
+        const st = await tx.get(stateRef());
+        const prev = st.exists ? st.data() : null;
+        tx.set(ref, PL().createPlan(content, stamp(), (opts && opts.extra) || {}));
+        // El puntero solo se escribe si se activa el plan nuevo o si todavía no existía el documento de estado
+        if (activate || !prev) tx.set(stateRef(), stateFor(prev, activate ? ref.id : null));
+      });
+      await settle((plans, state) => {
+        plans.push({ id: ref.id, ...PL().createPlan(content, nowTs(), (opts && opts.extra) || {}) });
+        if (activate) state.activePlanId = ref.id;
+      });
+      return ref.id;
+    } catch (error) {
+      reportError('No se ha podido crear el plan', error);
+      return null;
+    }
+  }
+
+  // Guardado con control de revisión: si otro dispositivo cambió el plan, no se pisa
+  async function updatePlanContent(planId, content, loadedRevision) {
+    if (!uid()) return null;
+    const ref = plansCol().doc(planId);
+    try {
+      const next = await txRun(async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) throw kxError('kx/plan-missing');
+        const cur = snap.data();
+        if (cur.status === 'trashed') throw kxError('kx/plan-trashed');
+        if (!PL().checkRevision(loadedRevision, cur.revision)) throw kxError('kx/conflict');
+        const norm = PL().normalizeContent(content);
+        const doc = { ...cur, ...norm, revision: cur.revision + 1, updatedAt: stamp() };
+        ['goal', 'level', 'equipment', 'minutes', 'startDate'].forEach(k => { if (!(k in norm)) delete doc[k]; });
+        tx.set(ref, doc);
+        return { revision: doc.revision, sessions: norm.sessions };
+      });
+      return next;
+    } catch (error) {
+      window.kruxLastPlanError = error.code || '';
+      reportError('No se ha podido guardar el plan', error);
+      return null;
+    }
+  }
+
+  async function setPlanStatus(planId, action) {
+    if (!uid()) return false;
+    if (action !== 'restore' && sessionBlocks()) return false;
+    const ref = plansCol().doc(planId);
+    try {
+      await txRun(async tx => {
+        const [snap, st] = await Promise.all([tx.get(ref), tx.get(stateRef())]);
+        if (!snap.exists) throw kxError('kx/plan-missing');
+        const cur = snap.data();
+        if (!PL().canDo(cur, action) || action === 'purge') throw kxError('kx/not-allowed');
+        const patch = PL().transition(cur, action, stamp());
+        tx.set(ref, { ...cur, ...patch, revision: cur.revision + 1, updatedAt: stamp() });
+        // El plan activo que se archiva o se envía a la papelera deja Entrena sin plan activo, en la misma escritura
+        if (st.exists && st.data().activePlanId === planId && patch.status !== 'ready') tx.set(stateRef(), stateFor(st.data(), null));
+      });
+      await settle((plans, state) => {
+        const p = plans.find(x => x.id === planId);
+        if (p) {
+          Object.assign(p, PL().transition(p, action, nowTs()), { revision: (p.revision || 1) + 1 });
+          if (state.activePlanId === planId && p.status !== 'ready') state.activePlanId = null;
+        }
+      });
+      return true;
+    } catch (error) {
+      reportError('No se ha podido cambiar el plan', error);
+      return false;
+    }
+  }
+
+  async function activatePlan(planId) {
+    if (!uid() || sessionBlocks()) return false;
+    try {
+      await txRun(async tx => {
+        const [snap, st] = await Promise.all([tx.get(plansCol().doc(planId)), tx.get(stateRef())]);
+        if (!snap.exists) throw kxError('kx/plan-missing');
+        if (!PL().canActivate(snap.data())) throw kxError('kx/not-allowed');
+        tx.set(stateRef(), stateFor(st.exists ? st.data() : null, planId));
+        // Si estaba programado, activarlo a mano consume la programación
+        if (snap.data().startDate) tx.set(plansCol().doc(planId), { ...snap.data(), startDate: null, revision: snap.data().revision + 1, updatedAt: stamp() });
+      });
+      await settle((plans, state) => {
+        state.activePlanId = planId;
+        const p = plans.find(x => x.id === planId);
+        if (p && p.startDate) { p.startDate = null; p.revision = (p.revision || 1) + 1; }
+      });
+      return true;
+    } catch (error) {
+      reportError('No se ha podido activar el plan', error);
+      return false;
+    }
+  }
+
+  // Inicio programado: cuando llega la fecha de inicio de un plan, pasa a ser el activo. Es una sola
+  // transacción: puntero + consumo de la programación (el plan queda sin fecha, así que no se vuelve a aplicar
+  // si más tarde eliges otro plan). Sin conexión o con un entrenamiento abierto no se hace nada: se reintenta al volver.
+  async function applySchedule() {
+    if (!uid() || !MULTI() || navigator.onLine === false) return null;
+    if (window.KruxTrainSession && window.KruxTrainSession.isRunning()) return null;
+    const today = trDateKey(new Date());
+    const first = PL().dueSchedule(window.kruxPlans || [], window.kruxPlanState, today);
+    if (!first.apply && !first.clear.length) return null;
+    const ids = [first.apply, ...first.clear].filter(Boolean).map(p => p.id);
+    try {
+      const result = await txRun(async tx => {
+        const [st, ...snaps] = await Promise.all([tx.get(stateRef()), ...ids.map(id => tx.get(plansCol().doc(id)))]);
+        const cur = snaps.filter(x => x.exists).map(fromDoc);
+        const prev = st.exists ? st.data() : null;
+        // Se vuelve a decidir con lo que hay ahora en el servidor
+        const now = PL().dueSchedule(cur, prev, today);
+        if (!now.apply && !now.clear.length) return null;
+        if (now.apply) tx.set(stateRef(), stateFor(prev, now.apply.id));
+        [now.apply, ...now.clear].filter(Boolean).forEach(p => {
+          const { id, ...rest } = p;
+          tx.set(plansCol().doc(id), { ...rest, startDate: null, revision: p.revision + 1, updatedAt: stamp() });
+        });
+        return { applied: now.apply ? { id: now.apply.id, name: now.apply.name } : null, consumed: [now.apply, ...now.clear].filter(Boolean).map(p => p.id) };
+      });
+      if (!result) return null;
+      await settle((plans, state) => {
+        plans.forEach(p => { if (result.consumed.includes(p.id)) { p.startDate = null; p.revision = (p.revision || 1) + 1; } });
+        if (result.applied) state.activePlanId = result.applied.id;
+      });
+      return result;
+    } catch (error) {
+      // Silencioso: la programación sigue en el plan y se reintenta en la próxima carga
+      return null;
+    }
+  }
+
+  async function duplicatePlan(planId, name) {
+    if (!uid()) return null;
+    const target = plansCol().doc();
+    try {
+      await txRun(async tx => {
+        const snap = await tx.get(plansCol().doc(planId));
+        if (!snap.exists) throw kxError('kx/plan-missing');
+        tx.set(target, PL().duplicatePlan(snap.data(), planId, stamp(), name));
+      });
+      await settle(plans => {
+        const src = plans.find(x => x.id === planId);
+        if (src) plans.push({ id: target.id, ...PL().duplicatePlan(src, planId, nowTs(), name) });
+      });
+      return target.id;
+    } catch (error) {
+      reportError('No se ha podido duplicar el plan', error);
+      return null;
+    }
+  }
+
+  // Borrado definitivo (solo desde la papelera). El historial no se toca: guarda planId y planName.
+  async function purgePlan(planId) {
+    if (!uid() || sessionBlocks()) return false;
+    try {
+      await txRun(async tx => {
+        const ref = plansCol().doc(planId);
+        const [snap, st] = await Promise.all([tx.get(ref), tx.get(stateRef())]);
+        if (!snap.exists) return;
+        if (!PL().canDo(snap.data(), 'purge')) throw kxError('kx/not-allowed');
+        if (st.exists && st.data().activePlanId === planId) throw kxError('kx/not-allowed');
+        tx.delete(ref);
+      });
+      await settle(plans => { const i = plans.findIndex(x => x.id === planId); if (i >= 0) plans.splice(i, 1); });
+      return true;
+    } catch (error) {
+      reportError('No se ha podido eliminar el plan', error);
+      return false;
+    }
+  }
+
+  // Importa el documento antiguo como plan NUEVO (nunca sustituye nada). Para cambios hechos con una app antigua.
+  async function importLegacyAsNew() {
+    if (!uid()) return null;
+    try {
+      const doc = await legacyRef().get();
+      if (!doc.exists) return null;
+      const plan = PL().fromLegacy(doc.data(), stamp());
+      plan.sessions.forEach(s => { s.id = PL().newSessionId(); });
+      plan.name = `${plan.name} (importado)`.slice(0, 80);
+      const ref = plansCol().doc();
+      await ack(ref.set(plan));
+      window.kruxPlanNotice = null;
+      await settle(plans => { plans.push({ id: ref.id, ...plan, createdAt: nowTs(), updatedAt: nowTs() }); });
+      return ref.id;
+    } catch (error) {
+      reportError('No se ha podido importar el plan', error);
+      return null;
+    }
+  }
+
+  // Las operaciones sobre planes se ejecutan de una en una (cola): evita transacciones solapadas del
+  // mismo cliente (pulsaciones repetidas, guardar mientras se migra) y estados intermedios en pantalla.
+  let planQueue = Promise.resolve();
+  const serial = fn => { const run = planQueue.then(fn, fn); planQueue = run.catch(() => {}); return run; };
+  const q = {
+    migrate: () => serial(migrate),
+    create: (c, o) => serial(() => createPlan(c, o)),
+    update: (id, c, r) => serial(() => updatePlanContent(id, c, r)),
+    setStatus: (id, a) => serial(() => setPlanStatus(id, a)),
+    activate: id => serial(() => activatePlan(id)),
+    duplicate: (id, n) => serial(() => duplicatePlan(id, n)),
+    purge: id => serial(() => purgePlan(id)),
+    importLegacy: () => serial(importLegacyAsNew),
+    applySchedule: () => serial(applySchedule)
+  };
+
+  // Traspasa lo guardado a la vista en memoria (ids de sesión y revisión nuevos)
+  function adopt(plan, saved) {
+    plan.revision = saved.revision;
+    saved.sessions.forEach((s, i) => { if (plan.sessions[i]) plan.sessions[i].id = s.id; });
+  }
+
+
+  // ══════════════════════════════════════════════════════════════════
+  // SIN CONEXIÓN  (solo con window.KRUX_MULTIPLAN; no activa la persistencia global de Firestore)
+  //   · Copia local del plan activo y del historial reciente: Entrena arranca y se puede entrenar sin cobertura.
+  //   · Cola persistente de sesiones pendientes: cada sesión tiene un id estable, así que reintentar nunca duplica.
+  //   · Nada se da por sincronizado hasta que el servidor lo confirma. Un rechazo del servidor (no de red)
+  //     queda como «conflicto» y no se reintenta solo ni se descarta en silencio.
+  //   · Todo va por cuenta (uid): otra cuenta del mismo dispositivo no ve ni sincroniza datos ajenos.
+  //   · Editar planes sigue necesitando conexión (la revisión del servidor evita pisar a otro dispositivo).
+  // ══════════════════════════════════════════════════════════════════
+  const OFFLINE = () => MULTI();
+  // Cola local de sesiones y registro final: protege también el modo clásico (?multiplan=0). La copia del plan para arrancar sin red sigue siendo solo de planes múltiples.
+  const QUEUE = () => true;
+  const LS = 'krux.train.v1.';
+  const lsGet = (kind, u) => { try { const raw = localStorage.getItem(`${LS}${kind}.${u}`); return raw ? JSON.parse(raw) : null; } catch (_) { return null; } };
+  const lsSet = (kind, u, value) => { try { localStorage.setItem(`${LS}${kind}.${u}`, JSON.stringify(value)); return true; } catch (_) { return false; } };
+  const lsDel = (kind, u) => { try { localStorage.removeItem(`${LS}${kind}.${u}`); } catch (_) { /* sin almacenamiento */ } };
+  const memQueue = {};            // respaldo en memoria si el almacenamiento local falla (cuota, modo privado)
+  let lastUid = null;
+  const emit = () => { try { window.dispatchEvent(new Event('krux-train-sync')); } catch (_) { /* nada */ } };
+  const isNetworkError = e => /unavailable|network|timeout|deadline|offline|aborted|internal|resource-exhausted|failed to get/i.test(`${(e && e.code) || ''} ${(e && e.message) || ''}`);
+
+  function queueOf(u) { return (memQueue[u] !== undefined ? memQueue[u] : lsGet('pending', u)) || []; }
+  function saveQueue(u, list) {
+    memQueue[u] = list;
+    let ok = true;
+    if (list.length) ok = lsSet('pending', u, list); else lsDel('pending', u);
+    if (!ok && typeof showToast === 'function') {
+      showToast('No hay espacio para guardar la sesión en este dispositivo', 'error', { detail: 'Se intentará sincronizar igualmente: no cierres la app hasta que termine.' });
+    }
+    emit();
+    return ok;
+  }
+
+  // Copia del plan activo y del historial reciente (para arrancar sin red)
+  function writeCache() {
+    const u = uid();
+    if (!u || !OFFLINE()) return;
+    lsSet('cache', u, {
+      savedAt: Date.now(),
+      state: { activePlanId: (window.kruxPlanState && window.kruxPlanState.activePlanId) || null },
+      plan: window.kruxActivePlan || null,
+      log: (window.kruxTrainLog || []).filter(e => e.id && !e.demo).slice(-200)
+    });
+  }
+
+  function restoreFromCache() {
+    const u = uid();
+    const c = u && lsGet('cache', u);
+    if (!c) return false;
+    window.kruxPlans = c.plan ? [c.plan] : [];
+    window.kruxPlanState = c.state || { activePlanId: null };
+    window.kruxActivePlan = c.plan && c.plan.status === 'ready' ? c.plan : null;
+    window.kruxTrainLog = (c.log || []).concat(pendingRecords(u));
+    window.kruxPlanNotice = { type: 'offline', since: c.savedAt };
+    return true;
+  }
+
+  // Sesiones aún no confirmadas, con la forma de un registro del historial (cuentan en el calendario)
+  function pendingRecords(u) {
+    return queueOf(u).filter(e => e.kind === 'session').map(e => ({
+      ...e.payload, ...(e.log || {}), demo: false, pendingId: e.id, pendingState: e.state
+    }));
+  }
+
+  function mergePending(u, loaded) {
+    const ids = new Set(loaded.map(d => d.id));
+    return loaded.concat(pendingRecords(u).filter(r => !ids.has(r.pendingId)));
+  }
+
+  // ── Sincronización ──────────────────────────────────────────────────
+  let flushing = null;
+  let flushTimer = null;
+  function flush() {
+    if (!QUEUE() || !uid()) return Promise.resolve();
+    if (!flushing) flushing = doFlush().catch(() => {}).then(() => { flushing = null; emit(); });
+    return flushing;
+  }
+
+  // Lo esencial que debe tener el documento escrito: fecha, duración, ejercicios y series, la fecha de creación fijada y
+  // el registro final (sensación, esfuerzo, notas y etiquetas). Compara contra lo que se envió, no contra la memoria.
+  function matchesWritten(data, e) {
+    if (!data) return false;
+    if (e.kind === 'session') {
+      const p = e.payload || {};
+      const sets = list => (list || []).reduce((n, x) => n + ((x && x.sets) || []).length, 0);
+      if (data.dateKey !== p.dateKey || data.sessionName !== p.sessionName) return false;
+      if (Number(data.durationSec) !== Number(p.durationSec) || Number(data.startedAt) !== Number(p.startedAt)) return false;
+      if (!Array.isArray(data.exercises) || data.exercises.length !== (p.exercises || []).length || sets(data.exercises) !== sets(p.exercises)) return false;
+      const created = data.createdAt && typeof data.createdAt.toMillis === 'function' ? data.createdAt.toMillis() : null;
+      if (created !== e.createdAtMs) return false;
+    }
+    const wanted = e.kind === 'session' ? (e.log || {}) : (e.fields || {});
+    return Object.keys(wanted).every(k => JSON.stringify(data[k]) === JSON.stringify(wanted[k]));
+  }
+
+  async function verifyWritten(ref, e) {
+    let snap;
+    try { snap = await ack(ref.get({ source: 'server' }), 8000); }
+    catch (error) { throw Object.assign(new Error('No se pudo verificar la escritura'), { code: 'kx/not-verified', cause: error }); }
+    if (!snap || !snap.exists || !matchesWritten(snap.data(), e)) throw Object.assign(new Error('El servidor no devuelve lo escrito'), { code: 'kx/not-verified' });
+  }
+
+  async function doFlush() {
+    const u = uid();
+    if (navigator.onLine === false) return;                  // sin red conocida: ni se intenta (la sesión ya está a salvo en la cola)
+    for (const e of queueOf(u).slice()) {
+      if (uid() !== u) return;
+      if (e.state === 'conflict') continue;                  // no se reintentan solos
+      const ref = userRef().collection('training_sessions').doc(e.id);
+      try {
+        e.attempts = (e.attempts || 0) + 1;
+        if (e.kind === 'session') {
+          // Mismo contenido y misma fecha en cada intento: si el primero ya se aplicó, el reintento es inocuo
+          await ack(ref.set({ ...e.payload, ...(e.log || {}), createdAt: firebase.firestore.Timestamp.fromMillis(e.createdAtMs) }), 8000);
+        } else {
+          await ack(ref.update(e.fields), 8000);
+        }
+        // La confirmación no basta: se lee el documento del servidor y se comprueba que existe y trae lo escrito.
+        // Si la lectura falla, no responde o no coincide, la sesión sigue en la cola y se reintenta (mismo id, mismo contenido).
+        await verifyWritten(ref, e);
+        // Confirmado y verificado: sale de la cola y el registro en memoria pasa a «guardado»
+        saveQueue(u, queueOf(u).filter(x => x.id !== e.id));
+        (window.kruxTrainLog || []).forEach(r => { if (r.pendingId === e.id) { r.id = e.id; delete r.pendingId; delete r.pendingState; } });
+        (liveRecords.get(e.id) || []).forEach(rec => { rec.id = e.id; rec.syncState = 'synced'; if (e.log) markLogVerified(rec, e.log); });
+        liveRecords.delete(e.id);
+      } catch (error) {
+        if (isNetworkError(error) || (error && error.code === 'kx/not-verified')) {                                    // sin red o sin verificar: se queda pendiente
+          e.lastError = String(error.code || 'network');
+          saveQueue(u, queueOf(u));
+          // Con la red «disponible» pero sin respuesta, se reintenta pronto (5 s, 10 s, 20 s… hasta 60 s)
+          if (navigator.onLine !== false) { clearTimeout(flushTimer); flushTimer = setTimeout(flush, Math.min(60000, 5000 * 2 ** Math.min(4, (e.attempts || 1) - 1))); }
+          return;
+        }
+        e.state = 'conflict';                                                                                           // rechazo del servidor
+        e.lastError = String(error.code || error.message || 'error');
+        saveQueue(u, queueOf(u));
+        (liveRecords.get(e.id) || []).forEach(rec => { rec.syncState = 'conflict'; });
+        console.error('Sesión pendiente rechazada por el servidor:', error);
+      }
+    }
+  }
+
+  const liveRecords = new Map();     // id de la cola → registros en pantalla que esperan confirmación
+
+  function enqueueSession(rec) {
+    const u = uid();
+    if (!rec.pendingId) {
+      const id = userRef().collection('training_sessions').doc().id;
+      Object.defineProperty(rec, 'pendingId', { value: id, enumerable: false, writable: true, configurable: true });
+      const entry = { id, uid: u, kind: 'session', payload: JSON.parse(JSON.stringify(sessionPayload(rec))), createdAtMs: Date.now(), log: null, state: 'pending', attempts: 0, lastError: '', queuedAt: Date.now() };
+      saveQueue(u, queueOf(u).concat(entry));
+      liveRecords.set(id, [rec]);
+    }
+    Object.defineProperty(rec, 'syncState', { value: 'pending', enumerable: false, writable: true, configurable: true });
+    return rec.pendingId;
+  }
+
+  // Estado visible de lo pendiente (Entrena muestra un aviso con estas cifras)
+  function syncInfo() {
+    const u = uid();
+    const list = u ? queueOf(u) : [];
+    return {
+      pending: list.filter(e => e.state === 'pending').length,
+      conflicts: list.filter(e => e.state === 'conflict').length,
+      offline: navigator.onLine === false || !!(window.kruxPlanNotice && window.kruxPlanNotice.type === 'offline'),
+      since: window.kruxPlanNotice && window.kruxPlanNotice.since,
+      entries: list.map(e => ({ id: e.id, state: e.state, name: e.payload && e.payload.sessionName, lastError: e.lastError }))
+    };
+  }
+
+  function retryConflicts() {
+    const u = uid();
+    saveQueue(u, queueOf(u).map(e => (e.state === 'conflict' ? { ...e, state: 'pending', lastError: '' } : e)));
+    return flush();
+  }
+
+  function discardEntry(id) {
+    const u = uid();
+    saveQueue(u, queueOf(u).filter(e => e.id !== id));
+    window.kruxTrainLog = (window.kruxTrainLog || []).filter(r => r.pendingId !== id);
+    liveRecords.delete(id);
+    if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+  }
+
+  window.addEventListener('online', () => { flush(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    flush();
+    // Si la app llevaba abierta desde ayer, puede haber llegado la fecha de inicio de un plan
+    if (MULTI()) q.applySchedule().then(res => { if (res && res.applied) { announceSchedule(res); if (typeof window.refreshTrainView === 'function') window.refreshTrainView(); } }).catch(() => {});
+  });
+  setInterval(() => { if (QUEUE() && uid() && queueOf(uid()).some(e => e.state === 'pending')) flush(); }, 60000);
+
+  // Guardar el plan en memoria. Con planes múltiples escribe el documento de ese plan (con control de
+  // revisión); sin él, el documento antiguo de siempre.
+  async function savePlan(plan) {
+    if (!uid() || !plan) return false;
+    planTouched = true;
+    if (MULTI()) {
+      if (plan.id) {
+        const saved = await q.update(plan.id, plan, plan.revision);
+        if (!saved) return false;
+        adopt(plan, saved);
+        return true;
+      }
+      // Plan nuevo sin identificador: se crea (y se activa) sin tocar los planes existentes
+      const id = await q.create(plan, { activate: true });
+      if (!id) return false;
+      const created = (window.kruxPlans || []).find(p => p.id === id);
+      if (created) { plan.id = id; plan.revision = created.revision; created.sessions.forEach((s, i) => { if (plan.sessions[i]) plan.sessions[i].id = s.id; }); window.kruxActivePlan = plan; }
+      return true;
+    }
+    try {
+      await ack(userRef().collection('training_plan').doc('active').set({
+        ...planPayload(plan),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }));
+      return true;
+    } catch (error) {
+      reportError('No se ha podido guardar el plan', error);
+      return false;
+    }
+  }
+
+  async function saveSession(rec) {
+    if (!uid()) return false;
+    // Una sesión empezada con una cuenta no se guarda en otra distinta
+    if (rec.ownerUid && rec.ownerUid !== uid()) {
+      reportError('Esta sesión es de otra cuenta', Object.assign(new Error('owner mismatch'), { code: 'kx/other-account' }));
+      return false;
+    }
+    if (rec.id) return true;   // ya confirmada por el servidor: reintentar no la vuelve a escribir
+    if (QUEUE()) {
+      // Primero se guarda en este dispositivo (cola persistente) y después se intenta sincronizar
+      enqueueSession(rec);
+      await flush();
+      return rec.syncState === 'synced';
+    }
+    try {
+      // El id se fija una vez: si se reintenta tras un corte de red no se duplica la sesión
+      if (!rec._ref) Object.defineProperty(rec, '_ref', { value: userRef().collection('training_sessions').doc(), enumerable: false, writable: true });
+      // Fecha fijada una vez: un reintento escribe exactamente lo mismo (las reglas lo aceptan aunque la primera ya se aplicara)
+      if (!rec._createdAt) Object.defineProperty(rec, '_createdAt', { value: firebase.firestore.Timestamp.now(), enumerable: false, writable: true });
+      await ack(rec._ref.set({
+        ...sessionPayload(rec),
+        createdAt: rec._createdAt
+      }));
+      rec.id = rec._ref.id;
+      return true;
+    } catch (error) {
+      reportError('No se ha podido guardar la sesión', error);
+      return false;
+    }
+  }
+
+  const normalizeLog = fields => ({ feel: str(fields.feel, 10), rpe: Math.min(10, int(fields.rpe)), notes: str(fields.notes, 1000), tags: (fields.tags || []).slice(0, 10).map(t => str(t, 40)) });
+  const markLogVerified = (rec, log) => Object.defineProperty(rec, '_logVerified', { value: JSON.stringify(normalizeLog(log)), enumerable: false, writable: true, configurable: true });
+
+  // Registro final (sensación, esfuerzo, notas y etiquetas). SIN red y de forma síncrona: se guarda en la cola en el mismo
+  // instante en que se pulsa «guardar». Si la sesión sigue pendiente, el registro viaja con ella (mismo documento, mismo id);
+  // si ya está escrita, se encola un parche con el mismo id (uno por sesión: el último gana). Nada sale de la cola sin verificarse.
+  function persistLog(rec, fields) {
+    const u = uid();
+    const log = normalizeLog(fields);
+    if (!u) return { state: 'none', log };
+    if (rec._logVerified === JSON.stringify(log)) return { state: 'verified', log };
+    const list = queueOf(u);
+    const queued = rec.pendingId && list.find(e => e.id === rec.pendingId && e.kind === 'session');
+    if (queued) { queued.log = log; saveQueue(u, list); return { state: 'embedded', log }; }
+    if (!rec.id) return { state: 'none', log };
+    const rest = list.filter(e => !(e.kind === 'patch' && e.id === rec.id));
+    saveQueue(u, rest.concat({ id: rec.id, uid: u, kind: 'patch', fields: log, state: 'pending', attempts: 0, lastError: '', queuedAt: Date.now() }));
+    return { state: 'patch', log };
+  }
+
+  async function updateSession(rec, fields) {
+    if (!uid()) return false;
+    if (QUEUE()) {
+      const u = uid();
+      // 1.º se guarda en la cola, sin tocar la red: junto a la sesión si todavía está pendiente, o como parche de una sesión
+      // ya escrita. 2.º se envía y se verifica en el servidor; solo entonces sale de la cola.
+      const st = persistLog(rec, fields);
+      if (st.state === 'verified') return true;
+      if (st.state === 'none') return false;
+      const entryId = rec.pendingId || rec.id;
+      const pendingEntry = () => queueOf(u).find(x => x.id === entryId);
+      await flush();
+      // Si ya había un envío en curso cuando se encoló, el registro aún no se ha intentado: se envía ahora
+      if (pendingEntry() && !pendingEntry().attempts) await flush();
+      const done = !pendingEntry();
+      Object.defineProperty(rec, 'logPending', { value: !done, enumerable: false, writable: true, configurable: true });
+      if (done) markLogVerified(rec, st.log);
+      return done;
+    }
+    if (!rec.id) return false;
+    try {
+      await ack(userRef().collection('training_sessions').doc(rec.id).update({
+        feel: str(fields.feel, 10),
+        rpe: Math.min(10, int(fields.rpe)),
+        notes: str(fields.notes, 1000),
+        tags: (fields.tags || []).slice(0, 10).map(t => str(t, 40))
+      }));
+      return true;
+    } catch (error) {
+      reportError('No se ha podido guardar el registro', error);
+      return false;
+    }
+  }
+
+  async function load() {
+    if (!uid()) return;
+    planTouched = false;
+    // Sin conexión conocida: se arranca ya con la copia local (no se espera a que Firestore agote el tiempo)
+    if (OFFLINE() && navigator.onLine === false && restoreFromCache()) {
+      if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+      emit();
+      return;
+    }
+    const from = new Date();
+    from.setDate(from.getDate() - SESSION_WEEKS * 7);
+    const fromKey = trDateKey(from);
+    try {
+      if (MULTI()) await loadPlans();
+      const [planDoc, sessSnap] = await Promise.all([
+        MULTI() ? Promise.resolve({ exists: false }) : userRef().collection('training_plan').doc('active').get(),
+        userRef().collection('training_sessions').where('dateKey', '>=', fromKey).orderBy('dateKey').get()
+      ]);
+      if (!planTouched && !MULTI()) {
+        const data = planDoc.exists ? planDoc.data() : null;
+        window.kruxActivePlan = data && Array.isArray(data.sessions)
+          ? {
+              name: data.name, weeks: data.weeks, activeDays: data.activeDays, sessions: data.sessions,
+              ...(data.goal ? { goal: data.goal } : {}),
+              ...(data.level ? { level: data.level } : {}),
+              ...(Array.isArray(data.equipment) ? { equipment: data.equipment } : {})
+            }
+          : null;
+      }
+      const loaded = sessSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (QUEUE()) {
+        // Lo pendiente de sincronizar cuenta en el calendario; lo ya confirmado llega con su id del servidor
+        const u = uid();
+        window.kruxTrainLog = [...mergePending(u, loaded), ...window.kruxTrainLog.filter(e => !e.id && !e.pendingId)];
+        writeCache();
+        flush();
+      } else {
+        // Conserva lo registrado en esta apertura que aún no tenga id
+        window.kruxTrainLog = [...loaded, ...window.kruxTrainLog.filter(e => !e.id)];
+      }
+      reloadTry = 0;
+    } catch (error) {
+      console.error('Error cargando Entrena:', error);
+      // Con planes múltiples un fallo de carga no debe parecer «no tengo planes»: se avisa y se reintenta
+      if (MULTI()) {
+        if (!restoreFromCache()) window.kruxPlanNotice = { type: 'load-error' };   // sin copia: se avisa; con copia: se trabaja con ella
+        scheduleReload();
+      }
+    }
+    if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+  }
+
+  // Reintentos automáticos de la carga (3 s, 8 s, 20 s) y al volver la conexión
+  let reloadTimer = null;
+  let reloadTry = 0;
+  function scheduleReload() {
+    clearTimeout(reloadTimer);
+    const wait = [3000, 8000, 20000][reloadTry++];
+    const who = uid();
+    if (wait == null || !who) return;
+    reloadTimer = setTimeout(() => { if (uid() === who) load(); }, wait);
+  }
+  window.addEventListener('online', () => {
+    if (uid() && window.kruxPlanNotice && (window.kruxPlanNotice.type === 'load-error' || window.kruxPlanNotice.type === 'offline')) { reloadTry = 0; load(); }
+  });
+
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) { lastUid = user.uid; load(); return; }
+    if (lastUid && OFFLINE()) lsDel('cache', lastUid);
+    window.kruxActivePlan = null;
+    window.kruxTrainLog = [];
+    clearPlans();
+    if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+  });
+
+  return {
+    savePlan, saveSession, updateSession, persistLog: (rec, f) => (QUEUE() ? persistLog(rec, f) : null), isSignedIn: () => !!uid(), currentUid: uid,
+    // Planes múltiples (requieren window.KRUX_MULTIPLAN)
+    sync: { info: syncInfo, flush, retryConflicts, discard: discardEntry, offline: OFFLINE },
+    plans: { enabled: MULTI, reload: refreshPlans, retryLoad: () => { reloadTry = 0; return load(); }, ...q }
+  };
+})();
+window.KruxTrainStore = KruxTrainStore;
+
+function trEsc(text) {
+  return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function trDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// «10 s», «2 min», «1 min 30 s»
+function trFmtDuration(sec) {
+  if (!sec) return '';
+  if (sec < 60) return `${sec} s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return s ? `${m} min ${s} s` : `${m} min`;
+}
+
+// «4 × 10 s», «3 × 5 rep», «3 series»
+function trFmtWork(ex) {
+  if (ex.workSec > 0) return `${ex.sets} × ${trFmtDuration(ex.workSec)}`;
+  if (ex.reps > 0) return `${ex.sets} × ${ex.reps} rep`;
+  return `${ex.sets} series`;
+}
+
+// Duración aproximada: trabajo (≈3 s por repetición) + descansos entre series
+function trEstimateMinutes(exercises) {
+  const sec = exercises.reduce((acc, ex) => {
+    const work = ex.workSec > 0 ? ex.workSec : (ex.reps || 0) * 3;
+    return acc + ex.sets * work + Math.max(0, ex.sets - 1) * (ex.restSec || 0);
+  }, 0);
+  return Math.max(5, Math.round(sec / 300) * 5);
+}
 
 // Genera la descripción corta a partir de los parámetros del ejercicio
 function buildExDetail(ex) {
-  let unit = '';
-  if (ex.workSec > 0)      unit = `${ex.workSec}s`;
-  else if (ex.reps > 0)    unit = `${ex.reps} rep`;
-
-  let setStr = unit ? `${ex.sets} × ${unit}` : `${ex.sets} series`;
-  if (ex.weight > 0) setStr += ` +${ex.weight}kg`;
-
-  const parts = [setStr];
-  if (ex.restSec > 0) {
-    const r = ex.restSec >= 60 ? `${Math.floor(ex.restSec / 60)} min` : `${ex.restSec}s`;
-    parts.push(`descanso ${r}`);
-  }
-  return parts.join(' — ');
+  const parts = [trFmtWork(ex)];
+  if (ex.weight > 0) parts.push(`+${ex.weight} kg`);
+  if (ex.assistanceKg > 0) parts.push(`−${ex.assistanceKg} kg asistencia`);
+  if (ex.distanceM > 0) parts.push(`${ex.distanceM} m`);
+  if (ex.tempo) parts.push(`tempo ${ex.tempo}`);
+  if (ex.restSec > 0) parts.push(`descanso ${trFmtDuration(ex.restSec)}`);
+  return parts.join(' · ');
 }
 
 // ================== TRAIN VIEW ==================
 function initTrainView() {
-  const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   const DAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+  const ICONS = {
+    timer: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5"/><path d="M9.5 2.5h5"/></svg>`,
+    reps: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-1a5 5 0 0 1 5-5h11"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v1a5 5 0 0 1-5 5H4"/></svg>`,
+    check: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    chevron: `<svg class="train-ex-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>`,
+    record: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>`,
+  };
 
   let weekOffset = 0;
+  let selectedIdx = todayIdx();
 
-  function getTodayLabel() {
-    // getDay(): 0=Sun,1=Mon...6=Sat → map to L=0,M=1,X=2,J=3,V=4,S=5,D=6
-    return ['D', 'L', 'M', 'X', 'J', 'V', 'S'][new Date().getDay()];
+  function todayIdx() { return (new Date().getDay() + 6) % 7; } // 0 = lunes
+
+  function mondayOf(offset) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - todayIdx() + offset * 7);
+    return d;
   }
 
-  function getTodaySession() {
-    const plan = window.kruxActivePlan;
+  function dateAt(offset, idx) {
+    const d = mondayOf(offset);
+    d.setDate(d.getDate() + idx);
+    return d;
+  }
+
+  // Plan que rige en una fecha: el activo; en fechas futuras, el programado cuya fecha de inicio ya habrá llegado
+  function planAt(date) {
+    const active = window.kruxActivePlan;
+    if (!date || !multiPlans() || !window.KruxPlans) return active;
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    if (date <= t) return active;
+    return window.KruxPlans.planOnDate(window.kruxPlans || [], trDateKey(date)) || active;
+  }
+
+  function planSessionFor(label, date) {
+    const plan = planAt(date);
     if (!plan || !plan.sessions) return null;
-    const todayLabel = getTodayLabel();
-    return plan.sessions.find(s => s.day === todayLabel) || null;
+    return plan.sessions.find(s => s.day === label) || null;
   }
 
-  function getNextSession() {
-    const plan = window.kruxActivePlan;
-    if (!plan || !plan.sessions || plan.sessions.length === 0) return null;
-    const todayIdx = DAY_LABELS.indexOf(getTodayLabel());
+  function nextPlannedAfter(idx) {
     for (let i = 1; i <= 7; i++) {
-      const d = DAY_LABELS[(todayIdx + i) % 7];
-      const s = plan.sessions.find(sess => sess.day === d);
-      if (s) return s;
+      const j = (idx + i) % 7;
+      const s = planSessionFor(DAY_LABELS[j]);
+      if (s) return { idx: j, session: s };
     }
     return null;
   }
 
-  function loadTodaySession() {
-    const todaySess = getTodaySession();
-    const nameEl = document.getElementById('train-session-name');
-    const metaEl = document.getElementById('train-session-meta');
-    const badgeEl = document.getElementById('train-session-badge');
-
-    if (todaySess) {
-      // Sync exercises into shared data for the session module
-      window.kruxTrainData.name = todaySess.name;
-      window.kruxTrainData.exercises = todaySess.exercises.map((ex, i) => ({ ...ex, active: i === 0 }));
-      if (nameEl) nameEl.textContent = todaySess.name;
-      const exCount = todaySess.exercises.length;
-      if (metaEl) metaEl.textContent = `${exCount} ejercicio${exCount !== 1 ? 's' : ''} · ~${Math.ceil(exCount * 12)} min`;
-      if (badgeEl) { badgeEl.textContent = 'Hoy'; badgeEl.style.display = ''; }
-    } else if (window.kruxActivePlan) {
-      // Rest day — show next session info
-      const next = getNextSession();
-      if (nameEl) nameEl.textContent = 'Descanso hoy';
-      if (metaEl) metaEl.textContent = next ? `Próxima sesión: ${next.day} · ${next.name}` : 'Sin sesiones programadas';
-      if (badgeEl) { badgeEl.textContent = 'Descanso'; badgeEl.style.cssText = 'background:#f8f9fb;color:var(--text-muted);border-color:var(--border-color);'; }
-      const list = document.getElementById('train-exercise-list');
-      if (list) list.innerHTML = '<div class="train-rest-day">💤 Día de descanso — disfruta la recuperación</div>';
-      return;
+  // sessionId: id de la sesión del plan (preferente); sin él, el nombre (registros antiguos)
+  function logFor(dateKey, name, sessionId) {
+    const log = window.kruxTrainLog;
+    for (let i = log.length - 1; i >= 0; i--) {
+      const e = log[i];
+      if (e.demo || e.dateKey !== dateKey) continue;
+      if (sessionId && e.planSessionId) { if (e.planSessionId === sessionId) return e; continue; }
+      if (!name || e.sessionName === name) return e;
     }
-    // else: no active plan, use default kruxTrainData as-is
-    renderExercises();
+    return null;
   }
 
+  // Con planes múltiples el pasado muestra lo realmente registrado, no la estructura del plan actual
+  const multiPlans = () => !!window.KRUX_MULTIPLAN;
+  const isPastDate = d => { const t = new Date(); t.setHours(0, 0, 0, 0); return d < t; };
+  const entriesOn = dateKey => (window.kruxTrainLog || []).filter(e => !e.demo && e.dateKey === dateKey);
+  const hasAnyReadyPlan = () => (window.kruxPlans || []).some(p => p.status === 'ready');
+  const planGone = e => multiPlans() && !!e.planId && !(window.kruxPlans || []).some(p => p.id === e.planId);
+
+  function isSelectedToday() { return weekOffset === 0 && selectedIdx === todayIdx(); }
+
+  // ── Resumen semanal ─────────────────────────────────────────────────
+  function renderHero() {
+    const plan = window.kruxActivePlan;
+    const title = document.getElementById('train-hero-title');
+    const sub = document.getElementById('train-hero-sub');
+    const meter = document.getElementById('train-hero-meter');
+    const note = document.getElementById('train-hero-note');
+    const cta = document.getElementById('train-hero-cta');
+    if (!title) return;
+
+    if (!plan && multiPlans() && window.kruxPlanNotice && window.kruxPlanNotice.type === 'load-error') {
+      title.textContent = 'No se han podido cargar tus planes';
+      sub.textContent = 'Revisa tu conexión. Tus planes y tu historial no se han tocado.';
+      meter.innerHTML = ''; meter.hidden = true; note.textContent = ''; note.hidden = true;
+      cta.textContent = 'Reintentar';
+      cta.classList.remove('hidden');
+      return;
+    }
+    if (!plan) {
+      title.textContent = 'Sin plan activo';
+      const pick = hasReadyPlans();
+      sub.textContent = pick ? 'Elige uno de tus planes o crea uno nuevo.' : 'Crea un plan para organizar tus sesiones de la semana.';
+      cta.textContent = pick ? 'Mis planes' : 'Crear plan';
+      meter.innerHTML = '';
+      meter.hidden = true;
+      note.textContent = '';
+      note.hidden = true;
+      cta.classList.remove('hidden');
+      return;
+    }
+
+    cta.classList.add('hidden');
+    const planned = DAY_LABELS.filter(l => planSessionFor(l)).length;
+    const monday = mondayOf(0);
+    const doneKeys = new Set(window.kruxTrainLog
+      .filter(e => !e.demo)
+      .filter(e => { const d = new Date(e.dateKey + 'T00:00'); return d >= monday && (d - monday) < 7 * 864e5; })
+      .map(e => e.dateKey));
+    let done = doneKeys.size;
+    let others = 0;
+    if (multiPlans()) {
+      // Solo cuentan las sesiones del plan activo (las antiguas, sin plan, cuentan para el activo);
+      // las de otros planes se indican aparte para no mostrar resultados como «3 de 2»
+      const weekEntries = (window.kruxTrainLog || []).filter(e => !e.demo)
+        .filter(e => { const d = new Date(e.dateKey + 'T00:00'); return d >= monday && (d - monday) < 7 * 864e5; });
+      const mine = weekEntries.filter(e => !e.planId || e.planId === plan.id);
+      done = new Set(mine.map(e => e.dateKey)).size;
+      others = new Set(weekEntries.filter(e => e.planId && e.planId !== plan.id).map(e => e.dateKey)).size;
+      done = Math.min(done, planned);
+    }
+
+    title.textContent = done > 0 ? `${done} de ${planned} sesiones` : `${planned} ${planned === 1 ? 'sesión' : 'sesiones'}`;
+    sub.textContent = `${done > 0 ? 'completadas' : 'planificadas'} esta semana · ${plan.name || 'Mi plan'}`;
+
+    meter.hidden = planned === 0;
+    meter.innerHTML = Array.from({ length: planned }, (_, i) => `<span class="${i < done ? 'is-done' : ''}"></span>`).join('');
+
+    const todaySess = planSessionFor(DAY_LABELS[todayIdx()]);
+    if (todaySess) {
+      note.textContent = logFor(trDateKey(new Date()), todaySess.name, todaySess.id) ? `Hoy: ${todaySess.name} · hecha` : `Hoy: ${todaySess.name}`;
+    } else {
+      const next = nextPlannedAfter(todayIdx());
+      note.textContent = next ? `Hoy descansas · ${DAY_NAMES[next.idx]}: ${next.session.name}` : 'Hoy descansas';
+    }
+    if (others > 0) note.textContent += ` · ${others === 1 ? '1 día de otro plan no se cuenta' : `${others} días de otros planes no se cuentan`}`;
+    note.hidden = false;
+  }
+
+  // ── Calendario ──────────────────────────────────────────────────────
   function renderWeek() {
     const daysRow = document.getElementById('train-days-row');
     const weekTitle = document.getElementById('train-week-title');
     if (!daysRow || !weekTitle) return;
 
-    const today = new Date();
-    const jsDay = today.getDay();
-    const mondayDelta = jsDay === 0 ? -6 : 1 - jsDay;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + mondayDelta + weekOffset * 7);
-
-    const weekNum = Math.ceil(monday.getDate() / 7);
-    weekTitle.textContent = `Semana ${weekNum} · ${MONTH_NAMES[monday.getMonth()]}`;
-
-    const plan = window.kruxActivePlan;
-    const activePlanDays = plan ? new Set(plan.sessions.map(s => s.day)) : null;
-    const checkSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-    const todayLabel = getTodayLabel();
+    const monday = mondayOf(weekOffset);
+    const sunday = dateAt(weekOffset, 6);
+    const range = monday.getMonth() === sunday.getMonth()
+      ? `${monday.getDate()}–${sunday.getDate()} ${MONTHS[sunday.getMonth()]}`
+      : `${monday.getDate()} ${MONTHS[monday.getMonth()]} – ${sunday.getDate()} ${MONTHS[sunday.getMonth()]}`;
+    weekTitle.textContent = weekOffset === 0 ? `Esta semana · ${range}` : range;
 
     daysRow.innerHTML = DAY_LABELS.map((label, i) => {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const isToday = weekOffset === 0 && label === todayLabel;
-      const hasSession = activePlanDays ? activePlanDays.has(label) : [0, 2, 4].includes(i); // fallback L,X,V
-      let state, content;
-      if (weekOffset === 0) {
-        // Past days with session = done (simplified: Mon/Wed before today)
-        const isPast = i < DAY_LABELS.indexOf(todayLabel);
-        if (isToday) { state = 'today'; content = `${d.getDate()}`; }
-        else if (isPast && hasSession) { state = 'done'; content = checkSvg; }
-        else if (hasSession) { state = 'scheduled'; content = `${d.getDate()}`; }
-        else { state = 'rest'; content = '–'; }
-      } else {
-        state = hasSession ? 'scheduled' : 'rest';
-        content = hasSession ? `${d.getDate()}` : '–';
-      }
-      return `<div class="train-day-cell"><span class="train-day-name">${label}</span><div class="train-day-dot ${state}">${content}</div></div>`;
+      const d = dateAt(weekOffset, i);
+      const hasPlan = !!planAt(d);
+      const isToday = weekOffset === 0 && i === todayIdx();
+      const past = multiPlans() && isPastDate(d);
+      const sess = hasPlan && !past ? planSessionFor(label, d) : null;
+      const isDone = !!logFor(trDateKey(d));
+      const isSelected = i === selectedIdx;
+      const cls = ['train-day', isToday && 'is-today', (sess || (past && isDone)) && 'has-session', isDone && 'is-done', isSelected && 'is-selected']
+        .filter(Boolean).join(' ');
+      const desc = [`${DAY_NAMES[i]} ${d.getDate()}`, isToday && 'hoy', sess ? `sesión: ${sess.name}` : (hasPlan && !past && 'descanso'), isDone && 'completada']
+        .filter(Boolean).join(', ');
+      return `<button type="button" class="${cls}" data-idx="${i}" aria-pressed="${isSelected}" aria-label="${trEsc(desc)}">
+        <span class="train-day-name">${label}</span>
+        <span class="train-day-num">${isDone ? ICONS.check : d.getDate()}</span>
+        <span class="train-day-mark"></span>
+      </button>`;
     }).join('');
+  }
+
+  // ── Sesión del día seleccionado ─────────────────────────────────────
+  function selectedState() {
+    const date = dateAt(weekOffset, selectedIdx);
+    const plan = planAt(date);
+    if (multiPlans()) {
+      if (isPastDate(date)) {
+        const entries = entriesOn(trDateKey(date));
+        return entries.length ? { kind: 'history', date, entries } : { kind: 'past', date };
+      }
+      if (!plan && hasAnyReadyPlan()) return { kind: 'noplan', date };
+    }
+    if (!plan) return { kind: 'demo', date };
+    const sess = planSessionFor(DAY_LABELS[selectedIdx], date);
+    return sess ? { kind: 'session', date, sess, plan } : { kind: 'rest', date };
+  }
+
+  function loadSelectedSession() {
+    const nameEl = document.getElementById('train-session-name');
+    const metaEl = document.getElementById('train-session-meta');
+    const badgeEl = document.getElementById('train-session-badge');
+    const st = selectedState();
+    if (window.KruxMentalUI) window.KruxMentalUI.renderSession(st.kind === 'session' ? { sess: st.sess, plan: st.plan || window.kruxActivePlan } : null);
+
+    if (st.kind === 'demo') {
+      window.kruxTrainData = KRUX_TRAIN_DEMO;
+      badgeEl.textContent = 'Ejemplo';
+      badgeEl.className = 'train-session-badge is-demo';
+    } else if (st.kind === 'session') {
+      // Misma referencia que el plan: las ediciones del ejercicio se quedan en el plan
+      const plan = st.plan || window.kruxActivePlan || {};
+      window.kruxTrainData = {
+        name: st.sess.name, exercises: st.sess.exercises, demo: false,
+        planId: plan.id || null, planName: plan.name || '', planRevision: plan.revision || null, planSessionId: st.sess.id || null
+      };
+      badgeEl.textContent = isSelectedToday() ? 'Hoy' : DAY_NAMES[selectedIdx];
+      badgeEl.className = 'train-session-badge' + (isSelectedToday() ? ' is-today' : '');
+    } else if (st.kind === 'history') {
+      window.kruxTrainData = { name: st.entries.map(e => e.sessionName).join(' + '), exercises: [], demo: false };
+      badgeEl.textContent = 'Hecha';
+      badgeEl.className = 'train-session-badge is-today';
+    } else if (st.kind === 'past') {
+      window.kruxTrainData = { name: 'Sin entrenamiento', exercises: [], demo: false };
+      badgeEl.textContent = 'Pasado';
+      badgeEl.className = 'train-session-badge is-rest';
+    } else if (st.kind === 'noplan') {
+      window.kruxTrainData = { name: 'Sin plan activo', exercises: [], demo: false };
+      badgeEl.textContent = 'Sin plan';
+      badgeEl.className = 'train-session-badge is-rest';
+    } else {
+      window.kruxTrainData = { name: 'Descanso', exercises: [], demo: false };
+      badgeEl.textContent = 'Descanso';
+      badgeEl.className = 'train-session-badge is-rest';
+    }
+
+    const data = window.kruxTrainData;
+    nameEl.textContent = st.kind === 'rest' ? `Descanso · ${DAY_NAMES[selectedIdx].toLowerCase()}` : data.name;
+    if (st.kind === 'rest') {
+      metaEl.textContent = 'No hay sesión planificada este día.';
+    } else if (st.kind === 'history') {
+      const sets = st.entries.reduce((n, e) => n + e.exercises.reduce((m, x) => m + x.sets.length, 0), 0);
+      const mins = Math.max(1, Math.round(st.entries.reduce((n, e) => n + (e.durationSec || 0), 0) / 60));
+      const plans = Array.from(new Set(st.entries.map(e => e.planName ? `${e.planName}${planGone(e) ? ' (plan eliminado)' : ''}` : ''))).filter(Boolean);
+      metaEl.textContent = `${sets} ${sets === 1 ? 'serie' : 'series'} · ${mins} min${plans.length ? ` · ${plans.join(', ')}` : ''}`;
+    } else if (st.kind === 'past') {
+      metaEl.textContent = 'No hay ningún entrenamiento registrado este día.';
+    } else if (st.kind === 'noplan') {
+      metaEl.textContent = 'Elige uno de tus planes para ver tus sesiones.';
+    } else {
+      const n = data.exercises.length;
+      metaEl.textContent = n ? `${n} ${n === 1 ? 'ejercicio' : 'ejercicios'} · ≈ ${trEstimateMinutes(data.exercises)} min` : 'Sin ejercicios';
+      // Fecha futura que ya pertenece a un plan programado: se indica de qué plan es
+      if (st.kind === 'session' && st.plan && window.kruxActivePlan && st.plan.id !== window.kruxActivePlan.id) metaEl.textContent += ` · Plan «${st.plan.name}»`;
+    }
+    renderExercises();
+    renderSuggestion();
+    renderCta();
   }
 
   function renderExercises() {
     const list = document.getElementById('train-exercise-list');
     if (!list) return;
-    const data = window.kruxTrainData;
-    if (!data || !data.exercises || data.exercises.length === 0) {
-      list.innerHTML = '<div class="train-rest-day">Sin ejercicios configurados</div>';
+    const st = selectedState();
+
+    if (st.kind === 'history') {
+      list.innerHTML = st.entries.map(entry => {
+        const rows = entry.exercises.filter(x => x.sets.length).map(x => {
+          const first = x.sets[0];
+          const part = first.workSec ? trFmtDuration(first.workSec) : first.reps ? `${first.reps} rep` : 'hecha';
+          const maxW = Math.max(...x.sets.map(t => t.weight || 0));
+          const rpes = x.sets.map(t => t.rpe).filter(Boolean);
+          const spec = [`${x.sets.length} × ${part}`, maxW > 0 ? `+${maxW} kg` : ''].filter(Boolean).join(' · ');
+          return `<div class="train-ex-item is-done" role="listitem"><div class="train-ex-row train-ex-row--static is-done">
+            <span class="train-ex-glyph">${ICONS.check}</span>
+            <span class="train-ex-info"><span class="train-ex-name">${trEsc(x.name)}</span><span class="train-ex-spec">${trEsc(spec)}</span></span>
+            ${rpes.length ? `<span class="train-ex-rpe">RPE ${Math.round(rpes.reduce((a, b) => a + b, 0) / rpes.length * 10) / 10}</span>` : '<span></span>'}
+            <span></span></div></div>`;
+        }).join('');
+        return (st.entries.length > 1 ? `<p class="train-hist-title" role="listitem">${trEsc(entry.sessionName)}</p>` : '') + (rows || '<div class="train-empty" role="listitem"><p class="train-empty-text">No se registró ninguna serie.</p></div>');
+      }).join('');
       return;
     }
-    const playIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
-    const circleIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"><circle cx="12" cy="12" r="9"></circle></svg>`;
-    list.innerHTML = data.exercises.map((ex, i) => `
-      <div class="train-ex-row${ex.active ? ' active-ex' : ''} train-ex-editable" data-idx="${i}">
-        <div class="train-ex-icon${ex.active ? ' active-icon' : ''}">${ex.active ? playIcon : circleIcon}</div>
-        <div class="train-ex-info">
-          <div class="train-ex-name${ex.active ? ' active-name' : ''}">${ex.name}</div>
-          <div class="train-ex-detail${ex.active ? ' active-detail' : ''}">${buildExDetail(ex)}</div>
-        </div>
-        ${ex.rpeTarget ? `<span class="train-ex-rpe">RPE ${ex.rpeTarget}</span>` : ''}
-      </div>`).join('');
+    if (st.kind === 'past') {
+      list.innerHTML = `<div class="train-empty" role="listitem"><p class="train-empty-title">Nada registrado</p><p class="train-empty-text">Este día no se registró ninguna sesión.</p></div>`;
+      return;
+    }
+    if (st.kind === 'noplan') {
+      list.innerHTML = `<div class="train-empty" role="listitem"><p class="train-empty-title">Elige un plan</p><p class="train-empty-text">Tienes planes guardados: elige cuál usar o crea uno nuevo.</p><button type="button" class="train-empty-btn" data-open-plans="1">Mis planes</button></div>`;
+      return;
+    }
+    if (st.kind === 'rest') {
+      const next = nextPlannedAfter(selectedIdx);
+      list.innerHTML = `<div class="train-empty" role="listitem">
+        <p class="train-empty-title">Día de recuperación</p>
+        <p class="train-empty-text">${next ? `Próxima sesión: ${DAY_NAMES[next.idx].toLowerCase()}, ${trEsc(next.session.name)}.` : 'Tu plan no tiene sesiones con día asignado.'}</p>
+        ${next ? `<button type="button" class="train-empty-btn" data-goto="${next.idx}">Ver ${DAY_NAMES[next.idx].toLowerCase()}</button>` : ''}
+      </div>`;
+      return;
+    }
 
-    list.querySelectorAll('.train-ex-editable').forEach(row => {
-      row.addEventListener('click', () => openExerciseEditor(parseInt(row.dataset.idx)));
-    });
+    const data = window.kruxTrainData;
+    if (!data.exercises.length) {
+      list.innerHTML = `<div class="train-empty" role="listitem"><p class="train-empty-title">Sin ejercicios</p><p class="train-empty-text">Añade ejercicios a esta sesión desde el editor de planes.</p></div>`;
+      return;
+    }
+
+    // Estado real: solo cuenta lo registrado en una sesión hecha ese día
+    const entry = st.kind === 'session' ? logFor(trDateKey(st.date), data.name) : null;
+    const doneSets = i => (entry && entry.exercises[i] && entry.exercises[i].name === data.exercises[i].name) ? entry.exercises[i].sets.length : 0;
+    const nextIdx = data.exercises.findIndex((ex, i) => doneSets(i) < ex.sets);
+
+    list.innerHTML = data.exercises.map((ex, i) => {
+      const done = doneSets(i);
+      const state = done >= ex.sets ? 'is-done' : i === nextIdx ? 'is-next' : '';
+      const spec = [trFmtWork(ex), ex.weight > 0 ? `+${ex.weight} kg` : ''].filter(Boolean).join(' · ');
+      const status = done >= ex.sets ? 'Hecho' : done > 0 ? `${done}/${ex.sets} series` : '';
+      const gid = window.KruxGuide ? window.KruxGuide.idFor(ex) : null;
+      return `<div class="train-ex-item ${state}${gid ? ' has-guide' : ''}" role="listitem"><button type="button" class="train-ex-row ${state}" data-idx="${i}" aria-label="${trEsc(`Editar ${ex.name}. ${spec}${ex.restSec ? `, descanso ${trFmtDuration(ex.restSec)}` : ''}${ex.rpeTarget ? `, RPE ${ex.rpeTarget}` : ''}${status ? `, ${status}` : ''}`)}">
+        <span class="train-ex-glyph">${done >= ex.sets ? ICONS.check : (ex.workSec > 0 ? ICONS.timer : ICONS.reps)}</span>
+        <span class="train-ex-info">
+          <span class="train-ex-name">${trEsc(ex.name)}</span>
+          <span class="train-ex-spec">${trEsc(spec)}</span>
+          ${ex.restSec || status ? `<span class="train-ex-rest">${[ex.restSec ? `Descanso ${trFmtDuration(ex.restSec)}` : '', status].filter(Boolean).join(' · ')}</span>` : ''}
+        </span>
+        ${ex.rpeTarget ? `<span class="train-ex-rpe">RPE ${ex.rpeTarget}</span>` : ''}
+        ${ICONS.chevron}
+      </button>${gid ? window.KruxGuide.button(gid) : ''}</div>`;
+    }).join('');
   }
 
-  // Gear button → dropdown menu
+  // Último registro real de algún ejercicio de esta sesión (sin progresiones automáticas)
+  function renderSuggestion() {
+    const box = document.getElementById('train-suggestion');
+    if (!box) return;
+    const data = window.kruxTrainData;
+    const log = window.kruxTrainLog;
+    let found = null;
+    for (let i = log.length - 1; i >= 0 && !found; i--) {
+      if (log[i].demo) continue;
+      for (const ex of log[i].exercises) {
+        if (!ex.sets.length) continue;
+        const current = data.exercises.find(e => e.name === ex.name);
+        if (current) { found = { entry: log[i], ex, current }; break; }
+      }
+    }
+    if (!found) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+
+    const { entry, ex, current } = found;
+    const last = ex.sets[ex.sets.length - 1];
+    const rpes = ex.sets.map(s => s.rpe).filter(Boolean);
+    const unit = ex.target.workSec > 0 ? trFmtDuration(ex.target.workSec) : `${ex.target.reps} rep`;
+    const lastLine = [`${ex.sets.length} × ${unit}`, last.weight > 0 ? `+${last.weight} kg` : '', rpes.length ? `RPE ${Math.round(rpes.reduce((a, b) => a + b, 0) / rpes.length * 10) / 10}` : '']
+      .filter(Boolean).join(' · ');
+    const goal = [trFmtWork(current), current.weight > 0 ? `+${current.weight} kg` : '', current.rpeTarget ? `RPE ${current.rpeTarget}` : '']
+      .filter(Boolean).join(' · ');
+    const when = entry.dateKey === trDateKey(new Date()) ? 'hoy' : `el ${new Date(entry.dateKey + 'T00:00').getDate()} de ${MONTHS[new Date(entry.dateKey + 'T00:00').getMonth()]}`;
+
+    box.innerHTML = `
+      <span class="train-suggestion-icon">${ICONS.record}</span>
+      <div class="train-suggestion-body">
+        <p class="train-suggestion-title">Último registro · ${trEsc(ex.name)}</p>
+        <p class="train-suggestion-text">${trEsc(lastLine)} <span class="train-suggestion-when">(${when})</span></p>
+        <p class="train-suggestion-goal">Plan para hoy: ${trEsc(goal)}</p>
+      </div>`;
+    box.classList.remove('hidden');
+  }
+
+  function renderCta() {
+    const btn = document.getElementById('train-start-btn');
+    const label = document.getElementById('train-start-label');
+    if (!btn || !label) return;
+    const st = selectedState();
+    const data = window.kruxTrainData;
+    let text = 'Comenzar entrenamiento';
+    let disabled = false;
+    if (st.kind === 'rest') { text = 'Día de descanso'; disabled = true; }
+    else if (st.kind === 'history') { text = 'Entrenamiento realizado'; disabled = true; }
+    else if (st.kind === 'past') { text = 'Día pasado'; disabled = true; }
+    else if (st.kind === 'noplan') { text = 'Sin plan activo'; disabled = true; }
+    else if (!data.exercises.length) { text = 'Sin ejercicios'; disabled = true; }
+    else if (st.kind === 'demo') text = 'Probar sesión de ejemplo';
+    else if (logFor(trDateKey(st.date), data.name, data.planSessionId)) text = 'Repetir entrenamiento';
+    label.textContent = text;
+    btn.disabled = disabled;
+  }
+
+  // Aviso de sincronización: sin conexión, sesiones pendientes o rechazadas por el servidor
+  function renderSync() {
+    const box = document.getElementById('train-sync');
+    if (!box) return;
+    const sync = window.KruxTrainStore && KruxTrainStore.sync;
+    const i = sync ? sync.info() : null;
+    if (!i || (!i.pending && !i.conflicts && !i.offline)) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    const n = (k, a, b) => `${k} ${k === 1 ? a : b}`;
+    const since = i.since ? new Date(i.since).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    let html = '';
+    box.classList.toggle('is-error', i.conflicts > 0);
+    if (i.conflicts) {
+      html = `<p><b>${n(i.conflicts, 'sesión no se ha podido sincronizar', 'sesiones no se han podido sincronizar')}.</b> El servidor no la ha aceptado; sigue guardada en este dispositivo.</p>
+        <div class="mp-notice-actions"><button type="button" class="mp-notice-btn" data-sync="retry">Reintentar</button><button type="button" class="mp-notice-btn is-quiet" data-sync="discard">Descartar</button></div>`;
+    } else if (i.pending) {
+      html = `<p><b>${n(i.pending, 'sesión pendiente de sincronizar', 'sesiones pendientes de sincronizar')}.</b> ${i.offline ? 'Se enviará cuando vuelva la conexión.' : 'Se está enviando…'}</p>
+        <div class="mp-notice-actions"><button type="button" class="mp-notice-btn" data-sync="flush"${i.offline ? ' disabled' : ''}>Sincronizar ahora</button></div>`;
+    } else {
+      html = `<p><b>Sin conexión.</b> Usas la copia guardada${since ? ` el ${since}` : ''}. Puedes entrenar; para cambiar tus planes necesitas conexión.</p>`;
+    }
+    box.innerHTML = html;
+    box.classList.remove('hidden');
+  }
+
+  function renderAll() {
+    renderHero();
+    renderWeek();
+    loadSelectedSession();
+    renderSync();
+  }
+
+  // ── Eventos ─────────────────────────────────────────────────────────
   const gearBtn = document.getElementById('train-new-plan-btn');
   const gearMenu = document.getElementById('train-gear-menu');
 
   function closeGearMenu() {
     if (gearMenu) gearMenu.classList.add('hidden');
+    if (gearBtn) gearBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  function openPlanEditor() {
+    closeGearMenu();
+    if (typeof window.openPlanEditor === 'function') window.openPlanEditor();
+  }
+
+  function editActivePlan() {
+    const plan = window.kruxActivePlan;
+    if (!plan || !Array.isArray(plan.sessions)) {
+      if (typeof showToast === 'function') showToast('Aún no tienes un plan activo', 'info', { detail: 'Crea uno desde «Crear plan» o con el asistente.' });
+      return;
+    }
+    if (typeof window.openPlanEditor === 'function') window.openPlanEditor({ edit: true });
+  }
+
+  function openLibrary() {
+    closeGearMenu();
+    if (window.KruxLibrary) window.KruxLibrary.open({ mode: 'browse' });
   }
 
   if (gearBtn && gearMenu) {
     gearBtn.addEventListener('click', e => {
       e.stopPropagation();
-      gearMenu.classList.toggle('hidden');
+      const open = gearMenu.classList.toggle('hidden') === false;
+      gearBtn.setAttribute('aria-expanded', String(open));
     });
-    const gearNew = document.getElementById('train-gear-new');
-    if (gearNew) gearNew.addEventListener('click', () => {
+    document.getElementById('train-gear-new')?.addEventListener('click', openPlanEditor);
+    document.getElementById('train-gear-wizard')?.addEventListener('click', () => {
       closeGearMenu();
-      if (typeof window.openPlanEditor === 'function') window.openPlanEditor();
+      if (window.KruxWizard) window.KruxWizard.open();
     });
-    // Close on outside click
+    document.getElementById('train-gear-edit')?.addEventListener('click', () => {
+      closeGearMenu();
+      editActivePlan();
+    });
+    document.getElementById('train-gear-library')?.addEventListener('click', openLibrary);
+    const plansItem = document.getElementById('train-gear-plans');
+    if (plansItem && window.KRUX_MULTIPLAN) {
+      plansItem.hidden = false;
+      plansItem.addEventListener('click', () => { closeGearMenu(); if (window.KruxPlansUI) window.KruxPlansUI.open(); });
+    }
     document.addEventListener('click', e => {
       if (!e.target.closest('.train-gear-wrap')) closeGearMenu();
     });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGearMenu(); });
   }
 
-  // Week navigation
-  const prevBtn = document.getElementById('train-week-prev');
-  const nextBtn = document.getElementById('train-week-next');
-  if (prevBtn) prevBtn.addEventListener('click', () => { weekOffset--; renderWeek(); });
-  if (nextBtn) nextBtn.addEventListener('click', () => { weekOffset++; renderWeek(); });
+  // Con planes guardados pero ninguno activo, el botón lleva a «Mis planes»; si no hay planes, a crearlos
+  const hasReadyPlans = () => !!window.KRUX_MULTIPLAN && (window.kruxPlans || []).some(p => p.status === 'ready');
+  window.addEventListener('krux-train-sync', () => { renderSync(); renderWeek(); renderHero(); });
+  window.addEventListener('online', renderSync);
+  window.addEventListener('offline', renderSync);
+  document.getElementById('train-sync')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-sync]');
+    if (!b) return;
+    const sync = KruxTrainStore.sync;
+    if (b.dataset.sync === 'flush') sync.flush();
+    else if (b.dataset.sync === 'retry') sync.retryConflicts();
+    else if (b.dataset.sync === 'discard') {
+      const bad = sync.info().entries.filter(x => x.state === 'conflict');
+      window.kruxConfirm('¿Descartar de este dispositivo?', `Se eliminará${bad.length === 1 ? '' : 'n'} ${bad.length} ${bad.length === 1 ? 'sesión' : 'sesiones'} que el servidor no aceptó. No se podrá recuperar.`,
+        () => bad.forEach(x => sync.discard(x.id)), 'Descartar', true);
+    }
+  });
+  document.getElementById('train-hero-cta')?.addEventListener('click', () => {
+    if (multiPlans() && window.kruxPlanNotice && window.kruxPlanNotice.type === 'load-error') { KruxTrainStore.plans.retryLoad(); return; }
+    if (hasReadyPlans() && window.KruxPlansUI) { window.KruxPlansUI.open(); return; }
+    openPlanEditor();
+  });
+  document.getElementById('train-lib-link')?.addEventListener('click', openLibrary);
 
-  // Start button
-  const startBtn = document.getElementById('train-start-btn');
-  if (startBtn) startBtn.addEventListener('click', () => openActiveSession());
+  document.getElementById('train-days-row')?.addEventListener('click', e => {
+    const day = e.target.closest('.train-day');
+    if (!day) return;
+    selectedIdx = parseInt(day.dataset.idx, 10);
+    renderWeek();
+    loadSelectedSession();
+  });
 
-  // Expose refresh so plan editor can trigger it after saving
-  window.refreshTrainView = () => { loadTodaySession(); renderWeek(); };
+  document.getElementById('train-exercise-list')?.addEventListener('click', e => {
+    const go = e.target.closest('[data-goto]');
+    if (go) {
+      const target = parseInt(go.dataset.goto, 10);
+      if (target <= selectedIdx) weekOffset++; // la próxima sesión cae en la semana siguiente
+      selectedIdx = target;
+      renderWeek();
+      loadSelectedSession();
+      return;
+    }
+    if (e.target.closest('[data-open-plans]')) { if (window.KruxPlansUI) window.KruxPlansUI.open(); return; }
+    const row = e.target.closest('.train-ex-row:not(.train-ex-row--static)');
+    if (row && typeof window.openExerciseEditor === 'function') window.openExerciseEditor(parseInt(row.dataset.idx, 10));
+  });
 
-  renderWeek();
-  loadTodaySession();
+  document.getElementById('train-week-prev')?.addEventListener('click', () => { weekOffset--; renderWeek(); loadSelectedSession(); });
+  document.getElementById('train-week-next')?.addEventListener('click', () => { weekOffset++; renderWeek(); loadSelectedSession(); });
+
+  document.getElementById('train-start-btn')?.addEventListener('click', () => {
+    if (typeof window.openActiveSession === 'function') window.openActiveSession();
+  });
+
+  // Refresco tras guardar un plan, editar un ejercicio o terminar una sesión
+  window.refreshTrainView = () => { renderAll(); document.dispatchEvent(new CustomEvent('krux:train-refresh')); };
+  window.kruxRenderTrainExercises = () => { loadSelectedSession(); };
+
+  renderAll();
 }
 
 // ================== EXERCISE EDITOR ==================
+// Edita la prescripción de un ejercicio del plan (el de Entrena o el de un plan en edición).
+// Los parámetros básicos siempre se ven; los propios de la ficha del ejercicio (asistencia,
+// distancia, tempo…) aparecen debajo solo cuando aplican.
 (function () {
   let editingIdx = -1;
+  let ctx = null;          // { exercise, onSave, onReplace } cuando se edita fuera de Entrena
+  let extraParams = [];
   const $ = id => document.getElementById(id);
+  const BASE = { sets: 'ex-field-sets', reps: 'ex-field-reps', workSec: 'ex-field-work', weight: 'ex-field-weight', restSec: 'ex-field-rest', rpeTarget: 'ex-field-rpe' };
+  const kx = () => window.KruxExercises;
+  const catalog = () => (window.KruxLibrary ? window.KruxLibrary.catalog() : null);
+  const num = (id, parse) => parse($(id).value.replace(',', '.'));
+
+  function current() {
+    return ctx ? ctx.exercise : (window.kruxTrainData && window.kruxTrainData.exercises[editingIdx]);
+  }
 
   function readFields() {
-    return {
+    const out = {
       name:      $('ex-field-name').value.trim(),
-      sets:      Math.max(1, parseInt($('ex-field-sets').value)   || 1),
-      reps:      Math.max(0, parseInt($('ex-field-reps').value)   || 0),
-      workSec:   Math.max(0, parseInt($('ex-field-work').value)   || 0),
-      weight:    Math.max(0, parseInt($('ex-field-weight').value) || 0),
-      restSec:   Math.max(0, parseInt($('ex-field-rest').value)   || 0),
-      rpeTarget: Math.min(10, Math.max(0, parseInt($('ex-field-rpe').value) || 0)),
+      sets:      Math.max(1, num('ex-field-sets', parseInt) || 1),
+      reps:      Math.max(0, num('ex-field-reps', parseInt) || 0),
+      workSec:   Math.max(0, num('ex-field-work', parseInt) || 0),
+      weight:    Math.max(0, num('ex-field-weight', parseFloat) || 0),
+      restSec:   Math.max(0, num('ex-field-rest', parseInt) || 0),
+      rpeTarget: Math.min(10, Math.max(0, num('ex-field-rpe', parseInt) || 0)),
+      notes:     $('ex-field-notes').value.trim().slice(0, 300)
     };
+    extraParams.forEach(p => {
+      const el = $('ex-extra-' + p.key);
+      if (!el) return;
+      if (p.type === 'text') {
+        const v = el.value.trim();
+        out[p.key] = kx().TEMPO_RE.test(v) ? v : '';
+        out['_invalid_' + p.key] = !!v && !out[p.key];
+      } else {
+        const n = parseFloat(el.value.replace(',', '.'));
+        out[p.key] = isFinite(n) ? Math.max(p.min || 0, Math.min(p.max, n)) : 0;
+      }
+    });
+    return out;
   }
 
   function updatePreview() {
     const preview = $('ex-preview-text');
     if (!preview) return;
-    const tmp = readFields();
-    preview.textContent = buildExDetail(tmp) || '—';
+    preview.textContent = buildExDetail(readFields()) || '—';
   }
 
-  function open(idx) {
-    const ex = window.kruxTrainData && window.kruxTrainData.exercises[idx];
+  // Etiquetas y campos según la ficha del ejercicio (p. ej. «Intentos» en lugar de «Repeticiones»)
+  function renderParams(ex) {
+    const cat = catalog();
+    const params = cat && kx() ? kx().paramsForPlanItem(cat, ex) : [];
+    Object.keys(BASE).forEach(key => {
+      const field = $(BASE[key]).closest('.ex-field');
+      const label = field.querySelector('.ex-field-label');
+      const def = params.find(p => p.key === key);
+      // Con ficha, los básicos que no le corresponden se ocultan (salvo que ya tengan un valor)
+      field.classList.toggle('hidden', !!def && !def.applies && !(Number(ex[key]) > 0));
+      const defaults = { sets: 'Series', reps: 'Repeticiones', workSec: 'Tiempo trabajo (seg)', weight: 'Peso adicional (kg)', restSec: 'Descanso (seg)', rpeTarget: 'RPE objetivo (0 = ninguno)' };
+      label.textContent = def && (key === 'reps' || key === 'workSec') && def.label !== (kx().PARAMS[key === 'reps' ? 'repetitions' : 'workDurationSeconds'].label)
+        ? `${def.label}${def.unit ? ` (${def.unit})` : ''}` : defaults[key];
+    });
+    extraParams = params.filter(p => !BASE[p.key]);
+    const box = $('ex-extra');
+    const wrap = $('ex-extra-fields');
+    wrap.innerHTML = extraParams.map(p => `
+      <div class="ex-field">
+        <label class="ex-field-label" for="ex-extra-${p.key}">${trEsc(p.label)}${p.unit ? ` (${p.unit})` : ''}</label>
+        ${p.type === 'text'
+          ? `<input class="ex-field-input ex-field-num" id="ex-extra-${p.key}" type="text" inputmode="numeric" maxlength="11" placeholder="3-1-1">`
+          : `<input class="ex-field-input ex-field-num" id="ex-extra-${p.key}" type="number" min="${p.min}" max="${p.max}" step="${p.step}" inputmode="decimal" placeholder="0">`}
+      </div>`).join('');
+    box.classList.toggle('hidden', !extraParams.length);
+    extraParams.forEach(p => {
+      const el = $('ex-extra-' + p.key);
+      const v = ex[p.key];
+      el.value = p.type === 'text' ? (v || '') : (v > 0 ? v : '');
+      el.addEventListener('input', updatePreview);
+    });
+  }
+
+  function renderLinks(ex) {
+    const box = $('ex-links');
+    const items = [];
+    if (ex.exerciseId && window.KruxLibrary) items.push('<button type="button" class="ex-link-btn" data-act="sheet">Ver ficha del ejercicio</button>');
+    if (ctx && ctx.onReplace) items.push('<button type="button" class="ex-link-btn" data-act="replace">Sustituir ejercicio</button>');
+    box.innerHTML = items.join('');
+    box.classList.toggle('hidden', !items.length);
+  }
+
+  function open(idx, opts) {
+    ctx = opts && opts.exercise ? opts : null;
+    const ex = ctx ? ctx.exercise : window.kruxTrainData && window.kruxTrainData.exercises[idx];
     if (!ex) return;
-    editingIdx = idx;
+    editingIdx = typeof idx === 'number' ? idx : -1;
+    // Enlace en memoria con la ficha (por nombre exacto); se guarda al guardar el plan
+    const cat = catalog();
+    if (cat && kx()) kx().linkPlanItem(cat, ex);
     $('ex-field-name').value   = ex.name;
     $('ex-field-sets').value   = ex.sets;
     $('ex-field-reps').value   = ex.reps   || 0;
@@ -17385,6 +18575,9 @@ function initTrainView() {
     $('ex-field-weight').value = ex.weight || 0;
     $('ex-field-rest').value   = ex.restSec;
     $('ex-field-rpe').value    = ex.rpeTarget;
+    $('ex-field-notes').value  = ex.notes || '';
+    renderParams(ex);
+    renderLinks(ex);
     updatePreview();
     $('ex-editor-sheet').classList.remove('hidden');
     setTimeout(() => $('ex-field-name').focus(), 320);
@@ -17393,46 +18586,41 @@ function initTrainView() {
   function close() {
     $('ex-editor-sheet').classList.add('hidden');
     editingIdx = -1;
+    ctx = null;
   }
 
   function reRenderList() {
-    const listEl = document.getElementById('train-exercise-list');
-    if (!listEl || !window.kruxTrainData) return;
-    const playIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
-    const circleIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"><circle cx="12" cy="12" r="9"></circle></svg>`;
-    listEl.innerHTML = window.kruxTrainData.exercises.map((e, i) => `
-      <div class="train-ex-row${e.active ? ' active-ex' : ''} train-ex-editable" data-idx="${i}">
-        <div class="train-ex-icon${e.active ? ' active-icon' : ''}">${e.active ? playIcon : circleIcon}</div>
-        <div class="train-ex-info">
-          <div class="train-ex-name${e.active ? ' active-name' : ''}">${e.name}</div>
-          <div class="train-ex-detail${e.active ? ' active-detail' : ''}">${buildExDetail(e)}</div>
-        </div>
-        ${e.rpeTarget ? `<span class="train-ex-rpe">RPE ${e.rpeTarget}</span>` : ''}
-      </div>`).join('');
-    listEl.querySelectorAll('.train-ex-editable').forEach(row => {
-      row.addEventListener('click', () => open(parseInt(row.dataset.idx)));
-    });
+    if (typeof window.kruxRenderTrainExercises === 'function') window.kruxRenderTrainExercises();
   }
 
   function save() {
-    if (editingIdx < 0 || !window.kruxTrainData) return;
-    const ex = window.kruxTrainData.exercises[editingIdx];
-    const f  = readFields();
+    const ex = current();
+    if (!ex) return;
+    const f = readFields();
+    const bad = extraParams.find(p => f['_invalid_' + p.key]);
+    if (bad) {
+      if (typeof showToast === 'function') showToast('El tempo no es válido', 'error', { detail: 'Usa números separados por guiones, por ejemplo 3-1-1.' });
+      return;
+    }
     if (f.name) ex.name = f.name;
-    ex.sets      = f.sets;
-    ex.reps      = f.reps;
-    ex.workSec   = f.workSec;
-    ex.weight    = f.weight;
-    ex.restSec   = f.restSec;
-    ex.rpeTarget = f.rpeTarget;
+    ['sets', 'reps', 'workSec', 'weight', 'restSec', 'rpeTarget'].forEach(k => { ex[k] = f[k]; });
+    if (f.notes) ex.notes = f.notes; else delete ex.notes;
+    extraParams.forEach(p => { if (f[p.key]) ex[p.key] = f[p.key]; else delete ex[p.key]; });
+
+    if (ctx) {
+      const done = ctx.onSave;
+      close();
+      if (done) done();
+      return;
+    }
     close();
     reRenderList();
     if (typeof showToast === 'function') showToast('Ejercicio actualizado', 'success');
+    if (!window.kruxTrainData.demo && window.kruxActivePlan) KruxTrainStore.savePlan(window.kruxActivePlan);
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    const liveFields = ['ex-field-sets','ex-field-reps','ex-field-work','ex-field-weight','ex-field-rest'];
-    liveFields.forEach(id => {
+    ['ex-field-sets', 'ex-field-reps', 'ex-field-work', 'ex-field-weight', 'ex-field-rest', 'ex-field-rpe'].forEach(id => {
       const el = $(id);
       if (el) el.addEventListener('input', updatePreview);
     });
@@ -17442,6 +18630,22 @@ function initTrainView() {
     if (closeBtn) closeBtn.addEventListener('click', close);
     if (backdrop) backdrop.addEventListener('click', close);
     if (saveBtn)  saveBtn.addEventListener('click', save);
+    $('ex-editor-sheet')?.addEventListener('focusin', e => {
+      if (!e.target.matches('input, textarea')) return;
+      setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 320);
+    });
+    $('ex-links')?.addEventListener('click', e => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      const ex = current();
+      if (btn.dataset.act === 'sheet' && ex && ex.exerciseId) {
+        window.KruxLibrary.openSheet(ex.exerciseId);
+      } else if (btn.dataset.act === 'replace' && ctx && ctx.onReplace) {
+        const done = ctx.onReplace;
+        close();
+        done();
+      }
+    });
   });
 
   window.openExerciseEditor = open;
@@ -17455,363 +18659,85 @@ firebase.auth().onAuthStateChanged(user => {
   }
 });
 
-// ========== PROGRESS CARDS ==========
-let _pcAscents = [];
-let _pcCurrentPeriod = 'month';
-let _pcCurrentSlide = 0;
-let _pcPageCount = 1;
-let _pcNavContext = null; // {year} for month, {year, month} for week, {year} for year
 
-function updatePcTimeNav(period) {
-  const sel = document.getElementById('pc-time-nav');
-  if (!sel) return;
-  sel.innerHTML = '';
 
-  const now = new Date();
-  const monthLabels = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-
-  if (period === 'month') {
-    const years = [...new Set(_pcAscents.map(a => {
-      const d = parseAscentDate(a.date);
-      return d ? d.getFullYear() : null;
-    }).filter(Boolean))].sort((a,b) => b - a);
-    if (!years.length) years.push(now.getFullYear());
-    years.forEach(y => {
-      const opt = document.createElement('option');
-      opt.value = y;
-      opt.textContent = y;
-      if (y === (_pcNavContext?.year ?? now.getFullYear())) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    sel.style.display = '';
-    _pcNavContext = { year: parseInt(sel.value) };
-
-  } else if (period === 'week') {
-    const monthsSet = new Set();
-    _pcAscents.forEach(a => {
-      const d = parseAscentDate(a.date);
-      if (d) monthsSet.add(`${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`);
-    });
-    const sortedMonths = [...monthsSet].sort().reverse();
-    if (!sortedMonths.length) sortedMonths.push(`${now.getFullYear()}-${String(now.getMonth()).padStart(2,'0')}`);
-    sortedMonths.forEach(key => {
-      const [y, m] = key.split('-').map(Number);
-      const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = `${monthLabels[m]} ${y}`;
-      const curKey = `${_pcNavContext?.year ?? now.getFullYear()}-${String(_pcNavContext?.month ?? now.getMonth()).padStart(2,'0')}`;
-      if (key === curKey) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    sel.style.display = '';
-    const [y, m] = sel.value.split('-').map(Number);
-    _pcNavContext = { year: y, month: m };
-
-  } else {
-    sel.style.display = 'none';
-    _pcNavContext = null;
-  }
-}
-
-function initProgressCards() {
-  const tabs = document.querySelectorAll('[data-pc]');
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const period = tab.dataset.pc;
-      if (period === 'custom') {
-        openProgressCardCustom();
-        return;
-      }
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      _pcCurrentPeriod = period;
-      _pcNavContext = null;
-      document.getElementById('pc-custom-banner')?.classList.add('hidden');
-      updatePcTimeNav(period);
-      renderProgressCards(period, _pcAscents);
-    });
-  });
-
-  document.getElementById('pc-time-nav')?.addEventListener('change', e => {
-    const val = e.target.value;
-    if (_pcCurrentPeriod === 'month') {
-      _pcNavContext = val ? { year: parseInt(val) } : null;
-    } else if (_pcCurrentPeriod === 'week') {
-      if (val) { const [y, m] = val.split('-').map(Number); _pcNavContext = { year: y, month: m }; }
-      else _pcNavContext = null;
-    }
-    renderProgressCards(_pcCurrentPeriod, _pcAscents);
-  });
-
-  document.getElementById('pc-overlay')?.addEventListener('click', e => {
-    if (e.target === document.getElementById('pc-overlay')) closePcPopup();
-  });
-  document.getElementById('pc-btn-cancel')?.addEventListener('click', closePcPopup);
-  document.getElementById('pc-btn-apply')?.addEventListener('click', applyPcCustom);
-  document.getElementById('pc-banner-clear')?.addEventListener('click', clearPcCustom);
-
-  document.querySelectorAll('.pc-preset').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const days = parseInt(btn.dataset.days);
-      const today = new Date();
-      const from = new Date();
-      from.setDate(from.getDate() - days);
-      document.getElementById('pc-date-from').value = from.toISOString().split('T')[0];
-      document.getElementById('pc-date-to').value = today.toISOString().split('T')[0];
-    });
-  });
-
-  // Swipe support — listeners attached once, handlers read up-to-date globals
-  const outer = document.getElementById('pc-carousel-outer');
-  if (outer) {
-    let startX = 0;
-    outer.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, { passive: true });
-    outer.addEventListener('touchend', e => {
-      const dx = e.changedTouches[0].clientX - startX;
-      if (Math.abs(dx) > 40) {
-        goPcSlide(Math.max(0, Math.min(_pcPageCount - 1, _pcCurrentSlide + (dx < 0 ? 1 : -1))));
-      }
-    }, { passive: true });
-  }
-
-  document.getElementById('pc-arrow-prev')?.addEventListener('click', () => {
-    if (_pcCurrentSlide > 0) goPcSlide(_pcCurrentSlide - 1);
-  });
-  document.getElementById('pc-arrow-next')?.addEventListener('click', () => {
-    if (_pcCurrentSlide < _pcPageCount - 1) goPcSlide(_pcCurrentSlide + 1);
-  });
-}
-
-function openProgressCardCustom() {
-  const today = new Date().toISOString().split('T')[0];
-  const from = new Date(); from.setMonth(from.getMonth() - 1);
-  document.getElementById('pc-date-from').value = from.toISOString().split('T')[0];
-  document.getElementById('pc-date-to').value = today;
-  document.getElementById('pc-overlay').classList.remove('hidden');
-}
-
-function closePcPopup() {
-  document.getElementById('pc-overlay')?.classList.add('hidden');
-}
-
-function applyPcCustom() {
-  const from = document.getElementById('pc-date-from').value;
-  const to = document.getElementById('pc-date-to').value;
-  if (!from || !to || from > to) return;
-  closePcPopup();
-
-  document.querySelectorAll('[data-pc]').forEach(t => t.classList.remove('active'));
-  const banner = document.getElementById('pc-custom-banner');
-  if (banner) {
-    banner.classList.remove('hidden');
-    document.getElementById('pc-banner-text').textContent = `${fmtPcDate(from)} – ${fmtPcDate(to)}`;
-  }
-  renderProgressCards('custom', _pcAscents, from, to);
-}
-
-function clearPcCustom() {
-  document.getElementById('pc-custom-banner')?.classList.add('hidden');
-  const monthTab = document.querySelector('[data-pc="month"]');
-  if (monthTab) {
-    document.querySelectorAll('[data-pc]').forEach(t => t.classList.remove('active'));
-    monthTab.classList.add('active');
-  }
-  _pcCurrentPeriod = 'month';
-  renderProgressCards('month', _pcAscents);
-}
-
-function fmtPcDate(s) {
-  const [y, m, d] = s.split('-');
-  const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-  return `${parseInt(d)} ${months[parseInt(m) - 1]}`;
-}
-
-function renderProgressCards(period, ascents, customFrom, customTo) {
-  if (ascents) _pcAscents = ascents;
-  const carouselEl = document.getElementById('pc-carousel');
-  const dotsEl = document.getElementById('pc-carousel-dots');
-  if (!carouselEl) return;
-
-  const cards = buildPcCardData(_pcAscents, period, customFrom, customTo, _pcNavContext);
-
-  if (!cards.length) {
-    carouselEl.innerHTML = `<div class="pc-carousel-slide"><div class="pc-cards-grid"><div class="pc-empty-card" style="grid-column:1/-1">Sin ascensiones en este periodo</div></div></div>`;
-    if (dotsEl) dotsEl.innerHTML = '';
-    _pcPageCount = 1;
+// Reutiliza el diálogo de confirmación con un botón propio (no destructivo por defecto).
+// Se muestra por encima de las pantallas de Entrena (sesión, planes, biblioteca).
+window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finalizar', danger = false) {
+  const $ = id => document.getElementById(id);
+  const ok = $('confirm-ok');
+  const cancel = $('confirm-cancel');
+  if (typeof showConfirmModal !== 'function' || !ok || !cancel) {
+    if (window.confirm(`${title}\n${message}`)) fn();
     return;
   }
-
-  const maxIdx = Math.max(...cards.map(c => getGradeIndex(c.max)).filter(i => i >= 0));
-
-  // Chunk cards into pages of 4
-  const pages = [];
-  for (let i = 0; i < cards.length; i += 4) pages.push(cards.slice(i, i + 4));
-  _pcPageCount = pages.length;
-
-  carouselEl.innerHTML = pages.map(page =>
-    `<div class="pc-carousel-slide"><div class="pc-cards-grid">${
-      page.map(c => makePcCard(c, getGradeIndex(c.max) === maxIdx && c.count > 0)).join('')
-    }</div></div>`
-  ).join('');
-
-  if (dotsEl) {
-    dotsEl.innerHTML = pages.length > 1
-      ? pages.map((_, i) => `<button class="pc-carousel-dot" data-pc-slide="${i}"></button>`).join('')
-      : '';
-    dotsEl.querySelectorAll('.pc-carousel-dot').forEach(dot =>
-      dot.addEventListener('click', () => goPcSlide(parseInt(dot.dataset.pcSlide)))
-    );
-  }
-
-  const target = Math.min(getPcInitialSlide(period, cards), pages.length - 1);
-  goPcSlide(target, false);
-}
-
-function getPcInitialSlide(period, cards) {
-  const now = new Date();
-  if (period === 'week') {
-    const dow = now.getDay();
-    const dayIndex = dow === 0 ? 6 : dow - 1; // 0=Mon..6=Sun
-    return Math.floor(dayIndex / 4);
-  }
-  if (period === 'month') {
-    return Math.floor(now.getMonth() / 4);
-  }
-  if (period === 'year') {
-    const currentYear = String(now.getFullYear());
-    const idx = cards.findIndex(c => c.label === currentYear);
-    return idx >= 0 ? Math.floor(idx / 4) : Math.max(0, Math.floor((cards.length - 1) / 4));
-  }
-  return 0;
-}
-
-function goPcSlide(index, animate = true) {
-  _pcCurrentSlide = index;
-  const carouselEl = document.getElementById('pc-carousel');
-  if (!carouselEl) return;
-  if (!animate) {
-    carouselEl.style.transition = 'none';
-    carouselEl.style.transform = `translateX(-${index * 100}%)`;
-    carouselEl.offsetHeight; // force reflow
-    carouselEl.style.transition = '';
-  } else {
-    carouselEl.style.transform = `translateX(-${index * 100}%)`;
-  }
-  document.querySelectorAll('.pc-carousel-dot').forEach((d, i) =>
-    d.classList.toggle('active', i === index)
-  );
-  const onlyOne = _pcPageCount <= 1;
-  document.getElementById('pc-arrow-prev')?.classList.toggle('pc-arrow-hidden', onlyOne || index === 0);
-  document.getElementById('pc-arrow-next')?.classList.toggle('pc-arrow-hidden', onlyOne || index >= _pcPageCount - 1);
-}
-
-
-function buildPcCardData(ascents, period, customFrom, customTo, navContext) {
-  const now = new Date();
-  const monthLabels = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const dayLabels = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-  let groups = [];
-
-  if (period === 'week') {
-    const selYear = navContext?.year ?? now.getFullYear();
-    const selMonth = navContext?.month ?? now.getMonth();
-    const daysInMonth = new Date(selYear, selMonth + 1, 0).getDate();
-    for (let startDay = 1; startDay <= daysInMonth; startDay += 7) {
-      const endDay = Math.min(startDay + 6, daysInMonth);
-      const from = new Date(selYear, selMonth, startDay, 0, 0, 0, 0);
-      const to = new Date(selYear, selMonth, endDay, 23, 59, 59, 999);
-      const weekAscents = ascents.filter(a => {
-        const d = parseAscentDate(a.date);
-        return d && d >= from && d <= to;
-      });
-      if (weekAscents.length) groups.push({ label: `${startDay}–${endDay} ${monthLabels[selMonth]}`, ascents: weekAscents });
-    }
-
-  } else if (period === 'month') {
-    const selYear = navContext?.year ?? now.getFullYear();
-    for (let m = 0; m < 12; m++) {
-      const monthAscents = ascents.filter(a => {
-        const d = parseAscentDate(a.date);
-        return d && d.getFullYear() === selYear && d.getMonth() === m;
-      });
-      if (monthAscents.length) groups.push({ label: monthLabels[m], ascents: monthAscents });
-    }
-
-  } else if (period === 'year') {
-    const allYears = [...new Set(ascents.map(a => {
-      const d = parseAscentDate(a.date);
-      return d ? d.getFullYear() : null;
-    }).filter(Boolean))].sort();
-    const filteredYears = navContext?.year ? allYears.filter(y => y === navContext.year) : allYears;
-    filteredYears.forEach(y => {
-      const yAscents = ascents.filter(a => {
-        const d = parseAscentDate(a.date);
-        return d && d.getFullYear() === y;
-      });
-      if (yAscents.length) groups.push({ label: String(y), ascents: yAscents });
-    });
-
-  } else if (period === 'custom' && customFrom && customTo) {
-    const from = new Date(customFrom);
-    const to = new Date(customTo);
-    to.setHours(23,59,59,999);
-    const rangeAscents = ascents.filter(a => {
-      const d = parseAscentDate(a.date);
-      return d && d >= from && d <= to;
-    });
-    if (rangeAscents.length) groups.push({ label: `${fmtPcDate(customFrom)} – ${fmtPcDate(customTo)}`, ascents: rangeAscents });
-  }
-
-  return groups.map(g => {
-    const grades = g.ascents.map(a => getGradeIndex(a.grade)).filter(i => i >= 0);
-    if (!grades.length) return null;
-    const maxGrade = getGradeFromIndex(Math.max(...grades));
-    const minGrade = getGradeFromIndex(Math.min(...grades));
-    const avgGrade = getGradeFromIndex(Math.round(grades.reduce((a,b) => a+b,0) / grades.length));
-    return { label: g.label, count: g.ascents.length, max: maxGrade, min: minGrade, avg: avgGrade };
-  }).filter(Boolean);
-}
-
-function makePcCard(d, isTop) {
-  const total = HISTOGRAM_GRADE_ORDER.length - 1;
-  const maxI = getGradeIndex(d.max);
-  const minI = getGradeIndex(d.min);
-  const avgI = getGradeIndex(d.avg);
-  const isPoint = maxI === minI;
-  const leftPct = Math.round((minI / total) * 100);
-  const widthPct = isPoint ? 0 : Math.max(4, Math.round(((maxI - minI) / total) * 100));
-  const avgPct = Math.round((avgI / total) * 100);
-
-  return `<div class="pc-card${isTop ? ' pc-card-top' : ''}">
-    <div class="pc-card-head">
-      <span class="pc-card-period">${d.label}</span>
-      <span class="pc-card-count${isTop ? ' pc-card-count-top' : ''}">${d.count} ${d.count === 1 ? 'vía' : 'vías'}</span>
-    </div>
-    <div class="pc-grade-labels">
-      <span class="pc-grade-min">${d.min}</span>
-      <span class="pc-grade-max">${d.max}</span>
-    </div>
-    <div class="pc-prog-track">
-      ${!isPoint ? `<div class="pc-prog-range" style="left:${leftPct}%;width:${widthPct}%"></div>` : ''}
-      <div class="pc-prog-avg" style="left:${avgPct}%"></div>
-    </div>
-    <div class="pc-card-footer">
-      <span class="pc-avg-label">Grado medio</span>
-      <span class="pc-avg-val">${d.avg}</span>
-    </div>
-  </div>`;
-}
-// ========== END PROGRESS CARDS ==========
+  const prev = { text: ok.textContent, cls: ok.className };
+  const restore = () => {
+    ok.textContent = prev.text;
+    ok.className = prev.cls;
+    ok.removeEventListener('click', restore);
+    cancel.removeEventListener('click', restore);
+    $('confirm-modal')?.removeEventListener('click', onBackdrop);
+    $('confirm-modal')?.classList.remove('kx-above');
+  };
+  const onBackdrop = e => { if (e.target.id === 'confirm-modal') restore(); };
+  ok.textContent = okLabel;
+  ok.className = danger ? 'btn-danger' : 'btn-primary kx-confirm-primary';
+  $('confirm-modal')?.classList.add('kx-above');
+  showConfirmModal(title, message, fn);
+  ok.addEventListener('click', restore);
+  cancel.addEventListener('click', restore);
+  $('confirm-modal')?.addEventListener('click', onBackdrop);
+};
 
 // ================== ACTIVE SESSION MODULE ==================
 (function () {
-  // Usa los datos compartidos para que las ediciones del train view se reflejen aquí
-  function EXERCISES() { return window.kruxTrainData ? window.kruxTrainData.exercises : []; }
+  // La sesión trabaja SIEMPRE con la copia tomada al empezar (run), nunca con el plan editable:
+  // refrescar Entrena, editar el plan, cargar datos o cambiar de cuenta no alteran lo que se ejecuta.
+  //   run.exercises     copia de trabajo (la carga puede ajustarse durante la sesión, solo en esta copia)
+  //   run.prescription  copia congelada de la prescripción original (es lo que se guarda como objetivo)
+  let run = null;
+  function EXERCISES() { return run ? run.exercises : []; }
 
+  function deepFreeze(o) {
+    Object.values(o).forEach(v => { if (v && typeof v === 'object') deepFreeze(v); });
+    return Object.freeze(o);
+  }
+
+  function takeSnapshot(data) {
+    const copy = () => {
+      const items = JSON.parse(JSON.stringify(data.exercises || []));
+      // Enlace en memoria con la ficha (por nombre exacto) antes de congelar: el historial guarda exerciseId
+      const cat = window.KruxLibrary && window.KruxLibrary.catalog();
+      if (cat && window.KruxExercises) items.forEach(it => window.KruxExercises.linkPlanItem(cat, it));
+      return items;
+    };
+    return {
+      planId: data.planId || null,
+      planName: data.planName || '',
+      planRevision: data.planRevision || null,
+      planSessionId: data.planSessionId || null,
+      sessionName: data.name,
+      demo: !!data.demo,
+      ownerUid: (window.KruxTrainStore && KruxTrainStore.currentUid && KruxTrainStore.currentUid()) || null,
+      exercises: copy(),
+      prescription: deepFreeze(copy())
+    };
+  }
+
+  // ¿Hay un entrenamiento en curso? Lo consultan las acciones sobre planes
+  window.KruxTrainSession = {
+    isRunning: () => !!run,
+    info: () => (run ? { planId: run.planId, planName: run.planName, sessionName: run.sessionName } : null)
+  };
+
+  const RING = 314;
   const SVG = {
-    play:  `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`,
-    pause: `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`,
-    skip:  `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>`,
+    play:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>`,
+    pause: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4.5" width="4" height="15" rx="1.2"></rect><rect x="14" y="4.5" width="4" height="15" rx="1.2"></rect></svg>`,
+    skip:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 5.5v13a1 1 0 0 0 1.53.85L16 13.2V18a1 1 0 0 0 2 0V6a1 1 0 0 0-2 0v4.8L6.53 4.65A1 1 0 0 0 5 5.5z"/></svg>`,
+    check: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    flag:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h11l-1.5 4L16 12H5"/></svg>`,
   };
 
   // ── Audio (Web Audio API, sin archivos externos) ──────────────────────
@@ -17820,9 +18746,53 @@ function makePcCard(d, isTop) {
   function getAudioCtx() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     // Reanudar si fue suspendido por política de autoplay
-    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
     return audioCtx;
   }
+
+  // iOS solo deja sonar el audio si el contexto se crea y se reanuda dentro de un toque:
+  // se llama en cada toque de la sesión, así los pitidos del cronómetro (que salen de un
+  // setInterval, sin gesto) siguen sonando
+  function unlockAudio() {
+    try {
+      const ctx = getAudioCtx();
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch (_) { /* sin audio */ }
+  }
+
+  // Modo manos libres: el cronómetro avanza solo y una voz anuncia cada paso
+  const AUTO_KEY = 'krux_session_handsfree';
+  function loadAuto() {
+    try { return localStorage.getItem(AUTO_KEY) !== '0'; } catch (_) { return true; }
+  }
+  let autoMode = loadAuto();
+  let autoTimer = null;
+  const clearAuto = () => { clearTimeout(autoTimer); autoTimer = null; };
+
+  function speak(text) {
+    if (!autoMode || !('speechSynthesis' in window)) return;
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'es-ES';
+      u.rate = 1.05;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    } catch (_) { /* sin voz */ }
+  }
+
+  // Wake Lock: con la pantalla apagada el navegador detiene el cronómetro
+  let wakeLock = null;
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (_) { wakeLock = null; }
+  }
+  function releaseAwake() { try { wakeLock?.release(); } catch (_) { /* ya liberado */ } wakeLock = null; }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && run) { keepAwake(); if (audioCtx?.state !== 'running') audioCtx?.resume().catch(() => {}); }
+  });
 
   function beep({ freq = 880, duration = 0.08, volume = 0.4, type = 'sine', delay = 0 } = {}) {
     try {
@@ -17840,8 +18810,11 @@ function makePcCard(d, isTop) {
     } catch (_) { /* silencioso si el navegador bloquea audio */ }
   }
 
-  // Tick sutil cada segundo durante trabajo
-  function soundTick()    { beep({ freq: 660, duration: 0.04, volume: 0.2 }); }
+  // Tick cada segundo; se vuelve más agudo y fuerte al acercarse el final (últimos 10 s)
+  function soundTick()    { beep({ freq: 660, duration: 0.05, volume: 0.3 }); }
+  function soundTickNear() { beep({ freq: 880, duration: 0.06, volume: 0.45 }); }
+  // Tick más grave durante el descanso, para distinguirlo del trabajo
+  function soundTickRest() { beep({ freq: 440, duration: 0.05, volume: 0.25 }); }
   // Pitidos urgentes en los últimos 3 segundos de trabajo
   function soundUrgent()  { beep({ freq: 1100, duration: 0.07, volume: 0.5, type: 'square' }); }
   // Triple pitido al completar una serie / fin de trabajo
@@ -17850,6 +18823,10 @@ function makePcCard(d, isTop) {
     beep({ freq: 1100, duration: 0.1, volume: 0.6, delay: 0.13 });
     beep({ freq: 1320, duration: 0.18, volume: 0.7, delay: 0.26 });
   }
+  // Aviso de arranque del trabajo
+  function soundGo() {
+    beep({ freq: 1320, duration: 0.22, volume: 0.6 });
+  }
   // Pitido suave al terminar el descanso
   function soundRestEnd() {
     beep({ freq: 660,  duration: 0.12, volume: 0.5, delay: 0.0 });
@@ -17857,223 +18834,495 @@ function makePcCard(d, isTop) {
   }
   // ─────────────────────────────────────────────────────────────────────
 
-  let exIdx, setsDone, mode, timerSec, targetSec, intervalId, elapsedSec, elapsedId, selectedRpe;
+  // mode: idle | work | paused | rest | between (ejercicio terminado, esperando al siguiente)
+  let exIdx, setsDone, mode, timerSec, targetSec, intervalId, elapsedSec, elapsedId, record, rpeOpen;
+  let TEMPLATE = '';
 
   function $ (id) { return document.getElementById(id); }
+  function fmt2(n) { return String(n).padStart(2, '0'); }
+  function clock(sec) { return `${Math.floor(sec / 60)}:${fmt2(sec % 60)}`; }
+  function hms(sec) { return `${fmt2(Math.floor(sec / 3600))}:${fmt2(Math.floor(sec / 60) % 60)}:${fmt2(sec % 60)}`; }
+  function nowHM() { const d = new Date(); return `${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`; }
+  function esc(t) { return typeof trEsc === 'function' ? trEsc(t) : String(t ?? ''); }
+  function dur(sec) { return typeof trFmtDuration === 'function' ? trFmtDuration(sec) : `${sec} s`; }
+
+  function announce(text) {
+    const el = $('session-sr-status');
+    if (el) el.textContent = text;
+  }
+
+  function doneSetsTotal() { return record ? record.exercises.reduce((a, e) => a + e.sets.length, 0) : 0; }
+  function plannedSetsTotal() { return EXERCISES().reduce((a, e) => a + e.sets, 0); }
+  function curSets() { return record.exercises[exIdx].sets; }
 
   function open() {
+    if (run) return;   // ya hay un entrenamiento abierto: no se reinicia
+    const source = window.kruxTrainData;
+    if (!source || !(source.exercises || []).length) {
+      if (typeof showToast === 'function') showToast('Esta sesión no tiene ejercicios', 'info');
+      return;
+    }
+    const modal = $('session-modal');
+    const screen = $('session-screen');
+    if (!modal || !screen) return;
+    run = takeSnapshot(source);
+
+    // Restaurar la pantalla si la sustituyó el resumen final
+    if (TEMPLATE && !screen.querySelector('.session-hero')) screen.innerHTML = TEMPLATE;
+
     exIdx = 0; setsDone = 0; mode = 'idle';
     timerSec = 0; targetSec = 0; intervalId = null;
-    elapsedSec = 0; elapsedId = null; selectedRpe = 0;
+    elapsedSec = 0; elapsedId = null; rpeOpen = false;
 
-    const modal = $('session-modal');
-    if (!modal) return;
-
-    // Restore session-screen in case it was replaced by completion
-    const screen = $('session-screen');
-    if (screen && !screen.querySelector('.session-topbar')) location.reload();
+    const data = run;
+    record = {
+      dateKey: typeof trDateKey === 'function' ? trDateKey(new Date()) : new Date().toISOString().slice(0, 10),
+      sessionName: data.sessionName,
+      demo: data.demo,
+      startedAt: Date.now(),
+      ownerUid: data.ownerUid,
+      planId: data.planId, planName: data.planName, planRevision: data.planRevision, planSessionId: data.planSessionId,
+      exercises: data.prescription.map(ex => ({
+        name: ex.name,
+        exerciseId: ex.exerciseId || null,
+        exerciseContentVersion: ex.exerciseContentVersion || null,
+        // Prescripción objetivo congelada al empezar: no cambia aunque luego se edite el plan,
+        // ni por los ajustes hechos durante la sesión (esos quedan en cada serie realizada)
+        target: {
+          sets: ex.sets, workSec: ex.workSec, reps: ex.reps, weight: ex.weight, restSec: ex.restSec, rpeTarget: ex.rpeTarget,
+          assistanceKg: ex.assistanceKg, distanceM: ex.distanceM, tempo: ex.tempo, recoverySec: ex.recoverySec, notes: ex.notes
+        },
+        sets: []
+      }))
+    };
 
     modal.classList.remove('hidden');
     document.body.classList.add('session-open');
+    unlockAudio();
+    keepAwake();
+    syncAutoBtn();
 
+    $('session-elapsed').textContent = hms(0);
     elapsedId = setInterval(() => {
       elapsedSec++;
       const el = $('session-elapsed');
-      if (el) el.textContent = fmt2(Math.floor(elapsedSec / 60)) + ':' + fmt2(elapsedSec % 60);
+      if (el) el.textContent = hms(elapsedSec);
     }, 1000);
 
-    // Update session name/date
-    const now = new Date();
-    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-    const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const sub = $('session-session-sub');
-    if (sub) sub.textContent = `${days[now.getDay()]} · ${months[now.getMonth()]}`;
-
+    $('session-session-name').textContent = data.demo ? `${data.sessionName} · ejemplo` : data.sessionName;
     renderExercise();
+    // Foco en el título del ejercicio para lectores de pantalla (sin anillo visible)
+    setTimeout(() => $('session-ex-name')?.focus({ preventScroll: true }), 350);
   }
 
   function close() {
     clearInterval(intervalId);
     clearInterval(elapsedId);
+    clearAuto();
+    releaseAwake();
+    try { speechSynthesis.cancel(); } catch (_) { /* sin voz */ }
     const modal = $('session-modal');
     if (modal) modal.classList.add('hidden');
     document.body.classList.remove('session-open');
+    run = null;
+    if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
   }
 
-  function fmt2(n) { return String(n).padStart(2, '0'); }
+  // Diálogo de confirmación compartido (window.kruxConfirm)
+  const confirmThen = (...args) => window.kruxConfirm(...args);
 
+  function requestClose() {
+    const n = doneSetsTotal();
+    if (!n || !$('session-screen').querySelector('.session-hero')) return close();
+    confirmThen('¿Salir sin terminar?', `Se perderán las ${n} ${n === 1 ? 'serie registrada' : 'series registradas'}.`, close, 'Salir', true);
+  }
+
+  function requestFinish() {
+    const n = doneSetsTotal();
+    const total = plannedSetsTotal();
+    if (!n) return confirmThen('¿Salir del entrenamiento?', 'Todavía no has completado ninguna serie.', close, 'Salir');
+    if (n >= total) return showCompletion();
+    confirmThen('¿Finalizar el entrenamiento?', `Llevas ${n} de ${total} series. Pasarás al resumen con lo que has hecho.`, showCompletion);
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────
   function renderExercise() {
     const ex = EXERCISES()[exIdx];
-    $('session-ex-counter').textContent = `EJERCICIO ${exIdx + 1} DE ${EXERCISES().length}`;
+    const total = EXERCISES().length;
+    $('session-ex-counter').textContent = `Ejercicio ${exIdx + 1} de ${total}`;
     $('session-ex-name').textContent = ex.name;
-    $('session-ex-detail').textContent = typeof buildExDetail === 'function' ? buildExDetail(ex) : (ex.detail || '');
-    $('session-progress-bar').style.width = Math.round((exIdx / EXERCISES().length) * 100) + '%';
+    renderSpecs();
+    const guideBtn = $('session-guide-btn');
+    if (guideBtn) {
+      const gid = window.KruxGuide ? window.KruxGuide.idFor(ex) : null;
+      guideBtn.hidden = !gid;
+      guideBtn.dataset.guide = gid || '';
+    }
 
-    const next = exIdx + 1 < EXERCISES().length ? EXERCISES()[exIdx + 1] : null;
-    $('session-next-label').textContent = next ? 'SIGUIENTE' : 'ÚLTIMO EJERCICIO';
-    $('session-next-name').textContent = next ? next.name : '¡Último ejercicio!';
-    $('session-next-detail').textContent = next ? next.detail : 'Dale todo';
+    const rpe = $('session-ex-rpe');
+    rpe.textContent = ex.rpeTarget ? `RPE ${ex.rpeTarget}` : '';
+    rpe.classList.toggle('hidden', !ex.rpeTarget);
 
-    renderDots();
+    $('session-steps').innerHTML = EXERCISES().map((e, i) => {
+      const st = i < exIdx ? 'is-done' : i === exIdx ? 'is-current' : '';
+      return `<li class="${st}"><span class="sr-only">${esc(e.name)}${i < exIdx ? ', hecho' : i === exIdx ? ', en curso' : ''}</span></li>`;
+    }).join('');
+
+    renderNext();
+    rpeOpen = false;
     setMode('idle');
+    announce(`Ejercicio ${exIdx + 1} de ${total}: ${ex.name}`);
+  }
+
+  function renderSpecs() {
+    const ex = EXERCISES()[exIdx];
+    const parts = [typeof trFmtWork === 'function' ? trFmtWork(ex) : `${ex.sets} series`];
+    if (ex.weight > 0) parts.push(`+${ex.weight} kg`);
+    if (ex.restSec > 0) parts.push(`Descanso ${dur(ex.restSec)}`);
+    $('session-ex-detail').textContent = parts.join(' · ');
+  }
+
+  function renderNext() {
+    const next = EXERCISES()[exIdx + 1];
+    $('session-next-label').textContent = next ? 'Siguiente' : 'Último ejercicio';
+    $('session-next-name').textContent = next ? next.name : 'Terminar sesión';
+    $('session-skip-btn').setAttribute('aria-label', next ? `Pasar a ${next.name}` : 'Terminar sesión');
   }
 
   function renderDots() {
     const ex = EXERCISES()[exIdx];
-    const row = $('session-sets-row');
-    if (!row) return;
     let html = '';
     for (let i = 0; i < ex.sets; i++) {
-      const cls = i < setsDone ? 'done' : i === setsDone ? 'current' : '';
-      const label = i < setsDone
-        ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`
-        : (i + 1);
-      html += `<div class="session-set-dot ${cls}">${label}</div>`;
+      const cls = i < setsDone ? 'is-done' : (i === setsDone && mode !== 'between') ? 'is-current' : '';
+      html += `<span class="${cls}"></span>`;
     }
-    row.innerHTML = html;
+    $('session-sets-row').innerHTML = html;
+    const shown = Math.min(setsDone + (mode === 'between' ? 0 : 1), ex.sets);
+    $('session-set-chip').textContent = `Serie ${Math.max(1, shown)} / ${ex.sets}`;
+  }
+
+  function renderMetrics() {
+    const ex = EXERCISES()[exIdx];
+    $('session-load-val').textContent = ex.weight > 0 ? `+${ex.weight} kg` : '0 kg';
+    $('session-load-minus').disabled = !(ex.weight > 0);
+    $('session-rest-val').textContent = ex.restSec > 0 ? dur(ex.restSec) : 'Sin descanso';
+
+    const sets = curSets();
+    const last = sets[sets.length - 1];
+    const btn = $('session-rpe-btn');
+    $('session-rpe-lbl').textContent = last ? `RPE serie ${last.n}` : 'RPE';
+    $('session-rpe-val').textContent = last && last.rpe ? String(last.rpe) : (last ? 'Anotar' : '—');
+    btn.classList.toggle('is-empty', !(last && last.rpe));
+    btn.setAttribute('aria-expanded', String(rpeOpen));
+
+    const sec = $('session-rpe-section');
+    sec.classList.toggle('hidden', !(rpeOpen && last));
+    if (rpeOpen && last) {
+      $('session-rpe-label').textContent = `¿Cómo ha ido la serie ${last.n}?${ex.rpeTarget ? ` Objetivo: RPE ${ex.rpeTarget}` : ''}`;
+      $('session-rpe-dots').innerHTML = [5, 6, 7, 8, 9, 10].map(v => {
+        const tone = v >= 9 ? ' is-hi' : v >= 8 ? ' is-warn' : '';
+        return `<button type="button" class="session-rpe-dot${tone}${v === last.rpe ? ' is-selected' : ''}" data-rpe="${v}" aria-pressed="${v === last.rpe}">${v}</button>`;
+      }).join('');
+    }
+  }
+
+  function renderHistory() {
+    const ex = EXERCISES()[exIdx];
+    const sets = curSets();
+    const rows = [];
+    for (let i = 0; i < ex.sets; i++) {
+      const s = sets[i];
+      if (s) {
+        const val = s.workSec ? dur(s.workSec) : s.reps ? `${s.reps} rep` : 'Hecha';
+        const meta = [val, s.weight > 0 ? `+${s.weight} kg` : '', s.rpe ? `RPE ${s.rpe}` : ''].filter(Boolean).join(' · ');
+        rows.push(`<li class="is-done"><span class="session-h-mark">${SVG.check}</span><span class="session-h-text"><strong>Serie ${i + 1}</strong><span>${esc(meta)}</span></span><time>${s.time}</time></li>`);
+      } else {
+        const current = i === setsDone && mode !== 'between';
+        const txt = current ? (mode === 'work' ? 'En curso' : mode === 'rest' ? 'Después del descanso' : 'Preparada') : 'Pendiente';
+        rows.push(`<li class="${current ? 'is-current' : ''}"><span class="session-h-mark"></span><span class="session-h-text"><strong>Serie ${i + 1}</strong><span>${txt}</span></span><time>–</time></li>`);
+      }
+    }
+    $('session-history').innerHTML = rows.join('');
+  }
+
+  function setRing(fraction) {
+    const arc = $('session-ring-arc');
+    arc.style.strokeDashoffset = String(Math.max(0, Math.min(RING, RING - RING * fraction)));
+    arc.classList.toggle('is-empty', fraction <= 0);
+  }
+
+  function showBig(sec, longLabel = 'restantes') {
+    const t = $('session-ring-time');
+    t.textContent = sec < 60 ? String(sec) : clock(sec);
+    $('session-ring-lbl').textContent = sec < 60 ? (sec === 1 ? 'segundo' : 'segundos') : longLabel;
+  }
+
+  function setMainBtn(icon, text, primary = true) {
+    $('session-btn-main').removeAttribute('aria-label');
+    $('session-btn-icon').innerHTML = icon;
+    $('session-btn-label').textContent = text;
+    $('session-btn-main').classList.toggle('is-quiet', !primary);
   }
 
   function setMode(m) {
     mode = m;
     clearInterval(intervalId);
     const ex = EXERCISES()[exIdx];
-    const block  = $('session-timer-block');
-    const label  = $('session-timer-label');
-    const btnMain  = $('session-btn-main');
-    const btnLabel = $('session-btn-label');
-    const btnIcon  = $('session-btn-icon');
-    const ringArc  = $('session-ring-arc');
-    const ringTime = $('session-ring-time');
-    const ringLbl  = $('session-ring-lbl');
-
-    block.classList.remove('rest-mode');
-    ringArc.style.stroke = '#1D9E75';
-    ringTime.className = 'session-ring-time';
-    $('session-rpe-section').style.display = 'none';
+    const block = $('session-timer-block');
+    const time = $('session-ring-time');
+    block.classList.toggle('is-rest', m === 'rest');
+    block.classList.toggle('is-between', m === 'between');
+    time.classList.remove('is-urgent');
+    clearAuto();
+    $('session-btn-reset').disabled = m === 'between';
+    $('session-btn-set').disabled = m === 'between';
 
     if (m === 'idle') {
-      label.textContent = ex.workSec > 0 ? 'CRONÓMETRO DE TRABAJO' : 'LISTO';
-      ringArc.style.strokeDashoffset = '314';
-      ringTime.textContent = ex.workSec > 0 ? '0:' + fmt2(ex.workSec) : '—';
-      ringLbl.textContent = ex.workSec > 0 ? 'objetivo' : '';
-      btnIcon.innerHTML = SVG.play;
-      btnLabel.textContent = ex.workSec > 0 ? 'Iniciar' : 'Marcar serie';
-      btnMain.className = 'session-ctrl-btn session-ctrl-primary';
-
+      $('session-timer-label').textContent = 'Preparado';
+      setRing(0);
+      if (ex.workSec > 0) { showBig(ex.workSec, 'minutos'); setMainBtn(SVG.play, 'Iniciar'); }
+      else {
+        time.textContent = ex.reps > 0 ? String(ex.reps) : '—';
+        $('session-ring-lbl').textContent = ex.reps > 0 ? 'repeticiones' : 'serie libre';
+        setMainBtn(SVG.check, 'Serie hecha');
+      }
+      autoStartWork(ex);
+    } else if (m === 'ready') {
+      $('session-timer-label').textContent = 'Prepárate';
+      timerSec = READY_SEC; targetSec = READY_SEC;
+      showBig(timerSec, 'para empezar');
+      setRing(1);
+      setMainBtn(SVG.skip, 'Empezar ya', false);
+      $('session-btn-main').setAttribute('aria-label', 'Empezar ahora');
+      intervalId = setInterval(tickReady, 1000);
     } else if (m === 'work') {
-      label.textContent = 'TRABAJANDO';
+      $('session-timer-label').textContent = 'Trabajo';
       timerSec = 0; targetSec = ex.workSec;
-      btnIcon.innerHTML = SVG.pause;
-      btnLabel.textContent = 'Pausar';
+      showBig(targetSec);
+      setMainBtn(SVG.pause, 'Pausar');
       intervalId = setInterval(tickWork, 1000);
-
+      soundGo();
+      speak(timerSec === 0 && setsDone === 0 ? 'Ya' : `Serie ${setsDone + 1}. Ya`);
     } else if (m === 'rest') {
-      label.textContent = 'DESCANSO';
-      block.classList.add('rest-mode');
-      ringTime.className = 'session-ring-time green';
+      $('session-timer-label').textContent = 'Descanso';
       timerSec = ex.restSec; targetSec = ex.restSec;
-      ringTime.textContent = Math.floor(timerSec / 60) + ':' + fmt2(timerSec % 60);
-      ringLbl.textContent = 'descanso';
-      btnIcon.innerHTML = SVG.skip;
-      btnLabel.textContent = 'Saltarme';
-      btnMain.className = 'session-ctrl-btn';
-      updateRing(timerSec, targetSec);
+      showBig(timerSec, 'de descanso');
+      setRing(1);
+      setMainBtn(SVG.skip, 'Saltar', false);
+      $('session-btn-main').setAttribute('aria-label', 'Saltar descanso');
       intervalId = setInterval(tickRest, 1000);
-      showRpe();
+      speak(`Descanso, ${dur(ex.restSec)}`);
+    } else if (m === 'between') {
+      const last = exIdx + 1 >= EXERCISES().length;
+      $('session-timer-label').textContent = 'Ejercicio completado';
+      setRing(1);
+      time.textContent = String(ex.sets);
+      $('session-ring-lbl').textContent = ex.sets === 1 ? 'serie hecha' : 'series hechas';
+      setMainBtn(last ? SVG.flag : SVG.skip, last ? 'Terminar' : 'Siguiente');
+      if (autoMode) {
+        const next = EXERCISES()[exIdx + 1];
+        speak(next ? `Ejercicio completado. Siguiente: ${next.name}` : 'Último ejercicio completado');
+        autoTimer = setTimeout(() => { if (mode === 'between') nextExercise(); }, next ? 5000 : 4000);
+      }
     }
+    renderDots();
+    renderMetrics();
+    renderHistory();
+  }
+
+  const READY_SEC = 5;
+
+  // Manos libres: en series con tiempo, el trabajo arranca solo (con cuenta atrás al empezar
+  // un ejercicio). Las series por repeticiones esperan al toque porque no hay forma de medirlas
+  function autoStartWork(ex) {
+    if (!autoMode || !(ex.workSec > 0)) {
+      if (autoMode) speak(ex.reps > 0 ? `${ex.name}. ${ex.reps} repeticiones. Pulsa cuando termines` : `${ex.name}. Pulsa cuando termines`);
+      return;
+    }
+    if (setsDone === 0) {
+      speak(`${ex.name}. ${ex.sets > 1 ? `${ex.sets} series de ` : ''}${dur(ex.workSec)}. Prepárate`);
+      setMode('ready');
+    } else {
+      setMode('work');
+    }
+  }
+
+  function tickReady() {
+    timerSec--;
+    setRing(timerSec / targetSec);
+    showBig(Math.max(0, timerSec), 'para empezar');
+    if (timerSec <= 3 && timerSec > 0) {
+      $('session-ring-time').classList.add('is-urgent');
+      soundUrgent();
+    }
+    if (timerSec <= 0) { clearInterval(intervalId); setMode('work'); }
   }
 
   function tickWork() {
     timerSec++;
-    const pct = timerSec / targetSec;
-    $('session-ring-arc').style.strokeDashoffset = Math.max(0, 314 - 314 * pct);
-    const remaining = targetSec - timerSec;
-    $('session-ring-time').textContent = '0:' + fmt2(remaining);
+    setRing(timerSec / targetSec);
+    const remaining = Math.max(0, targetSec - timerSec);
+    showBig(remaining);
+    const time = $('session-ring-time');
     if (remaining <= 3 && remaining > 0) {
-      $('session-ring-time').className = 'session-ring-time red';
+      time.classList.add('is-urgent');
       soundUrgent();
-    } else if (remaining > 3) {
+    } else if (remaining <= 10) {
+      soundTickNear();
+    } else {
       soundTick();
     }
+    if (targetSec >= 40 && remaining === Math.floor(targetSec / 2)) speak('Mitad');
     if (timerSec >= targetSec) completeSet();
   }
 
   function tickRest() {
     timerSec--;
-    updateRing(timerSec, targetSec);
-    $('session-ring-time').textContent = Math.floor(timerSec / 60) + ':' + fmt2(timerSec % 60);
+    setRing(timerSec / targetSec);
+    showBig(Math.max(0, timerSec), 'de descanso');
+    const time = $('session-ring-time');
     if (timerSec <= 3 && timerSec > 0) {
-      $('session-ring-time').className = 'session-ring-time red';
+      time.classList.add('is-urgent');
       soundUrgent();
-    } else if (timerSec <= 10) {
-      $('session-ring-time').className = 'session-ring-time red';
+    } else if (timerSec > 3) {
+      timerSec <= 10 ? soundTickNear() : soundTickRest();
     }
     if (timerSec <= 0) {
       clearInterval(intervalId);
       soundRestEnd();
-      $('session-ring-time').textContent = '¡Ya!';
-      setMode('idle');
+      setMode('idle');   // con manos libres, 'idle' arranca el trabajo solo
+      announce(`Fin del descanso. Serie ${setsDone + 1}.`);
     }
-  }
-
-  function updateRing(cur, total) {
-    $('session-ring-arc').style.strokeDashoffset = Math.max(0, 314 - 314 * (cur / total));
   }
 
   function toggleTimer() {
     const ex = EXERCISES()[exIdx];
-    if (mode === 'idle') {
+    if (mode === 'ready') {
+      clearInterval(intervalId);
+      setMode('work');
+    } else if (mode === 'idle') {
       if (ex.workSec > 0) setMode('work'); else completeSet();
     } else if (mode === 'work') {
       clearInterval(intervalId);
       mode = 'paused';
-      $('session-btn-label').textContent = 'Reanudar';
-      $('session-btn-icon').innerHTML = SVG.play;
+      $('session-timer-label').textContent = 'En pausa';
+      setMainBtn(SVG.play, 'Reanudar');
+      announce('Cronómetro en pausa');
     } else if (mode === 'paused') {
       mode = 'work';
-      $('session-btn-label').textContent = 'Pausar';
-      $('session-btn-icon').innerHTML = SVG.pause;
+      $('session-timer-label').textContent = 'Trabajo';
+      setMainBtn(SVG.pause, 'Pausar');
       intervalId = setInterval(tickWork, 1000);
     } else if (mode === 'rest') {
       setMode('idle');
+    } else if (mode === 'between') {
+      clearAuto();
+      nextExercise();
     }
   }
 
   function completeSet() {
+    const ex = EXERCISES()[exIdx];
+    if (mode === 'between' || setsDone >= ex.sets) return;
+    // Tiempo real sostenido si se marca la serie con el cronómetro en marcha
+    const held = (mode === 'work' || mode === 'paused') && timerSec > 0 ? timerSec : ex.workSec;
+    clearInterval(intervalId);
     soundDone();
+    curSets().push({
+      n: setsDone + 1, workSec: ex.workSec > 0 ? held : 0, reps: ex.workSec > 0 ? 0 : ex.reps, weight: ex.weight || 0, rpe: 0, time: nowHM(),
+      ...(ex.assistanceKg > 0 ? { assistanceKg: ex.assistanceKg } : {})
+    });
     setsDone++;
-    renderDots();
-    if (setsDone >= EXERCISES()[exIdx].sets) {
-      setTimeout(nextExercise, 350);
-    } else {
+    rpeOpen = true;
+    if (setsDone >= ex.sets) {
+      setMode('between');
+      announce(`Ejercicio completado: ${ex.name}`);
+    } else if (ex.restSec > 0) {
       setMode('rest');
+      announce(`Serie ${setsDone} hecha. Descanso de ${dur(ex.restSec)}.`);
+    } else {
+      setMode('idle');
+      announce(`Serie ${setsDone} hecha.`);
     }
   }
 
   function nextExercise() {
     clearInterval(intervalId);
-    exIdx++;
-    setsDone = 0;
-    selectedRpe = 0;
-    if (exIdx >= EXERCISES().length) {
-      showCompletion();
+    if (exIdx + 1 >= EXERCISES().length) {
+      requestFinish();
       return;
     }
+    exIdx++;
+    setsDone = 0;
     renderExercise();
   }
 
+  function syncAutoBtn() {
+    const b = $('session-auto-btn');
+    if (b) b.setAttribute('aria-pressed', String(autoMode));
+  }
+
+  function toggleAuto() {
+    autoMode = !autoMode;
+    try { localStorage.setItem(AUTO_KEY, autoMode ? '1' : '0'); } catch (_) { /* sin almacenamiento */ }
+    syncAutoBtn();
+    if (!autoMode) { clearAuto(); try { speechSynthesis.cancel(); } catch (_) { /* sin voz */ } }
+    const msg = autoMode ? 'Manos libres activado: avanza solo y te habla' : 'Manos libres desactivado';
+    if (typeof showToast === 'function') showToast(msg, 'info');
+    announce(msg);
+    if (autoMode && mode === 'idle') autoStartWork(EXERCISES()[exIdx]);
+  }
+
+  function changeLoad(delta) {
+    const ex = EXERCISES()[exIdx];
+    // Solo cambia la copia de esta sesión: el plan original no se toca
+    ex.weight = Math.max(0, Math.min(200, (ex.weight || 0) + delta));
+    renderSpecs();
+    renderMetrics();
+  }
+
+  function setRpe(v) {
+    const sets = curSets();
+    const last = sets[sets.length - 1];
+    if (!last) return;
+    last.rpe = v;
+    renderMetrics();
+    renderHistory();
+    announce(`RPE ${v} en la serie ${last.n}`);
+  }
+
+  // ── Resumen final ───────────────────────────────────────────────────
   function showCompletion() {
+    clearInterval(intervalId);
     clearInterval(elapsedId);
-    $('session-progress-bar').style.width = '100%';
-    const totalSets = EXERCISES().reduce((a, e) => a + e.sets, 0);
-    const mins = Math.floor(elapsedSec / 60);
-    const exCount = EXERCISES().length;
+    clearAuto();
+    releaseAwake();
+    soundDone();
+    speak('Entrenamiento terminado');
     const screen = $('session-screen');
     if (!screen) return;
+
+    const doneSets = doneSetsTotal();
+    const plannedSets = plannedSetsTotal();
+    const exCount = EXERCISES().length;
+    const exDone = record.exercises.filter((e, i) => e.sets.length >= (EXERCISES()[i]?.sets || 0)).length;
+    const setRpes = record.exercises.flatMap(e => e.sets.map(s => s.rpe)).filter(Boolean);
+    const mins = Math.max(1, Math.round(elapsedSec / 60));
+    record.durationSec = elapsedSec;
+    // Las sesiones de ejemplo (sin plan) no se guardan en la cuenta
+    let saved = Promise.resolve(false);
+    if (doneSets > 0) {
+      window.kruxTrainLog.push(record);
+      if (!record.demo) saved = KruxTrainStore.saveSession(record);
+    }
+    const saveHint = record.demo
+      ? 'Es una sesión de ejemplo: no se guarda. Crea un plan para registrar tus entrenamientos.'
+      : !KruxTrainStore.isSignedIn() ? 'Inicia sesión para guardar tus entrenamientos en tu cuenta.' : '';
 
     let logFeel = null, logRpe = null;
     const logTags = new Set();
     const PRESET_TAGS = ['Poleas tensas', 'Buena adherencia', 'Sin dolor', 'Hombro cargado', 'Mucho calor', 'Bien descansado', 'Sin energía'];
+    const FEELS = [['beast', 'Muy fuerte'], ['great', 'Bien'], ['ok', 'Normal'], ['bad', 'Cansado']];
 
     function updateSaveBtn() {
       const btn = document.getElementById('plog-save-btn');
@@ -18081,188 +19330,148 @@ function makePcCard(d, isTop) {
     }
 
     function buildFeel() {
-      document.querySelectorAll('.plog-feel-btn').forEach(btn => {
-        const f = btn.dataset.feel;
-        const clsMap = { beast: 'sel-beast', great: 'sel-great', ok: 'sel-ok', bad: 'sel-bad' };
-        btn.className = 'plog-feel-btn' + (f === logFeel ? ' ' + clsMap[f] : '');
-        btn.onclick = () => { logFeel = f; buildFeel(); updateSaveBtn(); };
-      });
+      const row = document.getElementById('plog-feel-row');
+      row.innerHTML = FEELS.map(([k, l]) => `<button type="button" class="plog-feel-btn${k === logFeel ? ' is-selected' : ''}" data-feel="${k}" aria-pressed="${k === logFeel}">${l}</button>`).join('');
     }
 
     function buildRpe() {
       const row = document.getElementById('plog-rpe-row');
-      if (!row) return;
-      row.innerHTML = '';
-      [5, 6, 7, 8, 9, 10].forEach(v => {
-        const btn = document.createElement('button');
-        const colorCls = v >= 9 ? ' hi' : v >= 8 ? ' warn' : '';
-        btn.className = 'plog-rpe-num' + colorCls + (v === logRpe ? ' sel' : '');
-        btn.textContent = v;
-        btn.onclick = () => {
-          logRpe = v;
-          const avg = document.getElementById('plog-rpe-avg');
-          if (avg) avg.textContent = v;
-          buildRpe();
-          updateSaveBtn();
-        };
-        row.appendChild(btn);
-      });
+      row.innerHTML = [5, 6, 7, 8, 9, 10].map(v => {
+        const tone = v >= 9 ? ' is-hi' : v >= 8 ? ' is-warn' : '';
+        return `<button type="button" class="session-rpe-dot${tone}${v === logRpe ? ' is-selected' : ''}" data-rpe="${v}" aria-pressed="${v === logRpe}">${v}</button>`;
+      }).join('');
     }
 
     function buildTags() {
       const row = document.getElementById('plog-tags-row');
-      if (!row) return;
-      row.innerHTML = '';
-      PRESET_TAGS.forEach(t => {
-        const btn = document.createElement('button');
-        btn.className = 'plog-tag' + (logTags.has(t) ? ' sel' : '');
-        btn.textContent = t;
-        btn.onclick = () => { logTags.has(t) ? logTags.delete(t) : logTags.add(t); buildTags(); };
-        row.appendChild(btn);
-      });
-    }
-
-    function buildHeatmap() {
-      const container = document.getElementById('plog-heatmap');
-      if (!container) return;
-      container.innerHTML = '';
-      const today = new Date();
-      const dow = (today.getDay() + 6) % 7; // 0=Mon
-      const startDate = new Date(today);
-      startDate.setDate(today.getDate() - dow - 49); // 8 weeks ago (Monday)
-      const dummy = [0,0,1,0,2,0,0, 0,2,0,1,0,2,0, 1,0,2,0,0,1,0, 0,3,0,1,0,2,0, 1,0,2,0,1,0,0, 0,2,0,3,0,1,0, 2,0,1,0,2,0,1, 0,0,0,0,0,0,0];
-      for (let i = 0; i < 56; i++) {
-        const d = new Date(startDate);
-        d.setDate(startDate.getDate() + i);
-        const isToday = d.toDateString() === today.toDateString();
-        const cell = document.createElement('div');
-        const lvl = isToday ? 3 : (dummy[i] || 0);
-        cell.className = 'plog-hm-cell' + (lvl > 0 ? ' hm-l' + lvl : '') + (isToday ? ' hm-today' : '');
-        container.appendChild(cell);
-      }
+      row.innerHTML = PRESET_TAGS.map(t => `<button type="button" class="plog-tag${logTags.has(t) ? ' is-selected' : ''}" aria-pressed="${logTags.has(t)}">${t}</button>`).join('');
     }
 
     function showSaved() {
       const notes = (document.getElementById('plog-notes') || {}).value || '';
-      const feelLabel = { beast: 'Bestia', great: 'Bien', ok: 'Normal', bad: 'Cansado' }[logFeel] || '';
+      const feelLabel = (FEELS.find(f => f[0] === logFeel) || [])[1] || '';
+      Object.assign(record, { feel: logFeel, rpe: logRpe, notes, tags: [...logTags] });
+      // El registro final queda en la cola del dispositivo ya, antes de cualquier operación de red (con planes múltiples)
+      if (!record.demo && KruxTrainStore.persistLog) KruxTrainStore.persistLog(record, record);
+      // Guardado confirmado por el servidor; si falla, se puede reintentar sin duplicar la sesión
+      const sync = pending => pending.then(ok => ((ok || record.syncState === 'pending') ? KruxTrainStore.updateSession(record, record) : false)).then(ok => {
+        const hint = document.getElementById('plog-done-hint');
+        const retry = document.getElementById('plog-retry');
+        const otherAccount = !ok && record.ownerUid && record.ownerUid !== KruxTrainStore.currentUid();
+        const queued = !ok && (record.syncState === 'pending' || record.logPending === true);
+        const conflict = !ok && record.syncState === 'conflict';
+        if (hint) hint.textContent = ok ? 'Guardada en tu cuenta.'
+          : otherAccount ? 'Esta sesión era de otra cuenta y no se ha guardado en la actual.'
+          : queued ? 'Guardada en este dispositivo. Se sincronizará cuando haya conexión.'
+          : conflict ? 'El servidor no ha aceptado esta sesión. Sigue guardada en este dispositivo; puedes reintentarlo desde Entrena.'
+          : 'No se ha podido confirmar el guardado en tu cuenta. Comprueba tu conexión.';
+        if (retry) { retry.hidden = !!ok || !!otherAccount || queued || conflict; retry.disabled = false; }
+      });
+      if (!saveHint) sync(saved);
       screen.innerHTML = `
-        <div class="session-topbar">
-          <div class="session-topbar-left">
-            <span class="plog-title">Sesión guardada</span>
-          </div>
-        </div>
-        <div class="plog-scroll plog-done-center">
-          <div class="plog-done-icon">🏆</div>
-          <div class="plog-done-title">¡Bien hecho!</div>
-          <div class="plog-done-sub">${mins} min · ${feelLabel} · RPE ${logRpe}</div>
-          ${notes ? `<div class="plog-done-notes">"${notes}"</div>` : ''}
-          <div class="plog-progress-banner">
-            <div class="plog-progress-label">SUGERENCIA PARA PRÓXIMA SESIÓN</div>
-            <div class="plog-progress-text">Max hang +22kg · Campus 1-5-9 mantén carga</div>
-          </div>
-          <button class="plog-save-btn" id="plog-close-done">Cerrar</button>
+        <div class="plog-done">
+          <span class="plog-done-mark">${SVG.check}</span>
+          <h2 class="plog-done-title" id="plog-done-title" tabindex="-1">Sesión completada</h2>
+          <p class="plog-done-sub">${mins} min · ${doneSets} ${doneSets === 1 ? 'serie' : 'series'} · ${feelLabel} · RPE ${logRpe}</p>
+          ${notes ? `<p class="plog-done-notes">${esc(notes)}</p>` : ''}
+          <p class="plog-done-hint" id="plog-done-hint" aria-live="polite">${saveHint || 'Guardando…'}</p>
+          <button type="button" class="plog-save-btn plog-retry" id="plog-retry" hidden>Reintentar guardado</button>
+          <button type="button" class="plog-save-btn" id="plog-close-done">Volver a Entrena</button>
         </div>`;
+      document.getElementById('plog-retry').addEventListener('click', e => {
+        e.currentTarget.disabled = true;
+        document.getElementById('plog-done-hint').textContent = 'Guardando…';
+        sync(KruxTrainStore.saveSession(record));
+      });
       document.getElementById('plog-close-done').addEventListener('click', close);
+      document.getElementById('plog-done-title').focus({ preventScroll: true });
     }
 
     screen.innerHTML = `
       <div class="session-topbar">
-        <div class="session-topbar-left">
-          <span class="plog-title">Log post-sesión</span>
-        </div>
-        <button class="plog-skip" id="plog-skip">Omitir</button>
+        <h2 class="plog-title">Resumen de la sesión</h2>
+        <button type="button" class="plog-skip" id="plog-skip">Omitir</button>
       </div>
       <div class="plog-scroll">
-        <div class="plog-sec">
-          <div class="plog-sec-label">RESUMEN</div>
-          <div class="plog-stats-grid">
-            <div class="plog-stat"><div class="plog-stat-val">${mins} min</div><div class="plog-stat-lbl">Duración</div></div>
-            <div class="plog-stat"><div class="plog-stat-val">${totalSets}</div><div class="plog-stat-lbl">Series completadas</div></div>
-            <div class="plog-stat"><div class="plog-stat-val">${exCount} / ${exCount}</div><div class="plog-stat-lbl">Ejercicios</div></div>
-            <div class="plog-stat"><div class="plog-stat-val" id="plog-rpe-avg">—</div><div class="plog-stat-lbl">RPE medio</div></div>
-          </div>
+        <div class="plog-stats-grid">
+          <div class="plog-stat"><div class="plog-stat-val">${mins} min</div><div class="plog-stat-lbl">Duración</div></div>
+          <div class="plog-stat"><div class="plog-stat-val">${doneSets}<small> / ${plannedSets}</small></div><div class="plog-stat-lbl">Series</div></div>
+          <div class="plog-stat"><div class="plog-stat-val">${exDone}<small> / ${exCount}</small></div><div class="plog-stat-lbl">Ejercicios completos</div></div>
+          <div class="plog-stat"><div class="plog-stat-val">${setRpes.length ? Math.round(setRpes.reduce((a, b) => a + b, 0) / setRpes.length * 10) / 10 : '—'}</div><div class="plog-stat-lbl">RPE medio por serie</div></div>
         </div>
         <div class="plog-sec">
-          <div class="plog-sec-label">¿CÓMO TE SIENTES?</div>
-          <div class="plog-feel-row" id="plog-feel-row">
-            <button class="plog-feel-btn" data-feel="beast"><span class="plog-feel-icon">🔥</span><span class="plog-feel-lbl">Bestia</span></button>
-            <button class="plog-feel-btn" data-feel="great"><span class="plog-feel-icon">😊</span><span class="plog-feel-lbl">Bien</span></button>
-            <button class="plog-feel-btn" data-feel="ok"><span class="plog-feel-icon">😐</span><span class="plog-feel-lbl">Normal</span></button>
-            <button class="plog-feel-btn" data-feel="bad"><span class="plog-feel-icon">😔</span><span class="plog-feel-lbl">Cansado</span></button>
-          </div>
+          <h3 class="plog-sec-label" id="plog-feel-lbl">¿Cómo te sientes?</h3>
+          <div class="plog-feel-row" id="plog-feel-row" role="group" aria-labelledby="plog-feel-lbl"></div>
         </div>
         <div class="plog-sec">
-          <div class="plog-sec-label">RPE GLOBAL DE LA SESIÓN</div>
-          <div class="plog-rpe-row" id="plog-rpe-row"></div>
+          <h3 class="plog-sec-label" id="plog-rpe-lbl">RPE global de la sesión</h3>
+          <div class="session-rpe-dots plog-rpe-row" id="plog-rpe-row" role="group" aria-labelledby="plog-rpe-lbl"></div>
         </div>
         <div class="plog-sec">
-          <div class="plog-sec-label">NOTAS</div>
-          <textarea class="plog-notes" id="plog-notes" rows="3" placeholder="Sensaciones, lesiones, contexto... (opcional)"></textarea>
+          <h3 class="plog-sec-label"><label for="plog-notes">Notas</label></h3>
+          <textarea class="plog-notes" id="plog-notes" rows="3" maxlength="1000" placeholder="Sensaciones, molestias, contexto… (opcional)"></textarea>
           <div class="plog-tags-row" id="plog-tags-row"></div>
-        </div>
-        <div class="plog-sec plog-sec-last">
-          <div class="plog-sec-label">ACTIVIDAD — ÚLTIMAS 8 SEMANAS</div>
-          <div class="plog-day-headers"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
-          <div class="plog-heatmap" id="plog-heatmap"></div>
-          <div class="plog-hm-legend">
-            <span class="plog-hm-lbl">Menos</span>
-            <div class="plog-hm-cell"></div><div class="plog-hm-cell hm-l1"></div><div class="plog-hm-cell hm-l2"></div><div class="plog-hm-cell hm-l3"></div><div class="plog-hm-cell hm-l4"></div>
-            <span class="plog-hm-lbl">Más</span>
-          </div>
         </div>
       </div>
       <div class="plog-footer">
-        <button class="plog-save-btn" id="plog-save-btn" disabled>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          Guardar sesión
-        </button>
+        <button type="button" class="plog-save-btn" id="plog-save-btn" disabled>Guardar sesión</button>
+        <p class="plog-footer-hint">Elige cómo te sientes y el RPE global para guardar.</p>
       </div>`;
 
     buildFeel();
     buildRpe();
     buildTags();
-    buildHeatmap();
+    document.getElementById('plog-feel-row').addEventListener('click', e => {
+      const b = e.target.closest('[data-feel]'); if (!b) return;
+      logFeel = b.dataset.feel; buildFeel(); updateSaveBtn();
+    });
+    document.getElementById('plog-rpe-row').addEventListener('click', e => {
+      const b = e.target.closest('[data-rpe]'); if (!b) return;
+      logRpe = parseInt(b.dataset.rpe, 10); buildRpe(); updateSaveBtn();
+    });
+    document.getElementById('plog-tags-row').addEventListener('click', e => {
+      const b = e.target.closest('.plog-tag'); if (!b) return;
+      const t = b.textContent; logTags.has(t) ? logTags.delete(t) : logTags.add(t); buildTags();
+    });
     document.getElementById('plog-skip').addEventListener('click', close);
     document.getElementById('plog-save-btn').addEventListener('click', () => { if (logFeel && logRpe) showSaved(); });
   }
 
-  function showRpe() {
-    const ex = EXERCISES()[exIdx];
-    if (!ex.rpeTarget) return;
-    const sec = $('session-rpe-section');
-    sec.style.display = 'block';
-    const dots = $('session-rpe-dots');
-    const values = [6, 7, 8, 9, 10];
-    dots.innerHTML = values.map(v => {
-      const colorCls = v <= 7 ? '' : v <= 8 ? ' warn' : ' hi';
-      const selCls = v === selectedRpe ? ' selected' : '';
-      return `<button class="session-rpe-dot${colorCls}${selCls}" data-v="${v}">${v}</button>`;
-    }).join('');
-    dots.querySelectorAll('.session-rpe-dot').forEach(btn => {
-      btn.addEventListener('click', () => {
-        selectedRpe = parseInt(btn.dataset.v);
-        dots.querySelectorAll('.session-rpe-dot').forEach((b, i) => {
-          const val = values[i];
-          const cc = val <= 7 ? '' : val <= 8 ? ' warn' : ' hi';
-          const sc = val === selectedRpe ? ' selected' : '';
-          b.className = `session-rpe-dot${cc}${sc}`;
-        });
-      });
-    });
-  }
-
-  // Wire up static buttons
+  // Eventos delegados: siguen funcionando aunque se restaure el marcado de la pantalla
   document.addEventListener('DOMContentLoaded', () => {
-    const closeBtn = $('session-close-btn');
-    if (closeBtn) closeBtn.addEventListener('click', close);
-    const btnMain = $('session-btn-main');
-    if (btnMain) btnMain.addEventListener('click', toggleTimer);
-    const btnReset = $('session-btn-reset');
-    if (btnReset) btnReset.addEventListener('click', () => setMode('idle'));
-    const btnSet = $('session-btn-set');
-    if (btnSet) btnSet.addEventListener('click', completeSet);
-    const skipBtn = $('session-skip-btn');
-    if (skipBtn) skipBtn.addEventListener('click', nextExercise);
+    const modal = $('session-modal');
+    const screen = $('session-screen');
+    if (!modal || !screen) return;
+    TEMPLATE = screen.innerHTML;
+
+    modal.addEventListener('click', e => {
+      unlockAudio();
+      const rpe = e.target.closest('#session-rpe-dots [data-rpe]');
+      if (rpe) { setRpe(parseInt(rpe.dataset.rpe, 10)); return; }
+      const btn = e.target.closest('button[id]');
+      if (!btn || btn.disabled) return;
+      switch (btn.id) {
+        case 'session-close-btn': requestClose(); break;
+        case 'session-finish-btn': requestFinish(); break;
+        case 'session-btn-main': toggleTimer(); break;
+        case 'session-auto-btn': toggleAuto(); break;
+        case 'session-btn-reset': setMode('idle'); announce('Cronómetro reiniciado'); break;
+        case 'session-btn-set': completeSet(); break;
+        case 'session-skip-btn': nextExercise(); break;
+        case 'session-load-minus': changeLoad(-1); break;
+        case 'session-load-plus': changeLoad(1); break;
+        case 'session-rpe-btn':
+          if (!curSets().length) { announce('Completa una serie para anotar su RPE'); if (typeof showToast === 'function') showToast('Completa una serie para anotar su RPE', 'info'); break; }
+          rpeOpen = !rpeOpen; renderMetrics(); break;
+      }
+    });
+
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape' || modal.classList.contains('hidden')) return;
+      if (!$('confirm-modal')?.classList.contains('hidden')) return;
+      if (document.body.classList.contains('xg-open')) return;   // Escape cierra la guía, no el entrenamiento
+      requestClose();
+    });
   });
 
   window.openActiveSession = open;
@@ -18272,21 +19481,39 @@ function makePcCard(d, isTop) {
 // ================== PLAN EDITOR MODULE ==================
 (function () {
   const DAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
   const MIN_WEEKS = 1;
   const MAX_WEEKS = 16;
 
+  const MAX_SESSIONS = 7; // límite de las reglas de Firestore (training_plan.sessions)
+
+  const ico = (body, size = 18, sw = 2) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
   const SVG = {
-    back: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>`,
-    close: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
-    chevDown: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`,
-    chevUp: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>`,
-    grip: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity="0.35"><circle cx="9" cy="5" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="9" cy="19" r="1.3"/><circle cx="15" cy="5" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="15" cy="19" r="1.3"/></svg>`,
-    x: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
-    plus: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
-    minus: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
-    save: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
-    edit: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
-    gear: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+    back: ico('<polyline points="15 18 9 12 15 6"></polyline>', 22, 2.2),
+    close: ico('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 18),
+    clear: ico('<circle cx="12" cy="12" r="9"></circle><path d="M15 9l-6 6M9 9l6 6"></path>', 18, 1.8),
+    chev: ico('<polyline points="6 9 12 15 18 9"></polyline>', 18),
+    plus: ico('<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>', 18, 2.2),
+    minus: ico('<line x1="5" y1="12" x2="19" y2="12"></line>', 18, 2.2),
+    save: ico('<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>', 17),
+    edit: ico('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>', 17),
+    trash: ico('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>', 17),
+    check: ico('<polyline points="20 6 9 17 4 12"></polyline>', 12, 3),
+    checkBig: ico('<polyline points="20 6 9 17 4 12"></polyline>', 30, 2.6),
+    up: ico('<polyline points="18 15 12 9 6 15"></polyline>', 18),
+    down: ico('<polyline points="6 9 12 15 18 9"></polyline>', 18),
+    timer: ico('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5"/><path d="M9.5 2.5h5"/>', 18, 1.8),
+    reps: ico('<path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-1a5 5 0 0 1 5-5h11"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v1a5 5 0 0 1-5 5H4"/>', 18, 1.8),
+  };
+
+  // Icono de cada plantilla (por su etiqueta, sin tocar el modelo de datos)
+  const TEMPLATE_ICONS = {
+    'Fuerza máxima': ico('<rect x="2.5" y="9" width="2.5" height="6" rx="1.25"/><rect x="5.5" y="6" width="3" height="12" rx="1.5"/><line x1="8.5" y1="12" x2="15.5" y2="12"/><rect x="15.5" y="6" width="3" height="12" rx="1.5"/><rect x="19" y="9" width="2.5" height="6" rx="1.25"/>', 26, 1.8),
+    'Resistencia': ico('<path d="M3 20h18"/><rect x="5" y="12" width="3" height="6" rx="1"/><rect x="10.5" y="8" width="3" height="10" rx="1"/><rect x="16" y="4" width="3" height="14" rx="1"/>', 26, 1.8),
+    'Periodización lineal': ico('<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>', 26, 1.8),
+    'Bloque específico': ico('<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M3 7l9 5 9-5"/><path d="M12 12v10"/>', 26, 1.8),
+    'Desde cero': ico('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>', 26, 1.8),
   };
 
   const TEMPLATES = [
@@ -18363,41 +19590,107 @@ function makePcCard(d, isTop) {
     },
   ];
 
-  const LIBRARY = [
-    { name: 'Max hang', detail: 'Suspensión en media llave', cat: 'str' },
-    { name: 'Campus board 1-5-9', detail: 'Explosividad de dedos', cat: 'pow' },
-    { name: 'Block pull · máx', detail: 'Fuerza en bloque', cat: 'str' },
-    { name: 'Dynos a dedo', detail: 'Potencia explosiva', cat: 'pow' },
-    { name: 'ARC en panel', detail: 'Resistencia aeróbica', cat: 'str' },
-    { name: 'Pullover isométrico', detail: 'Fuerza hombro', cat: 'str' },
-    { name: 'Manguito rotador', detail: 'Antagonista hombro', cat: 'ant' },
-    { name: 'Core · plancha', detail: 'Estabilización central', cat: 'ant' },
-    { name: 'Estiramiento muñecas', detail: 'Flexores y extensores', cat: 'ant' },
-  ];
-
   let planData = null;
   let templateIdx = 0;
-  let libForSession = -1;
   let sessEditMode = false;
   let pendingDeleteSi = -1;
+  let saving = false;
+  let mode = 'new';   // 'new' | 'draft' | 'edit'
+  let editId = null;          // plan guardado que se edita (planes múltiples)
+  let editRevision = null;    // revisión con la que se abrió: si cambia en el servidor, no se pisa
+  let onCloseCb = null;       // p. ej. volver a «Mis planes»
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  // La fecha de inicio solo tiene sentido con varios planes y para un plan que todavía no es el activo
+  function canSchedule() {
+    if (!window.KRUX_MULTIPLAN || !firebase.auth().currentUser) return false;
+    const active = window.kruxPlanState && window.kruxPlanState.activePlanId;
+    return !(mode === 'edit' && editId && active === editId);
+  }
+
+  function renderStart() {
+    const input = document.getElementById('pe-start-input');
+    if (!input) return;
+    const hint = document.getElementById('pe-start-hint');
+    const clear = document.getElementById('pe-start-clear');
+    const v = window.KruxPlans && window.KruxPlans.isDateKey(planData.startDate) ? planData.startDate : '';
+    input.value = v;
+    clear.hidden = !v;
+    const active = window.kruxActivePlan;
+    if (!v) hint.textContent = 'Opcional. Ese día este plan pasará a ser tu plan activo automáticamente' + (active ? ' y sustituirá a «' + active.name + '».' : '.');
+    else {
+      const d = new Date(v + 'T00:00');
+      const label = `${d.getDate()} de ${['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][d.getMonth()]}`;
+      hint.textContent = v <= trDateKey(new Date())
+        ? 'Empezará en cuanto lo guardes: será tu plan activo.'
+        : `Hasta el ${label} seguirás con ${active ? '«' + active.name + '»' : 'tu plan actual'}; ese día empieza este automáticamente.`;
+    }
+  }
+
+  const catalog = () => (window.KruxLibrary ? window.KruxLibrary.catalog() : null);
+
+  // Enlaza (en memoria) los ejercicios con su ficha cuando el nombre coincide exactamente
+  function linkAll(plan) {
+    const cat = catalog();
+    if (!cat || !window.KruxExercises) return plan;
+    plan.sessions.forEach(s => s.exercises.forEach(ex => window.KruxExercises.linkPlanItem(cat, ex)));
+    return plan;
+  }
 
   function loadTemplate(idx) {
     templateIdx = idx;
     const t = clone(TEMPLATES[idx]);
-    planData = {
+    planData = linkAll({
       name: t.name,
       weeks: t.weeks,
       activeDays: t.activeDays,
       sessions: t.sessions,
-    };
+    });
   }
 
-  function open() {
-    loadTemplate(0);
+  // opts.edit  → abre el plan activo guardado
+  // opts.draft → abre una propuesta (asistente) para revisarla antes de guardar
+  // sin opts   → plan nuevo desde la primera plantilla
+  function open(opts) {
+    const o = opts || {};
     sessEditMode = false;
     pendingDeleteSi = -1;
+    saving = false;
+    mode = 'new';
+    editId = null; editRevision = null;
+    onCloseCb = typeof o.onClose === 'function' ? o.onClose : null;
+    // Planes múltiples: se edita el plan indicado (activo, inactivo o archivado)
+    const multi = !!window.KRUX_MULTIPLAN;
+    const planId = o.planId || (multi && o.edit && window.kruxActivePlan ? window.kruxActivePlan.id : null);
+    const source = planId ? (window.kruxPlans || []).find(p => p.id === planId) : null;
+    if (planId && (!source || source.status === 'trashed')) {
+      if (typeof showToast === 'function') showToast('Este plan no se puede editar', 'info', { detail: source ? 'Está en la papelera: restáuralo primero.' : 'Ya no existe.' });
+      const cb = onCloseCb; onCloseCb = null; if (cb) cb();
+      return;
+    }
+    if (source) {
+      mode = 'edit';
+      templateIdx = -1;
+      editId = source.id; editRevision = source.revision;
+      const p = clone(source);
+      p.sessions.forEach((s, i) => { s.expanded = i === 0; s.exercises = s.exercises || []; });
+      planData = linkAll(p);
+    } else if (o.edit && window.kruxActivePlan && Array.isArray(window.kruxActivePlan.sessions)) {
+      mode = 'edit';
+      templateIdx = -1;
+      const p = clone(window.kruxActivePlan);
+      p.sessions.forEach((s, i) => { s.expanded = i === 0; s.exercises = s.exercises || []; });
+      planData = linkAll(p);
+    } else if (o.draft) {
+      mode = 'draft';
+      templateIdx = -1;
+      const p = clone(o.draft);
+      p.sessions.forEach((s, i) => { s.expanded = i === 0; });
+      planData = linkAll(p);
+    } else {
+      loadTemplate(0);
+    }
     const modal = document.getElementById('plan-editor-modal');
     if (!modal) return;
     renderModal();
@@ -18407,205 +19700,361 @@ function makePcCard(d, isTop) {
   }
 
   function close() {
-    closeLibrary();
-    openDayPickerSi = -1;
     const modal = document.getElementById('plan-editor-modal');
     if (!modal) return;
     modal.classList.remove('pe-open');
     document.body.classList.remove('plan-editor-open');
     setTimeout(() => modal.classList.add('hidden'), 280);
+    const cb = onCloseCb; onCloseCb = null;
+    if (cb) cb();
   }
+
+  const MODE_TEXT = {
+    new:   ['Nuevo plan', 'Diseña tu entrenamiento'],
+    draft: ['Plan propuesto', 'Revísalo y ajústalo antes de guardar'],
+    edit:  ['Editar plan', 'Cambia tu planificación activa']
+  };
 
   function renderModal() {
     const modal = document.getElementById('plan-editor-modal');
+    const [title, subtitle] = MODE_TEXT[mode];
     modal.innerHTML = `
       <div class="pe-screen">
-        <div class="pe-topbar">
-          <div class="pe-topbar-left">
-            <button class="pe-back-btn" id="pe-back-btn" aria-label="Volver">${SVG.back}</button>
-            <span class="pe-title">Nuevo plan</span>
+        <header class="pe-topbar">
+          <button type="button" class="pe-icon-btn pe-back-btn" id="pe-back-btn" aria-label="Volver">${SVG.back}</button>
+          <div class="pe-heading">
+            <h2 class="pe-title" id="pe-title">${title}</h2>
+            <p class="pe-subtitle">${subtitle}</p>
           </div>
-          <button class="pe-save-top" id="pe-save-top">Guardar</button>
-        </div>
-        <div class="pe-scroll">
-          <div class="pe-sec">
-            <div class="pe-sec-label">NOMBRE DEL PLAN</div>
-            <input class="pe-name-input" id="pe-name-input" type="text" placeholder="Ej: Fuerza máx. 4 semanas" value="${planData.name}" autocomplete="off">
-          </div>
+          <button type="button" class="pe-save-btn" id="pe-save-top">${SVG.save}<span>Guardar</span></button>
+        </header>
 
-          <div class="pe-sec">
-            <div class="pe-sec-label">EMPEZAR DESDE PLANTILLA</div>
-            <div class="pe-tpl-row" id="pe-tpl-row">
-              ${TEMPLATES.map((t, i) => `<button class="pe-tpl-chip${i === templateIdx ? ' active' : ''}" data-tidx="${i}">${t.label}</button>`).join('')}
+        <div class="pe-scroll" id="pe-scroll">
+          ${mode !== 'edit' && !window.KRUX_MULTIPLAN && window.kruxActivePlan && Array.isArray(window.kruxActivePlan.sessions) ? `
+          <p class="pe-replace-note" role="note">Al guardar sustituirás tu plan activo «${trEsc(window.kruxActivePlan.name)}». Para cambiarlo sin perderlo, usa «Editar plan activo».</p>` : ''}
+          <section class="pe-name-card" aria-labelledby="pe-name-label">
+            <label class="pe-label pe-label--light" id="pe-name-label" for="pe-name-input">Nombre del plan</label>
+            <div class="pe-name-field">
+              <input class="pe-name-input" id="pe-name-input" type="text" maxlength="60" placeholder="Ej: Fuerza máx. 4 semanas" autocomplete="off" enterkeyhint="done">
+              <button type="button" class="pe-name-clear" id="pe-name-clear" aria-label="Borrar nombre">${SVG.clear}</button>
             </div>
-            <div class="pe-tpl-hint">Aplicar una plantilla reemplaza las sesiones actuales.</div>
-          </div>
+          </section>
 
-          <div class="pe-sec">
-            <div class="pe-sec-label">DURACIÓN</div>
-            <div class="pe-stepper" id="pe-stepper">
-              <button class="pe-step-btn" id="pe-step-minus" aria-label="Menos">${SVG.minus}</button>
-              <div class="pe-step-val">
-                <span id="pe-step-num">${planData.weeks}</span>
-                <span class="pe-step-unit">semanas</span>
-              </div>
-              <button class="pe-step-btn" id="pe-step-plus" aria-label="Más">${SVG.plus}</button>
+          ${mode === 'new' ? `
+          <section class="pe-card" aria-labelledby="pe-tpl-label">
+            <h3 class="pe-label" id="pe-tpl-label">Empezar desde plantilla</h3>
+            <div class="pe-tpl-row" id="pe-tpl-row" role="radiogroup" aria-labelledby="pe-tpl-label">
+              ${TEMPLATES.map((t, i) => `
+                <button type="button" class="pe-tpl-card" role="radio" data-tidx="${i}">
+                  <span class="pe-tpl-icon">${TEMPLATE_ICONS[t.label] || TEMPLATE_ICONS['Desde cero']}</span>
+                  <span class="pe-tpl-name">${trEsc(t.label)}</span>
+                  <span class="pe-tpl-check">${SVG.check}</span>
+                </button>`).join('')}
             </div>
-          </div>
+            <p class="pe-hint">Aplicar una plantilla reemplaza las sesiones actuales.</p>
+          </section>` : ''}
 
-          <div class="pe-sec">
-            <div class="pe-sec-label">DÍAS DE ENTRENAMIENTO <span class="pe-sec-meta" id="pe-days-count"></span></div>
-            <div class="pe-days-grid" id="pe-days-grid"></div>
-            <div class="pe-tpl-hint">Toca un día para activarlo/desactivarlo. Las sesiones se reasignan automáticamente.</div>
-          </div>
+          <section class="pe-card" aria-label="Configuración del plan">
+            <div class="pe-row-head">
+              <h3 class="pe-label" id="pe-weeks-label">Duración del plan</h3>
+            </div>
+            <div class="pe-stepper" role="group" aria-labelledby="pe-weeks-label">
+              <button type="button" class="pe-step-btn" id="pe-step-minus" aria-label="Una semana menos">${SVG.minus}</button>
+              <div class="pe-step-val" aria-live="polite"><span class="pe-step-num" id="pe-step-num"></span> <span class="pe-step-unit" id="pe-step-unit">semanas</span></div>
+              <button type="button" class="pe-step-btn" id="pe-step-plus" aria-label="Una semana más">${SVG.plus}</button>
+            </div>
 
-          <div class="pe-sec">
-            <div class="pe-sec-row">
-              <div class="pe-sec-label">SESIONES <span class="pe-sec-meta" id="pe-sess-count"></span></div>
-              <button class="pe-gear-btn" id="pe-sess-gear" aria-label="Editar sesiones">${SVG.gear}</button>
+            <div class="pe-divider" aria-hidden="true"></div>
+
+            <div class="pe-row-head">
+              <h3 class="pe-label" id="pe-days-label">Días de entrenamiento</h3>
+              <span class="pe-meta" id="pe-days-count"></span>
+            </div>
+            <div class="pe-days-grid" id="pe-days-grid" role="group" aria-labelledby="pe-days-label"></div>
+            <p class="pe-hint">Las sesiones se asignan a los días activos en orden. Para cambiar el día de una sesión, actívalo aquí o súbela o bájala desde «Editar».</p>
+            <div class="pe-assign" id="pe-assign" aria-live="polite"></div>
+            ${canSchedule() ? `
+            <div class="pe-divider" aria-hidden="true"></div>
+            <div class="pe-row-head">
+              <h3 class="pe-label" id="pe-start-label">Empezar este plan el</h3>
+            </div>
+            <div class="pe-start" id="pe-start">
+              <input type="date" class="pe-start-input" id="pe-start-input" aria-labelledby="pe-start-label" min="${trDateKey(new Date())}">
+              <button type="button" class="pe-start-clear" id="pe-start-clear" aria-label="Quitar la fecha de inicio" hidden>${SVG.close || '×'}</button>
+            </div>
+            <p class="pe-hint" id="pe-start-hint"></p>` : ''}
+          </section>
+
+          <section class="pe-sessions" aria-labelledby="pe-sess-label">
+            <div class="pe-row-head pe-row-head--sessions">
+              <h3 class="pe-label" id="pe-sess-label">Sesiones</h3>
+              <span class="pe-meta" id="pe-sess-count"></span>
+              <button type="button" class="pe-edit-toggle" id="pe-sess-gear" aria-pressed="false">Editar</button>
             </div>
             <div class="pe-session-list" id="pe-session-list"></div>
-            <button class="pe-add-session-btn" id="pe-add-session-btn">${SVG.plus} Añadir sesión</button>
-          </div>
-
-          <div class="pe-sec pe-sec-last">
-            <button class="pe-save-bottom" id="pe-save-bottom">${SVG.save} Guardar plan</button>
-          </div>
+            <button type="button" class="pe-add-session-btn" id="pe-add-session-btn">${SVG.plus}<span>Añadir sesión</span></button>
+            <p class="pe-hint pe-hint--center" id="pe-sess-limit" hidden>Máximo ${MAX_SESSIONS} sesiones por semana.</p>
+          </section>
         </div>
       </div>`;
 
-    // Static events (rendered once)
+    const nameInput = document.getElementById('pe-name-input');
+    nameInput.value = planData.name;
+
     document.getElementById('pe-back-btn').onclick = close;
     document.getElementById('pe-save-top').onclick = savePlan;
-    document.getElementById('pe-save-bottom').onclick = savePlan;
-    document.getElementById('pe-name-input').oninput = e => { planData.name = e.target.value; };
+    nameInput.oninput = () => { planData.name = nameInput.value; updateNameClear(); };
+    nameInput.onkeydown = e => { if (e.key === 'Enter') nameInput.blur(); };
+    document.getElementById('pe-name-clear').onclick = () => {
+      nameInput.value = '';
+      planData.name = '';
+      updateNameClear();
+      nameInput.focus();
+    };
 
-    document.getElementById('pe-tpl-row').onclick = e => {
-      const chip = e.target.closest('.pe-tpl-chip');
-      if (!chip) return;
-      const idx = parseInt(chip.dataset.tidx);
-      loadTemplate(idx);
-      const input = document.getElementById('pe-name-input');
-      if (input) input.value = planData.name;
-      document.getElementById('pe-step-num').textContent = planData.weeks;
-      document.querySelectorAll('.pe-tpl-chip').forEach((c, i) => c.classList.toggle('active', i === templateIdx));
+    const startInput = document.getElementById('pe-start-input');
+    if (startInput) {
+      startInput.onchange = () => { planData.startDate = startInput.value || null; renderStart(); };
+      document.getElementById('pe-start-clear').onclick = () => { planData.startDate = null; renderStart(); };
+      renderStart();
+    }
+
+    const tplRow = document.getElementById('pe-tpl-row');
+    if (tplRow) tplRow.onclick = e => {
+      const card = e.target.closest('.pe-tpl-card');
+      if (!card) return;
+      const keepStart = planData.startDate || null;
+      loadTemplate(parseInt(card.dataset.tidx));
+      if (keepStart) planData.startDate = keepStart;
+      nameInput.value = planData.name;
+      pendingDeleteSi = -1;
+      updateNameClear();
+      renderTemplates();
+      renderWeeks();
       renderDays();
       renderSessions();
     };
 
     document.getElementById('pe-step-minus').onclick = () => {
-      if (planData.weeks > MIN_WEEKS) {
-        planData.weeks--;
-        document.getElementById('pe-step-num').textContent = planData.weeks;
-      }
+      if (planData.weeks > MIN_WEEKS) { planData.weeks--; renderWeeks(); }
     };
     document.getElementById('pe-step-plus').onclick = () => {
-      if (planData.weeks < MAX_WEEKS) {
-        planData.weeks++;
-        document.getElementById('pe-step-num').textContent = planData.weeks;
-      }
+      if (planData.weeks < MAX_WEEKS) { planData.weeks++; renderWeeks(); }
     };
 
     document.getElementById('pe-sess-gear').onclick = () => {
       sessEditMode = !sessEditMode;
       pendingDeleteSi = -1;
-      const btn = document.getElementById('pe-sess-gear');
-      if (btn) btn.classList.toggle('active', sessEditMode);
       renderSessions();
     };
 
     document.getElementById('pe-add-session-btn').onclick = () => {
+      if (planData.sessions.length >= MAX_SESSIONS) return;
       planData.sessions.push({ day: '?', name: 'Nueva sesión', expanded: true, exercises: [] });
       syncSessionDays();
       renderSessions();
     };
 
-    // Single delegated handler on session list (no accumulation)
-    const list = document.getElementById('pe-session-list');
-    list.onclick = handleSessionListClick;
+    // Un único manejador delegado para la lista (no se acumulan)
+    document.getElementById('pe-session-list').onclick = handleSessionListClick;
 
+    updateNameClear();
+    renderTemplates();
+    renderWeeks();
     renderDays();
     renderSessions();
   }
 
-  function handleSessionListClick(e) {
-    // Editable name input — don't bubble
-    if (e.target.closest('.pe-session-name-input')) return;
+  function updateNameClear() {
+    const btn = document.getElementById('pe-name-clear');
+    if (btn) btn.hidden = !planData.name;
+  }
 
-    // Delete exercise
+  function renderTemplates() {
+    document.querySelectorAll('#pe-tpl-row .pe-tpl-card').forEach((c, i) => {
+      const on = i === templateIdx;
+      c.classList.toggle('is-active', on);
+      c.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
+  function renderWeeks() {
+    const num = document.getElementById('pe-step-num');
+    if (!num) return;
+    num.textContent = planData.weeks;
+    document.getElementById('pe-step-unit').textContent = planData.weeks === 1 ? 'semana' : 'semanas';
+    document.getElementById('pe-step-minus').disabled = planData.weeks <= MIN_WEEKS;
+    document.getElementById('pe-step-plus').disabled = planData.weeks >= MAX_WEEKS;
+  }
+
+  function move(list, from, to) {
+    if (to < 0 || to >= list.length || from === to) return false;
+    list.splice(to, 0, list.splice(from, 1)[0]);
+    return true;
+  }
+
+  function handleSessionListClick(e) {
+    // Campo de nombre en edición: no propagar
+    if (e.target.closest('.pe-session-name-input')) return;
+    const num = (el, key) => parseInt(el.dataset[key], 10);
+
+    // Parámetros del ejercicio
+    const open = e.target.closest('.pe-ex-open');
+    if (open) {
+      const si = num(open, 'si'), ei = num(open, 'ei');
+      const ex = planData.sessions[si].exercises[ei];
+      window.openExerciseEditor(ei, {
+        exercise: ex,
+        onSave: () => renderSessions(),
+        onReplace: () => replaceExercise(si, ei)
+      });
+      return;
+    }
+
+    // Subir o bajar ejercicio
+    const exMove = e.target.closest('.pe-ex-up, .pe-ex-down');
+    if (exMove) {
+      const si = num(exMove, 'si'), ei = num(exMove, 'ei');
+      if (move(planData.sessions[si].exercises, ei, ei + (exMove.classList.contains('pe-ex-up') ? -1 : 1))) renderSessions();
+      return;
+    }
+
+    // Eliminar ejercicio
     const delBtn = e.target.closest('.pe-ex-del');
     if (delBtn) {
-      planData.sessions[parseInt(delBtn.dataset.si)].exercises.splice(parseInt(delBtn.dataset.ei), 1);
+      planData.sessions[num(delBtn, 'si')].exercises.splice(num(delBtn, 'ei'), 1);
       renderSessions();
       return;
     }
 
-    // Add exercise
+    // Añadir ejercicio (biblioteca en modo selección)
     const addBtn = e.target.closest('.pe-add-ex-btn');
     if (addBtn) {
-      openLibrary(parseInt(addBtn.dataset.si));
+      addExercises(num(addBtn, 'si'));
       return;
     }
 
-    // Cancel pending delete
-    const cancelDel = e.target.closest('.pe-del-cancel');
-    if (cancelDel) {
-      e.stopPropagation();
-      pendingDeleteSi = -1;
-      renderSessions();
-      return;
-    }
-
-    // Delete session (double confirm)
-    const delSess = e.target.closest('.pe-session-del');
-    if (delSess) {
-      e.stopPropagation();
-      const si = parseInt(delSess.dataset.si);
-      if (pendingDeleteSi === si) {
-        planData.sessions.splice(si, 1);
-        syncSessionDays();
+    // Subir o bajar sesión (cambia el día que le toca)
+    const sMove = e.target.closest('.pe-session-up, .pe-session-down');
+    if (sMove) {
+      const si = num(sMove, 'si');
+      if (move(planData.sessions, si, si + (sMove.classList.contains('pe-session-up') ? -1 : 1))) {
         pendingDeleteSi = -1;
-        renderSessions();
-      } else {
-        pendingDeleteSi = si;
+        syncSessionDays();
         renderSessions();
       }
       return;
     }
 
-    // Edit session name button
-    const editName = e.target.closest('.pe-session-edit');
-    if (editName) {
-      e.stopPropagation();
-      const si = parseInt(editName.dataset.si);
-      const nameEl = document.querySelector(`.pe-session-card[data-si="${si}"] .pe-session-name`);
-      if (!nameEl) return;
-      const current = planData.sessions[si].name;
-      nameEl.innerHTML = `<input class="pe-session-name-input" type="text" value="${current.replace(/"/g, '&quot;')}" maxlength="40">`;
-      const inp = nameEl.querySelector('input');
-      inp.focus();
-      inp.select();
-      const commit = () => {
-        planData.sessions[si].name = inp.value.trim() || 'Sin nombre';
-        renderSessions();
-      };
-      inp.onblur = commit;
-      inp.onkeydown = ev => { if (ev.key === 'Enter') inp.blur(); if (ev.key === 'Escape') { inp.value = current; inp.blur(); } };
+    // Cancelar eliminación pendiente
+    if (e.target.closest('.pe-del-cancel')) {
+      pendingDeleteSi = -1;
+      renderSessions();
       return;
     }
 
-    // Header toggle expand (lowest priority — runs only if nothing above matched)
-    const hdr = e.target.closest('.pe-session-header');
+    // Eliminar sesión (doble confirmación)
+    const delSess = e.target.closest('.pe-session-del');
+    if (delSess) {
+      const si = num(delSess, 'si');
+      if (pendingDeleteSi === si) {
+        planData.sessions.splice(si, 1);
+        syncSessionDays();
+        pendingDeleteSi = -1;
+      } else {
+        pendingDeleteSi = si;
+      }
+      renderSessions();
+      return;
+    }
+
+    // Renombrar sesión
+    const editName = e.target.closest('.pe-session-edit');
+    if (editName) {
+      const si = num(editName, 'si');
+      const nameEl = document.querySelector(`.pe-session-card[data-si="${si}"] .pe-session-name`);
+      if (!nameEl) return;
+      const current = planData.sessions[si].name;
+      nameEl.innerHTML = `<input class="pe-session-name-input" type="text" maxlength="40" aria-label="Nombre de la sesión" enterkeyhint="done">`;
+      const inp = nameEl.querySelector('input');
+      inp.value = current;
+      inp.focus();
+      inp.select();
+      inp.onblur = () => {
+        planData.sessions[si].name = inp.value.trim() || 'Sin nombre';
+        renderSessions();
+      };
+      inp.onkeydown = ev => {
+        if (ev.key === 'Enter') inp.blur();
+        if (ev.key === 'Escape') { inp.value = current; inp.blur(); }
+      };
+      return;
+    }
+
+    // Desplegar o plegar (prioridad más baja)
+    const hdr = e.target.closest('.pe-session-toggle');
     if (hdr) {
-      const si = parseInt(hdr.dataset.si);
+      const si = num(hdr, 'si');
       planData.sessions[si].expanded = !planData.sessions[si].expanded;
       renderSessions();
     }
   }
 
+  const MAX_EXERCISES = 30; // igual que el límite que guarda KruxTrainStore
+
+  function addExercises(si) {
+    if (!window.KruxLibrary) return;
+    const sess = planData.sessions[si];
+    window.KruxLibrary.open({
+      mode: 'pick',
+      title: sess.name,
+      onPick: item => {
+        if (sess.exercises.length >= MAX_EXERCISES) {
+          if (typeof showToast === 'function') showToast(`Máximo ${MAX_EXERCISES} ejercicios por sesión`, 'info');
+          return false;
+        }
+        sess.exercises.push(item);
+        sess.expanded = true;
+        renderSessions();
+        return true;
+      }
+    });
+  }
+
+  function replaceExercise(si, ei) {
+    if (!window.KruxLibrary) return;
+    const old = planData.sessions[si].exercises[ei];
+    const cat = catalog();
+    const ficha = cat && old.exerciseId ? cat.byId.get(old.exerciseId) : null;
+    window.KruxLibrary.open({
+      mode: 'pick',
+      single: true,
+      title: `Sustituir: ${old.name}`,
+      categoryId: ficha ? ficha.primaryCategoryId : null,
+      onPick: item => {
+        planData.sessions[si].exercises[ei] = item;
+        renderSessions();
+        return true;
+      }
+    });
+  }
+
   function syncSessionDays() {
     const active = DAYS.filter((_, i) => planData.activeDays[i]);
     planData.sessions.forEach((s, i) => { s.day = active[i] || '?'; });
+  }
+
+  function renderAssign() {
+    const box = document.getElementById('pe-assign');
+    if (!box) return;
+    const sessions = planData.sessions;
+    if (!sessions.length) { box.innerHTML = ''; return; }
+    const orphans = sessions.filter(s => !s.day || s.day === '?').length;
+    box.innerHTML = `
+      <ul class="pe-assign-list">
+        ${sessions.map(s => `<li class="${s.day && s.day !== '?' ? '' : 'is-orphan'}"><b>${s.day && s.day !== '?' ? s.day : '?'}</b><span>${trEsc(s.name)}</span></li>`).join('')}
+      </ul>
+      ${orphans ? `<p class="pe-assign-warn">${orphans === 1 ? '1 sesión no tiene día' : `${orphans} sesiones no tienen día`}: activa más días o elimínalas antes de guardar.</p>` : ''}`;
   }
 
   function renderDays() {
@@ -18614,8 +20063,11 @@ function makePcCard(d, isTop) {
     grid.innerHTML = '';
     DAYS.forEach((d, i) => {
       const btn = document.createElement('button');
+      btn.type = 'button';
       btn.className = 'pe-day-pill' + (planData.activeDays[i] ? ' on' : '');
       btn.textContent = d;
+      btn.setAttribute('aria-pressed', planData.activeDays[i] ? 'true' : 'false');
+      btn.setAttribute('aria-label', DAY_NAMES[i]);
       btn.onclick = () => {
         planData.activeDays[i] = !planData.activeDays[i];
         syncSessionDays();
@@ -18626,141 +20078,226 @@ function makePcCard(d, isTop) {
     });
     const count = planData.activeDays.filter(Boolean).length;
     const countEl = document.getElementById('pe-days-count');
-    if (countEl) countEl.textContent = `· ${count} ${count === 1 ? 'día' : 'días'}/sem`;
+    if (countEl) countEl.textContent = `${count} ${count === 1 ? 'día' : 'días'}/sem`;
   }
 
   function renderSessions() {
     const list = document.getElementById('pe-session-list');
     if (!list) return;
-    const sessCount = document.getElementById('pe-sess-count');
-    if (sessCount) sessCount.textContent = `· ${planData.sessions.length}`;
+    renderAssign();
+    const n = planData.sessions.length;
+    document.getElementById('pe-sess-count').textContent = `${n} ${n === 1 ? 'sesión' : 'sesiones'}`;
 
-    if (planData.sessions.length === 0) {
-      list.innerHTML = `<div class="pe-empty">Aún no hay sesiones. Toca "Añadir sesión" para empezar.</div>`;
+    const gear = document.getElementById('pe-sess-gear');
+    gear.hidden = n === 0;
+    gear.textContent = sessEditMode ? 'Listo' : 'Editar';
+    gear.setAttribute('aria-pressed', sessEditMode ? 'true' : 'false');
+    gear.classList.toggle('is-active', sessEditMode);
+
+    const full = n >= MAX_SESSIONS;
+    document.getElementById('pe-add-session-btn').disabled = full;
+    document.getElementById('pe-sess-limit').hidden = !full;
+
+    if (n === 0) {
+      list.innerHTML = `
+        <div class="pe-empty">
+          <p class="pe-empty-title">Aún no hay sesiones</p>
+          <p class="pe-empty-text">Añade una sesión y se asignará al primer día activo libre.</p>
+        </div>`;
       return;
     }
 
-    const rpeColorCls = rpe => rpe >= 9 ? ' hi' : rpe >= 8 ? ' warn' : '';
-    const rpeTag = rpe => rpe ? `<span class="pe-ex-rpe${rpeColorCls(rpe)}">RPE ${rpe}</span>` : '';
+    const rpeTag = rpe => rpe ? `<span class="pe-ex-rpe${rpe >= 9 ? ' hi' : ''}">RPE ${rpe}</span>` : '';
+    const cat = catalog();
 
     list.innerHTML = planData.sessions.map((s, si) => {
       const hasDay = s.day && s.day !== '?';
-      const badgeCls = 'pe-session-badge' + (hasDay ? '' : ' orphan');
+      const exCount = s.exercises.length;
+      const meta = [`${exCount} ejercicio${exCount !== 1 ? 's' : ''}`];
+      if (exCount && typeof trEstimateMinutes === 'function') meta.push(`≈ ${trEstimateMinutes(s.exercises)} min`);
+      const pending = pendingDeleteSi === si;
 
       const exHTML = s.expanded ? `
-        <div class="pe-ex-list">
-          ${s.exercises.length === 0 ? '<div class="pe-ex-empty">Sin ejercicios todavía</div>' : s.exercises.map((ex, ei) => `
+        <div class="pe-ex-list" id="pe-ex-list-${si}">
+          ${exCount === 0 ? '<p class="pe-ex-empty">Sin ejercicios todavía.</p>' : s.exercises.map((ex, ei) => {
+            const ficha = cat && ex.exerciseId ? cat.byId.get(ex.exerciseId) : null;
+            return `
             <div class="pe-ex-row">
-              <span class="pe-ex-drag">${SVG.grip}</span>
-              <div class="pe-ex-info">
-                <div class="pe-ex-name">${ex.name}</div>
-                <div class="pe-ex-detail">${typeof buildExDetail === 'function' ? buildExDetail(ex) : ''}</div>
-              </div>
-              ${rpeTag(ex.rpeTarget)}
-              <button class="pe-ex-del" data-si="${si}" data-ei="${ei}" aria-label="Eliminar">${SVG.x}</button>
-            </div>`).join('')}
-          <button class="pe-add-ex-btn" data-si="${si}">${SVG.plus} Añadir ejercicio</button>
+              <button type="button" class="pe-ex-open" data-si="${si}" data-ei="${ei}" aria-label="Editar ${trEsc(ex.name)}">
+                <span class="pe-ex-icon">${ficha && window.KruxLibrary ? window.KruxLibrary.categoryIcon(ficha.primaryCategoryId, 20) : (ex.workSec > 0 ? SVG.timer : SVG.reps)}</span>
+                <span class="pe-ex-info">
+                  <span class="pe-ex-name">${trEsc(ex.name)}</span>
+                  <span class="pe-ex-detail">${trEsc(typeof buildExDetail === 'function' ? buildExDetail(ex) : '')}</span>
+                </span>
+                ${sessEditMode ? '' : rpeTag(ex.rpeTarget)}
+              </button>
+              ${sessEditMode ? `
+                <button type="button" class="pe-icon-btn pe-ex-up" data-si="${si}" data-ei="${ei}" aria-label="Subir ${trEsc(ex.name)}"${ei === 0 ? ' disabled' : ''}>${SVG.up}</button>
+                <button type="button" class="pe-icon-btn pe-ex-down" data-si="${si}" data-ei="${ei}" aria-label="Bajar ${trEsc(ex.name)}"${ei === exCount - 1 ? ' disabled' : ''}>${SVG.down}</button>` : ''}
+              <button type="button" class="pe-icon-btn pe-ex-del" data-si="${si}" data-ei="${ei}" aria-label="Quitar ${trEsc(ex.name)}">${SVG.close}</button>
+              ${window.KruxGuide && window.KruxGuide.idFor(ex) ? `<div class="pe-ex-guide">${window.KruxGuide.button(window.KruxGuide.idFor(ex))}</div>` : ''}
+            </div>`;
+          }).join('')}
+          <button type="button" class="pe-add-ex-btn" data-si="${si}">${SVG.plus}<span>Añadir ejercicio</span></button>
         </div>` : '';
 
-      const confirmBanner = pendingDeleteSi === si ? `
-        <div class="pe-del-confirm">
-          <span class="pe-del-confirm-text">¿Eliminar "${s.name}"?</span>
-          <button class="pe-session-del pe-del-yes" data-si="${si}">Eliminar</button>
-          <button class="pe-del-cancel">Cancelar</button>
+      const tools = sessEditMode ? `
+        <div class="pe-session-tools">
+          <button type="button" class="pe-tool-btn pe-session-up" data-si="${si}"${si === 0 ? ' disabled' : ''}>${SVG.up}<span>Subir</span></button>
+          <button type="button" class="pe-tool-btn pe-session-down" data-si="${si}"${si === n - 1 ? ' disabled' : ''}>${SVG.down}<span>Bajar</span></button>
+          <button type="button" class="pe-tool-btn pe-session-edit" data-si="${si}">${SVG.edit}<span>Renombrar</span></button>
+          <button type="button" class="pe-tool-btn pe-tool-btn--danger pe-session-del" data-si="${si}">${SVG.trash}<span>Eliminar</span></button>
+        </div>` : '';
+
+      const confirmBanner = pending ? `
+        <div class="pe-del-confirm" role="alert">
+          <span class="pe-del-confirm-text">¿Eliminar «${trEsc(s.name)}»?</span>
+          <button type="button" class="pe-del-cancel">Cancelar</button>
+          <button type="button" class="pe-session-del pe-del-yes" data-si="${si}">Eliminar</button>
         </div>` : '';
 
       return `
-        <div class="pe-session-card${pendingDeleteSi === si ? ' pending-del' : ''}" data-si="${si}">
-          <div class="pe-session-header" data-si="${si}">
-            <div class="${badgeCls}">${hasDay ? s.day : '?'}</div>
-            <div class="pe-session-info">
-              <div class="pe-session-name">${s.name}</div>
-              <div class="pe-session-count">${s.exercises.length} ejercicio${s.exercises.length !== 1 ? 's' : ''}</div>
-            </div>
-            ${sessEditMode ? `
-              <button class="pe-session-edit" data-si="${si}" aria-label="Renombrar">${SVG.edit}</button>
-              <button class="pe-session-del" data-si="${si}" aria-label="Eliminar sesión">${SVG.x}</button>
-            ` : ''}
-            <span class="pe-session-chev">${s.expanded ? SVG.chevUp : SVG.chevDown}</span>
+        <article class="pe-session-card${s.expanded ? ' is-open' : ''}${pending ? ' pending-del' : ''}" data-si="${si}">
+          <div class="pe-session-header">
+            <button type="button" class="pe-session-toggle" data-si="${si}" aria-expanded="${s.expanded ? 'true' : 'false'}"${s.expanded ? ` aria-controls="pe-ex-list-${si}"` : ''}>
+              <span class="pe-session-badge${hasDay ? '' : ' orphan'}" title="${hasDay ? DAY_NAMES[DAYS.indexOf(s.day)] : 'Sin día asignado'}">${hasDay ? s.day : '?'}</span>
+              <span class="pe-session-info">
+                <span class="pe-session-name">${trEsc(s.name)}</span>
+                <span class="pe-session-count">${hasDay ? '' : 'Sin día asignado · '}${meta.join(' · ')}</span>
+              </span>
+              <span class="pe-session-chev">${SVG.chev}</span>
+            </button>
           </div>
+          ${tools}
           ${confirmBanner}
           ${exHTML}
-        </div>`;
+        </article>`;
     }).join('');
   }
 
-  function openLibrary(si) {
-    libForSession = si;
-    closeLibrary();
-    const catLabel = { str: 'Fuerza', pow: 'Potencia', ant: 'Antag.' };
-    const sheet = document.createElement('div');
-    sheet.id = 'pe-lib-sheet';
-    sheet.className = 'pe-lib-sheet';
-    sheet.innerHTML = `
-      <div class="pe-lib-backdrop" id="pe-lib-backdrop"></div>
-      <div class="pe-lib-panel">
-        <div class="pe-lib-handle"></div>
-        <div class="pe-lib-head">
-          <span class="pe-lib-title">Biblioteca de ejercicios</span>
-          <button class="pe-lib-close" id="pe-lib-close" aria-label="Cerrar">${SVG.close}</button>
-        </div>
-        <div class="pe-lib-list">
-          ${LIBRARY.map((ex, i) => `
-            <div class="pe-lib-item" data-lidx="${i}">
-              <span class="pe-lib-cat ${ex.cat}">${catLabel[ex.cat]}</span>
-              <div class="pe-lib-info">
-                <div class="pe-lib-name">${ex.name}</div>
-                <div class="pe-lib-detail">${ex.detail}</div>
-              </div>
-            </div>`).join('')}
-        </div>
-      </div>`;
-    document.getElementById('plan-editor-modal').appendChild(sheet);
-    requestAnimationFrame(() => sheet.classList.add('pe-lib-open'));
-    document.getElementById('pe-lib-backdrop').onclick = closeLibrary;
-    document.getElementById('pe-lib-close').onclick = closeLibrary;
-    sheet.querySelector('.pe-lib-list').onclick = e => {
-      const item = e.target.closest('.pe-lib-item');
-      if (!item) return;
-      const ex = LIBRARY[parseInt(item.dataset.lidx)];
-      planData.sessions[libForSession].exercises.push({ name: ex.name, sets: 3, workSec: 0, reps: 10, weight: 0, restSec: 120, rpeTarget: 7 });
-      closeLibrary();
-      renderSessions();
-    };
-  }
-
-  function closeLibrary() {
-    const sheet = document.getElementById('pe-lib-sheet');
-    if (!sheet) return;
-    sheet.classList.remove('pe-lib-open');
-    setTimeout(() => { if (sheet.parentNode) sheet.remove(); }, 250);
-  }
-
-  function savePlan() {
-    const name = planData.name || 'Mi plan';
+  async function savePlan() {
+    if (saving) return;
+    const name = planData.name.trim() || 'Mi plan';
     const activeDayLabels = DAYS.filter((_, i) => planData.activeDays[i]);
     const totalEx = planData.sessions.reduce((a, s) => a + s.exercises.length, 0);
+    const btn = document.getElementById('pe-save-top');
 
-    // Persist to global active plan + refresh train view
-    window.kruxActivePlan = { name, sessions: planData.sessions, activeDays: planData.activeDays, weeks: planData.weeks };
+    if (planData.sessions.some(s => !s.day || s.day === '?')) {
+      if (typeof showToast === 'function') showToast('Hay sesiones sin día', 'error', { detail: 'Activa más días o elimina las sesiones sobrantes.' });
+      return;
+    }
+
+    const content = {
+      name, sessions: planData.sessions, activeDays: planData.activeDays, weeks: planData.weeks,
+      ...(planData.goal ? { goal: planData.goal, level: planData.level, equipment: planData.equipment } : {}),
+      ...(planData.minutes ? { minutes: planData.minutes } : {}),
+      ...(window.KruxPlans && window.KruxPlans.isDateKey(planData.startDate) && canSchedule() ? { startDate: planData.startDate } : {})
+    };
+    const signedIn = !!(firebase.auth().currentUser);
+    const multi = !!window.KRUX_MULTIPLAN && signedIn;
+    let savedNote = '';
+
+    if (multi) {
+      // Varios planes: cada plan es un documento. Si es nuevo se pregunta, siempre, si se activa.
+      let activate = false;
+      // Con fecha de inicio no se pregunta: el plan se activa solo ese día (o ahora, si la fecha es hoy)
+      if (mode !== 'edit' && !content.startDate) {
+        activate = window.KruxPlansUI ? await window.KruxPlansUI.askActivate(name) : false;
+        if (activate === null) return;     // canceló: no se guarda nada
+      }
+      saving = true;
+      btn.disabled = true;
+      btn.classList.add('is-busy');
+      btn.querySelector('span').textContent = 'Guardando…';
+      window.kruxLastPlanError = '';
+      let ok;
+      if (mode === 'edit') {
+        const saved = await KruxTrainStore.plans.update(editId, content, editRevision);
+        ok = !!saved;
+        if (ok) { editRevision = saved.revision; try { await KruxTrainStore.plans.reload(); } catch (_) { /* ya guardado: se verá al recargar */ } }
+      } else {
+        ok = !!(await KruxTrainStore.plans.create(content, { activate }));
+      }
+      saving = false;
+      if (!ok) {
+        btn.disabled = false;
+        btn.classList.remove('is-busy');
+        btn.querySelector('span').textContent = 'Guardar';
+        if (window.kruxLastPlanError === 'kx/conflict' || window.kruxLastPlanError === 'kx/plan-missing') showConflictBanner();
+        return;
+      }
+      let started = null;
+      if (content.startDate && content.startDate <= trDateKey(new Date())) started = await KruxTrainStore.plans.applySchedule();
+      const when = content.startDate && !started ? new Date(content.startDate + 'T00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }) : '';
+      savedNote = started ? 'Guardado y activado.'
+        : when ? (mode === 'edit' ? 'Cambios guardados.' : 'Guardado.') + ` Empezará el ${when}.`
+        : mode === 'edit' ? 'Cambios guardados.' : activate ? 'Guardado y activado.' : 'Guardado sin activar. Puedes activarlo desde «Mis planes».';
+      if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+    } else {
+    // Plan activo en memoria (Entrena lo usa aunque no haya sesión iniciada)
+    window.kruxActivePlan = {
+      ...content,
+      // Con un solo plan, editar conserva su identificador y revisión
+      ...(planData.id && window.KRUX_MULTIPLAN ? { id: planData.id, revision: planData.revision } : {})
+    };
+
+    if (signedIn) {
+      saving = true;
+      btn.disabled = true;
+      btn.classList.add('is-busy');
+      btn.querySelector('span').textContent = 'Guardando…';
+      const ok = await KruxTrainStore.savePlan(window.kruxActivePlan);
+      saving = false;
+      if (!ok) {
+        // El toast de error lo muestra KruxTrainStore; se puede reintentar
+        btn.disabled = false;
+        btn.classList.remove('is-busy');
+        btn.querySelector('span').textContent = 'Guardar';
+        if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+        return;
+      }
+    }
     if (typeof window.refreshTrainView === 'function') window.refreshTrainView();
+    }
 
     const screen = document.querySelector('#plan-editor-modal .pe-screen');
     if (!screen) return;
     screen.innerHTML = `
-      <div class="pe-topbar">
-        <div class="pe-topbar-left">
-          <button class="pe-back-btn" id="pe-saved-back" aria-label="Cerrar">${SVG.back}</button>
-        </div>
-      </div>
+      <header class="pe-topbar">
+        <button type="button" class="pe-icon-btn pe-back-btn" id="pe-saved-back" aria-label="Cerrar">${SVG.back}</button>
+      </header>
       <div class="pe-saved-wrap">
-        <div class="pe-saved-icon">✅</div>
-        <div class="pe-saved-title">${name}</div>
-        <div class="pe-saved-sub">${planData.weeks} semanas · ${planData.sessions.length} sesiones · ${activeDayLabels.join(', ')} · ${totalEx} ejercicios</div>
-        <button class="pe-save-bottom" id="pe-saved-done">Empezar plan →</button>
+        <div class="pe-saved-icon">${SVG.checkBig}</div>
+        <h2 class="pe-saved-title">${trEsc(name)}</h2>
+        <p class="pe-saved-sub">${planData.weeks} ${planData.weeks === 1 ? 'semana' : 'semanas'} · ${planData.sessions.length} ${planData.sessions.length === 1 ? 'sesión' : 'sesiones'} · ${totalEx} ejercicios${activeDayLabels.length ? `<br>${activeDayLabels.join(' · ')}` : ''}</p>
+        <p class="pe-saved-note">${signedIn ? (savedNote || 'Guardado en tu cuenta.') : 'Inicia sesión para guardarlo en tu cuenta; si no, se perderá al cerrar KRUX.'}</p>
+        <button type="button" class="pe-save-btn pe-save-btn--wide" id="pe-saved-done"><span>${onCloseCb ? 'Volver a Mis planes' : 'Ir a Entrena'}</span></button>
       </div>`;
     document.getElementById('pe-saved-back').onclick = close;
     document.getElementById('pe-saved-done').onclick = close;
+  }
+
+  // Otro dispositivo cambió o borró el plan mientras se editaba: no se pisa, se ofrece recargarlo
+  function showConflictBanner() {
+    const scroll = document.getElementById('pe-scroll');
+    if (!scroll || document.getElementById('pe-conflict')) return;
+    const box = document.createElement('div');
+    box.id = 'pe-conflict';
+    box.className = 'pe-replace-note pe-conflict';
+    box.setAttribute('role', 'alert');
+    const gone = window.kruxLastPlanError === 'kx/plan-missing';
+    box.innerHTML = `<span>${gone ? 'Este plan ya no existe. Tus cambios no se han guardado.' : 'Este plan se modificó en otro dispositivo. Tus cambios no se han guardado para no pisar los de allí.'}</span>
+      ${gone ? '' : '<button type="button" class="pe-conflict-btn" id="pe-conflict-reload">Recargar el plan</button>'}`;
+    scroll.insertBefore(box, scroll.firstChild);
+    scroll.scrollTop = 0;
+    const reload = document.getElementById('pe-conflict-reload');
+    if (reload) reload.onclick = async () => {
+      reload.disabled = true;
+      await KruxTrainStore.plans.reload().catch(() => {});
+      const cb = onCloseCb; const id = editId;
+      onCloseCb = null;
+      open({ planId: id, onClose: cb });
+    };
   }
 
   window.openPlanEditor = open;

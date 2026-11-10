@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 260" role="img" aria-label="Ilustración genérica de una pared de caliza">
+  <defs>
+    <linearGradient id="w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EADBC2"/><stop offset=".6" stop-color="#D9C09A"/><stop offset="1" stop-color="#C4A47A"/></linearGradient>
+    <linearGradient id="sh" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8E7352" stop-opacity="0"/><stop offset="1" stop-color="#8E7352" stop-opacity=".35"/></linearGradient>
+    <linearGradient id="st" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8F8A80" stop-opacity=".55"/><stop offset="1" stop-color="#8F8A80" stop-opacity="0"/></linearGradient>
+    <linearGradient id="or" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C98B4E" stop-opacity=".5"/><stop offset="1" stop-color="#C98B4E" stop-opacity="0"/></linearGradient>
+  </defs>
+  <path d="M96 260 C100 226 108 196 118 168 C124 140 130 116 146 98 C156 80 164 66 180 58 C190 44 204 40 216 34 C228 26 240 30 252 22 C264 16 276 20 288 14 C302 10 314 18 326 16 C340 18 350 26 362 30 C376 34 388 40 400 44 L400 260 Z" fill="url(#w)"/>
+  <path d="M190 52 C186 90 192 130 186 170 C184 196 188 222 186 260 L176 260 C178 220 172 190 176 160 C180 120 178 86 190 52 Z" fill="url(#st)"/>
+  <path d="M252 24 C258 70 250 110 256 150 C260 180 254 210 258 240 L246 240 C244 206 248 180 244 150 C240 110 246 66 252 24 Z" fill="url(#or)"/>
+  <path d="M300 14 C296 60 304 96 298 140 C294 170 300 196 296 230 L286 230 C290 196 284 168 288 138 C292 96 288 56 300 14 Z" fill="url(#st)"/>
+  <path d="M346 24 C350 66 344 110 350 150 L340 150 C336 110 340 66 346 24 Z" fill="url(#or)"/>
+  <path d="M214 120 C236 112 262 116 286 110 C300 108 318 112 336 106" stroke="#B0916A" stroke-opacity=".45" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M146 150 C176 144 204 150 230 146" stroke="#B0916A" stroke-opacity=".4" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M232 82 C250 90 270 92 290 86 C280 100 256 104 232 82 Z" fill="#A78763" fill-opacity=".45"/>
+  <path d="M310 30 C350 40 380 60 400 74 L400 260 L330 260 C340 200 336 150 322 110 C316 80 314 52 310 30 Z" fill="url(#sh)"/>
+  <path d="M70 260 C96 238 120 228 146 234 C162 220 184 214 204 224 C222 210 246 208 266 220 C286 206 312 204 334 216 C356 206 382 208 400 216 L400 260 Z" fill="#7C9A6A"/>
+  <path d="M120 236 L128 212 L136 236 Z M186 230 L196 202 L206 230 Z M290 226 L300 198 L310 226 Z M352 222 L360 200 L368 222 Z" fill="#5B7A4E"/>
+  <path d="M40 260 C90 240 140 244 190 250 C240 238 296 240 340 248 C370 242 392 244 400 246 L400 260 Z" fill="#557448"/>
+</svg>

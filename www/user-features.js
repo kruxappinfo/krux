@@ -1,42 +1,180 @@
 // User Features Module
 // Handles favorites and climbing log functionality
 
-// Toast notification system with smooth animations
-function showToast(message, type = 'info') {
+// ============================================
+// TOASTS (aviso breve, un único componente para toda la app)
+// ============================================
+// showToast(mensaje, tipo, opciones)
+//   tipo: 'success' | 'error' | 'info' | 'warning'. Sin tipo se deduce del texto: lo que empieza por
+//   «Error» o «No se pudo/ha» es un error; el resto, información.
+//   mensaje: la primera línea es el título; las siguientes (o opciones.detail) la indicación útil.
+//   opciones: { detail, duration } en ms. Un toast sustituye al anterior (nunca se apilan).
+const KX_TOAST_ICONS = {
+    success: '<path d="M6 12.5l4 4 8-9" />',
+    error: '<path d="M12 7v6" /><path d="M12 16.6v.1" />',
+    info: '<path d="M12 11v5.5" /><path d="M12 7.6v.1" />',
+    warning: '<path d="M12 8v5" /><path d="M12 16.4v.1" />'
+};
+const KX_TOAST_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>';
+let kxToastCurrent = null;
+
+function kxToastType(type, message) {
+    if (type === 'warn') return 'warning';
+    if (KX_TOAST_ICONS[type]) return type;
+    return /^\s*(error|no se (pudo|ha|han|puede)|fall)/i.test(message) ? 'error' : 'info';
+}
+
+// Hueco libre sobre la navegación inferior (si la hay y está a la vista) o sobre el área segura
+function kxToastBottom() {
+    const base = 16;
+    try {
+        const nav = document.querySelector('.bottom-nav');
+        if (!nav || getComputedStyle(nav).display === 'none') return null;
+        const r = nav.getBoundingClientRect();
+        if (r.height < 10 || r.top >= window.innerHeight || r.bottom <= 0) return null;
+        // Si un panel o modal tapa la navegación, el aviso no necesita subir
+        const top = document.elementFromPoint(window.innerWidth / 2, r.top + r.height / 2);
+        if (!top || !nav.contains(top)) return null;
+        return Math.round(window.innerHeight - r.top + base - 4);
+    } catch (_) {
+        return null;
+    }
+}
+
+// Indicación útil en español para un error de Firebase o de red (texto vacío si no hay nada que aconsejar)
+function kxFriendlyError(err) {
+    const code = String((err && err.code) || '');
+    if (code === 'kx/offline') return 'Necesitas conexión para hacer esto.';
+    if (code === 'kx/cancelled') return 'La acción se canceló porque no hubo respuesta. Inténtalo de nuevo.';
+    if (code === 'kx/conflict') return 'Este plan se modificó en otro dispositivo. Ábrelo de nuevo para ver los cambios.';
+    if (code === 'kx/plan-missing') return 'Este plan ya no existe.';
+    if (code === 'kx/plan-trashed') return 'Este plan está en la papelera. Restáuralo para editarlo.';
+    if (code === 'kx/not-allowed') return 'Esa acción no está permitida para este plan.';
+    if (code === 'kx/migration-conflict') return 'Hay un plan con el mismo identificador. No se ha cambiado nada.';
+    if (/network|unavailable|deadline|timeout|retry/i.test(code) || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        return 'Revisa tu conexión e inténtalo de nuevo.';
+    }
+    if (/wrong-password|invalid-credential|user-not-found|invalid-login/i.test(code)) return 'El email o la contraseña no son correctos.';
+    if (/email-already-in-use/i.test(code)) return 'Ya existe una cuenta con ese email.';
+    if (/weak-password/i.test(code)) return 'La contraseña es demasiado débil.';
+    if (/invalid-email/i.test(code)) return 'El email no es válido.';
+    if (/too-many-requests/i.test(code)) return 'Demasiados intentos. Espera un momento.';
+    if (/requires-recent-login/i.test(code)) return 'Vuelve a iniciar sesión e inténtalo otra vez.';
+    if (/permission-denied|unauthorized|unauthenticated/i.test(code)) return 'No tienes permiso para hacerlo.';
+    if (/quota|resource-exhausted/i.test(code)) return 'Hay demasiadas peticiones. Inténtalo en un rato.';
+    if (/not-found|object-not-found/i.test(code)) return 'Ya no existe. Recarga e inténtalo de nuevo.';
+    if (/canceled|cancelled/i.test(code)) return 'Se canceló antes de terminar.';
+    return 'Inténtalo de nuevo.';
+}
+
+function kxDismissToast(toast, instant) {
+    if (!toast || toast._kxClosing) return;
+    toast._kxClosing = true;
+    clearTimeout(toast._kxTimer);
+    if (kxToastCurrent === toast) kxToastCurrent = null;
+    if (instant) { toast.remove(); return; }
+    toast.classList.remove('is-in');
+    toast.classList.add('is-out');
+    setTimeout(() => toast.remove(), 220);
+}
+
+function showToast(message, type, opts) {
     const container = document.getElementById('toast-container');
     if (!container) return;
+    const options = opts || {};
+    const raw = String(message == null ? '' : message).trim();
+    if (!raw) return;
+    const kind = kxToastType(type, raw);
+    const lines = raw.split('\n');
+    const title = lines[0];
+    const detail = (options.detail || lines.slice(1).join(' ')).trim();
+    const duration = options.duration || (detail || kind === 'error' ? 4500 : 3000);
 
-    const icons = {
-        success: '✓',
-        error: '×',
-        info: 'ℹ'
-    };
+    // Mismo aviso repetido: se reinicia el tiempo en vez de duplicarlo
+    if (kxToastCurrent && !kxToastCurrent._kxClosing && kxToastCurrent._kxKey === kind + '|' + raw) {
+        kxToastCurrent._kxStart(duration);
+        return;
+    }
+    if (kxToastCurrent) kxDismissToast(kxToastCurrent, true);
+
+    if (!container.hasAttribute('role')) {
+        container.setAttribute('role', 'region');
+        container.setAttribute('aria-label', 'Avisos');
+    }
 
     const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `
-        <span class="toast-icon">${icons[type]}</span>
-        <span class="toast-message">${message}</span>
-    `;
+    toast.className = `kx-toast kx-toast-${kind}`;
+    toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    toast._kxKey = kind + '|' + raw;
 
-    // Start hidden for smooth entry
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(100px)';
+    const icon = document.createElement('span');
+    icon.className = 'kx-toast-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${KX_TOAST_ICONS[kind]}</svg>`;
+
+    const body = document.createElement('span');
+    body.className = 'kx-toast-body';
+    const t = document.createElement('span');
+    t.className = 'kx-toast-title';
+    t.textContent = title;
+    body.appendChild(t);
+    if (detail) {
+        const d = document.createElement('span');
+        d.className = 'kx-toast-detail';
+        d.textContent = detail;
+        body.appendChild(d);
+    }
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'kx-toast-close';
+    close.setAttribute('aria-label', 'Cerrar aviso');
+    close.innerHTML = KX_TOAST_CLOSE;
+    close.addEventListener('click', () => kxDismissToast(toast));
+
+    toast.append(icon, body, close);
+
+    // Se coloca sobre la navegación inferior cuando está a la vista
+    const bottom = kxToastBottom();
+    container.style.bottom = bottom == null ? '' : bottom + 'px';
     container.appendChild(toast);
+    kxToastCurrent = toast;
+    requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('is-in')));
 
-    // Smooth entry animation
-    requestAnimationFrame(() => {
-        toast.style.transition = 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
-        toast.style.opacity = '1';
-        toast.style.transform = 'translateX(0)';
-    });
+    // Desaparece solo; se detiene mientras se mantiene el dedo o el cursor encima
+    let paused = false;
+    toast._kxStart = (ms) => {
+        clearTimeout(toast._kxTimer);
+        toast._kxTimer = setTimeout(() => { if (!paused) kxDismissToast(toast); }, ms);
+        toast._kxMs = ms;
+    };
+    toast._kxStart(duration);
+    const hold = () => { paused = true; clearTimeout(toast._kxTimer); };
+    const release = () => { paused = false; toast._kxStart(1800); };
+    toast.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') hold(); });
+    toast.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') release(); });
 
-    // Smooth exit and remove
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateX(100px)';
-        setTimeout(() => toast.remove(), 300);
-    }, 2700);
+    // Deslizar hacia abajo lo cierra
+    let y0 = null, dy = 0;
+    toast.addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; dy = 0; hold(); }, { passive: true });
+    toast.addEventListener('touchmove', (e) => {
+        if (y0 == null) return;
+        dy = Math.max(0, e.touches[0].clientY - y0);
+        toast.style.transition = 'none';
+        toast.style.transform = `translateY(${dy}px)`;
+        toast.style.opacity = String(Math.max(0.3, 1 - dy / 120));
+    }, { passive: true });
+    const endTouch = () => {
+        if (y0 == null) return;
+        y0 = null;
+        toast.style.transition = '';
+        if (dy > 36) { kxDismissToast(toast); return; }
+        toast.style.transform = '';
+        toast.style.opacity = '';
+        release();
+    };
+    toast.addEventListener('touchend', endTouch);
+    toast.addEventListener('touchcancel', endTouch);
 }
 
 // Custom confirmation dialog
@@ -109,15 +247,35 @@ let userFavorites = new Map(); // Map of "type:id" -> timestamp
 let userProjects = new Map(); // Map of "route_id" -> {name, grade, addedAt, notes}
 
 // Global ascents cache - para mostrar check en vías completadas
-let userAscentsCache = new Map(); // Map of "schoolId:routeId" -> {date, style, grade}
+let userAscentsCache = new Map(); // Map of "schoolId:routeId" -> {date, style, grade, sent}
+let userAscentsCacheState = 'idle'; // idle | loading | ready | error (carga de los ascensos del usuario)
+
+// Encadenada: cualquier estilo menos intento/proyecto (sector-progress.js)
+function isSendAscentStyle(style) {
+    return typeof kxIsSendStyle === 'function' ? kxIsSendStyle(style) : style !== 'project';
+}
+
+// Avisa a las fichas abiertas (progreso del sector) de que cambiaron los ascensos
+function notifyAscentsChanged() {
+    try { document.dispatchEvent(new CustomEvent('kx:ascents-changed')); } catch (_) {}
+}
+
+// ¿El usuario ha encadenado esta vía? (cualquier ascenso que no sea intento)
+function hasUserSentRoute(schoolId, routeId) {
+    const info = userAscentsCache.get(`${schoolId}:${routeId}`);
+    return !!(info && info.sent);
+}
 
 // Load user ascents into cache
 async function loadUserAscentsCache() {
     if (!currentUser) {
         userAscentsCache.clear();
+        userAscentsCacheState = 'idle';
+        notifyAscentsChanged();
         return;
     }
 
+    userAscentsCacheState = 'loading';
     try {
         const ascents = await getUserAscents(500); // Cargar hasta 500 ascensos
         userAscentsCache.clear();
@@ -126,15 +284,21 @@ async function loadUserAscentsCache() {
             // Crear clave única: schoolId + routeId (fallback to routeName for old data)
             const id = ascent.routeId || ascent.routeName;
             const key = `${ascent.schoolId}:${id}`;
-            // Solo guardar el primer (más reciente) ascenso de cada vía
+            const sent = isSendAscentStyle(ascent.style);
+            // Solo guardar el primer ascenso de cada vía; «sent» se acumula: basta un encadenamiento
             if (!userAscentsCache.has(key)) {
                 userAscentsCache.set(key, {
                     date: ascent.date,
                     style: ascent.style,
-                    grade: ascent.grade
+                    grade: ascent.grade,
+                    sent
                 });
+            } else if (sent) {
+                userAscentsCache.get(key).sent = true;
             }
         });
+        userAscentsCacheState = 'ready';
+        notifyAscentsChanged();
 
         console.log(`Ascents cache loaded: ${userAscentsCache.size} routes`);
 
@@ -144,6 +308,8 @@ async function loadUserAscentsCache() {
         }
     } catch (error) {
         console.error('Error loading ascents cache:', error);
+        userAscentsCacheState = 'error';
+        notifyAscentsChanged();
     }
 }
 
@@ -174,11 +340,14 @@ function getAscentStyleSVG(style) {
 // Add ascent to cache (called after successful logAscent)
 function addAscentToCache(schoolId, routeId, ascentData) {
     const key = `${schoolId}:${routeId}`;
+    const prev = userAscentsCache.get(key);
     userAscentsCache.set(key, {
         date: ascentData.date || new Date(),
         style: ascentData.style,
-        grade: ascentData.grade
+        grade: ascentData.grade,
+        sent: !!(prev && prev.sent) || isSendAscentStyle(ascentData.style)
     });
+    notifyAscentsChanged();
 
     // Actualizar ticks en el mapa inmediatamente
     if (typeof updateAscentTicksLayer === 'function') {
@@ -198,19 +367,19 @@ async function removeAscentFromCache(schoolId, routeId) {
             .where('userId', '==', currentUser.uid)
             .where('schoolId', '==', schoolId)
             .where('routeId', '==', routeId)
-            .limit(1)
             .get();
 
         if (remaining.empty) {
             // No more ascents for this route - remove from cache
             userAscentsCache.delete(key);
         } else {
-            // Still has ascents - update cache with the remaining one
+            // Still has ascents - update cache with the remaining one (sigue encadenada si alguno lo es)
             const data = remaining.docs[0].data();
             userAscentsCache.set(key, {
                 date: data.date && data.date.toDate ? data.date.toDate() : new Date(data.date),
                 style: data.style,
-                grade: data.grade
+                grade: data.grade,
+                sent: remaining.docs.some(d => isSendAscentStyle(d.data().style))
             });
         }
     } catch (error) {
@@ -218,6 +387,7 @@ async function removeAscentFromCache(schoolId, routeId) {
         console.error('Error checking remaining ascents:', error);
         userAscentsCache.delete(key);
     }
+    notifyAscentsChanged();
 
     // Actualizar ticks en el mapa inmediatamente
     if (typeof updateAscentTicksLayer === 'function') {
@@ -277,7 +447,7 @@ async function toggleFavorite(type, id, name = '') {
                 addedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             userFavorites.set(key, new Date());
-            showToast('Añadido a favoritos ❤️', 'success');
+            showToast('Añadido a favoritos', 'success');
             return true;
         }
     } catch (error) {
@@ -341,10 +511,21 @@ async function logAscent(ascentData) {
             notes: ascentData.notes || '',
             ...(ascentData.schoolCity ? { schoolCity: ascentData.schoolCity } : {}),
             ...(ascentData.climbType ? { climbType: ascentData.climbType } : {}),
+            // Solo los ascensos registrados dentro de una sesión de escalada (climb-session.js)
+            ...(ascentData.sessionId ? { sessionId: ascentData.sessionId } : {}),
+            ...(ascentData.loggedAt ? { loggedAt: new Date(ascentData.loggedAt) } : {}),
+            ...(Array.isArray(ascentData.companions) && ascentData.companions.length ? { companions: ascentData.companions.slice(0, 10) } : {}),
         };
 
-        // Add to ascents collection
-        const docRef = await db.collection('ascents').add(data);
+        if (ascentData.id) {
+            // Id fijo (sesiones, con reintentos sin conexión): si ya existe no se vuelve a crear ni a contar
+            const ref = db.collection('ascents').doc(ascentData.id);
+            if ((await ref.get()).exists) return true;
+            await ref.set(data);
+        } else {
+            // Add to ascents collection
+            await db.collection('ascents').add(data);
+        }
 
         // Update user stats
         await db.collection('users').doc(currentUser.uid).update({
@@ -361,7 +542,7 @@ async function logAscent(ascentData) {
         return true;
     } catch (error) {
         console.error('Error logging ascent:', error);
-        showToast('Error al registrar ascensión: ' + error.message, 'error');
+        showToast('Error al registrar ascensión', 'error', { detail: kxFriendlyError(error) });
         return false;
     }
 }
@@ -427,7 +608,7 @@ async function toggleProject(id, name, grade = '') {
                 notes: ''
             });
             userProjects.set(key, { id, name, grade, addedAt: new Date(), notes: '' });
-            showToast('Añadido a proyectos 📁', 'success');
+            showToast('Añadido a proyectos', 'success');
             return true;
         }
     } catch (error) {
@@ -510,7 +691,7 @@ async function deleteAscent(ascentId, schoolId, routeId) {
             await removeAscentFromCache(schoolId, routeId);
         }
 
-        showToast('Ascenso eliminado correctamente', 'success');
+        showToast('Ascenso eliminado', 'success');
         return true;
     } catch (error) {
         console.error('Error deleting ascent:', error);
@@ -565,10 +746,118 @@ async function getUserStats() {
         return null;
     }
 }
+// ==================== VOTOS DE LA VÍA EN EL REGISTRO DE ASCENSO ====================
+// Grado, aleje y estado se votan aquí; la ficha de vía solo los muestra (maplibre-map.js).
+const KX_AVOTE_ALEJE = ['Muy pequeño', 'Pequeño', 'Normal', 'Expuesto', 'Muy expuesto'];
+
+const kxAscentVotes = {
+    ctx: null, // { schoolId, routeId, gradeOptions, initial, current, touched }
+
+    available(routeId) {
+        return Number.isFinite(Number(routeId)) && typeof kxSaveRouteVotes === 'function' &&
+            typeof getGradeVotes === 'function' && typeof ALL_GRADES_ORDERED !== 'undefined';
+    },
+
+    async open(schoolId, routeId, grade) {
+        this.reset();
+        if (!this.available(routeId) || !schoolId) return;
+        const rid = Number(routeId);
+        const officialIdx = ALL_GRADES_ORDERED.indexOf(grade);
+        const gradeOptions = [];
+        if (officialIdx !== -1) {
+            for (let i = Math.max(0, officialIdx - 2); i <= Math.min(ALL_GRADES_ORDERED.length - 1, officialIdx + 2); i++) gradeOptions.push(i);
+        }
+        const empty = { gradeIdx: null, aleje: null, estado: null };
+        this.ctx = { schoolId, routeId: rid, gradeOptions, initial: { ...empty }, current: { ...empty }, touched: {} };
+        document.getElementById('ascent-votes')?.classList.remove('hidden');
+        this.render();
+
+        // Votos que ya tenía el usuario
+        const ctx = this.ctx;
+        try {
+            const [g, a, e] = await Promise.all([getGradeVotes(schoolId, rid), getAlejeVotes(schoolId, rid), getEstadoVotes(schoolId, rid)]);
+            if (this.ctx !== ctx) return;
+            ctx.initial = { gradeIdx: g.userVoteIdx ?? null, aleje: a.userVote ?? null, estado: e.userVote ?? null };
+            Object.keys(ctx.initial).forEach(k => { if (!ctx.touched[k]) ctx.current[k] = ctx.initial[k]; });
+            const own = ctx.initial.gradeIdx;
+            if (own !== null && !ctx.gradeOptions.includes(own)) ctx.gradeOptions = [...ctx.gradeOptions, own].sort((x, y) => x - y);
+            this.render();
+        } catch (err) {
+            console.warn('[AscentVotes] No se han podido cargar tus votos:', err);
+        }
+    },
+
+    reset() {
+        this.ctx = null;
+        document.getElementById('ascent-votes')?.classList.add('hidden');
+        ['avote-grade', 'avote-aleje', 'avote-estado'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '';
+        });
+    },
+
+    pick(key, value) {
+        if (!this.ctx) return;
+        this.ctx.current[key] = this.ctx.current[key] === value ? null : value;
+        this.ctx.touched[key] = true;
+        this.render();
+    },
+
+    render() {
+        const ctx = this.ctx;
+        if (!ctx) return;
+        const opt = (key, value, label, extra = '') => {
+            const on = ctx.current[key] === value;
+            return `<button type="button" role="radio" aria-checked="${on}" class="kx-avote-opt${on ? ' is-on' : ''}${extra}" onclick="kxAscentVotes.pick('${key}', ${value})">${label}</button>`;
+        };
+
+        const gradeEl = document.getElementById('avote-grade');
+        if (gradeEl) {
+            gradeEl.closest('.kx-avote-row').hidden = ctx.gradeOptions.length === 0;
+            gradeEl.innerHTML = ctx.gradeOptions.map(i => opt('gradeIdx', i, ALL_GRADES_ORDERED[i])).join('');
+        }
+
+        const alejeEl = document.getElementById('avote-aleje');
+        if (alejeEl) {
+            alejeEl.innerHTML = KX_AVOTE_ALEJE.map((name, i) =>
+                opt('aleje', i + 1, `<span class="kx-avote-dot is-l${i + 1}" aria-hidden="true"></span>${name}`)).join('');
+        }
+
+        const estadoEl = document.getElementById('avote-estado');
+        if (estadoEl) {
+            const v = ctx.current.estado || 0;
+            let html = '';
+            for (let i = 1; i <= 5; i++) {
+                html += `<button type="button" role="radio" aria-checked="${v === i}" aria-label="${i} de 5" class="kx-avote-star${i <= v ? ' is-on' : ''}" onclick="kxAscentVotes.pick('estado', ${i})"><svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 6 6.5.8-4.8 4.5 1.2 6.5L12 17.3l-5.8 3.1 1.2-6.5L2.6 9.4l6.5-.8z"/></svg></button>`;
+            }
+            estadoEl.innerHTML = html;
+        }
+    },
+
+    // Guarda los votos cambiados. No bloquea el registro del ascenso si falla.
+    async save() {
+        const ctx = this.ctx;
+        const form = document.getElementById('ascent-form');
+        if (!ctx || (form && form.dataset.gymMode === 'true')) return;
+        try {
+            await kxSaveRouteVotes(ctx.schoolId, ctx.routeId, ctx.current, ctx.initial);
+        } catch (err) {
+            console.error('[AscentVotes] Error guardando votos:', err);
+            showToast('No se han podido guardar tus votos de la vía', 'error');
+        }
+    }
+};
+
 // Open ascent modal
 function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector) {
     if (!currentUser) {
         showToast('Inicia sesión para registrar tus ascensiones', 'info');
+        return;
+    }
+
+    // Con una sesión de escalada activa, el registro pasa por la hoja de la sesión (mismo logAscent, con sessionId)
+    if (routeId != null && schoolId && window.KruxSession && KruxSession.isActive() && window.KruxSessionUI) {
+        KruxSessionUI.openRegister({ schoolId, schoolName, routeId, routeName, grade, sector });
         return;
     }
 
@@ -592,6 +881,7 @@ function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector
     dateInput.max = todayStr;
     dateInput.valueAsDate = new Date();
 
+    kxAscentVotes.open(schoolId, routeId, grade);
     modal.classList.remove('hidden');
 }
 
@@ -603,6 +893,7 @@ function closeAscentModal() {
 
     modal.classList.add('hidden');
     form.reset();
+    kxAscentVotes.reset();
 
     // Reset style dropdown to default (redpoint)
     document.getElementById('ascent-style').value = 'redpoint';
@@ -707,6 +998,7 @@ function openEditAscentModal(ascent) {
     const submitBtn = form.querySelector('.submit-btn');
     submitBtn.textContent = 'Actualizar';
 
+    kxAscentVotes.open(ascent.schoolId, ascent.routeId, ascent.grade);
     modal.classList.remove('hidden');
 }
 
@@ -984,11 +1276,10 @@ async function followUser(targetUserId) {
 
         // 5. Create notification for the target user
         if (typeof window.createNotification === 'function') {
-            const myName = currentUser.displayName || 'Alguien';
             await window.createNotification(
                 targetUserId,
                 'follow',
-                `<strong>${myName}</strong> ha empezado a seguirte`
+                'ha empezado a seguirte'
             );
         }
 
@@ -996,7 +1287,7 @@ async function followUser(targetUserId) {
         return true;
     } catch (error) {
         console.error('Error following user:', error);
-        showToast('Error al seguir usuario: ' + error.message, 'error');
+        showToast('Error al seguir usuario', 'error', { detail: kxFriendlyError(error) });
         return false;
     }
 }
@@ -1037,7 +1328,7 @@ async function unfollowUser(targetUserId) {
         return true;
     } catch (error) {
         console.error('Error unfollowing user:', error);
-        showToast('Error al dejar de seguir: ' + error.message, 'error');
+        showToast('Error al dejar de seguir', 'error', { detail: kxFriendlyError(error) });
         return false;
     }
 }
@@ -1641,6 +1932,8 @@ function renderAscentsStats(ascents) {
  * Compare two climbing grades (helper function if not available globally)
  */
 function compareGradesLocal(gradeA, gradeB) {
+    // El orden común vive en map-ui.js; esta versión solo queda como respaldo si no se ha cargado
+    if (typeof kxCompareGrades === 'function') return kxCompareGrades(gradeA, gradeB);
     const parseGrade = (grade) => {
         const match = grade.match(/(\d+)([a-c])?(\+)?/);
         if (!match) return { num: 0, letter: '', plus: false };
@@ -2321,15 +2614,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (isEditMode && ascentId) {
                     // Update existing ascent
                     await updateAscent(ascentId, ascentData);
+                    await kxAscentVotes.save();
                     closeAscentModal();
-                    showToast('¡Ascenso actualizado correctamente!', 'success');
+                    showToast('Ascenso actualizado', 'success');
                     // Reload and reopen My Routes list
                     showMyRoutes();
                 } else {
                     // Create new ascent
                     await logAscent(ascentData);
+                    await kxAscentVotes.save();
                     closeAscentModal();
-                    showToast('¡Ascenso registrado correctamente!', 'success');
+                    showToast('Ascenso registrado', 'success');
                     if (typeof loadActivityData === 'function') loadActivityData();
                 }
 
@@ -2963,7 +3258,7 @@ async function handleSpotterSubmission(e) {
 
         // Close modal and show success
         closeSpotterModalFn();
-        showToast('Solicitud enviada correctamente', 'success');
+        showToast('Solicitud enviada', 'success');
 
     } catch (error) {
         console.error('Error submitting spotter request:', error);

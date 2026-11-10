@@ -70,8 +70,12 @@ function mlClearApprovedListeners() {
 }
 
 // Cancels pending (user-specific) subscriptions and empties their map layers.
-// Called when the user logs out so stale personal data is not left on the map.
+// Called on every session change so the previous user's data and admin tools are not left on the map.
 function mlClearPendingItemsLayers() {
+  // Edición por arrastre (solo admin) que estuviera en curso
+  if (mlEditState.docId) mlCancelPendingEdit();
+  mlPendingSchoolsCache.clear();
+
   if (mlMyPendingRoutesUnsub) { try { mlMyPendingRoutesUnsub(); } catch (e) {} mlMyPendingRoutesUnsub = null; }
   if (mlMyPendingPOIUnsub) { try { mlMyPendingPOIUnsub(); } catch (e) {} mlMyPendingPOIUnsub = null; }
   if (mlMyPendingSectorsUnsub) { try { mlMyPendingSectorsUnsub(); } catch (e) {} mlMyPendingSectorsUnsub = null; }
@@ -82,7 +86,8 @@ function mlClearPendingItemsLayers() {
   if (!mlMap) return;
   const empty = { type: 'FeatureCollection', features: [] };
   ['pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source',
-   'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source']
+   'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source',
+   'pending-my-schools-source', 'admin-pending-schools-source']
     .forEach(id => { try { if (mlMap.getSource(id)) mlMap.getSource(id).setData(empty); } catch (e) {} });
 }
 
@@ -159,6 +164,914 @@ function generateSectorCasingColorExpression() {
   }
   cases.push(darkenColor(SECTOR_COLORS[0])); // default
   return ['case', ...cases];
+}
+
+// ============================================
+// CARTOGRAFÍA 2D — ESTILO (Fase 2)
+// ============================================
+// Vista cenital plana: sectores como líneas verdes con borde claro, vías como círculos con el color de grado
+// original (generateGradeColorExpression / getGradeColor, sin tocar), iconos planos y etiquetas en píldora.
+// Todo con capas nativas de MapLibre; los estados (seleccionado, hover) van por feature-state, sin redibujar fuentes.
+const KX_MAP = {
+  forest: '#153E35',        // --kx-forest
+  forestBright: '#2E9A63',  // verde luminoso del sector seleccionado (derivado de --kx-forest)
+  sage: '#DCE9DF',          // --kx-sage
+  halo: '#A8E3BF',          // halo del seleccionado
+  chalk: '#F7F6F0',         // --kx-chalk
+  granite: '#202923',       // --kx-granite
+  coral: '#FF8D67',         // --kx-coral
+  info: '#2F6FB3',          // --kx-info (parkings)
+  access: '#F07A22',        // rutas de acceso
+  shadow: 'rgba(16, 28, 23, 0.38)'
+};
+
+const _kxSel = ['boolean', ['feature-state', 'selected'], false];
+
+// Radio de las vías (px) por zoom. Lo comparten la capa de vías, la sombra, los ticks y los anillos de variantes.
+const KX_ROUTE_RADIUS = {
+  mobile:  [[14, 2],   [16, 3.5], [17, 4.5], [18, 6], [19, 7.5], [20, 9]],
+  desktop: [[14, 3],   [16, 5],   [17, 6],   [18, 8], [19, 10],  [20, 13]]
+};
+const KX_ROUTE_STROKE = 1.5;
+
+function kxRouteRadiusStops() {
+  return KX_ROUTE_RADIUS[isMobileDevice() ? 'mobile' : 'desktop'];
+}
+
+function kxZoomExpr(stops, map = v => v) {
+  const expr = ['interpolate', ['linear'], ['zoom']];
+  stops.forEach(([z, v]) => expr.push(z, map(v)));
+  return expr;
+}
+
+// Círculo plano de vía: color de grado original + borde blanco fino
+function kxRoutePaint(strokeColor = '#ffffff') {
+  return {
+    'circle-radius': kxZoomExpr(kxRouteRadiusStops()),
+    'circle-color': generateGradeColorExpression('grado1'),
+    'circle-stroke-color': strokeColor,
+    'circle-stroke-width': KX_ROUTE_STROKE,
+    'circle-opacity': 1
+  };
+}
+
+// Sombra de contacto (sin desplazamiento, no simula altura): separa el borde blanco de la roca clara
+function kxRouteShadowPaint() {
+  return {
+    'circle-radius': kxZoomExpr(kxRouteRadiusStops(), r => r + KX_ROUTE_STROKE + 1.2),
+    'circle-color': KX_MAP.shadow,
+    'circle-blur': 0.45,
+    'circle-opacity': 0.9
+  };
+}
+
+// Sector: doble trazo. Debajo, un borde blanco (7–8 px); encima, la línea mate del color propio del sector
+// (3,5–4 px). El seleccionado engorda ambos trazos y conserva su color. Sin sombras, halos ni animación.
+// Colores más vivos que pastel, sin llegar a fluorescentes; asignados de forma estable por sector
+// (ver kxAssignSectorColors).
+const KX_SECTOR_PALETTE = [
+  '#579C68',  // verde
+  '#299F98',  // turquesa
+  '#438FC5',  // azul
+  '#9273B8',  // morado
+  '#D98942',  // naranja
+  '#CC716E'   // coral
+];
+
+// Área táctil invisible alrededor de cada sector (px). Es una capa aparte: el trazo visible no se engorda.
+const KX_SECTOR_HIT_WIDTH = 24;
+
+function kxSectorHash(name) {
+  // FNV-1a de 32 bits: estable entre sesiones y dispositivos
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+
+/**
+ * Asigna a cada sector un índice de color (properties.kxc) a partir de su nombre. Mismo nombre → mismo color,
+ * siempre. Si dos sectores vecinos (cajas envolventes a menos de ~40 m) coinciden, el segundo, por orden de
+ * nombre, pasa al siguiente color libre de la paleta. Solo añade una propiedad en memoria: no toca geometrías,
+ * identificadores ni datos guardados.
+ */
+function kxAssignSectorColors(features) {
+  const n = KX_SECTOR_PALETTE.length;
+  const PAD = 0.0004;
+  const boxes = features.map(f => {
+    const g = f.geometry;
+    const lines = !g ? [] : g.type === 'MultiLineString' ? g.coordinates : g.type === 'LineString' ? [g.coordinates] : [];
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    lines.forEach(l => l.forEach(([x, y]) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }));
+    return { x0: x0 - PAD, y0: y0 - PAD, x1: x1 + PAD, y1: y1 + PAD };
+  });
+  const near = (a, b) => a.x0 <= b.x1 && a.x1 >= b.x0 && a.y0 <= b.y1 && a.y1 >= b.y0;
+  const nameOf = (f, i) => String((f.properties && (f.properties.nombre || f.properties.name)) || `sector-${i}`);
+  const order = features.map((_, i) => i).sort((a, b) => {
+    const na = nameOf(features[a], a), nb = nameOf(features[b], b);
+    return na < nb ? -1 : na > nb ? 1 : a - b;
+  });
+  const assigned = new Map();
+  for (const i of order) {
+    const pref = kxSectorHash(nameOf(features[i], i)) % n;
+    const used = new Set();
+    for (const [j, c] of assigned) if (near(boxes[i], boxes[j])) used.add(c);
+    let pick = pref;
+    for (let k = 0; k < n; k++) { const c = (pref + k) % n; if (!used.has(c)) { pick = c; break; } }
+    assigned.set(i, pick);
+    features[i].properties = features[i].properties || {};
+    features[i].properties.kxc = pick;
+  }
+  return features;
+}
+
+// Color del sector: el índice asignado (kxc) o, si la fuente no lo trae (teselas vectoriales), un reparto estable por fid
+function kxSectorColorExpr() {
+  const idx = ['coalesce', ['to-number', ['get', 'kxc'], -1], ['%', ['to-number', ['get', 'fid'], 0], KX_SECTOR_PALETTE.length]];
+  const expr = ['match', idx];
+  KX_SECTOR_PALETTE.forEach((c, i) => expr.push(i, c));
+  expr.push(KX_SECTOR_PALETTE[0]);
+  return expr;
+}
+
+function kxSectorLinePaint() {
+  return {
+    'line-color': kxSectorColorExpr(),
+    'line-width': ['interpolate', ['linear'], ['zoom'],
+      12, ['case', _kxSel, 4.5, 2.5],
+      14, ['case', _kxSel, 5, 3],
+      16, ['case', _kxSel, 5.25, 3.75],
+      18, ['case', _kxSel, 5.5, 4],
+      20, ['case', _kxSel, 6, 4.5]],
+    'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.7, 13, 1],
+    'line-width-transition': { duration: 200 }
+  };
+}
+
+function kxSectorCasingPaint() {
+  return {
+    'line-color': '#FFFFFF',
+    'line-width': ['interpolate', ['linear'], ['zoom'],
+      12, ['case', _kxSel, 7.5, 5.5],
+      14, ['case', _kxSel, 8.5, 6.5],
+      16, ['case', _kxSel, 9, 7.5],
+      18, ['case', _kxSel, 9.5, 8],
+      20, ['case', _kxSel, 10.5, 9]],
+    'line-opacity': ['interpolate', ['linear'], ['zoom'],
+      12, ['case', _kxSel, 0.8, 0.6],
+      13, ['case', _kxSel, 1, 0.95]],
+    'line-width-transition': { duration: 200 }
+  };
+}
+
+// Capa interactiva: misma fuente y geometría que el sector, invisible (opacidad 0) y ancha. Solo sirve para
+// detectar toques; el dibujo lo hacen las dos capas visibles.
+function kxSectorHitPaint() {
+  return { 'line-color': '#000000', 'line-opacity': 0, 'line-width': KX_SECTOR_HIT_WIDTH };
+}
+
+function kxAddSectorHitLayer(sourceId, layerId, minzoom, sourceLayer) {
+  if (!mlMap || mlMap.getLayer(layerId) || !mlMap.getSource(sourceId)) return;
+  const layer = {
+    id: layerId,
+    type: 'line',
+    source: sourceId,
+    minzoom,
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: kxSectorHitPaint()
+  };
+  if (sourceLayer) layer['source-layer'] = sourceLayer;
+  // Por debajo de las vías: su círculo siempre recibe el toque antes que la línea del sector
+  const before = mlMap.getLayer('vias-shadow-layer') ? 'vias-shadow-layer' : (mlMap.getLayer('vias-layer') ? 'vias-layer' : undefined);
+  mlMap.addLayer(layer, before);
+  kxBindSectorEvents(layerId);
+}
+
+// ---- Etiquetas de sector al lateral de la línea, en el lado contrario a las vías ----
+// Cada sector tiene un punto de etiqueta en la mitad de su trazado (fuente de puntos propia, ligera: uno por sector).
+// La píldora se ancla a ese punto hacia el lado de la línea con menos vías cerca, así nombre y vías no se pisan.
+const KX_LINE_SOURCE_OF = { 'sectores-labels-source': 'sectores-source', 'sectores-usuarios-labels-source': 'sectores-usuarios-source' };
+const KX_LABEL_NEAR_M = [35, 90];   // radios (m) en los que se cuentan las vías a cada lado, de cerca a lejos
+const _kxLabelPoints = new Map();   // fuente de línea → sectores con sus candidatos de etiqueta
+
+function kxRoutePoints() {
+  const pts = [];
+  const add = g => {
+    if (!g) return;
+    if (g.type === 'Point') pts.push(g.coordinates);
+    else if (g.type === 'MultiPoint') g.coordinates.forEach(c => pts.push(c));
+  };
+  ['vias-source', 'vias-usuarios-source'].forEach(id => {
+    const src = mlMap.getSource(id);
+    const data = src && src.serialize && src.serialize().data;
+    if (data && data.features) data.features.forEach(f => add(f.geometry));
+  });
+  // Las variantes se quitan de vias-source y se pintan como anillos: también cuentan
+  for (const group of mlVariantGroups.values()) group.forEach(gf => { if (gf.coords) pts.push(gf.coords); });
+  return pts;
+}
+
+
+// Las etiquetas de sector son pequeñas píldoras HTML (una por sector, solo los de la escuela abierta): así usan la
+// tipografía de la app y el color propio de su sector, y se ven igual en reposo que seleccionadas.
+const KX_LABEL_MIN_ZOOM = 17;        // por defecto, si la escuela no define zoomLevels.sectorNames
+const KX_LABEL_GAP = 6;              // px entre el borde blanco de la línea y la píldora
+const KX_LABEL_PAD = 4;              // aire mínimo frente a vías, líneas y otras etiquetas
+const KX_LABEL_FRACTIONS = [0.5, 0.35, 0.65, 0.2, 0.8];   // puntos del trazado donde se prueba la etiqueta
+const KX_LABEL_BUDGET_ZOOM = 18;     // por debajo de este zoom se limita el número de etiquetas…
+const KX_LABEL_BUDGET = 8;           // …a las de los sectores con más vías
+const _kxLabelMarkers = new Map();   // fuente de línea → [{ marker, el, pill, id, cands, prio, lines, last, size }]
+let _kxLabelRoutes = [];             // vías y variantes de la escuela (lng, lat), para no taparlas
+
+/**
+ * Puntos candidatos para la etiqueta de un sector: varios puntos del trazado (mitad, tercios, extremos suaves),
+ * cada uno con la dirección perpendicular hacia la que se coloca (primero el lado con menos vías).
+ * lines: [[lng, lat], ...][]; routes: [lng, lat][]. Devuelve [{ point: [lng, lat], dir: [este, norte] }].
+ */
+function kxSectorLabelCandidates(lines, routes) {
+  const longest = lines.filter(l => l && l.length >= 2).sort((a, b) => b.length - a.length)[0];
+  if (!longest) return [];
+  const lat0 = longest[0][1] * Math.PI / 180;
+  const kx = 111320 * Math.cos(lat0), ky = 110540;
+  const P = longest.map(([x, y]) => [x * kx, y * ky]);
+  const seg = [];
+  let total = 0;
+  for (let i = 1; i < P.length; i++) { const d = Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]); seg.push(d); total += d; }
+  if (!total) return [];
+  const out = [];
+  for (const frac of KX_LABEL_FRACTIONS) {
+    let acc = 0, k = 0;
+    while (k < seg.length - 1 && acc + seg[k] < total * frac) { acc += seg[k]; k++; }
+    const t = seg[k] ? (total * frac - acc) / seg[k] : 0;
+    const M = [P[k][0] + (P[k + 1][0] - P[k][0]) * t, P[k][1] + (P[k + 1][1] - P[k][1]) * t];
+    const len = seg[k] || 1;
+    const n = [-(P[k + 1][1] - P[k][1]) / len, (P[k + 1][0] - P[k][0]) / len];
+    let side = 0;
+    for (const R of KX_LABEL_NEAR_M) {
+      let left = 0, right = 0;
+      for (const [rx, ry] of routes) {
+        const dx = rx * kx - M[0], dy = ry * ky - M[1];
+        if (dx * dx + dy * dy > R * R) continue;
+        if (dx * n[0] + dy * n[1] >= 0) left++; else right++;
+      }
+      if (left !== right) { side = left < right ? 1 : -1; break; }
+    }
+    if (!side) side = n[1] >= 0 ? 1 : -1;
+    const point = [M[0] / kx, M[1] / ky];
+    out.push({ point, dir: [n[0] * side, n[1] * side] }, { point, dir: [-n[0] * side, -n[1] * side] });
+  }
+  return out;
+}
+
+// ---- Geometría en pantalla (puras, sin mapa) ----
+function kxRectsOverlap(a, b, pad = 0) {
+  return a.left < b.right + pad && a.right > b.left - pad && a.top < b.bottom + pad && a.bottom > b.top - pad;
+}
+
+function kxRectHitsCircle(r, cx, cy, radius) {
+  const x = Math.max(r.left, Math.min(cx, r.right)), y = Math.max(r.top, Math.min(cy, r.bottom));
+  return (cx - x) * (cx - x) + (cy - y) * (cy - y) <= radius * radius;
+}
+
+// ¿El segmento a–b cruza el rectángulo (ampliado en pad)? Recorte de Liang–Barsky.
+function kxRectHitsSegment(r, ax, ay, bx, by, pad = 0) {
+  const x0 = r.left - pad, x1 = r.right + pad, y0 = r.top - pad, y1 = r.bottom + pad;
+  const dx = bx - ax, dy = by - ay;
+  let t0 = 0, t1 = 1;
+  const clip = (p, q) => {
+    if (p === 0) return q >= 0;
+    const t = q / p;
+    if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+    else { if (t < t0) return false; if (t < t1) t1 = t; }
+    return true;
+  };
+  return clip(-dx, ax - x0) && clip(dx, x1 - ax) && clip(-dy, ay - y0) && clip(dy, y1 - ay) && t0 <= t1;
+}
+
+/**
+ * Elige el primer hueco libre para una etiqueta. cands: [{ at: [x, y], dir: [dx, dy] }] en pantalla (dir unitario,
+ * y hacia abajo); size: { w, h }; ctx: { lineHalf, bounds, excl[], placed[], circles[[x, y, r]], segments[[ax, ay, bx, by]] }.
+ * Prueba primero el índice `first` (la posición anterior, para que no salte). Devuelve { index, rect } o null.
+ */
+function kxChooseLabelSpot(cands, size, ctx, first = -1) {
+  const order = cands.map((_, i) => i);
+  if (first >= 0 && first < cands.length) { order.splice(first, 1); order.unshift(first); }
+  for (const i of order) {
+    const { at, dir } = cands[i];
+    const ext = Math.abs(dir[0]) * size.w / 2 + Math.abs(dir[1]) * size.h / 2;
+    const d = ctx.lineHalf + KX_LABEL_GAP + ext;
+    const cx = at[0] + dir[0] * d, cy = at[1] + dir[1] * d;
+    const rect = { left: cx - size.w / 2, top: cy - size.h / 2, right: cx + size.w / 2, bottom: cy + size.h / 2 };
+    const b = ctx.bounds;
+    if (rect.left < b.left || rect.top < b.top || rect.right > b.right || rect.bottom > b.bottom) continue;
+    if ((ctx.excl || []).some(e => kxRectsOverlap(rect, e))) continue;
+    if ((ctx.placed || []).some(p => kxRectsOverlap(rect, p, KX_LABEL_PAD))) continue;
+    if ((ctx.circles || []).some(([x, y, rad]) => kxRectHitsCircle(rect, x, y, rad + KX_LABEL_PAD))) continue;
+    if ((ctx.segments || []).some(([ax, ay, bx, by]) => kxRectHitsSegment(rect, ax, ay, bx, by, ctx.lineHalf + 1))) continue;
+    return { index: i, rect };
+  }
+  return null;
+}
+
+/**
+ * (Re)calcula los candidatos de etiqueta de una fuente de sectores y pinta sus píldoras (una por sector).
+ * Se llama al terminar de cargar la escuela (cuando ya están las vías) y en cada actualización de sectores de usuarios.
+ */
+function kxRefreshSectorLabels(lineSourceId) {
+  const src = mlMap && mlMap.getSource(lineSourceId);
+  const data = src && src.serialize && src.serialize().data;
+  if (!data || !data.features) return;
+  _kxLabelRoutes = kxRoutePoints();
+  // Relevancia: número de vías del sector (para decidir qué nombres se ven cuando falta sitio)
+  const routeCount = new Map();
+  ['vias-source', 'vias-usuarios-source'].forEach(id => {
+    const s2 = mlMap.getSource(id);
+    const d2 = s2 && s2.serialize && s2.serialize().data;
+    (d2 && d2.features || []).forEach(f => {
+      const k = String(f.properties && f.properties.sector || '').trim().toLowerCase();
+      if (k) routeCount.set(k, (routeCount.get(k) || 0) + 1);
+    });
+  });
+  const items = [];
+  data.features.forEach((f, i) => {
+    const g = f.geometry;
+    const lines = !g ? [] : g.type === 'MultiLineString' ? g.coordinates : g.type === 'LineString' ? [g.coordinates] : [];
+    const cands = kxSectorLabelCandidates(lines, _kxLabelRoutes);
+    if (!cands.length || !f.properties.nombre) return;
+    items.push({ id: i, props: f.properties, lines, cands,
+      prio: routeCount.get(String(f.properties.nombre).trim().toLowerCase()) || 0 });
+  });
+  _kxLabelPoints.set(lineSourceId, items);
+  kxRenderSectorLabels(lineSourceId);
+  kxEnsureLabelSync();
+}
+
+function kxRemoveSectorLabels(lineSourceId) {
+  const ids = lineSourceId ? [lineSourceId] : [..._kxLabelMarkers.keys()];
+  ids.forEach(id => {
+    (_kxLabelMarkers.get(id) || []).forEach(m => m.marker.remove());
+    _kxLabelMarkers.delete(id);
+  });
+}
+
+// Crea las píldoras una sola vez; después solo se recolocan (sin volver a crearlas: así no parpadean)
+function kxRenderSectorLabels(lineSourceId) {
+  kxRemoveSectorLabels(lineSourceId);
+  const list = [];
+  for (const it of _kxLabelPoints.get(lineSourceId) || []) {
+    const name = it.props.nombre;
+    const root = document.createElement('div');
+    root.className = 'kx-label-marker';
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'kx-map-label is-hidden';
+    pill.setAttribute('aria-label', `Sector ${name}`);
+    pill.title = name;
+    pill.style.setProperty('--kx-sector', kxSectorColorOf({ properties: it.props }));
+    const txt = document.createElement('span');
+    txt.className = 'kx-map-label__txt';
+    txt.textContent = name;
+    pill.appendChild(txt);
+    root.appendChild(pill);
+    const m = { id: it.id, source: lineSourceId, root, el: pill, cands: it.cands, lines: it.lines, prio: it.prio, last: -1, size: null };
+    pill.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+      const line = { source: lineSourceId, id: it.id, properties: kxLineFeatureProps(lineSourceId, it.id) || it.props };
+      const at = m.marker.getLngLat();
+      kxSelectSector(line, { lng: at.lng, lat: at.lat });
+      kxOpenSectorFeature(line, at);
+    });
+    m.marker = new maplibregl.Marker({ element: root, anchor: 'center', opacityWhenCovered: '1' })
+      .setLngLat(it.cands[0].point)
+      .addTo(mlMap);
+    if (kxSelectedSector && kxSelectedSector.source === lineSourceId && kxSelectedSector.id === it.id) pill.classList.add('is-selected');
+    list.push(m);
+  }
+  _kxLabelMarkers.set(lineSourceId, list);
+  kxPlaceSectorLabels();
+}
+
+function kxLabelSize(m) {
+  const sel = m.el.classList.contains('is-selected');
+  if (!m.size || m.size.sel !== sel) m.size = { w: m.el.offsetWidth, h: m.el.offsetHeight, sel };
+  return m.size;
+}
+
+/**
+ * Coloca todas las etiquetas visibles en el hueco libre más cercano a su sector, sin tapar vías, variantes, líneas
+ * de sector ni otras etiquetas, ni quedar bajo el buscador, la barra inferior o los botones. Si no hay hueco, se
+ * oculta (salvo la del sector seleccionado). Solo se ejecuta al terminar un movimiento, zoom o giro.
+ */
+function kxPlaceSectorLabels() {
+  if (!mlMap) return;
+  const all = [..._kxLabelMarkers.values()].flat();
+  if (!all.length) return;
+  const school = mlCurrentSchool ? MAPLIBRE_SCHOOLS[mlCurrentSchool] : null;
+  const minZoom = (school && school.zoomLevels && school.zoomLevels.sectorNames) || KX_LABEL_MIN_ZOOM;
+  const zoom = mlMap.getZoom();
+  const canvas = mlMap.getCanvas();
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  const bounds = { left: 6, top: 64, right: W - 6, bottom: H - 130 };   // sin bajar a escala, atribución ni barra inferior
+  const excl = [{ left: W - 64, top: H - 400, right: W, bottom: H }];   // columna de controles
+  const view = { left: -60, top: -60, right: W + 60, bottom: H + 60 };
+
+  // Obstáculos en pantalla
+  const routeR = mlGetViasRadius() + KX_ROUTE_STROKE + 1;
+  const circles = [];
+  if (zoom >= ((school && school.zoomLevels && school.zoomLevels.vias) || 17) - 0.5) {
+    for (const c of _kxLabelRoutes) {
+      const p = mlMap.project(c);
+      if (p.x > view.left && p.x < view.right && p.y > view.top && p.y < view.bottom) circles.push([p.x, p.y, routeR]);
+    }
+  }
+  const segments = [];
+  const onScreen = new Map();
+  for (const m of all) {
+    let visible = false;
+    for (const l of m.lines) {
+      let prev = null;
+      for (const c of l) {
+        const p = mlMap.project(c);
+        if (prev) {
+          segments.push([prev.x, prev.y, p.x, p.y]);
+          if (!visible && kxRectHitsSegment({ left: 0, top: 0, right: W, bottom: H }, prev.x, prev.y, p.x, p.y)) visible = true;
+        }
+        prev = p;
+      }
+    }
+    onScreen.set(m, visible);
+  }
+  const lineHalf = 4.5;   // medio borde blanco del sector
+
+  const selected = all.filter(m => m.el.classList.contains('is-selected'));
+  const rest = all.filter(m => !m.el.classList.contains('is-selected')).sort((a, b) => b.prio - a.prio || a.id - b.id);
+  const zoomOk = zoom >= minZoom;
+  const budget = zoom < KX_LABEL_BUDGET_ZOOM ? KX_LABEL_BUDGET : Infinity;
+  const placed = [];
+  let shown = 0;
+  let selRect = null;
+
+  for (const m of selected.concat(rest)) {
+    const isSel = m.el.classList.contains('is-selected');
+    m.el.classList.remove('is-dimmed');
+    if ((!isSel && (!zoomOk || shown >= budget)) || !onScreen.get(m)) { m.el.classList.add('is-hidden'); continue; }
+    const size = kxLabelSize(m);
+    const cands = m.cands.map(c => {
+      const at = mlMap.project(c.point);
+      const lat = c.point[1] * Math.PI / 180;
+      const q = mlMap.project([c.point[0] + c.dir[0] * 5 / (111320 * Math.cos(lat)), c.point[1] + c.dir[1] * 5 / 110540]);
+      const dx = q.x - at.x, dy = q.y - at.y, len = Math.hypot(dx, dy) || 1;
+      return { at: [at.x, at.y], dir: [dx / len, dy / len] };
+    });
+    let spot = kxChooseLabelSpot(cands, size, { lineHalf, bounds, excl, placed, circles, segments }, m.last);
+    // La del seleccionado se ve siempre: si no hay hueco, en su primera posición
+    if (!spot && isSel) spot = kxChooseLabelSpot(cands, size, { lineHalf, bounds: view }, m.last >= 0 ? m.last : 0);
+    if (!spot) { m.el.classList.add('is-hidden'); continue; }
+    m.last = spot.index;
+    const at = cands[spot.index].at;
+    const cx = (spot.rect.left + spot.rect.right) / 2, cy = (spot.rect.top + spot.rect.bottom) / 2;
+    m.marker.setLngLat(m.cands[spot.index].point).setOffset([cx - at[0], cy - at[1]]);
+    m.el.classList.remove('is-hidden');
+    placed.push(spot.rect);
+    if (isSel) selRect = spot.rect;
+    else shown++;
+  }
+  // Con un sector seleccionado, las etiquetas que tiene muy cerca pierden protagonismo
+  if (selRect) {
+    for (const m of rest) {
+      if (m.el.classList.contains('is-hidden')) continue;
+      const r = m.el.getBoundingClientRect();
+      const c = canvas.getBoundingClientRect();
+      const rr = { left: r.left - c.left, top: r.top - c.top, right: r.right - c.left, bottom: r.bottom - c.top };
+      if (kxRectsOverlap(rr, selRect, 60)) m.el.classList.add('is-dimmed');
+    }
+  }
+}
+
+// Al hacer zoom solo se aplica el umbral (barato); la colocación completa, al terminar cada movimiento, zoom o giro
+let _kxLabelSyncBound = false;
+function kxEnsureLabelSync() {
+  if (_kxLabelSyncBound || !mlMap) return;
+  _kxLabelSyncBound = true;
+  mlMap.on('zoom', () => {
+    const school = mlCurrentSchool ? MAPLIBRE_SCHOOLS[mlCurrentSchool] : null;
+    const minZoom = (school && school.zoomLevels && school.zoomLevels.sectorNames) || KX_LABEL_MIN_ZOOM;
+    if (mlMap.getZoom() >= minZoom) return;
+    for (const m of [..._kxLabelMarkers.values()].flat()) {
+      if (!m.el.classList.contains('is-selected')) m.el.classList.add('is-hidden');
+    }
+  });
+  mlMap.on('moveend', kxPlaceSectorLabels);
+}
+
+function kxLabelMarkerFor(lineSourceId, id) {
+  const list = _kxLabelMarkers.get(lineSourceId);
+  return list ? list.find(m => m.id === id) : null;
+}
+
+// Etiqueta de sector: píldora a lo largo de la línea, horizontal, sin solaparse (colisión nativa).
+// Solo para teselas vectoriales (sin datos en memoria para calcular el lateral).
+function kxAddSectorLabels(sourceId, layerId, minzoom, sourceLayer) {
+  if (!mlMap || mlMap.getLayer(layerId) || !mlMap.getSource(sourceId)) return;
+  kxEnsureLabelPill();
+  const layer = {
+    id: layerId,
+    type: 'symbol',
+    source: sourceId,
+    minzoom,
+    layout: {
+      ...kxLabelLayout(['interpolate', ['linear'], ['zoom'], 16, 11, 19, 12.5]),
+      'symbol-placement': 'line-center',
+      'text-rotation-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport',
+      'text-pitch-alignment': 'viewport',
+      'text-keep-upright': true
+    },
+    // El sector seleccionado ya lleva su etiqueta flotante: se oculta la del mapa para no duplicarla
+    paint: { ...kxLabelPaint(), 'text-opacity': ['case', _kxSel, 0, 1], 'icon-opacity': ['case', _kxSel, 0, 1] }
+  };
+  if (sourceLayer) layer['source-layer'] = sourceLayer;
+  // Por debajo de las vías: el nombre nunca tapa un punto
+  const before = mlMap.getLayer('vias-shadow-layer') ? 'vias-shadow-layer' : (mlMap.getLayer('vias-layer') ? 'vias-layer' : undefined);
+  mlMap.addLayer(layer, before);
+  kxBindSectorEvents(layerId);
+}
+
+function kxLabelLayout(size) {
+  return {
+    'text-field': ['get', 'nombre'],
+    'text-font': ['Noto Sans Bold'],
+    'text-size': size,
+    'text-max-width': 12,
+    'text-padding': 4,
+    'icon-image': 'kx-label-pill',
+    'icon-text-fit': 'both',
+    'icon-text-fit-padding': [3, 9, 3, 14],
+    'icon-allow-overlap': false,
+    'text-allow-overlap': false,
+    'text-optional': false
+  };
+}
+
+function kxLabelPaint() {
+  return { 'text-color': KX_MAP.granite, 'icon-opacity': 1, 'text-opacity': 1 };
+}
+
+// Fondo de etiqueta: blanco cálido translúcido, borde finísimo, sombra suave y punto verde a la izquierda.
+// Imagen estirable (stretchX/Y) para que MapLibre la ajuste al texto con icon-text-fit.
+function kxEnsureLabelPill(id = 'kx-label-pill', withDot = true) {
+  if (!mlMap || mlMap.hasImage(id)) return;
+  const d = _mlDPR, W = 46, H = 30, m = 3;
+  const c = document.createElement('canvas');
+  c.width = W * d; c.height = H * d;
+  const ctx = c.getContext('2d');
+  ctx.scale(d, d);
+  const r = (H - 2 * m) / 2;
+  const pill = () => {
+    ctx.beginPath();
+    ctx.moveTo(m + r, m); ctx.lineTo(W - m - r, m);
+    ctx.arc(W - m - r, H / 2, r, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(m + r, H - m);
+    ctx.arc(m + r, H / 2, r, Math.PI / 2, -Math.PI / 2);
+    ctx.closePath();
+  };
+  ctx.shadowColor = withDot ? 'rgba(32, 41, 35, 0.22)' : 'rgba(32, 41, 35, 0.14)'; ctx.shadowBlur = withDot ? 3 : 2; ctx.shadowOffsetY = 1;
+  pill(); ctx.fillStyle = 'rgba(247, 246, 240, 0.95)'; ctx.fill();
+  ctx.shadowColor = 'transparent';
+  pill(); ctx.strokeStyle = 'rgba(32, 41, 35, 0.10)'; ctx.lineWidth = 1; ctx.stroke();
+  if (withDot) { ctx.beginPath(); ctx.arc(m + 11, H / 2, 3, 0, Math.PI * 2); ctx.fillStyle = KX_MAP.forestBright; ctx.fill(); }
+  const img = ctx.getImageData(0, 0, c.width, c.height);
+  mlMap.addImage(id, { width: c.width, height: c.height, data: new Uint8Array(img.data.buffer) }, {
+    pixelRatio: d,
+    stretchX: withDot ? [[22 * d, 30 * d]] : [[16 * d, 30 * d]],
+    stretchY: [[14 * d, 16 * d]],
+    content: withDot ? [20 * d, 7 * d, 36 * d, 23 * d] : [14 * d, 7 * d, 32 * d, 23 * d]
+  });
+}
+
+// SVG → imagen nítida (a la densidad real de la pantalla) para iconos de capas symbol
+function kxLoadSVGImage(imageId, svgString, cssWidth, cssHeight = cssWidth) {
+  return new Promise(resolve => {
+    if (!mlMap || mlMap.hasImage(imageId)) { resolve(); return; }
+    const pw = Math.round(cssWidth * _mlDPR), ph = Math.round(cssHeight * _mlDPR);
+    const img = new Image(pw, ph);
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = pw; c.height = ph;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, pw, ph);
+        const data = ctx.getImageData(0, 0, pw, ph);
+        if (!mlMap.hasImage(imageId)) mlMap.addImage(imageId, { width: pw, height: ph, data: new Uint8Array(data.data.buffer) }, { pixelRatio: _mlDPR });
+      } catch (e) { console.warn('Icono no disponible:', imageId, e); }
+      resolve();
+    };
+    img.onerror = () => { console.warn('Error cargando icono:', imageId); resolve(); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+  });
+}
+
+// Sombra de contacto bajo las vías: misma fuente y mismo filtro que vias-layer (applyGradeFilter la sincroniza)
+function kxAddRouteShadow(sourceId, minzoom, sourceLayer) {
+  if (!mlMap || !mlMap.getLayer('vias-layer') || mlMap.getLayer('vias-shadow-layer')) return;
+  const layer = { id: 'vias-shadow-layer', type: 'circle', source: sourceId, minzoom, paint: kxRouteShadowPaint() };
+  if (sourceLayer) layer['source-layer'] = sourceLayer;
+  mlMap.addLayer(layer, 'vias-layer');
+  const f = mlMap.getFilter('vias-layer');
+  if (f) mlMap.setFilter('vias-shadow-layer', f);
+}
+
+// --- Estado de selección (feature-state) ---
+let kxSelectedSector = null;   // { source, sourceLayer, id }
+let kxSectorLabelMarker = null;
+let kxSectorChooser = null;
+let kxSelectedSchool = null;   // id de la escuela seleccionada
+let kxFocusedSchool = null;    // id de la escuela con foco (búsqueda, navegación…); independiente de la selección
+let kxFocusTimer = null;
+
+function kxSetFeatureState(ref, state) {
+  if (!ref || !mlMap || !mlMap.getSource(ref.source)) return;
+  try {
+    const target = { source: ref.source, id: ref.id };
+    if (ref.sourceLayer) target.sourceLayer = ref.sourceLayer;
+    mlMap.setFeatureState(target, state);
+  } catch (_) {}
+}
+
+function kxClearSectorSelection() {
+  if (kxSelectedSector) {
+    kxSetFeatureState(kxSelectedSector, { selected: false });
+    const m = kxLabelMarkerFor(kxSelectedSector.source, kxSelectedSector.id);
+    if (m) m.el.classList.remove('is-selected');
+  }
+  kxSelectedSector = null;
+  if (kxSectorLabelMarker) { kxSectorLabelMarker.remove(); kxSectorLabelMarker = null; }
+  kxPlaceSectorLabels();
+}
+
+function kxSelectSector(feature, lngLat) {
+  kxClearSectorSelection();
+  kxCloseSectorChooser();
+  if (!feature || feature.id == null) return;
+  // Una etiqueta del mapa representa a su línea: se selecciona la línea
+  const lineSource = KX_LINE_SOURCE_OF[feature.source] || feature.source;
+  kxSelectedSector = { source: lineSource, sourceLayer: feature.sourceLayer, id: feature.id };
+  kxSetFeatureState(kxSelectedSector, { selected: true });
+  // Su etiqueta es la misma píldora de siempre: solo se marca como seleccionada (se ve aunque falte zoom)
+  const own = kxLabelMarkerFor(lineSource, feature.id);
+  if (own) { own.el.classList.add('is-selected'); kxPlaceSectorLabels(); return; }
+  // Sin etiqueta propia (teselas vectoriales): una píldora igual, sobre el toque
+  const name = feature.properties && feature.properties.nombre;
+  if (name && lngLat) {
+    const el = document.createElement('div');
+    el.className = 'kx-map-label is-selected';
+    el.textContent = name;
+    el.style.setProperty('--kx-sector', kxSectorColorOf(feature));
+    kxSectorLabelMarker = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -9] })
+      .setLngLat(lngLat)
+      .addTo(mlMap);
+  }
+}
+
+function kxSectorColorOf(f) {
+  const i = Number(f && f.properties && f.properties.kxc);
+  return KX_SECTOR_PALETTE[Number.isInteger(i) && i >= 0 && i < KX_SECTOR_PALETTE.length ? i : 0];
+}
+
+function kxCloseSectorChooser() {
+  if (kxSectorChooser) { kxSectorChooser.remove(); kxSectorChooser = null; }
+}
+
+const KX_SECTOR_HIT_LAYERS = ['sectores-hit-layer', 'sectores-usuarios-hit-layer'];
+const KX_SECTOR_LABEL_LAYERS = ['sectores-labels-layer', 'sectores-usuarios-labels-layer'];
+const KX_ROUTE_LAYERS = ['vias-layer', 'vias-usuarios-layer', 'vias-ticks-circle-layer', 'pending-my-routes-layer', 'admin-pending-routes-layer'];
+// Elementos con su propio toque que el sector nunca debe interceptar (si el dedo cae exactamente sobre ellos)
+const KX_PRIORITY_LAYERS = KX_ROUTE_LAYERS.concat(['school-markers-layer', 'escuelas-usuarios-layer', 'parkings-layer', 'puntos-interes-layer', 'poi-usuarios-layer']);
+const KX_LABEL_TAP_PAD = 8;   // px alrededor de una etiqueta que también cuentan como toque
+
+const _kxBoundSectorLayers = new Set();
+// Los eventos por capa de MapLibre sobreviven a la capa: se registran una sola vez por id, aunque se recargue la escuela
+function kxBindSectorEvents(layerId, { cursor = true } = {}) {
+  if (!mlMap || _kxBoundSectorLayers.has(layerId)) return;
+  _kxBoundSectorLayers.add(layerId);
+  if (cursor) {
+    mlMap.on('mouseenter', layerId, () => { mlMap.getCanvas().style.cursor = 'pointer'; });
+    mlMap.on('mouseleave', layerId, () => { mlMap.getCanvas().style.cursor = ''; });
+  }
+  mlMap.on('click', layerId, (e) => {
+    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    if (!e.features || e.features.length === 0) return;
+    kxHandleSectorTap(e);
+  });
+}
+
+// Abre la ficha de siempre según el origen del sector (estático o aportado por usuarios)
+function kxOpenSectorFeature(f, lngLat) {
+  const source = KX_LINE_SOURCE_OF[f.source] || f.source;
+  if (source === 'sectores-usuarios-source') {
+    // La etiqueta solo lleva nombre y color: la ficha de usuario necesita las propiedades completas de su línea
+    const full = kxLineFeatureProps(source, f.id);
+    return mlOpenUserSector(full || f.properties, lngLat);
+  }
+  if (source !== f.source) {
+    const full = kxLineFeatureProps(source, f.id);
+    return mlOpenStaticSector(full || f.properties, lngLat);
+  }
+  return mlOpenStaticSector(f.properties, lngLat);
+}
+
+function kxLineFeatureProps(lineSourceId, id) {
+  const src = mlMap && mlMap.getSource(lineSourceId);
+  const data = src && src.serialize && src.serialize().data;
+  const f = data && data.features && data.features[id];
+  return f ? f.properties : null;
+}
+
+function kxSectorKey(f) {
+  return f.source + '|' + (f.id != null ? f.id : f.properties && f.properties.nombre);
+}
+
+/**
+ * Toque sobre un sector o su etiqueta. El área táctil es la capa invisible de 24 px, no el trazo.
+ *  1. Una vía, escuela, parking o POI justo bajo el dedo tiene prioridad (lo gestiona su propio handler).
+ *  2. Una etiqueta (con un margen de 8 px) abre el sector que representa.
+ *  3. Un único sector dentro del área táctil se selecciona y abre; si hay varios, se elige en un selector.
+ * Devuelve true cuando el evento ya está gestionado, para que los demás handlers de sector no lo repitan.
+ */
+function kxHandleSectorTap(e) {
+  const oe = e.originalEvent || {};
+  if (oe._kxSectorHandled) return true;
+  oe._kxSectorHandled = true;
+  // La píldora de un sector gestiona su propio toque
+  if (oe.target && oe.target.closest && oe.target.closest('.kx-map-label')) return true;
+
+  const priority = KX_PRIORITY_LAYERS.filter(id => mlMap.getLayer(id));
+  if (priority.length && mlMap.queryRenderedFeatures(e.point, { layers: priority }).length) return true;
+
+  const labelLayers = KX_SECTOR_LABEL_LAYERS.filter(id => mlMap.getLayer(id));
+  if (labelLayers.length) {
+    const pad = KX_LABEL_TAP_PAD;
+    const box = [[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]];
+    const label = mlMap.queryRenderedFeatures(box, { layers: labelLayers })[0];
+    if (label) {
+      kxSelectSector(label, e.lngLat);
+      kxOpenSectorFeature(label, e.lngLat);
+      return true;
+    }
+  }
+
+  const layers = KX_SECTOR_HIT_LAYERS.filter(id => mlMap.getLayer(id));
+  const seen = new Set();
+  const candidates = [];
+  for (const f of mlMap.queryRenderedFeatures(e.point, { layers })) {
+    const key = kxSectorKey(f);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(f);
+  }
+  // Sin sectores en el área táctil no se abre nada
+  if (!candidates.length) return true;
+
+  if (candidates.length === 1) {
+    kxSelectSector(candidates[0], e.lngLat);
+    kxOpenSectorFeature(candidates[0], e.lngLat);
+    return true;
+  }
+
+  kxCloseSectorChooser();
+  kxClearSectorSelection();
+  const wrap = document.createElement('div');
+  wrap.className = 'kx-sector-chooser';
+  wrap.setAttribute('role', 'listbox');
+  wrap.setAttribute('aria-label', 'Elige un sector');
+  const title = document.createElement('p');
+  title.className = 'kx-sector-chooser__title';
+  title.textContent = `${candidates.length} sectores aquí`;
+  wrap.appendChild(title);
+  candidates.slice(0, 6).forEach(f => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'kx-sector-chooser__item';
+    b.setAttribute('role', 'option');
+    b.textContent = f.properties.nombre || 'Sector sin nombre';
+    b.style.setProperty('--kx-sector', kxSectorColorOf(f));
+    const ref = { source: f.source, sourceLayer: f.sourceLayer, id: f.id };
+    b.addEventListener('mouseenter', () => kxSetFeatureState(ref, { selected: true }));
+    b.addEventListener('mouseleave', () => kxSetFeatureState(ref, { selected: false }));
+    b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      kxSetFeatureState(ref, { selected: false });
+      kxSelectSector(f, e.lngLat);
+      kxOpenSectorFeature(f, e.lngLat);
+    });
+    wrap.appendChild(b);
+  });
+  kxSectorChooser = new maplibregl.Popup({ closeButton: false, closeOnClick: true, offset: 14, maxWidth: '240px', className: 'kx-sector-chooser-popup' })
+    .setLngLat(e.lngLat)
+    .setDOMContent(wrap)
+    .addTo(mlMap);
+  kxSectorChooser.on('close', () => { kxSectorChooser = null; });
+  return true;
+}
+
+// --- Iconos planos ---
+// Marcador de escuela: pin circular con punta inferior, montaña blanca y contorno blanco. Sin texto, sin sombras.
+// Los estados comparten silueta, proporciones y montaña; solo cambia el relleno. Con icon-anchor 'bottom' y un
+// icon-offset de KX_SCHOOL_PIN_TIP_GAP, la punta visible queda exactamente sobre la coordenada.
+const KX_SCHOOL_PIN = { normal: '#398C62', selected: '#27A866', pending: '#F59E0B' };
+// El SVG original es de 96×112; se rasteriza a 48×56 px CSS (a la densidad real de la pantalla)
+const KX_SCHOOL_PIN_W = 48, KX_SCHOOL_PIN_H = 56;
+const KX_SCHOOL_PIN_HALF_W = 22.5;   // semiancho del pin con su contorno
+const KX_SCHOOL_PIN_BODY_UP = 30.75; // del extremo visible de la punta al centro del círculo
+const KX_SCHOOL_PIN_TIP_GAP = 1.25;  // la punta redondeada queda 1,25 px por encima del borde inferior de la imagen
+// Escala del pin por zoom (icon-size sobre la imagen de 48 px de ancho)
+const KX_SCHOOL_SCALE = [[5, 0.55], [8, 0.68], [10, 0.78], [12, 0.85]];
+
+// SVG original de KRUX (sin cambios de geometría): solo varía el relleno según el estado
+function kxSchoolPinSVG(fill) {
+  return `<svg xmlns="http://www.w3.org/2000/svg"
+     width="96" height="112"
+     viewBox="0 0 96 112">
+  <path
+    d="M48 5
+       C24.3 5 5 24.3 5 48
+       C5 66 16 78 29 88
+       L44 105
+       Q48 110 52 105
+       L67 88
+       C80 78 91 66 91 48
+       C91 24.3 71.7 5 48 5Z"
+    fill="${fill}"
+    stroke="#FFFFFF"
+    stroke-width="4"
+    stroke-linejoin="round"/>
+
+  <path
+    d="M22 57 L39 32 L49 45 L59 29 L77 57 Z"
+    fill="#FFFFFF"/>
+
+  <path
+    d="M22 57 L39 32 L49 45"
+    fill="none"
+    stroke="#EAF3ED"
+    stroke-width="1.5"
+    stroke-linejoin="round"/>
+</svg>`;
+}
+
+function kxSchoolScaleAt(z) {
+  const st = KX_SCHOOL_SCALE;
+  if (z <= st[0][0]) return st[0][1];
+  for (let i = 1; i < st.length; i++) {
+    if (z <= st[i][0]) return st[i - 1][1] + (st[i][1] - st[i - 1][1]) * (z - st[i - 1][0]) / (st[i][0] - st[i - 1][0]);
+  }
+  return st[st.length - 1][1];
+}
+
+// Etiqueta del nombre, a la derecha del pin y a la altura de su círculo (independiente del SVG)
+function kxSchoolLabelLayer(id, sourceId) {
+  kxEnsureLabelPill('kx-school-label', false);
+  const sizes = { 7: 11, 10: 12, 12: 13 };
+  const offset = ['interpolate', ['linear'], ['zoom']];
+  Object.entries(sizes).forEach(([z, size]) => {
+    const sc = kxSchoolScaleAt(+z);
+    // El borde visible de la píldora queda 15 px a la izquierda del texto (relleno 4 + 11 del margen de la imagen)
+    offset.push(+z, ['literal', [+((KX_SCHOOL_PIN_HALF_W * sc + 4 + 15) / size).toFixed(3), -+((KX_SCHOOL_PIN_BODY_UP * sc) / size).toFixed(3)]]);
+  });
+  return {
+    id,
+    type: 'symbol',
+    source: sourceId,
+    minzoom: 7,
+    maxzoom: 12,
+    layout: {
+      ...kxLabelLayout(['interpolate', ['linear'], ['zoom'], 7, 11, 10, 12, 12, 13]),
+      'icon-image': 'kx-school-label',
+      'icon-text-fit-padding': [0, 4, 0, 4],
+      'text-anchor': 'left',
+      'text-justify': 'left',
+      'text-offset': offset,
+      'text-max-width': 10
+    },
+    paint: { ...kxLabelPaint(), 'text-color': KX_MAP.forest }
+  };
+}
+
+function kxPOISVG(poiType) {
+  const poi = getPOISVG(poiType);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28">
+    <circle cx="14" cy="14" r="11.5" fill="${poi.color}" stroke="#ffffff" stroke-width="2"/>
+    <svg x="6.5" y="6.5" width="15" height="15" viewBox="0 0 20 20">
+      <g fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${poi.svg}</g>
+    </svg>
+  </svg>`;
+}
+
+function kxTickBadgeSVG() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+    <circle cx="8" cy="8" r="6.6" fill="${KX_MAP.forest}" stroke="#ffffff" stroke-width="1.6"/>
+    <path d="M5 8.3 L7.1 10.3 L11 6" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
 }
 
 // ============================================
@@ -379,8 +1292,9 @@ function initMapLibre() {
     closeButton: true,
     closeOnClick: false,
     maxWidth: '340px',
-    className: 'ml-route-popup'
+    className: 'ml-route-popup kx-mpop'
   });
+  kxWatchRoutePopup(mlRoutePopup);
 
   // Eventos cuando el mapa esté listo
   mlMap.on('load', onMapLoad);
@@ -494,16 +1408,9 @@ function addMapTilerLabels(style) {
  * Añade controles al mapa
  */
 function addMapControls() {
-  // Control de navegación (zoom + rotación)
-  mlMap.addControl(new maplibregl.NavigationControl({
-    visualizePitch: true
-  }), 'bottom-right');
-
-  // Control de escala
-  mlMap.addControl(new maplibregl.ScaleControl({
-    maxWidth: 150,
-    unit: 'metric'
-  }), 'bottom-left');
+  // La esquina inferior derecha apila cada control nuevo encima del anterior.
+  // Orden final (de arriba abajo): edición (solo admin/spotter), 3D, geolocalización y atribución.
+  // Sin botones de zoom ni brújula: el zoom, el desplazamiento y la rotación se hacen por gestos.
 
   // Control de geolocalización
   const geolocateControl = new maplibregl.GeolocateControl({
@@ -515,14 +1422,41 @@ function addMapControls() {
   });
   mlMap.addControl(geolocateControl, 'bottom-right');
 
-  // Botón de filtro por grado (esquina superior derecha)
+  // Control de escala
+  mlMap.addControl(new maplibregl.ScaleControl({
+    maxWidth: 150,
+    unit: 'metric'
+  }), 'bottom-left');
+
+  // Botón de filtro por grado (columna inferior derecha)
   addGradeFilterButton();
 
   // Botón de información / leyenda
   addInfoLegendButton();
+
+  // Sesiones de escalada: botón flotante y tarjeta de sesión activa (climb-session-ui.js)
+  if (typeof KruxSessionUI !== 'undefined') KruxSessionUI.mountMap(mlMap);
+}
+
+// Recorrido GPS de la sesión activa (lista vacía = quitarlo). Lo llama climb-session-ui.js
+function kxSessionDrawTrack(points) {
+  if (!mlMap) return;
+  const apply = () => {
+    const data = { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: points.map(p => [p.lng, p.lat]) } };
+    const src = mlMap.getSource('kx-session-track');
+    if (src) { src.setData(data); return; }
+    if (!points.length) return;
+    mlMap.addSource('kx-session-track', { type: 'geojson', data });
+    mlMap.addLayer({ id: 'kx-session-track-casing', type: 'line', source: 'kx-session-track', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#FFFFFF', 'line-width': 7, 'line-opacity': 0.9 } });
+    mlMap.addLayer({ id: 'kx-session-track-line', type: 'line', source: 'kx-session-track', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2F7D62', 'line-width': 3.5 } });
+  };
+  if (mlMap.isStyleLoaded()) apply(); else mlMap.once('idle', apply);
 }
 
 // Estado del modo 3D
+// El botón 3D está desactivado por decisión de producto: el código del modo 3D se conserva y
+// basta poner esta constante en true para recuperarlo (sin él no hay forma de entrar en 3D)
+const MAP_3D_BUTTON_ENABLED = false;
 let is3DMode = false;
 const MIN_ZOOM_FOR_3D = 14;
 const MAX_PITCH_3D = 80; // Inclinación máxima en modo 3D (85%)
@@ -652,39 +1586,31 @@ function add3DToggleButton() {
 
   const isNative = window.Capacitor !== undefined;
 
+  if (!MAP_3D_BUTTON_ENABLED) {
+    // Sin botón 3D, pero la carga automática de la escuela al acercarse se mantiene
+    mlMap.on('moveend', checkAndLoadSchoolOnZoom);
+    mlMap.on('zoomend', checkAndLoadSchoolOnZoom);
+    console.log('[3D] Botón 3D desactivado');
+    return;
+  }
+
   const btn = document.createElement('button');
   btn.id = 'btn-3d-toggle';
-  btn.className = 'map-control-btn';
+  btn.type = 'button';
+  btn.className = 'map-control-btn maplibregl-ctrl kx-ctrl-3d';
   btn.innerHTML = '3D';
   btn.title = 'Activar vista 3D';
-
-  // Estilo que coincide con los controles nativos de MapLibre
-  // Posición: encima del botón de ubicación (bottom-right)
-  btn.style.cssText = `
-    position: absolute;
-    bottom: ${isNative ? '250px' : '250px'};
-    right: 10px;
-    width: 36px;
-    height: 36px;
-    background: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #333;
-    cursor: pointer;
-    z-index: 1000;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  `;
+  btn.setAttribute('aria-label', 'Activar vista 3D');
+  btn.setAttribute('aria-pressed', 'false');
+  // Aspecto en app_2.css (MAPA — CONTROLES); la visibilidad la decide update3DButtonVisibility
+  btn.style.display = 'none';
 
   btn.addEventListener('click', toggle3DMode);
 
-  document.getElementById('map').appendChild(btn);
+  // Encabeza la pila de controles de la esquina inferior derecha
+  const stack = mlMap.getContainer().querySelector('.maplibregl-ctrl-bottom-right');
+  if (stack) stack.insertBefore(btn, stack.firstChild);
+  else document.getElementById('map').appendChild(btn);
 
   // Mostrar/ocultar según proximidad a escuela
   mlMap.on('zoom', update3DButtonVisibility);
@@ -875,22 +1801,14 @@ async function openRouteCreatorForCurrentSector() {
   const sectorName = await findNearestSector(mlCurrentSchool, center.lng, center.lat);
 
   if (!sectorName) {
-    if (typeof showRDToast === 'function') {
-      showRDToast('No se encontró ningún sector cercano', 'error');
-    } else {
-      alert('No se encontró ningún sector cercano');
-    }
+    showToast('No se encontró ningún sector cercano', 'warning');
     return;
   }
 
   // Verificar que existe imagen del sector
   const hasImage = await sectorHasImage(mlCurrentSchool, sectorName);
   if (!hasImage) {
-    if (typeof showRDToast === 'function') {
-      showRDToast(`El sector "${sectorName}" no tiene imagen. Sube una imagen primero.`, 'error');
-    } else {
-      alert(`El sector "${sectorName}" no tiene imagen. Sube una imagen primero.`);
-    }
+    showToast(`El sector «${sectorName}» no tiene imagen\nSube una imagen primero.`, 'warning');
     return;
   }
 
@@ -1023,8 +1941,8 @@ function enable3DMode() {
 
   const btn = document.getElementById('btn-3d-toggle');
   if (btn) {
-    btn.style.background = '#4A90D9';
-    btn.style.color = 'white';
+    btn.classList.add('is-active');
+    btn.setAttribute('aria-pressed', 'true');
     btn.title = 'Desactivar vista 3D';
   }
 
@@ -1067,8 +1985,8 @@ function disable3DMode() {
 
   const btn = document.getElementById('btn-3d-toggle');
   if (btn) {
-    btn.style.background = 'white';
-    btn.style.color = '#333';
+    btn.classList.remove('is-active');
+    btn.setAttribute('aria-pressed', 'false');
     btn.title = 'Activar vista 3D';
   }
 
@@ -1080,6 +1998,7 @@ function disable3DMode() {
  */
 function onMapLoad() {
   console.log('Mapa MapLibre cargado');
+  kxPrewarmSchoolSheet();
 
   // FIX: Configurar pinch-to-zoom para que el zoom se centre en el punto del gesto
   // Esto reemplaza el handler nativo de MapLibre que causa el "avance" del mapa
@@ -1113,17 +2032,14 @@ function onMapLoad() {
   // Cargar markers de escuelas (vista general)
   loadSchoolMarkers();
 
+  // Rocódromos (Comunidad de Madrid): se ven a partir de un zoom más cercano que las escuelas
+  loadGymMarkers();
+
   // Cargar escuelas aprobadas desde Firestore (marcadores adicionales)
   loadApprovedSchoolsFromFirestore();
 
-  // Cargar escuelas pendientes: admin ve todas, spotter solo las propias, otros nada
-  checkAdminRole().then(role => {
-    if (role === 'admin') {
-      loadAllPendingSchoolsForAdmin();
-    } else if (role === 'spotter') {
-      loadMyPendingSchoolsFromFirestore();
-    }
-  });
+  // Escuelas pendientes (admin ve todas, spotter solo las propias, otros nada): las carga el
+  // listener de sesión de más abajo, que se dispara al registrarse y en cada cambio de usuario
 
   // NO cargar escuela por defecto - el usuario selecciona desde markers
   // mlLoadSchool('valeria');
@@ -1131,7 +2047,7 @@ function onMapLoad() {
   // Re-subscribe to approved items and update pending items on auth state change.
   // onSnapshot connections are dropped when Firebase auth state changes; without this
   // approved Spotter content disappears after logout/re-login.
-  // Fires immediately on registration — guarded by mlCurrentSchool check so it's a no-op at init.
+  // Fires immediately on registration: también hace la carga inicial de las escuelas pendientes.
   if (typeof firebase !== 'undefined' && firebase.auth) {
     firebase.auth().onAuthStateChanged(async (user) => {
       // Invalidate cached roles so they are re-evaluated under the new auth state
@@ -1140,30 +2056,34 @@ function onMapLoad() {
       _cachedAdminRoleTime = 0;
       _cachedAdminCheckTime = 0;
 
-      if (!mlMap || !mlCurrentSchool) return;
+      if (!mlMap) return;
+
+      // Lo del usuario anterior (pendientes, escuelas pendientes, edición en curso) no sobrevive
+      // a ningún cambio de sesión: logout, login o cambio directo de cuenta
+      mlClearPendingItemsLayers();
+
       const schoolId = mlCurrentSchool;
+      if (schoolId) {
+        // Approved items are public — always re-subscribe regardless of auth state
+        loadApprovedRoutesFromFirestore(schoolId);
+        loadApprovedSectorsFromFirestore(schoolId);
+        loadApprovedPOIFromFirestore(schoolId);
+      }
 
-      // Approved items are public — always re-subscribe regardless of auth state
-      loadApprovedRoutesFromFirestore(schoolId);
-      loadApprovedSectorsFromFirestore(schoolId);
-      loadApprovedPOIFromFirestore(schoolId);
-
-      if (user) {
-        // Reload user-specific (pending) items based on new role
-        checkAdminRole().then(role => {
-          if (role === 'admin') {
-            loadAllPendingForAdmin(schoolId);
-            loadAllPendingSchoolsForAdmin();
-          } else if (role === 'spotter') {
-            loadMyPendingRoutesFromFirestore(schoolId);
-            loadMyPendingPOIFromFirestore(schoolId);
-            loadMyPendingSectorsFromFirestore(schoolId);
-            loadMyPendingSchoolsFromFirestore();
-          }
-        });
-      } else {
-        // Logged out: clear pending item layers (user-specific data must not persist)
-        mlClearPendingItemsLayers();
+      if (!user) return;
+      // Reload user-specific (pending) items based on the new user's real role
+      const role = await checkAdminRole();
+      if (!auth.currentUser || auth.currentUser.uid !== user.uid) return;   // la sesión cambió durante la consulta
+      if (role === 'admin') {
+        if (schoolId) loadAllPendingForAdmin(schoolId);
+        loadAllPendingSchoolsForAdmin();
+      } else if (role === 'spotter') {
+        if (schoolId) {
+          loadMyPendingRoutesFromFirestore(schoolId);
+          loadMyPendingPOIFromFirestore(schoolId);
+          loadMyPendingSectorsFromFirestore(schoolId);
+        }
+        loadMyPendingSchoolsFromFirestore();
       }
     });
   }
@@ -1616,7 +2536,8 @@ async function mlLoadSchoolVectorTiles(school) {
       type: 'vector',
       tiles: [window.location.origin + '/' + school.tiles.sectores],
       minzoom: school.zoomLevels.sectores,
-      maxzoom: 20
+      maxzoom: 20,
+      promoteId: { sectores: 'fid' }
     });
     mlLoadedSources.add('sectores-source');
 
@@ -1631,17 +2552,7 @@ async function mlLoadSchoolVectorTiles(school) {
         'line-cap': 'round',
         'line-join': 'round'
       },
-      paint: {
-        'line-color': generateSectorCasingColorExpression(),
-        'line-width': [
-          'interpolate', ['linear'], ['zoom'],
-          14, 6,
-          16, 10,
-          18, 14,
-          20, 18
-        ],
-        'line-opacity': 0.9
-      }
+      paint: kxSectorCasingPaint()
     });
 
     // Capa principal - color dinámico por sector
@@ -1655,18 +2566,10 @@ async function mlLoadSchoolVectorTiles(school) {
         'line-cap': 'round',
         'line-join': 'round'
       },
-      paint: {
-        'line-color': generateSectorColorExpression(),
-        'line-width': [
-          'interpolate', ['linear'], ['zoom'],
-          14, 4,
-          16, 7,
-          18, 10,
-          20, 14
-        ],
-        'line-opacity': 1
-      }
+      paint: kxSectorLinePaint()
     });
+    kxAddSectorLabels('sectores-source', 'sectores-labels-layer', school.zoomLevels.sectorNames || 16, 'sectores');
+    kxAddSectorHitLayer('sectores-source', 'sectores-hit-layer', school.zoomLevels.sectores, 'sectores');
   }
 
   // Cargar vías (círculos)
@@ -1685,20 +2588,9 @@ async function mlLoadSchoolVectorTiles(school) {
       source: 'vias-source',
       'source-layer': 'vias',
       minzoom: school.zoomLevels.vias,
-      paint: {
-        'circle-radius': [
-          'interpolate', ['linear'], ['zoom'],
-          14, isMobileDevice() ? 1.5 : 2,
-          16, isMobileDevice() ? 2.5 : 3.5,
-          18, isMobileDevice() ? 4 : 5.5,
-          20, isMobileDevice() ? 6 : 9
-        ],
-        'circle-color': generateGradeColorExpression('grado1'),
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': isMobileDevice() ? 1 : 1.5,
-        'circle-opacity': 0.95
-      }
+      paint: kxRoutePaint()
     });
+    kxAddRouteShadow('vias-source', school.zoomLevels.vias, 'vias');
 
     // Añadir interactividad
     setupViasInteraction();
@@ -1739,7 +2631,7 @@ async function mlLoadSchoolVectorTiles(school) {
       minzoom: school.zoomLevels.parkings,
       layout: {
         'icon-image': 'parking-icon',
-        'icon-size': 0.75,
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 15, 0.82, 18, 1],
         'icon-allow-overlap': true
       }
     });
@@ -1813,30 +2705,24 @@ async function mlLoadSchoolGeoJSON(school) {
             f.properties.fid = Math.abs(hash);
           }
         });
+        kxAssignSectorColors(geojson.features);
       }
 
-      mlMap.addSource('sectores-source', { type: 'geojson', data: geojson });
+      mlMap.addSource('sectores-source', { type: 'geojson', data: geojson, generateId: true });
       mlLoadedSources.add('sectores-source');
       mlMap.addLayer({
         id: 'sectores-casing-layer', type: 'line', source: 'sectores-source',
         minzoom: school.zoomLevels.sectores,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': generateSectorCasingColorExpression(),
-          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 6, 16, 10, 18, 14, 20, 18],
-          'line-opacity': 0.9
-        }
+        paint: kxSectorCasingPaint()
       });
       mlMap.addLayer({
         id: 'sectores-layer', type: 'line', source: 'sectores-source',
         minzoom: school.zoomLevels.sectores,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': generateSectorColorExpression(),
-          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 4, 16, 7, 18, 10, 20, 14],
-          'line-opacity': 1
-        }
+        paint: kxSectorLinePaint()
       });
+      kxAddSectorHitLayer('sectores-source', 'sectores-hit-layer', school.zoomLevels.sectores);
       console.log(`Capa sectores cargada: ${geojson.features?.length || 0} elementos`);
       // La interacción se registra aquí, cuando la capa ya existe (la carga de vías corre en paralelo)
       setupSectoresInteraction();
@@ -1849,17 +2735,10 @@ async function mlLoadSchoolGeoJSON(school) {
   const viasLoad = school.geojson.vias ? (async () => {
     await mlLoadGeoJSONLayer(
       'vias', school.geojson.vias, 'circle',
-      {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'],
-          14, isMobileDevice() ? 2 : 3, 16, isMobileDevice() ? 3.5 : 5,
-          18, isMobileDevice() ? 5.5 : 8, 20, isMobileDevice() ? 9 : 14],
-        'circle-color': generateGradeColorExpression('grado1'),
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': isMobileDevice() ? 1 : 1.5,
-        'circle-opacity': 0.95
-      },
+      kxRoutePaint(),
       school.zoomLevels.vias, {}, mlProcessVariantsForGeoJSON
     );
+    kxAddRouteShadow('vias-source', school.zoomLevels.vias);
     setupViasInteraction();
   })() : Promise.resolve();
 
@@ -1868,7 +2747,7 @@ async function mlLoadSchoolGeoJSON(school) {
     await mlLoadGeoJSONLayer(
       'parkings', school.geojson.parkings, 'symbol', {},
       school.zoomLevels.parkings,
-      { 'icon-image': 'parking-icon', 'icon-size': 0.75, 'icon-allow-overlap': true }
+      { 'icon-image': 'parking-icon', 'icon-size': ['interpolate', ['linear'], ['zoom'], 15, 0.82, 18, 1], 'icon-allow-overlap': true }
     );
     setupParkingsInteraction();
   })() : Promise.resolve();
@@ -1882,6 +2761,12 @@ async function mlLoadSchoolGeoJSON(school) {
     school.geojson.rutasAcceso ? mlLoadRutasAcceso(school.geojson.rutasAcceso) : Promise.resolve(),
     ...firestoreLoads
   ]);
+
+  // Con sectores y vías ya cargados, cada nombre se coloca al lado de su línea donde no hay vías
+  if (mlCurrentSchool === school.id) {
+    kxRefreshSectorLabels('sectores-source');
+    if (mlMap.getSource('sectores-usuarios-source')) kxRefreshSectorLabels('sectores-usuarios-source');
+  }
 }
 
 /**
@@ -1909,6 +2794,8 @@ async function mlLoadRutasAcceso(url) {
     mlLoadedSources.add(sourceId);
 
     // Añadir capa con línea naranja intermitente (dashed)
+    // Los POI y parkings van siempre por encima de los caminos, se carguen antes o después que ellos
+    const aboveRoutes = ['parkings-layer', 'puntos-interes-layer', 'poi-usuarios-layer'].find(id => mlMap.getLayer(id));
     mlMap.addLayer({
       id: layerId,
       type: 'line',
@@ -1919,18 +2806,18 @@ async function mlLoadRutasAcceso(url) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#FF6B00',  // Naranja
+        'line-color': KX_MAP.access,  // Naranja
         'line-width': [
           'interpolate', ['linear'], ['zoom'],
-          12, 2,
-          14, 3,
-          16, 4,
-          18, 5
+          12, 1.6,
+          14, 2.2,
+          16, 3,
+          18, 3.6
         ],
-        'line-opacity': 0.9,
-        'line-dasharray': [2, 2]  // Línea intermitente (dash, gap)
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.7, 13.5, 0.95],
+        'line-dasharray': [1.4, 1.6]  // Línea intermitente (dash, gap)
       }
-    });
+    }, aboveRoutes);
 
     console.log(`Capa rutas de acceso cargada: ${geojson.features?.length || 0} elementos`);
 
@@ -1981,50 +2868,47 @@ const POI_SVG_MAP = {
 };
 
 // Versión de los iconos (incrementar al actualizar para forzar recarga del cache)
-const POI_ICONS_VERSION = '15';
+const POI_ICONS_VERSION = '17';
 
-// Mapa de POIs que tienen icono PNG externo disponible (los PNGs originales del diseñador)
+// Iconos de puntos de interés (pack «KRUX POI matte»): disco mate de la categoría, borde blanco y pictograma blanco.
+// Un SVG propio por tipo; la paleta de los POI es independiente de la de grados y sectores.
 const POI_SVG_FILES = {
-  // Alojamientos
-  'camping': 'assets/poi-icons/camping.svg',
-  'vivac': 'assets/poi-icons/camping.svg',
+  'albergue': 'assets/poi-icons/albergue.svg',
   'hotel': 'assets/poi-icons/hotel.svg',
   'refugio': 'assets/poi-icons/refugio.svg',
-  'albergue': 'assets/poi-icons/refugio.svg',
-  // Estado / urgencias
-  'bomberos': 'assets/poi-icons/bomberos.svg',
-  'bombero': 'assets/poi-icons/bomberos.svg',
-  'farmacia': 'assets/poi-icons/farmacia.svg',
+  'vivac': 'assets/poi-icons/vivac.svg',
+  'camping': 'assets/poi-icons/camping.svg',
+  'peligro': 'assets/poi-icons/peligro.svg',
   'hospital': 'assets/poi-icons/hospital.svg',
+  'bomberos': 'assets/poi-icons/bomberos.svg',
+  'farmacia': 'assets/poi-icons/farmacia.svg',
   'policia': 'assets/poi-icons/policia.svg',
-  // Naturaleza
-  'cueva': 'assets/poi-icons/cueva.svg',
   'cumbre': 'assets/poi-icons/cumbre.svg',
   'rio': 'assets/poi-icons/rio.svg',
+  'arroyo': 'assets/poi-icons/arroyo.svg',
+  'agua': 'assets/poi-icons/agua.svg',
   'fuente': 'assets/poi-icons/fuente.svg',
-  // Servicios
-  'banco': 'assets/poi-icons/banco.svg',
-  'bar': 'assets/poi-icons/bar.svg',
-  'correos': 'assets/poi-icons/correos.svg',
-  'gasolinera': 'assets/poi-icons/gasolinera.svg',
+  'cueva': 'assets/poi-icons/cueva.svg',
   'restaurante': 'assets/poi-icons/restaurante.svg',
+  'gasolinera': 'assets/poi-icons/gasolinera.svg',
+  'bar': 'assets/poi-icons/bar.svg',
   'merendero': 'assets/poi-icons/merendero.svg',
   'tienda': 'assets/poi-icons/tienda.svg',
-  // Infraestructura
-  'parking': 'assets/poi-icons/parking.svg',
-  'escalera': 'assets/poi-icons/escalera.svg',
   'puente': 'assets/poi-icons/puente.svg',
-  // Patrimonio
-  'iglesia': 'assets/poi-icons/iglesia.svg',
-  'ermita': 'assets/poi-icons/iglesia.svg',
-  'ruina': 'assets/poi-icons/ruina.svg',
-  // Instalaciones
-  'wc': 'assets/poi-icons/bano.svg',
-  'ducha': 'assets/poi-icons/ducha.svg',
-  'piscina': 'assets/poi-icons/zona-de-bano.svg',
-  // Otros
+  'escalera': 'assets/poi-icons/escalera.svg',
   'mirador': 'assets/poi-icons/mirador.svg',
-  'informacion': 'assets/poi-icons/info.svg',
+  'parking': 'assets/poi-icons/parking.svg',
+  'correos': 'assets/poi-icons/correos.svg',
+  'informacion': 'assets/poi-icons/informacion.svg',
+  'iglesia': 'assets/poi-icons/iglesia.svg',
+  'ermita': 'assets/poi-icons/ermita.svg',
+  'ruina': 'assets/poi-icons/ruina.svg',
+  'wc': 'assets/poi-icons/wc.svg',
+  'ducha': 'assets/poi-icons/ducha.svg',
+  'piscina': 'assets/poi-icons/piscina.svg',
+  'telefono': 'assets/poi-icons/telefono.svg',
+  'banco': 'assets/poi-icons/banco.svg',
+  'bombero': 'assets/poi-icons/bomberos.svg',   // alias
 };
 
 /**
@@ -2048,7 +2932,7 @@ function _mlPrewarmPOIIcons() {
   const schedule = typeof requestIdleCallback !== 'undefined'
     ? (cb) => requestIdleCallback(cb, { timeout: 5000 })
     : (cb) => setTimeout(cb, 2000);
-  schedule(() => { types.forEach(t => createSVGPinImage(t, 50).catch(() => {})); });
+  schedule(() => { types.forEach(t => createSVGPinImage(t).catch(() => {})); });
 }
 
 /**
@@ -2059,73 +2943,51 @@ function _mlPrewarmPOIIcons() {
 // DPR del dispositivo, limitado a 3 para no desperdiciar memoria
 const _mlDPR = Math.min(Math.ceil(window.devicePixelRatio || 1), 3);
 
-function createSVGPinImage(poiType, size = 50) {
+function createSVGPinImage(poiType) {
   const cacheKey = (poiType || '').toLowerCase().trim() || '__default__';
   if (_mlPoiIconCache.has(cacheKey)) return Promise.resolve(_mlPoiIconCache.get(cacheKey));
-  return _createSVGPinImageRaw(poiType, size).then(img => {
+  return _createSVGPinImageRaw(poiType).then(img => {
     _mlPoiIconCache.set(cacheKey, img);
     return img;
   });
 }
 
-function _createSVGPinImageRaw(poiType, size = 50) {
+// Los POI son insignias circulares: se rasterizan a 32 px CSS (a la densidad real de la pantalla) y se anclan por el centro
+const POI_ICON_CSS_SIZE = 32;
+
+function _createSVGPinImageRaw(poiType) {
   const desc = (poiType || '').toLowerCase().trim();
-  const externalSvg = POI_SVG_FILES[desc];
-  // Renderizar a tamaño físico (size × DPR) para pantallas Retina/HiDPI
-  const physicalSize = size * _mlDPR;
+  const file = POI_SVG_FILES[desc];
+  // Tipo sin icono propio: insignia genérica dibujada en código (color de categoría o gris)
+  const src = file
+    ? file + '?v=' + POI_ICONS_VERSION
+    : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(kxPOISVG(desc));
+  return _kxPOIBadgeImage(desc, src);
+}
 
+// Los iconos llegan después de crear la capa: sin este refresco, un icono que llega tarde deja el genérico en pantalla
+function kxReloadSourceData(sourceId) {
+  const src = mlMap && mlMap.getSource(sourceId);
+  const data = src && src.serialize && src.serialize().data;
+  if (data) src.setData(data);
+}
+
+function _kxPOIBadgeImage(poiType, src) {
+  const px = Math.round(POI_ICON_CSS_SIZE * _mlDPR);
   return new Promise((resolve, reject) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = physicalSize;
-    canvas.height = physicalSize;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, physicalSize, physicalSize);
-
-    const renderImg = (src, cropToContent = false) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onerror = () => reject(new Error(`Failed to load image for POI type "${poiType}"`));
-      img.onload = () => {
-        try {
-          // Contain: escalar manteniendo proporción original, centrado en el canvas
-          const scale = Math.min(physicalSize / img.width, physicalSize / img.height);
-          const drawW = img.width * scale;
-          const drawH = img.height * scale;
-          const dx = (physicalSize - drawW) / 2;
-          const dy = (physicalSize - drawH) / 2;
-          ctx.drawImage(img, dx, dy, drawW, drawH);
-          void cropToContent;
-          resolve({ data: ctx.getImageData(0, 0, physicalSize, physicalSize).data, width: physicalSize, height: physicalSize });
-        } catch (e) { reject(e); }
-      };
-      img.src = src;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onerror = () => reject(new Error(`Failed to load image for POI type "${poiType}"`));
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = px; c.height = px;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, px, px);
+        resolve({ data: ctx.getImageData(0, 0, px, px).data, width: px, height: px });
+      } catch (e) { reject(e); }
     };
-
-    if (externalSvg) {
-      // Recortar al bbox del contenido no transparente para centrar el pin
-      renderImg(externalSvg + '?v=' + POI_ICONS_VERSION, true);
-    } else {
-      // Generar pin programáticamente con icono inline
-      const poiData = getPOISVG(poiType);
-      const svgString = `
-        <svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <filter id="shadow">
-              <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.4"/>
-            </filter>
-          </defs>
-          <g filter="url(#shadow)">
-            <circle cx="25" cy="22" r="18" fill="${poiData.color}"/>
-            <path d="M25 40L18 28C18 28 22 20 25 20C28 20 32 28 32 28L25 40Z" fill="${poiData.color}"/>
-            <g transform="translate(25, 22) scale(0.9)">
-              <svg viewBox="0 0 20 20" width="18" height="18" x="-9" y="-9">
-                ${poiData.svg}
-              </svg>
-            </g>
-          </g>
-        </svg>`;
-      renderImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString));
-    }
+    img.src = src;
   });
 }
 
@@ -2174,16 +3036,10 @@ async function mlLoadPuntosInteres(url) {
       minzoom: 14,
       layout: {
         'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-        'icon-size': [
-          'interpolate', ['linear'], ['zoom'],
-          14, 0.55,
-          16, 0.72,
-          18, 0.88,
-          20, 1.05
-        ],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.78, 16, 0.9, 18, 1, 20, 1.12],
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
-        'icon-anchor': 'bottom'
+        'icon-anchor': 'center'
       }
     });
 
@@ -2192,13 +3048,13 @@ async function mlLoadPuntosInteres(url) {
     if (!mlMap.hasImage('poi-svg-default')) typesToLoad.push('');
     Promise.all(typesToLoad.map(async poiType => {
       try {
-        const img = await createSVGPinImage(poiType, 50);
+        const img = await createSVGPinImage(poiType);
         const imgId = poiType === '' ? 'poi-svg-default' : 'poi-svg-' + poiType;
         if (!mlMap.hasImage(imgId)) mlMap.addImage(imgId, img, { sdf: false, pixelRatio: _mlDPR });
       } catch (err) {
         console.warn(`Error creating SVG for POI type "${poiType}":`, err);
       }
-    }));
+    })).then(() => { if (typesToLoad.length) kxReloadSourceData(sourceId); });
 
     // Interactividad: mostrar popup con descripción al hacer click
     let mlPoiPopup = null;
@@ -2348,8 +3204,12 @@ async function mlLoadGeoJSONLayer(layerId, url, type, paint, minzoom = 0, layout
  * Limpia las capas de la escuela actual
  */
 function mlClearSchoolLayers() {
-  const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'escuelas-usuarios-layer', 'escuelas-usuarios-labels-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
-  const sourceIds = ['vias-ticks-source', 'vias-source', 'sectores-source', 'parkings-source', 'rutas-acceso-source', 'puntos-interes-source', 'vias-variant-connector-source', 'vias-usuarios-source', 'poi-usuarios-source', 'sectores-usuarios-source', 'escuelas-usuarios-source', 'pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source', 'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source'];
+  // El filtro de un grado pertenece a la escuela que se deja
+  mlGradeFocus = null;
+  kxUserRoutesBaseFilter = undefined;
+  kxRenderGradeFocusChip();
+  const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-shadow-layer', 'vias-layer', 'sectores-hit-layer', 'sectores-usuarios-hit-layer', 'sectores-labels-layer', 'sectores-usuarios-labels-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'escuelas-usuarios-layer', 'escuelas-usuarios-labels-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
+  const sourceIds = ['vias-ticks-source', 'vias-source', 'sectores-labels-source', 'sectores-usuarios-labels-source', 'sectores-source', 'parkings-source', 'rutas-acceso-source', 'puntos-interes-source', 'vias-variant-connector-source', 'vias-usuarios-source', 'poi-usuarios-source', 'sectores-usuarios-source', 'escuelas-usuarios-source', 'pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source', 'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source'];
 
   // Cancelar listeners realtime antes de eliminar capas/sources
   mlClearApprovedListeners();
@@ -2366,6 +3226,12 @@ function mlClearSchoolLayers() {
 
   // Cancel any active geometry edit
   mlCancelPendingEdit();
+
+  // Selección visual de sector (el feature-state muere con la fuente)
+  kxClearSectorSelection();
+  _kxLabelPoints.clear();
+  kxRemoveSectorLabels();
+  kxCloseSectorChooser();
 
   // Limpiar estado de variantes
   mlClearVariantMarkers();
@@ -2447,7 +3313,7 @@ function updateAscentTicksLayer() {
       tickFeatures.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: coords },
-        properties: { nombre: routeName, id: routeId, grado1, gradeColor: getGradeColor(grado1 || '') }
+        properties: { nombre: routeName, id: routeId, grado1, sector: feature.properties?.sector || '', gradeColor: getGradeColor(grado1 || '') }
       });
     }
   });
@@ -2473,26 +3339,22 @@ function updateAscentTicksLayer() {
         data: tickGeoJSON
       });
 
-      // Círculo de fondo con el color del grado de la vía
+      // La vía encadenada conserva su círculo con el color de grado (mismo tamaño que el resto de vías)
       mlMap.addLayer({
         id: 'vias-ticks-circle-layer',
         type: 'circle',
         source: tickSourceId,
         minzoom: 16,
         paint: {
-          'circle-radius': [
-            'interpolate', ['linear'], ['zoom'],
-            16, isMobileDevice() ? 5 : 7,
-            18, isMobileDevice() ? 8 : 11,
-            20, isMobileDevice() ? 12 : 15
-          ],
+          'circle-radius': kxZoomExpr(kxRouteRadiusStops()),
           'circle-color': ['get', 'gradeColor'],
           'circle-stroke-color': 'white',
-          'circle-stroke-width': 1.5
+          'circle-stroke-width': KX_ROUTE_STROKE
         }
       });
 
-      // Check blanco encima del círculo
+      // Check discreto: insignia verde bosque en el borde superior derecho, sin tapar el color de la vía
+      const tickStops = kxRouteRadiusStops().filter(([z]) => z >= 16);
       mlMap.addLayer({
         id: tickLayerId,
         type: 'symbol',
@@ -2500,16 +3362,13 @@ function updateAscentTicksLayer() {
         minzoom: 16,
         layout: {
           'icon-image': 'tick-icon',
-          'icon-size': [
-            'interpolate', ['linear'], ['zoom'],
-            16, isMobileDevice() ? 0.22 : 0.28,
-            18, isMobileDevice() ? 0.34 : 0.44,
-            20, isMobileDevice() ? 0.48 : 0.60
-          ],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 16, 0.62, 18, 0.78, 20, 1],
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
-          'icon-anchor': 'center',
-          'icon-offset': [0, 0]
+          'icon-anchor': 'center'
+        },
+        paint: {
+          'icon-translate': kxZoomExpr(tickStops, r => ['literal', [+(r * 0.85).toFixed(2), -(r * 0.85).toFixed(2)]])
         }
       });
     });
@@ -2520,32 +3379,7 @@ function updateAscentTicksLayer() {
  * Carga el icono de tick/check para la capa de vías completadas
  */
 function loadTickIcon() {
-  return new Promise((resolve) => {
-    if (mlMap.hasImage('tick-icon')) {
-      resolve();
-      return;
-    }
-
-    const size = 48;
-    const svgIcon = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48">
-        <polyline points="10,26 20,36 38,14" fill="none" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    `;
-
-    const img = new Image(size, size);
-    img.onload = () => {
-      if (!mlMap.hasImage('tick-icon')) {
-        mlMap.addImage('tick-icon', img);
-      }
-      resolve();
-    };
-    img.onerror = () => {
-      console.warn('Error cargando tick-icon');
-      resolve();
-    };
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgIcon);
-  });
+  return kxLoadSVGImage('tick-icon', kxTickBadgeSVG(), 16);
 }
 
 // Escuchar eventos de movimiento del mapa para actualizar ticks
@@ -2849,7 +3683,7 @@ function mlGenerateVariantMarkerSVG(gradeColors, pixelDiameter) {
   // Convertir px reales → unidades de viewBox.
   // Borde exterior = mismo grosor que circle-stroke-width de puntos simples.
   // Gap entre anillos se reduce con más variantes para dejar más espacio al color.
-  const strokePx = isMobileDevice() ? 1 : 1.5;
+  const strokePx = KX_ROUTE_STROKE;
   const pxToVB   = VB / pixelDiameter;
   const STROKE_W = strokePx * pxToVB;
   const gapFactor = N <= 1 ? 1.0 : N === 2 ? 0.6 : 0.4;
@@ -2891,10 +3725,7 @@ function mlGenerateVariantMarkerSVG(gradeColors, pixelDiameter) {
  */
 function mlGetViasRadius() {
   const zoom = mlMap.getZoom();
-  const mobile = isMobileDevice();
-  const stops = mobile
-    ? [[14, 2], [16, 3.5], [18, 5.5], [20, 9]]
-    : [[14, 3], [16, 5],   [18, 8],   [20, 14]];
+  const stops = kxRouteRadiusStops();
 
   if (zoom <= stops[0][0]) return stops[0][1];
   if (zoom >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
@@ -2967,7 +3798,7 @@ function mlCreateVariantMarkers() {
       }
     });
 
-    mlVariantMarkers.push({ marker, gradeColors });
+    mlVariantMarkers.push({ marker, gradeColors, props: group.map(gf => gf.props || {}) });
   }
 
   // Control de visibilidad, tamaño y regeneración SVG por zoom
@@ -2975,10 +3806,11 @@ function mlCreateVariantMarkers() {
     let lastDiameter = 0;
     const updateMarkers = () => {
       const school = mlCurrentSchool ? MAPLIBRE_SCHOOLS[mlCurrentSchool] : null;
-      const minZoom = school ? school.zoomLevels.vias : 17;
+      const baseZoom = school ? school.zoomLevels.vias : 17;
+      const minZoom = mlGradeFocus ? Math.min(KX_FOCUS_MINZOOM, baseZoom) : baseZoom;
       const visible = mlMap.getZoom() >= minZoom;
 
-      const strokeW      = isMobileDevice() ? 1 : 1.5;
+      const strokeW      = KX_ROUTE_STROKE;
       const baseDiameter = Math.round(mlGetViasRadius() * 2 + strokeW * 2);
       const sizeChanged  = baseDiameter !== lastDiameter;
       lastDiameter = baseDiameter;
@@ -2990,7 +3822,7 @@ function mlCreateVariantMarkers() {
         const scale = N >= 3 ? 1.25 : N >= 2 ? 1.15 : 1.0;
         const d  = Math.round(baseDiameter * scale);
         const el = entry.marker.getElement();
-        el.style.display = visible ? '' : 'none';
+        el.style.display = visible && kxVariantPassesGradeFilter(entry) ? '' : 'none';
         el.style.width   = d + 'px';
         el.style.height  = d + 'px';
         // Regenerar SVG solo cuando cambia el diámetro base en px
@@ -2999,6 +3831,8 @@ function mlCreateVariantMarkers() {
         }
       }
     };
+    // Un solo listener vivo: se retira al limpiar la escuela (antes se acumulaba uno por carga)
+    mlVariantZoomHandler = updateMarkers;
     mlMap.on('zoom', updateMarkers);
     updateMarkers(); // estado inicial
   }
@@ -3009,9 +3843,11 @@ function mlCreateVariantMarkers() {
 /**
  * Elimina todos los marcadores HTML de variantes del mapa.
  */
+let mlVariantZoomHandler = null;
 function mlClearVariantMarkers() {
   for (const entry of mlVariantMarkers) entry.marker.remove();
   mlVariantMarkers = [];
+  if (mlVariantZoomHandler && mlMap) { mlMap.off('zoom', mlVariantZoomHandler); mlVariantZoomHandler = null; }
 }
 
 /**
@@ -3083,6 +3919,11 @@ function setupViasInteraction() {
     }
 
     // --- Comportamiento estándar (sin variantes) ---
+    // Resaltado breve sobre la vía tocada (sus coordenadas reales)
+    const g = feature.geometry;
+    const point = g && (g.type === 'MultiPoint' ? g.coordinates[0] : g.type === 'Point' ? g.coordinates : null);
+    if (point) mlApplyRouteHighlight(point, props.id);
+
     if (isMobileDevice()) {
       adaptiveMapPanForBottomSheet(coords);
       showRouteBottomSheet(props, coords);
@@ -3137,6 +3978,7 @@ function getVariantLabel(props) {
 }
 
 async function showRoutePopup(props, coords) {
+  if (!props.descripcion && props.descripcio) props.descripcion = props.descripcio;
   const grade = props.grado1 || '?';
   const gradeColor = getGradeColor(grade);
   const routeId = Number(props.id);
@@ -3175,22 +4017,6 @@ async function showRoutePopup(props, coords) {
   } catch (e) {
     console.warn('Error fetching comment count:', e);
   }
-  const commentBadge = commentCount > 0 ? `<span class="ml-comment-count">${commentCount}</span>` : '';
-
-  // Iconos PNG para info (tamaño 32x32)
-  const iconClimber = `<img src="icons/placa.png" alt="Tipo" width="32" height="32">`;
-  const iconExpress = `<img src="icons/mosq.png" alt="Expresos" width="32" height="32">`;
-  const iconRope = `<img src="icons/cuerda.png" alt="Cuerda" width="32" height="32">`;
-
-  // Iconos SVG de la botonera (tamaño 32x32)
-  const iconCheck = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-
-  const iconBookmark = buildBookmarkIcon(routeId);
-
-  const iconComment = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
-
-  const iconShare = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
-
   // Check de ascenso + icono de estilo para el header
   const ascentStyleSVG = ascentInfo && ascentInfo.style && (typeof getAscentStyleSVG === 'function') ? getAscentStyleSVG(ascentInfo.style) : '';
   const ascentCheckHTML = hasAscent ? `
@@ -3199,24 +4025,6 @@ async function showRoutePopup(props, coords) {
     </span>
     ${ascentStyleSVG ? `<span class="ml-route-ascent-style ascent-style-${ascentInfo.style}">${ascentStyleSVG}</span>` : ''}
   ` : '';
-
-  // Detectar campos vacíos para sugerir contribuir (sugerencias independientes por campo)
-  const hasDescripcion = props.descripcion && props.descripcion.trim();
-  const hasExp = props.exp1;
-  const hasLong = props.long1;
-
-  // Obtener votaciones de aleje desde Firestore
-  const alejeData = await getAlejeVotes(schoolId, routeId);
-  const alejeHTML = generateAlejeBarHTML(routeId, schoolId, alejeData.avg, alejeData.userVote);
-
-  // Obtener votaciones de estado de la vía desde Firestore
-  const estadoData = await getEstadoVotes(schoolId, routeId);
-  const estadoHTML = generateEstadoStarsHTML(routeId, schoolId, estadoData.avg, estadoData.userVote);
-
-  // Obtener votaciones de grado desde Firestore
-  const gradeVoteData = await getGradeVotes(schoolId, routeId);
-  const gradeSliderHTML = generateGradeSliderHTML(routeId, schoolId, grade, gradeVoteData);
-  const consensusBadgeHTML = buildConsensusBadgeHTML(grade, gradeVoteData);
 
   const variantLabel = getVariantLabel(props);
 
@@ -3227,73 +4035,16 @@ async function showRoutePopup(props, coords) {
         ${ascentCheckHTML}
         <span class="ml-route-name">${routeName}${variantLabel}</span>
         <span class="ml-route-grade" style="background-color: ${gradeColor}">${grade}</span>
-        ${consensusBadgeHTML}
       </div>
 
-      <!-- Info items con iconos + sugerencias independientes por campo -->
-      <div class="ml-route-info">
-        ${hasDescripcion ? `
-          <div class="ml-route-item">
-            <span class="ml-route-icon">${iconClimber}</span>
-            <span class="ml-route-text">${props.descripcion}</span>
-          </div>
-        ` : `
-          <div class="ml-route-item ml-route-item-missing" onclick="mlContributeField(${routeId}, '${schoolId}', 'tipo')">
-            <span class="ml-route-icon">${iconClimber}</span>
-            <span class="ml-route-text ml-route-contribute">&iquest;Qu&eacute; tipo de escalada es?</span>
-          </div>
-        `}
+      ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1 })}
+      ${kxRouteDescriptionHTML(props.descripcion)}
 
-        ${hasExp ? `
-          <div class="ml-route-item">
-            <span class="ml-route-icon">${iconExpress}</span>
-            <span class="ml-route-text">${props.exp1} express</span>
-          </div>
-        ` : `
-          <div class="ml-route-item ml-route-item-missing" onclick="mlContributeField(${routeId}, '${schoolId}', 'express')">
-            <span class="ml-route-icon">${iconExpress}</span>
-            <span class="ml-route-text ml-route-contribute">&iquest;Cu&aacute;ntos express tiene?</span>
-          </div>
-        `}
+      <div id="ml-variant-grade-${routeId}"></div>
+      <div id="ml-variant-aleje-${routeId}"></div>
+      <div id="ml-variant-estado-${routeId}"></div>
 
-        ${hasLong ? `
-          <div class="ml-route-item">
-            <span class="ml-route-icon">${iconRope}</span>
-            <span class="ml-route-text">${props.long1} mts</span>
-          </div>
-        ` : `
-          <div class="ml-route-item ml-route-item-missing" onclick="mlContributeField(${routeId}, '${schoolId}', 'metros')">
-            <span class="ml-route-icon">${iconRope}</span>
-            <span class="ml-route-text ml-route-contribute">&iquest;Cu&aacute;ntos metros mide?</span>
-          </div>
-        `}
-      </div>
-
-      <!-- Slider de votación de grado -->
-      ${gradeSliderHTML}
-
-      <!-- Indicador de Aleje -->
-      ${alejeHTML}
-
-      <!-- Estado de la Vía (estrellas) -->
-      ${estadoHTML}
-
-      <!-- Botonera -->
-      <div class="ml-route-actions">
-        <button class="ml-route-action-btn" onclick="mlRegisterAscent(${routeId}, '${encodeURIComponent(routeName)}')" title="Registrar ascenso">
-          ${iconCheck}
-        </button>
-        <button class="ml-route-action-btn ${isRouteInProjects(routeId) ? 'bookmark-active' : ''}" id="ml-bookmark-btn" onclick="mlToggleBookmark(${routeId}, '${encodeURIComponent(routeName)}')" title="Guardar">
-          ${iconBookmark}
-        </button>
-        <button class="ml-route-action-btn ml-comment-btn" onclick="mlOpenComments(${routeId}, '${encodeURIComponent(routeName)}')" title="Comentarios">
-          ${iconComment}
-          ${commentBadge}
-        </button>
-        <button class="ml-route-action-btn" onclick="mlShareRoute(${routeId}, '${encodeURIComponent(routeName)}')" title="Compartir">
-          ${iconShare}
-        </button>
-      </div>
+      ${kxRouteActionsHTML({ routeId, routeName, hasAscent, commentCount })}
 
       <div class="ml-route-report-section">${mlReportButtonHTML({ routeId, routeName, schoolId, sector: sectorName, grade })}</div>
 
@@ -3329,6 +4080,8 @@ async function showRoutePopup(props, coords) {
     .setLngLat(coords)
     .setHTML(html)
     .addTo(mlMap);
+
+  kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: `ml-variant-grade-${routeId}`, aleje: `ml-variant-aleje-${routeId}`, estado: `ml-variant-estado-${routeId}` });
 }
 
 // ============================================
@@ -3395,8 +4148,10 @@ async function mlShowVariantGroupPopup(groupFeatures, startIndex, coords) {
   mlRoutePopup = new maplibregl.Popup({
     closeButton: true,
     closeOnClick: false,
-    maxWidth: '380px'
+    maxWidth: '380px',
+    className: 'ml-route-popup kx-mpop'
   });
+  kxWatchRoutePopup(mlRoutePopup);
 
   mlRoutePopup
     .setLngLat(coords)
@@ -3473,21 +4228,6 @@ async function mlBuildVariantSlideHTML(variantData, isTrinomial) {
     props.descripcion = props.descripcio;
   }
 
-  const hasDescripcion = props.descripcion && props.descripcion.trim();
-  const hasExp = exp != null && exp !== '';
-  const hasLong = longM != null && longM !== '';
-
-  // Iconos PNG
-  const iconClimber = `<img src="icons/placa.png" alt="Tipo" width="32" height="32">`;
-  const iconExpress = `<img src="icons/mosq.png" alt="Expresos" width="32" height="32">`;
-  const iconRope = `<img src="icons/cuerda.png" alt="Cuerda" width="32" height="32">`;
-
-  // Iconos SVG botonera
-  const iconCheck = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-  const iconBookmark = buildBookmarkIcon(routeId);
-  const iconComment = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
-  const iconShare = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
-
   return `
     <!-- Header: Check + Nombre (grado ya indicado en segmented control) -->
     <div class="ml-route-header">
@@ -3495,54 +4235,14 @@ async function mlBuildVariantSlideHTML(variantData, isTrinomial) {
       <span class="ml-route-name">${routeName}${getVariantLabel(props)}</span>
     </div>
 
-    <!-- Info items -->
-    <div class="ml-route-info">
-      ${hasDescripcion ? `
-        <div class="ml-route-item">
-          <span class="ml-route-icon">${iconClimber}</span>
-          <span class="ml-route-text">${props.descripcion}</span>
-        </div>
-      ` : ''}
+    ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp, long: longM, contribute: false })}
+    ${kxRouteDescriptionHTML(props.descripcion)}
 
-      ${hasExp ? `
-        <div class="ml-route-item">
-          <span class="ml-route-icon">${iconExpress}</span>
-          <span class="ml-route-text">${exp} express</span>
-        </div>
-      ` : ''}
-
-      ${hasLong ? `
-        <div class="ml-route-item">
-          <span class="ml-route-icon">${iconRope}</span>
-          <span class="ml-route-text">${longM} mts</span>
-        </div>
-      ` : ''}
-    </div>
-
-    <!-- Grado (votación, cargado asíncronamente) -->
     <div id="ml-variant-grade-${routeId}"></div>
+    <div id="ml-variant-aleje-${routeId}"></div>
+    <div id="ml-variant-estado-${routeId}"></div>
 
-    <!-- Aleje (cargado asíncronamente) -->
-    <div id="ml-variant-aleje-${routeId}"><div style="text-align:center;color:#888;font-size:13px;">Cargando...</div></div>
-
-    <!-- Estado (cargado asíncronamente) -->
-    <div id="ml-variant-estado-${routeId}"><div style="text-align:center;color:#888;font-size:13px;">Cargando...</div></div>
-
-    <!-- Botonera -->
-    <div class="ml-route-actions">
-      <button class="ml-route-action-btn" onclick="mlRegisterAscent(${routeId}, '${encodeURIComponent(routeName)}')" title="Registrar ascenso">
-        ${iconCheck}
-      </button>
-      <button class="ml-route-action-btn ${isRouteInProjects(routeId) ? 'bookmark-active' : ''}" id="ml-bookmark-btn" onclick="mlToggleBookmark(${routeId}, '${encodeURIComponent(routeName)}')" title="Guardar">
-        ${iconBookmark}
-      </button>
-      <button class="ml-route-action-btn ml-comment-btn" onclick="mlOpenComments(${routeId}, '${encodeURIComponent(routeName)}')" title="Comentarios">
-        ${iconComment}
-      </button>
-      <button class="ml-route-action-btn" onclick="mlShareRoute(${routeId}, '${encodeURIComponent(routeName)}')" title="Compartir">
-        ${iconShare}
-      </button>
-    </div>
+    ${kxRouteActionsHTML({ routeId, routeName, hasAscent })}
 
     <div class="ml-route-report-section">${mlReportButtonHTML({ routeId, routeName, schoolId, sector: sectorName, grade })}</div>
 
@@ -3582,36 +4282,7 @@ function mlLoadVariantSlideAsyncData(variantData, isTrinomial) {
   const schoolId = mlCurrentSchool || 'valeria';
   const routeId = Number(props.id);
   const variantGrade = props._displayGrado || props.grado1 || '?';
-
-  // Grado
-  if (typeof getGradeVotes === 'function') {
-    getGradeVotes(schoolId, routeId).then(gradeVoteData => {
-      const el = document.getElementById(`ml-variant-grade-${routeId}`);
-      if (el && typeof generateGradeSliderHTML === 'function') {
-        el.innerHTML = generateGradeSliderHTML(routeId, schoolId, variantGrade, gradeVoteData);
-      }
-    }).catch(() => {});
-  }
-
-  // Aleje
-  if (typeof getAlejeVotes === 'function') {
-    getAlejeVotes(schoolId, routeId).then(alejeData => {
-      const el = document.getElementById(`ml-variant-aleje-${routeId}`);
-      if (el && typeof generateAlejeBarHTML === 'function') {
-        el.innerHTML = generateAlejeBarHTML(routeId, schoolId, alejeData.avg, alejeData.userVote);
-      }
-    }).catch(() => {});
-  }
-
-  // Estado
-  if (typeof getEstadoVotes === 'function') {
-    getEstadoVotes(schoolId, routeId).then(estadoData => {
-      const el = document.getElementById(`ml-variant-estado-${routeId}`);
-      if (el && typeof generateEstadoStarsHTML === 'function') {
-        el.innerHTML = generateEstadoStarsHTML(routeId, schoolId, estadoData.avg, estadoData.userVote);
-      }
-    }).catch(() => {});
-  }
+  kxRenderRouteVoteCards(schoolId, routeId, variantGrade, { grade: `ml-variant-grade-${routeId}`, aleje: `ml-variant-aleje-${routeId}`, estado: `ml-variant-estado-${routeId}` });
 }
 
 /**
@@ -3778,177 +4449,365 @@ async function mlVariantGoToBottomSheet(index) {
  * Modifica directamente los elementos DOM existentes del bottom sheet.
  */
 function mlUpdateBottomSheetContent(props, isTrinomial) {
+  kxFillRouteSheet(props, { isTrinomial, contribute: false });
+}
+
+/**
+ * Rellena la ficha de vía móvil (#route-bottom-sheet). Lo inmediato se pinta en el acto;
+ * votos, comentarios, «Ver vía» y la herramienta de admin llegan después.
+ */
+function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}) {
   const schoolId = mlCurrentSchool || 'valeria';
   const grade = props.grado1 || '?';
-  const gradeColor = getGradeColor(grade);
   const routeId = Number(props.id);
   const routeName = props.nombre || 'Sin nombre';
+  const sectorName = props.sector || '';
+  const encodedSector = encodeURIComponent(sectorName);
 
-  // Actualizar estado global
+  // Estado global para los botones
   mlCurrentRouteGrade = grade;
-  mlCurrentRouteSector = props.sector || '';
+  mlCurrentRouteSector = sectorName;
   mlCurrentRouteId = routeId;
   mlCurrentRouteName = routeName;
 
-  // --- Header ---
+  // --- Cabecera ---
   const nameEl = document.getElementById('rbs-route-name');
   if (nameEl) nameEl.innerHTML = routeName + getVariantLabel(props);
-
+  const sectorEl = document.getElementById('rbs-route-sector');
+  if (sectorEl) {
+    sectorEl.textContent = sectorName ? `Sector ${sectorName}` : '';
+    sectorEl.hidden = !sectorName;
+  }
   const gradeEl = document.getElementById('rbs-route-grade');
   if (gradeEl) {
     gradeEl.textContent = grade;
-    gradeEl.style.backgroundColor = gradeColor;
+    gradeEl.style.backgroundColor = getGradeColor(grade);
   }
 
-  // Check de ascenso
+  // --- Cápsulas técnicas ---
+  if (!props.descripcion && props.descripcio) props.descripcion = props.descripcio;
+  const chipsEl = document.getElementById('rbs-info-items');
+  if (chipsEl) {
+    chipsEl.innerHTML = kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, contribute });
+  }
+  const descEl = document.getElementById('rbs-desc-container');
+  if (descEl) descEl.innerHTML = kxRouteDescriptionHTML(props.descripcion);
+
+  // --- Grado recomendado, Aleje y Estado (solo lectura) ---
+  ['rbs-grade-container', 'rbs-aleje-container', 'rbs-estado-container'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<div class="kx-rcard is-loading" aria-hidden="true"></div>';
+  });
+  kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: 'rbs-grade-container', aleje: 'rbs-aleje-container', estado: 'rbs-estado-container' });
+
+  // --- Acciones ---
   const hasAscent = (typeof hasUserAscent === 'function') && hasUserAscent(schoolId, routeId);
-  const checkEl = document.getElementById('rbs-ascent-check');
-  if (checkEl) checkEl.classList.toggle('hidden', !hasAscent);
-
-  const styleEl = document.getElementById('rbs-ascent-style');
-  if (styleEl) {
-    if (hasAscent && typeof getUserAscentInfo === 'function' && typeof getAscentStyleSVG === 'function') {
-      const ascentInfo = getUserAscentInfo(schoolId, routeId);
-      if (ascentInfo && ascentInfo.style) {
-        styleEl.innerHTML = getAscentStyleSVG(ascentInfo.style);
-        styleEl.className = 'rbs-ascent-style ascent-style-' + ascentInfo.style;
-        styleEl.classList.remove('hidden');
-      } else {
-        styleEl.classList.add('hidden');
-      }
-    } else {
-      styleEl.classList.add('hidden');
-    }
+  const actionsEl = document.getElementById('rbs-actions');
+  if (actionsEl) {
+    actionsEl.innerHTML = kxRouteActionsHTML({ routeId, routeName, hasAscent });
+    kxRouteCommentCount(schoolId, routeName).then(n => {
+      if (!n || mlCurrentRouteId !== routeId) return;
+      const icon = actionsEl.querySelectorAll('.kx-ract-icon')[2];
+      if (icon && !icon.querySelector('.kx-ract-count')) icon.insertAdjacentHTML('beforeend', `<span class="kx-ract-count">${n}</span>`);
+    });
   }
 
-  // --- Info items ---
-  const infoContainer = document.getElementById('rbs-info-items');
-  if (infoContainer) {
-    if (!props.descripcion && props.descripcio) {
-      props.descripcion = props.descripcio;
-    }
-
-    const iconClimber = `<img src="icons/placa.png" alt="Tipo" width="32" height="32">`;
-    const iconExpress = `<img src="icons/mosq.png" alt="Expresos" width="32" height="32">`;
-    const iconRope = `<img src="icons/cuerda.png" alt="Cuerda" width="32" height="32">`;
-
-    const hasDescripcion = props.descripcion && props.descripcion.trim();
-    const hasExp = props.exp1 != null && props.exp1 !== '';
-    const hasLong = props.long1 != null && props.long1 !== '';
-
-    let infoHTML = '';
-    if (hasDescripcion) {
-      infoHTML += `<div class="ml-route-item"><span class="ml-route-icon">${iconClimber}</span><span class="ml-route-text">${props.descripcion}</span></div>`;
-    }
-    if (hasExp) {
-      infoHTML += `<div class="ml-route-item"><span class="ml-route-icon">${iconExpress}</span><span class="ml-route-text">${props.exp1} express</span></div>`;
-    }
-    if (hasLong) {
-      infoHTML += `<div class="ml-route-item"><span class="ml-route-icon">${iconRope}</span><span class="ml-route-text">${props.long1} mts</span></div>`;
-    }
-    infoContainer.innerHTML = infoHTML;
-  }
-
-  // --- Grado (async) ---
-  const gradeContainer = document.getElementById('rbs-grade-container');
-  if (gradeContainer && typeof getGradeVotes === 'function') {
-    getGradeVotes(schoolId, routeId).then(gradeVoteData => {
-      if (typeof generateGradeSliderHTML === 'function') {
-        gradeContainer.innerHTML = generateGradeSliderHTML(routeId, schoolId, grade, gradeVoteData);
-      }
-      // Update consensus badge in RBS header
-      if (typeof buildConsensusBadgeHTML === 'function') {
-        const rbsBadge = document.getElementById('rbs-consensus-badge');
-        if (rbsBadge) {
-          const officialIdx = ALL_GRADES_ORDERED.indexOf(grade);
-          const showBadge = gradeVoteData.voteCount >= GRADE_CONSENSUS_THRESHOLD &&
-            officialIdx !== -1 && Math.round(gradeVoteData.avgGradeIdx) !== officialIdx;
-          if (showBadge) {
-            rbsBadge.textContent = `${ALL_GRADES_ORDERED[Math.round(gradeVoteData.avgGradeIdx)]} · consenso`;
-            rbsBadge.style.display = '';
-          } else {
-            rbsBadge.style.display = 'none';
-          }
-        }
-      }
-    }).catch(() => { gradeContainer.innerHTML = ''; });
-  }
-
-  // --- Aleje (async) ---
-  const alejeContainer = document.getElementById('rbs-aleje-container');
-  if (alejeContainer && typeof getAlejeVotes === 'function') {
-    alejeContainer.innerHTML = '<div style="text-align:center;color:#888;font-size:13px;">Cargando...</div>';
-    getAlejeVotes(schoolId, routeId).then(alejeData => {
-      if (typeof generateAlejeBarHTML === 'function') {
-        alejeContainer.innerHTML = generateAlejeBarHTML(routeId, schoolId, alejeData.avg, alejeData.userVote);
-      }
-    }).catch(() => { alejeContainer.innerHTML = ''; });
-  }
-
-  // --- Estado (async) ---
-  const estadoContainer = document.getElementById('rbs-estado-container');
-  if (estadoContainer && typeof getEstadoVotes === 'function') {
-    estadoContainer.innerHTML = '<div style="text-align:center;color:#888;font-size:13px;">Cargando...</div>';
-    getEstadoVotes(schoolId, routeId).then(estadoData => {
-      if (typeof generateEstadoStarsHTML === 'function') {
-        estadoContainer.innerHTML = generateEstadoStarsHTML(routeId, schoolId, estadoData.avg, estadoData.userVote);
-      }
-    }).catch(() => { estadoContainer.innerHTML = ''; });
-  }
-
-  // --- Botonera ---
-  const actionsContainer = document.getElementById('rbs-actions');
-  if (actionsContainer) {
-    const iconCheck = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-    const iconBookmark = buildBookmarkIcon(routeId);
-    const iconComment = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
-    const iconShare = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
-
-    actionsContainer.innerHTML = `
-      <button class="ml-route-action-btn" onclick="mlRegisterAscent(${routeId}, '${encodeURIComponent(routeName)}')" title="Registrar ascenso">${iconCheck}</button>
-      <button class="ml-route-action-btn ${isRouteInProjects(routeId) ? 'bookmark-active' : ''}" id="ml-bookmark-btn" onclick="mlToggleBookmark(${routeId}, '${encodeURIComponent(routeName)}')" title="Guardar">${iconBookmark}</button>
-      <button class="ml-route-action-btn ml-comment-btn" onclick="mlOpenComments(${routeId}, '${encodeURIComponent(routeName)}')" title="Comentarios">${iconComment}</button>
-      <button class="ml-route-action-btn" onclick="mlShareRoute(${routeId}, '${encodeURIComponent(routeName)}')" title="Compartir">${iconShare}</button>
-    `;
-  }
-
+  // --- Notificar un problema ---
   const reportSection = document.getElementById('rbs-report-section');
-  if (reportSection) {
-    reportSection.innerHTML = mlReportButtonHTML({ routeId, routeName, schoolId, sector: props.sector || '', grade });
-  }
+  if (reportSection) reportSection.innerHTML = mlReportButtonHTML({ routeId, routeName, schoolId, sector: sectorName, grade });
 
-  // --- Ver vía / Vincular (async, al navegar entre variantes en mobile) ---
+  // --- Ver vía / Vincular con imagen (admin) ---
   const viewSection = document.getElementById('rbs-view-section');
   const btnView = document.getElementById('rbs-btn-view');
   const devSection = document.getElementById('rbs-dev-section');
   const btnDev = document.getElementById('rbs-btn-dev');
-  if (viewSection || devSection) {
-    const sectorName = props.sector || '';
-    const encodedSector = encodeURIComponent(sectorName);
-    Promise.all([
-      (sectorName && typeof hasRouteDrawing === 'function')
-        ? hasRouteDrawing(schoolId, sectorName, routeId)
-        : Promise.resolve(false),
-      isRoutePopupAdmin()
-    ]).then(([hasDrawing, isAdmin]) => {
-      if (viewSection && btnView) {
-        if (hasDrawing) {
-          viewSection.classList.remove('hidden');
-          btnView.onclick = () => { hideRouteBottomSheet(); mlViewRouteInSector(schoolId, encodedSector, routeId, isTrinomial ? (Number(props._variantIndex) || 0) : 0); };
-        } else {
-          viewSection.classList.add('hidden');
-        }
-      }
-      if (devSection && btnDev) {
-        if (!hasDrawing && isAdmin) {
-          devSection.classList.remove('hidden');
-          btnDev.onclick = () => { hideRouteBottomSheet(); mlOpenDrawingEditor(routeId); };
-        } else {
-          devSection.classList.add('hidden');
-        }
-      }
-    }).catch(() => {});
+  if (viewSection) viewSection.classList.add('hidden');
+  if (devSection) devSection.classList.add('hidden');
+  Promise.all([
+    (sectorName && typeof hasRouteDrawing === 'function') ? hasRouteDrawing(schoolId, sectorName, routeId) : Promise.resolve(false),
+    isRoutePopupAdmin()
+  ]).then(([hasDrawing, isAdmin]) => {
+    if (mlCurrentRouteId !== routeId) return;
+    if (viewSection && btnView && hasDrawing) {
+      viewSection.classList.remove('hidden');
+      btnView.onclick = () => { hideRouteBottomSheet(); mlViewRouteInSector(schoolId, encodedSector, routeId, isTrinomial ? (Number(props._variantIndex) || 0) : 0); };
+    }
+    if (devSection && btnDev && isAdmin) {
+      devSection.classList.remove('hidden');
+      btnDev.onclick = () => { hideRouteBottomSheet(); mlOpenDrawingEditor(routeId); };
+    }
+  }).catch(() => {});
+}
+
+// ============================================
+// FICHA DE VÍA — BLOQUES DE SOLO LECTURA
+// Cápsulas técnicas, Grado recomendado, Aleje, Estado de la vía y acciones.
+// Se vota al registrar un ascenso (user-features.js: openAscentModal → kxSaveRouteVotes).
+// ============================================
+
+const KX_ALEJE_LEVELS = ['Muy pequeño', 'Pequeño', 'Normal', 'Expuesto', 'Muy expuesto'];
+
+const KX_ROUTE_INFO_TEXT = {
+  grado: 'Grado medio que votan quienes la han escalado. Vota al registrar tu ascenso.',
+  aleje: 'Distancia entre seguros según la comunidad. Vota al registrar tu ascenso.',
+  estado: 'Estado del equipamiento y la roca según la comunidad. Vota al registrar tu ascenso.'
+};
+
+function kxRouteInfo(key) {
+  if (typeof showToast === 'function' && KX_ROUTE_INFO_TEXT[key]) showToast(KX_ROUTE_INFO_TEXT[key], 'info');
+}
+
+function kxRouteInfoBtnHTML(key, label) {
+  return `<button type="button" class="kx-rinfo" onclick="kxRouteInfo('${key}')" aria-label="Qué es ${label}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v5.5"/><circle cx="12" cy="7.6" r="0.6" fill="currentColor"/></svg></button>`;
+}
+
+function kxRouteFmtDecimal(n) {
+  return n.toFixed(1).replace('.', ',');
+}
+
+function kxEscHTML(str) {
+  return String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+// Palabras que describen el estilo de escalada de una vía (y conectores o adjetivos que las acompañan)
+const KX_STYLE_WORDS = new Set(['placa', 'placas', 'fisura', 'fisuras', 'desplome', 'desplomes', 'desplomada', 'desplomado',
+  'diedro', 'diedros', 'diedraco', 'techo', 'techos', 'techito', 'techaco', 'muro', 'espolón', 'espolon', 'arista',
+  'chimenea', 'bavaresa', 'regletas', 'agujeros', 'cazos', 'barriguita', 'cueva', 'laja', 'bloque', 'resistencia',
+  'adherencia', 'travesía', 'travesia', 'cresta', 'canto', 'cantos']);
+const KX_STYLE_LINKS = new Set(['y', 'e', 'con', 'de', 'o', 'varios', 'varias', 'muy', 'ligero', 'ligera', 'pequeño', 'pequeña',
+  'buenos', 'estilo', 'vertical', 'tumbada', 'tumbado', 'técnica', 'tecnica', 'técnico', 'tecnico', 'mantenida', 'mantenido',
+  'fisurada', 'fisurado', 'resbaladizo', 'resbaladiza', 'física', 'fisica', 'tumbadas']);
+
+function kxLevenshtein1(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1) || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
+  return a.length > b.length ? a.slice(i + 1) === b.slice(i) : b.slice(i + 1) === a.slice(i);
+}
+
+// ¿La palabra está en el conjunto, o se diferencia en una sola letra (errata: «plca», «despplome»)?
+function kxWordIn(word, set) {
+  if (set.has(word)) return true;
+  if (word.length < 4) return false;
+  for (const w of set) if (w.length >= 4 && kxLevenshtein1(word, w)) return true;
+  return false;
+}
+
+/**
+ * Reparte el atributo «descripcion» del GeoJSON: si la primera frase solo habla del estilo
+ * («Placa», «Placa, bavaresa y fisura», «Desplome»), va a la cápsula de estilo y el resto a la descripción.
+ * «Placa. Comparte reunión con 2» → { style: 'Placa', description: 'Comparte reunión con 2' }
+ */
+function kxRouteSplitDescription(text) {
+  const t = String(text || '').trim();
+  if (!t) return { style: null, description: null };
+  const m = t.match(/^([^.;:!?¡¿]+)(?:[.;:]+\s*|$)([\s\S]*)$/);
+  if (m) {
+    const first = m[1].trim();
+    const words = first.toLowerCase().split(/[\s,/]+/).filter(Boolean);
+    const isStyle = words.length > 0 && words.length <= 8 &&
+      words.some(w => kxWordIn(w, KX_STYLE_WORDS)) &&
+      words.every(w => kxWordIn(w, KX_STYLE_WORDS) || kxWordIn(w, KX_STYLE_LINKS));
+    if (isStyle) {
+      const rest = m[2].trim();
+      return { style: first.charAt(0).toUpperCase() + first.slice(1), description: rest || null };
+    }
   }
+  return { style: null, description: t };
+}
+
+/**
+ * Cápsulas técnicas: estilo, expreses y longitud. Un dato que falta se ofrece para contribuir.
+ * opts.contribute = false oculta las cápsulas vacías (variantes de un grupo).
+ */
+function kxRouteChipsHTML({ routeId, schoolId, descripcion, exp, long, contribute = true }) {
+  const has = v => v != null && String(v).trim() !== '';
+  const chip = (icon, alt, value, field, ask, strong = false) => {
+    if (has(value)) {
+      return `<div class="kx-rchip${strong ? ' is-strong' : ''}"><img src="icons/${icon}" alt="${alt}" width="28" height="28"><span class="kx-rchip-text">${kxEscHTML(value)}</span></div>`;
+    }
+    if (!contribute) return '';
+    return `<button type="button" class="kx-rchip is-missing" onclick="mlContributeField(${routeId}, '${schoolId}', '${field}')"><img src="icons/${icon}" alt="" width="28" height="28"><span class="kx-rchip-text">${ask}</span></button>`;
+  };
+  const expNum = has(exp) ? Number(exp) : null;
+  const expText = has(exp) ? `${exp} ${expNum === 1 ? 'exprés' : 'expreses'}` : null;
+  const html =
+    chip('placa.png', 'Estilo', kxRouteSplitDescription(descripcion).style, 'tipo', 'Estilo', true) +
+    chip('mosq.png', 'Equipamiento', expText, 'express', 'Expreses') +
+    chip('cuerda.png', 'Longitud', has(long) ? `${long} m` : null, 'metros', 'Metros', true);
+  return html ? `<div class="kx-rchips">${html}</div>` : '';
+}
+
+/**
+ * Descripción: el texto del atributo «descripcion» que no es un estilo. Vacío si no hay.
+ */
+function kxRouteDescriptionHTML(descripcion) {
+  const { description } = kxRouteSplitDescription(descripcion);
+  if (!description) return '';
+  return `
+    <section class="kx-rcard kx-rcard--desc">
+      <div class="kx-rcard-head">
+        <svg class="kx-rdesc-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5z"/><path d="M14 2.5v5h5"/><path d="M9 12h6"/><path d="M9 15.5h6"/><path d="M9 8.5h2"/></svg>
+        <h3 class="kx-rcard-title">Descripción</h3>
+      </div>
+      <p class="kx-rdesc-text">${kxEscHTML(description)}</p>
+    </section>`;
+}
+
+/**
+ * Grado recomendado: media de los votos de grado. Sin votos se muestra el grado de la reseña.
+ */
+function kxRouteGradeCardHTML(grade, gradeVoteData) {
+  const count = gradeVoteData ? gradeVoteData.voteCount : 0;
+  const avgIdx = gradeVoteData ? gradeVoteData.avgGradeIdx : null;
+  const hasVotes = count > 0 && avgIdx !== null;
+  const shown = hasVotes ? ALL_GRADES_ORDERED[Math.round(avgIdx)] : (grade && grade !== '?' ? grade : '—');
+  const sub = hasVotes
+    ? `Consenso de la comunidad (${count} ${count === 1 ? 'voto' : 'votos'})`
+    : 'Aún sin votos de la comunidad';
+  return `
+    <section class="kx-rcard kx-rcard--grade">
+      <div class="kx-rcard-main">
+        <div class="kx-rcard-head"><h3 class="kx-rcard-title">Grado recomendado</h3>${kxRouteInfoBtnHTML('grado', 'el grado recomendado')}</div>
+        <p class="kx-rcard-sub">${sub}</p>
+      </div>
+      <span class="kx-rgrade-soft${hasVotes ? '' : ' is-empty'}"${hasVotes ? ` style="background:rgba(${hexToRgbComponents(getGradeColor(shown))},0.32)"` : ''}>${shown}</span>
+    </section>`;
+}
+
+/**
+ * Aleje: escala de cinco tramos con un indicador en la media. No es un control.
+ */
+function kxRouteAlejeCardHTML(alejeData) {
+  const avg = alejeData && alejeData.avg;
+  const hasVotes = avg !== null && avg !== undefined && avg > 0;
+  const level = hasVotes ? Math.min(5, Math.max(1, Math.round(avg))) : 0;
+  const pill = hasVotes
+    ? `<span class="kx-raleje-pill is-l${level}">${KX_ALEJE_LEVELS[level - 1]}</span>`
+    : '<span class="kx-raleje-pill is-empty">Sin votos</span>';
+  // Indicador en el centro del tramo equivalente a la media (1 → 10 %, 5 → 90 %)
+  const marker = hasVotes
+    ? `<span class="kx-raleje-marker" style="left:${((Math.min(5, Math.max(1, avg)) - 0.5) / 5) * 100}%"></span>`
+    : '';
+  return `
+    <section class="kx-rcard kx-rcard--aleje"${hasVotes ? ` aria-label="Aleje: ${KX_ALEJE_LEVELS[level - 1]}"` : ''}>
+      <div class="kx-rcard-head">
+        <h3 class="kx-rcard-title kx-rcard-title--lg">Aleje</h3>${kxRouteInfoBtnHTML('aleje', 'el aleje')}
+        ${pill}
+      </div>
+      <div class="kx-raleje-scale${hasVotes ? '' : ' is-empty'}" aria-hidden="true">
+        <span class="kx-raleje-seg is-l1"></span><span class="kx-raleje-seg is-l2"></span><span class="kx-raleje-seg is-l3"></span><span class="kx-raleje-seg is-l4"></span><span class="kx-raleje-seg is-l5"></span>
+        ${marker}
+      </div>
+      <div class="kx-raleje-legend"><span>Protección cercana</span><span>Protección alejada</span></div>
+    </section>`;
+}
+
+/**
+ * Estado de la vía: estrellas con la media y el número de valoraciones.
+ */
+function kxRouteEstadoCardHTML(estadoData) {
+  const avg = estadoData && estadoData.avg;
+  const count = (estadoData && estadoData.count) || 0;
+  const hasVotes = avg !== null && avg !== undefined && avg > 0;
+  const filled = hasVotes ? Math.round(avg) : 0;
+  let stars = '';
+  for (let i = 1; i <= 5; i++) {
+    stars += `<svg class="kx-rstar${i <= filled ? ' is-on' : ''}" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 6 6.5.8-4.8 4.5 1.2 6.5L12 17.3l-5.8 3.1 1.2-6.5L2.6 9.4l6.5-.8z"/></svg>`;
+  }
+  const value = hasVotes
+    ? `<span class="kx-restado-val"><strong>${kxRouteFmtDecimal(avg)}</strong> (${count} ${count === 1 ? 'valoración' : 'valoraciones'})</span>`
+    : '<span class="kx-restado-val">Sin valoraciones</span>';
+  return `
+    <section class="kx-rcard kx-rcard--estado">
+      <div class="kx-rcard-head"><h3 class="kx-rcard-title">Estado de la vía</h3>${kxRouteInfoBtnHTML('estado', 'el estado de la vía')}</div>
+      <div class="kx-restado-rate"${hasVotes ? ` aria-label="${kxRouteFmtDecimal(avg)} de 5"` : ''}><span class="kx-rstars">${stars}</span>${value}</div>
+    </section>`;
+}
+
+function kxRouteBookmarkIcon(active) {
+  return `<svg width="28" height="28" viewBox="0 0 24 24" fill="${active ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 21l-6-4.5L6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/></svg>`;
+}
+
+/**
+ * Acciones sociales: Ascenso, Guardar, Comentarios, Compartir.
+ */
+function kxRouteActionsHTML({ routeId, routeName, hasAscent = false, commentCount = 0 }) {
+  const enc = encodeURIComponent(routeName);
+  const saved = isRouteInProjects(routeId);
+  const iconCheck = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M7.8 12.3l2.8 2.8 5.6-5.8"/></svg>`;
+  const iconComment = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.4 7.6L3.5 20.5l1.4-4.4A8.5 8.5 0 1 1 20.5 11.5z"/></svg>`;
+  const iconShare = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.5 2.5L10.6 13.4"/><path d="M21.5 2.5l-7 19-3.9-8.1-8.1-3.9z"/></svg>`;
+  const badge = commentCount > 0 ? `<span class="kx-ract-count">${commentCount}</span>` : '';
+  return `
+    <div class="kx-ractions">
+      <button type="button" class="kx-ract${hasAscent ? ' is-done' : ''}" onclick="mlRegisterAscent(${routeId}, '${enc}')"><span class="kx-ract-icon">${iconCheck}</span><span class="kx-ract-label">Ascenso</span></button>
+      <button type="button" class="kx-ract${saved ? ' bookmark-active' : ''}" id="ml-bookmark-btn" aria-pressed="${saved}" onclick="mlToggleBookmark(${routeId}, '${enc}')"><span class="kx-ract-icon">${kxRouteBookmarkIcon(saved)}</span><span class="kx-ract-label">Guardar</span></button>
+      <button type="button" class="kx-ract" onclick="mlOpenComments(${routeId}, '${enc}')"><span class="kx-ract-icon">${iconComment}${badge}</span><span class="kx-ract-label">Comentarios</span></button>
+      <button type="button" class="kx-ract is-strong" onclick="mlShareRoute(${routeId}, '${enc}')"><span class="kx-ract-icon">${iconShare}</span><span class="kx-ract-label">Compartir</span></button>
+    </div>`;
+}
+
+const KX_ROUTE_EYE_ICON = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 12S5.5 4.5 12 4.5 22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12z"/><circle cx="12" cy="12" r="3.2"/></svg>`;
+
+const KX_ROUTE_LINK_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+
+async function kxRouteCommentCount(schoolId, routeName) {
+  try {
+    if (typeof db === 'undefined' || typeof normalizeId !== 'function') return 0;
+    const snap = await db.collection('comments').where('routeId', '==', `${schoolId}_${normalizeId(routeName)}`).get();
+    return snap.size;
+  } catch (e) {
+    console.warn('Error fetching comment count:', e);
+    return 0;
+  }
+}
+
+/**
+ * Pinta las tres tarjetas de votos (grado, aleje, estado) en sus contenedores.
+ * Se usa al abrir la ficha y tras votar desde el registro de ascenso.
+ */
+function kxRenderRouteVoteCards(schoolId, routeId, grade, ids) {
+  const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+  return Promise.all([
+    getGradeVotes(schoolId, routeId).then(d => set(ids.grade, kxRouteGradeCardHTML(grade, d))).catch(() => set(ids.grade, '')),
+    getAlejeVotes(schoolId, routeId).then(d => set(ids.aleje, kxRouteAlejeCardHTML(d))).catch(() => set(ids.aleje, '')),
+    getEstadoVotes(schoolId, routeId).then(d => set(ids.estado, kxRouteEstadoCardHTML(d))).catch(() => set(ids.estado, ''))
+  ]);
+}
+
+/**
+ * Guarda los votos de grado, aleje y estado de una vía (desde el registro de ascenso).
+ * votes: { gradeIdx, aleje, estado } con null = sin voto. initial: los votos que tenía el usuario.
+ * Solo escribe lo que ha cambiado; un voto quitado se borra del mapa.
+ */
+async function kxSaveRouteVotes(schoolId, routeId, votes, initial = {}) {
+  if (typeof auth === 'undefined' || !auth.currentUser || !schoolId || !Number.isFinite(Number(routeId))) return false;
+  const uid = auth.currentUser.uid;
+  const rid = Number(routeId);
+  const fs = firebase.firestore();
+  const del = firebase.firestore.FieldValue.delete();
+  const jobs = [
+    ['grade_votes', 'gradeIdx'],
+    ['aleje_votes', 'aleje'],
+    ['estado_votes', 'estado']
+  ].filter(([, key]) => (votes[key] ?? null) !== (initial[key] ?? null))
+   .map(([col, key]) => fs.collection(col).doc(`${schoolId}_${rid}`).set({
+      schoolId,
+      routeId: rid,
+      votes: { [uid]: votes[key] ?? del },
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true }));
+  if (!jobs.length) return false;
+  if ((votes.estado ?? null) !== (initial.estado ?? null)) kxSectorEstadoCache.clear();
+  await Promise.all(jobs);
+  // Refrescar la ficha abierta si es la misma vía
+  if (Number(mlCurrentRouteId) === rid && Number.isFinite(rid)) {
+    kxRenderRouteVoteCards(schoolId, rid, mlCurrentRouteGrade, { grade: 'rbs-grade-container', aleje: 'rbs-aleje-container', estado: 'rbs-estado-container' });
+    kxRenderRouteVoteCards(schoolId, rid, mlCurrentRouteGrade, { grade: `ml-variant-grade-${rid}`, aleje: `ml-variant-aleje-${rid}`, estado: `ml-variant-estado-${rid}` });
+  }
+  return true;
 }
 
 /**
@@ -4080,11 +4939,11 @@ async function mlVoteAleje(routeId, schoolId, level) {
         : 'Aleje';
     }
 
-    if (typeof showToast === 'function') showToast(isUnvote ? 'Voto de aleje cancelado' : 'Aleje actualizado');
+    if (typeof showToast === 'function') showToast(isUnvote ? 'Voto de aleje cancelado' : 'Aleje actualizado', 'success');
 
   } catch (e) {
     console.error('[Aleje] Error votando:', e);
-    if (typeof showToast === 'function') showToast('Error al votar aleje');
+    if (typeof showToast === 'function') showToast('No se ha podido votar el aleje', 'error');
   }
 }
 
@@ -4118,7 +4977,7 @@ async function getAlejeVotes(schoolId, routeId) {
       userVote = votes[auth.currentUser.uid] || null;
     }
 
-    return { avg, userVote };
+    return { avg, userVote, count: values.length };
   } catch (e) {
     console.error('[Aleje] Error obteniendo votos:', e);
     return { avg: null, userVote: null };
@@ -4293,10 +5152,10 @@ async function mlCancelGradeVote(routeId, schoolId, input) {
     const rbsBadge = document.getElementById('rbs-consensus-badge');
     if (rbsBadge && !showBadge) rbsBadge.style.display = 'none';
 
-    if (typeof showToast === 'function') showToast('Voto cancelado');
+    if (typeof showToast === 'function') showToast('Voto cancelado', 'success');
   } catch (e) {
     console.error('[GradeVotes] Error cancelando voto:', e);
-    if (typeof showToast === 'function') showToast('Error al cancelar el voto');
+    if (typeof showToast === 'function') showToast('No se ha podido cancelar el voto', 'error');
   }
 }
 
@@ -4385,10 +5244,10 @@ async function mlVoteGrade(routeId, schoolId, gradeIdx) {
     const sliderInput = container ? container.querySelector('.ml-grade-slider-input') : null;
     if (sliderInput) sliderInput.setAttribute('data-user-vote-step', sliderInput.value);
 
-    if (typeof showToast === 'function') showToast('Grado actualizado');
+    if (typeof showToast === 'function') showToast('Grado actualizado', 'success');
   } catch (e) {
     console.error('[GradeVotes] Error votando:', e);
-    if (typeof showToast === 'function') showToast('Error al votar el grado');
+    if (typeof showToast === 'function') showToast('No se ha podido votar el grado', 'error');
   }
 }
 
@@ -4469,6 +5328,7 @@ async function mlVoteEstado(routeId, schoolId, level) {
 
     const userId = auth.currentUser.uid;
     const docId = `${schoolId}_${routeId}`;
+    kxSectorEstadoCache.clear();   // la media del sector cambia con este voto
 
     const db = firebase.firestore();
     const estadoRef = db.collection('estado_votes').doc(docId);
@@ -4548,7 +5408,7 @@ async function mlVoteEstado(routeId, schoolId, level) {
 
   } catch (e) {
     console.error('[Estado] Error votando:', e);
-    if (typeof showToast === 'function') showToast('Error al votar estado');
+    if (typeof showToast === 'function') showToast('No se ha podido votar el estado', 'error');
   }
 }
 
@@ -4582,7 +5442,7 @@ async function getEstadoVotes(schoolId, routeId) {
       userVote = votes[auth.currentUser.uid] || null;
     }
 
-    return { avg, userVote };
+    return { avg, userVote, count: values.length };
   } catch (e) {
     console.error('[Estado] Error obteniendo votos:', e);
     return { avg: null, userVote: null };
@@ -4628,20 +5488,36 @@ function getRouteIdsForSector(sectorName) {
  * @param {string} sectorName - Nombre del sector
  * @returns {Promise<{avg: number|null, ratedCount: number, totalCount: number}>}
  */
-async function getSectorEstadoAverage(schoolId, sectorName) {
+// Medias de estado ya calculadas por sector (evita releer todos los votos al reabrir la ficha).
+// mlVoteEstado la vacía al votar.
+const kxSectorEstadoCache = new Map();   // "schoolId|sector" → { at, promise }
+const KX_SECTOR_ESTADO_TTL = 5 * 60 * 1000;
+
+async function getSectorEstadoAverage(schoolId, sectorName, routeIdsIn) {
+  const key = `${schoolId}|${String(sectorName || '').toLowerCase().trim()}`;
+  const hit = kxSectorEstadoCache.get(key);
+  if (hit && Date.now() - hit.at < KX_SECTOR_ESTADO_TTL) return hit.promise;
+  const promise = kxComputeSectorEstado(schoolId, sectorName, routeIdsIn);
+  kxSectorEstadoCache.set(key, { at: Date.now(), promise });
+  promise.then(r => { if (r.error) kxSectorEstadoCache.delete(key); });
+  return promise;
+}
+
+async function kxComputeSectorEstado(schoolId, sectorName, routeIdsIn) {
   try {
     if (typeof firebase === 'undefined' || !firebase.firestore) {
-      return { avg: null, ratedCount: 0, totalCount: 0 };
+      return { avg: null, ratedCount: 0, totalCount: 0, votesCount: 0 };
     }
 
-    const routeIds = getRouteIdsForSector(sectorName);
+    const routeIds = Array.isArray(routeIdsIn) ? routeIdsIn : getRouteIdsForSector(sectorName);
     const totalCount = routeIds.length;
 
-    if (totalCount === 0) return { avg: null, ratedCount: 0, totalCount: 0 };
+    if (totalCount === 0) return { avg: null, ratedCount: 0, totalCount: 0, votesCount: 0 };
 
     const db = firebase.firestore();
     const BATCH_SIZE = 10; // Firestore 'in' queries limited to 10
     const allAvgs = [];
+    let votesCount = 0;
 
     // Batch query estado_votes documents
     for (let i = 0; i < routeIds.length; i += BATCH_SIZE) {
@@ -4661,6 +5537,7 @@ async function getSectorEstadoAverage(schoolId, sectorName) {
           if (values.length > 0) {
             const avg = values.reduce((a, b) => a + b, 0) / values.length;
             allAvgs.push(avg);
+            votesCount += values.length;
           }
         }
       });
@@ -4670,14 +5547,14 @@ async function getSectorEstadoAverage(schoolId, sectorName) {
     const minRequired = Math.ceil(totalCount * 0.4);
 
     if (ratedCount < minRequired) {
-      return { avg: null, ratedCount, totalCount };
+      return { avg: null, ratedCount, totalCount, votesCount };
     }
 
     const sectorAvg = allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length;
-    return { avg: sectorAvg, ratedCount, totalCount };
+    return { avg: sectorAvg, ratedCount, totalCount, votesCount };
   } catch (e) {
     console.error('[SectorEstado] Error calculando media del sector:', e);
-    return { avg: null, ratedCount: 0, totalCount: 0 };
+    return { avg: null, ratedCount: 0, totalCount: 0, votesCount: 0, error: true };
   }
 }
 
@@ -5061,8 +5938,15 @@ async function mlToggleBookmark(routeId, encodedName) {
   // Actualizar icono + estado "presionado" del botón en el popup activo
   const btn = document.getElementById('ml-bookmark-btn');
   if (btn) {
-    btn.innerHTML = buildBookmarkIcon(routeId);
-    btn.classList.toggle('bookmark-active', isRouteInProjects(routeId));
+    const saved = isRouteInProjects(routeId);
+    const icon = btn.querySelector('.kx-ract-icon');
+    if (icon) {
+      icon.innerHTML = kxRouteBookmarkIcon(saved);
+      btn.setAttribute('aria-pressed', String(saved));
+    } else {
+      btn.innerHTML = buildBookmarkIcon(routeId);
+    }
+    btn.classList.toggle('bookmark-active', saved);
   }
 
   // Si el filtro de proyectos está activo, reaplicar para reflejar el cambio
@@ -5234,7 +6118,7 @@ let mlPulseAnimId = null;
  * Aplica un highlight visual temporal (anillo pulsante) en la posición de la vía.
  * Usa requestAnimationFrame para rendimiento fluido en WebView móvil.
  */
-function mlApplyRouteHighlight(coords, routeId) {
+function mlApplyRouteHighlight(coords, routeId, opts = {}) {
   // Limpiar highlight anterior
   mlClearRouteHighlight();
 
@@ -5256,66 +6140,45 @@ function mlApplyRouteHighlight(coords, routeId) {
     }
   });
 
-  // Radios base ajustados a plataforma
-  const baseRadius = mobile ? 16 : 20;
-  const maxRadius = mobile ? 28 : 35;
-  const innerRadius = mobile ? 10 : 12;
+  // Resaltado breve y estático (sin pulso continuo): halo salvia + anillo verde bosque alrededor del punto.
+  // El anillo crece suavemente desde el tamaño de la vía (transición nativa de MapLibre).
+  const r = opts.radius || (mlGetViasRadius() + KX_ROUTE_STROKE);
+  const ringRadius = r + (mobile ? 5 : 6);
 
-  // Capa de anillo exterior (pulso)
   mlMap.addLayer({
     id: highlightPulseLayerId,
     type: 'circle',
     source: highlightSourceId,
     paint: {
-      'circle-radius': baseRadius,
-      'circle-color': 'transparent',
-      'circle-stroke-color': '#f59e0b',
-      'circle-stroke-width': mobile ? 2.5 : 3,
-      'circle-stroke-opacity': 0.8
+      'circle-radius': r,
+      'circle-radius-transition': { duration: 240 },
+      'circle-color': KX_MAP.halo,
+      'circle-opacity': 0.42,
+      'circle-blur': 0.35
     }
   });
 
-  // Capa de punto interior (resaltado sólido)
   mlMap.addLayer({
     id: highlightLayerId,
     type: 'circle',
     source: highlightSourceId,
     paint: {
-      'circle-radius': innerRadius,
-      'circle-color': '#f59e0b',
-      'circle-opacity': 0.35,
-      'circle-stroke-color': '#f59e0b',
+      'circle-radius': r,
+      'circle-radius-transition': { duration: 240 },
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-color': KX_MAP.forest,
       'circle-stroke-width': 2.5,
       'circle-stroke-opacity': 1
     }
   });
 
-  // Animación de pulso con requestAnimationFrame (más fluido que setInterval)
-  const startTime = performance.now();
-  const cycleDuration = 1200; // ms por ciclo completo
-
-  function animatePulse(now) {
-    if (!mlMap || !mlMap.getLayer(highlightPulseLayerId)) return;
-
-    const elapsed = (now - startTime) % cycleDuration;
-    const progress = elapsed / cycleDuration;
-
-    // Curva sinusoidal suave para el radio
-    const t = Math.sin(progress * Math.PI);
-    const currentRadius = baseRadius + (maxRadius - baseRadius) * t;
-    const currentOpacity = 0.8 - 0.5 * t;
-
+  mlPulseAnimId = requestAnimationFrame(() => {
+    mlPulseAnimId = null;
     try {
-      mlMap.setPaintProperty(highlightPulseLayerId, 'circle-radius', currentRadius);
-      mlMap.setPaintProperty(highlightPulseLayerId, 'circle-stroke-opacity', currentOpacity);
-    } catch (e) {
-      return; // layer removed
-    }
-
-    mlPulseAnimId = requestAnimationFrame(animatePulse);
-  }
-
-  mlPulseAnimId = requestAnimationFrame(animatePulse);
+      mlMap.setPaintProperty(highlightPulseLayerId, 'circle-radius', ringRadius + 6);
+      mlMap.setPaintProperty(highlightLayerId, 'circle-radius', ringRadius);
+    } catch (e) {}
+  });
 
   // Auto-eliminar el highlight después de 5 segundos
   mlHighlightTimer = setTimeout(() => {
@@ -5324,16 +6187,48 @@ function mlApplyRouteHighlight(coords, routeId) {
 
   // En móvil: eliminar también al tocar el mapa
   // En web: eliminar al hacer clic
+  // (se registra en el siguiente ciclo: si no, el propio clic que la crea la borraría al instante)
   const dismissEvent = mobile ? 'touchstart' : 'click';
-  mlMap.once(dismissEvent, () => {
-    mlClearRouteHighlight();
-  });
+  const dismiss = () => mlClearRouteHighlight();
+  mlHighlightDismiss = dismiss;
+  mlHighlightDismissEvent = dismissEvent;
+  setTimeout(() => {
+    if (mlMap && mlHighlightDismiss === dismiss) mlMap.once(dismissEvent, dismiss);
+  }, 0);
 }
 
 /**
  * Elimina las capas y source del highlight de vía.
  */
+// Al cerrar la ficha de una vía (popup o hoja inferior) se quita su marca. El chequeo va diferido: al tocar otra vía,
+// la ficha anterior se cierra y la nueva se abre en el mismo instante, y esa marca nueva no debe borrarse.
+function mlClearHighlightIfRouteClosed() {
+  setTimeout(() => {
+    const popupOpen = typeof mlRoutePopup !== 'undefined' && mlRoutePopup && mlRoutePopup.isOpen();
+    if (!popupOpen && rbsCurrentState === 'hidden') mlClearRouteHighlight();
+  }, 0);
+}
+
+// Solo cuenta como «cierre» el de un popup que de verdad estaba abierto (remove() dispara 'close' aunque no lo esté)
+function kxWatchRoutePopup(popup) {
+  if (popup._kxWatched) return;
+  popup._kxWatched = true;
+  if (popup.isOpen()) popup._kxOpened = true;
+  popup.on('open', () => { popup._kxOpened = true; });
+  popup.on('close', () => {
+    if (!popup._kxOpened) return;
+    popup._kxOpened = false;
+    mlClearHighlightIfRouteClosed();
+  });
+}
+
+// Un solo «cerrar al tocar» vivo: el de la marca anterior no debe borrar la nueva
+let mlHighlightDismiss = null;
+let mlHighlightDismissEvent = null;
+
 function mlClearRouteHighlight() {
+  if (mlHighlightDismiss && mlMap) { mlMap.off(mlHighlightDismissEvent, mlHighlightDismiss); }
+  mlHighlightDismiss = null;
   if (mlHighlightTimer) {
     clearTimeout(mlHighlightTimer);
     mlHighlightTimer = null;
@@ -5442,110 +6337,110 @@ function getExposureIcon(exposicion) {
 }
 
 /**
- * Cuenta las vías por grado para un sector específico
- * @param {string} sectorName - Nombre del sector
- * @returns {Object} Objeto con conteo por grado
+ * ============================================
+ * GRÁFICO DE GRADOS (Fase 3): datos y montaje en fichas y popups
+ * Un solo recuento en todas partes: grado1 del GeoJSON completo de la escuela (en minúsculas)
+ * más las vías aprobadas de spotters de esa escuela; las vías sin grado se cuentan aparte.
+ * ============================================
  */
-function countRoutesByGradeForSector(sectorName) {
-  if (!mlMap) return {};
+const kxRoutesGeojsonCache = new Map();   // url → Promise<features[]>
 
-  const gradeCounts = {};
-  const targetSector = sectorName.toLowerCase().trim();
-
-  const countFromSource = (sourceId, sourceLayer) => {
-    try {
-      const source = mlMap.getSource(sourceId);
-      if (!source) return;
-      let features = [];
-      if (source._data && source._data.features) {
-        features = source._data.features;
-      } else {
-        features = mlMap.querySourceFeatures(sourceId, sourceLayer ? { sourceLayer } : {});
-      }
-      features.forEach(f => {
-        const props = f.properties;
-        if ((props.sector || '').toLowerCase().trim() === targetSector) {
-          const grade = props.grado1 || '?';
-          gradeCounts[grade] = (gradeCounts[grade] || 0) + 1;
-        }
-      });
-    } catch (e) { /* source may not exist */ }
-  };
-
-  countFromSource('vias-source', 'vias');
-  countFromSource('vias-usuarios-source', null);
-
-  return gradeCounts;
-}
-
-/**
- * Ordena grados de escalada
- */
-function sortGrades(grades) {
-  const order = ['3', '4a', '4b', '4c', '4+', '5a', '5b', '5c', '5+', '6a', '6a+', '6b', '6b+', '6c', '6c+', '7a', '7a+', '7b', '7b+', '7c', '7c+', '8a', '8a+', '8b', '8b+', '8c', '8c+', '9a'];
-
-  return grades.sort((a, b) => {
-    const indexA = order.indexOf(a.toLowerCase());
-    const indexB = order.indexOf(b.toLowerCase());
-    if (indexA === -1 && indexB === -1) return a.localeCompare(b);
-    if (indexA === -1) return 1;
-    if (indexB === -1) return -1;
-    return indexA - indexB;
-  });
-}
-
-/**
- * Renderiza el gráfico de barras de grados
- * @param {string} containerId - ID del contenedor
- * @param {Object} gradeCounts - Conteo de vías por grado
- */
-function renderGradeChart(containerId, gradeCounts) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  const grades = sortGrades(Object.keys(gradeCounts));
-  const total = Object.values(gradeCounts).reduce((sum, count) => sum + count, 0);
-
-  if (grades.length === 0) {
-    container.innerHTML = '<p style="color: #888; text-align: center;">No hay vías registradas</p>';
-    return;
+function kxSchoolRouteFeatures(schoolId) {
+  const url = MAPLIBRE_SCHOOLS[schoolId]?.geojson?.vias;
+  if (!url) return Promise.resolve([]);
+  if (!kxRoutesGeojsonCache.has(url)) {
+    kxRoutesGeojsonCache.set(url, fetch(url)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(g => g.features || [])
+      .catch(e => { kxRoutesGeojsonCache.delete(url); throw e; }));
   }
+  return kxRoutesGeojsonCache.get(url);
+}
 
-  const maxCount = Math.max(...Object.values(gradeCounts));
-  const containerWidth = container.clientWidth || 280;
-  const availableWidth = containerWidth - 16;
-  const numGrades = grades.length;
-  const gap = numGrades > 15 ? 1 : numGrades > 10 ? 2 : 3;
-  const barWidth = Math.max(8, Math.min(28, Math.floor((availableWidth - gap * (numGrades - 1)) / numGrades)));
-  const labelFontSize = numGrades > 15 ? 7 : numGrades > 10 ? 8 : 9;
+// Vías de spotters ya cargadas en el mapa, solo si pertenecen a esa escuela (null si no están)
+function kxSpotterRouteFeatures(schoolId) {
+  if (!mlMap || mlCurrentSchool !== schoolId) return null;
+  const src = mlMap.getSource('vias-usuarios-source');
+  return src && src._data && Array.isArray(src._data.features) ? src._data.features : null;
+}
 
-  let html = `
-    <div style="text-align: center; font-weight: 600; color: #374151; margin-bottom: 12px; padding-bottom: 6px;">
-      Vías por Grado <span style="font-weight: 400; color: #6b7280;">(${total} total)</span>
-    </div>
-    <div style="display: flex; align-items: flex-end; justify-content: center; height: 100px; gap: ${gap}px; width: 100%; box-sizing: border-box;">
-  `;
+function kxCountGrades(features, filter, acc = { counts: {}, ungraded: 0 }) {
+  for (const f of features || []) {
+    const p = f.properties || {};
+    if (filter && !filter(p)) continue;
+    const g = String(p.grado1 || '').toLowerCase().trim();
+    if (g) acc.counts[g] = (acc.counts[g] || 0) + 1; else acc.ungraded++;
+  }
+  return acc;
+}
 
-  grades.forEach(grade => {
-    const count = gradeCounts[grade];
-    const height = Math.max(8, (count / maxCount) * 80);
-    const gradeColor = getGradeColor(grade);
+// Sector: se cuenta desde el GeoJSON completo (antes, desde las vías dibujadas: vacío con poco zoom)
+async function kxSectorGradeStats(schoolId, sectorName) {
+  const target = String(sectorName || '').toLowerCase().trim();
+  const inSector = p => String(p.sector || '').toLowerCase().trim() === target;
+  const acc = kxCountGrades(await kxSchoolRouteFeatures(schoolId), inSector);
+  const spot = kxSpotterRouteFeatures(schoolId);
+  if (spot) kxCountGrades(spot, inSector, acc);
+  return kxGradeStats(acc.counts, { ungraded: acc.ungraded });
+}
 
-    html += `
-      <div style="display: flex; flex-direction: column; align-items: center; flex: 0 0 ${barWidth}px; min-width: 0;">
-        <span style="font-size: ${Math.min(10, labelFontSize + 1)}px; color: #374151; font-weight: 600; line-height: 1.2;">${count}</span>
-        <div style="width: 100%; height: ${height}px; background: ${gradeColor}; border-radius: 3px 3px 0 0;"></div>
-        <div style="position: relative; width: ${barWidth}px; height: 12px; margin-top: 2px;">
-          <span style="position: absolute; left: 50%; top: 0; font-size: ${labelFontSize}px; color: #6b7280; white-space: nowrap; transform: translateX(-50%) rotate(-45deg); transform-origin: top center;">${grade}</span>
-        </div>
-      </div>
-    `;
-  });
+// Vías de un sector (GeoJSON completo de la escuela + vías de spotters ya cargadas): [{ id, name }]
+async function kxSectorRoutes(schoolId, sectorName) {
+  const target = String(sectorName || '').toLowerCase().trim();
+  const routes = [];
+  const add = f => {
+    const p = f.properties || {};
+    if (String(p.sector || '').toLowerCase().trim() === target) routes.push({ id: p.id, name: p.nombre || '' });
+  };
+  (await kxSchoolRouteFeatures(schoolId)).forEach(add);
+  (kxSpotterRouteFeatures(schoolId) || []).forEach(add);
+  return routes;
+}
 
-  html += '</div>';
-  // Espacio extra para las etiquetas rotadas
-  html += `<div style="height: ${numGrades > 10 ? 20 : 16}px;"></div>`;
-  container.innerHTML = html;
+let kxPendingChartGrade = null;   // grado que se selecciona al volver al gráfico desde el filtro del mapa
+
+function kxMountGradeChart(container, stats, ctx) {
+  // Ficha de sector: las vías sin grado entran en el gráfico como una última barra «?»
+  if (ctx.withUngraded && stats.ungraded > 0) {
+    const entries = [...stats.entries, { grade: '?', count: stats.ungraded, pct: (stats.ungraded / stats.total) * 100, family: '', ungraded: true }];
+    stats = { ...stats, entries, graded: stats.total, max: Math.max(stats.max, stats.ungraded) };
+  }
+  container.innerHTML = kxGradeChartHTML(stats, { id: `${container.id || 'kx'}-gc`, title: ctx.title || 'Vías por grado' });
+  const el = container.querySelector('.kx-gchart');
+  // Ficha de sector: «Vías por Grado (31 total)»
+  const totalEl = ctx.compactTotal && el && el.querySelector('.kx-gchart-total');
+  if (totalEl) totalEl.textContent = `(${stats.graded} total)`;
+  // Ficha de sector: gráfico solo informativo, sin selección de grados
+  if (ctx.static) {
+    if (el) el.classList.add('is-static');
+    container.querySelectorAll('.kx-gbar').forEach(b => { b.tabIndex = -1; b.removeAttribute('aria-pressed'); });
+    return null;
+  }
+  const ctl = kxBindGradeChart(el, stats, { onViewRoutes: e => kxFocusGrade({ ...ctx, grade: e.grade, count: e.count }) });
+  const sameCtx = mlGradeFocus && mlGradeFocus.schoolId === ctx.schoolId && (mlGradeFocus.sector || '') === (ctx.sector || '');
+  const want = kxPendingChartGrade || (sameCtx ? mlGradeFocus.grade : null);
+  kxPendingChartGrade = null;
+  if (ctl && want) { const i = stats.entries.findIndex(x => x.grade === want); if (i >= 0) ctl.select(i); }
+  return ctl;
+}
+
+// Carga y monta el gráfico en un contenedor. ctx: { schoolId, sector?, sectorProps?, coords? }
+async function kxLoadGradeChart(container, ctx) {
+  if (!container || !ctx || !ctx.schoolId) return;
+  const token = {};
+  container._kxGcToken = token;
+  container.innerHTML = kxGradeChartStateHTML('loading', { title: ctx.title });
+  try {
+    const stats = await kxSectorGradeStats(ctx.schoolId, ctx.sector);
+    if (container._kxGcToken !== token || !container.isConnected) return;   // ya se abrió otra ficha
+    kxMountGradeChart(container, stats, ctx);
+  } catch (e) {
+    console.warn('Gráfico de grados:', e);
+    if (container._kxGcToken !== token) return;
+    container.innerHTML = kxGradeChartStateHTML('error', { title: ctx.title });
+    const retry = container.querySelector('[data-kx-retry]');
+    if (retry) retry.addEventListener('click', () => kxLoadGradeChart(container, ctx));
+  }
 }
 
 /**
@@ -5631,8 +6526,12 @@ function showSectorPopup(props, coords, extraHTML = '') {
       closeButton: true,
       closeOnClick: false,
       maxWidth: '360px',
-      className: 'ml-sector-popup-container'
+      className: 'ml-sector-popup-container kx-mpop'
     });
+    // remove()/addTo() también disparan 'close' al reabrir otra ficha: solo se limpia si de verdad no queda ninguna abierta
+    mlSectorPopup.on('close', () => setTimeout(() => {
+      if (!(mlSectorPopup && mlSectorPopup.isOpen()) && secBsCurrentState === 'hidden') kxClearSectorSelection();
+    }, 0));
   }
 
   mlSectorPopup
@@ -5640,11 +6539,8 @@ function showSectorPopup(props, coords, extraHTML = '') {
     .setHTML(html)
     .addTo(mlMap);
 
-  // Renderizar gráfico después de que el popup esté en el DOM
-  setTimeout(() => {
-    const gradeCounts = countRoutesByGradeForSector(sectorName);
-    renderGradeChart(chartId, gradeCounts);
-  }, 100);
+  // Gráfico de grados (mismos datos y componente que la ficha móvil)
+  kxLoadGradeChart(document.getElementById(chartId), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] } });
 
   // Cargar estado del sector asincrónicamente
   const schoolId = mlCurrentSchool || 'valeria';
@@ -5661,26 +6557,11 @@ function showSectorPopup(props, coords, extraHTML = '') {
  * Configura interacción de click en sectores
  */
 function setupSectoresInteraction() {
-  if (!mlMap.getLayer('sectores-layer')) return;
+  // El toque lo recibe la capa invisible de 24 px (y las etiquetas), no la línea visible
+  kxBindSectorEvents('sectores-hit-layer');
+}
 
-  // Cursor pointer al pasar sobre sectores
-  mlMap.on('mouseenter', 'sectores-layer', () => {
-    mlMap.getCanvas().style.cursor = 'pointer';
-  });
-
-  mlMap.on('mouseleave', 'sectores-layer', () => {
-    mlMap.getCanvas().style.cursor = '';
-  });
-
-  // Click en sector
-  mlMap.on('click', 'sectores-layer', (e) => {
-    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
-    if (!e.features || e.features.length === 0) return;
-
-    const feature = e.features[0];
-    const props = feature.properties;
-    const coords = e.lngLat;
-
+function mlOpenStaticSector(props, coords) {
     if (isMobileDevice()) {
       // En móvil, usar bottom sheet
       if (mlSectorPopup) mlSectorPopup.remove();
@@ -5698,7 +6579,6 @@ function setupSectoresInteraction() {
       });
       showSectorPopup(props, [coords.lng, coords.lat]);
     }
-  });
 }
 
 // ============================================
@@ -5709,39 +6589,10 @@ function setupSectoresInteraction() {
  * Carga icono de parking
  */
 function loadParkingIcon() {
-  const size = 64;
-  const physicalSize = size * _mlDPR;
-  const externalSvg = POI_SVG_FILES['parking'];
-  if (!externalSvg) return;
-
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = physicalSize;
-    canvas.height = physicalSize;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, physicalSize, physicalSize);
-
-    ctx.shadowColor = 'white';
-    ctx.shadowBlur = 4 * _mlDPR;
-    const scale = Math.min(physicalSize / img.width, physicalSize / img.height);
-    const drawW = img.width * scale;
-    const drawH = img.height * scale;
-    const dx = (physicalSize - drawW) / 2;
-    const dy = (physicalSize - drawH) / 2;
-    ctx.drawImage(img, dx, dy, drawW, drawH);
-    ctx.shadowBlur = 0;
-
-    const imageData = ctx.getImageData(0, 0, physicalSize, physicalSize);
-    if (!mlMap.hasImage('parking-icon')) {
-      mlMap.addImage('parking-icon',
-        { data: new Uint8Array(imageData.data), width: physicalSize, height: physicalSize },
-        { pixelRatio: _mlDPR }
-      );
-    }
-  };
-  img.src = externalSvg + '?v=' + POI_ICONS_VERSION;
+  // Mismo icono del pack que el POI «parking»
+  return createSVGPinImage('parking').then(img => {
+    if (mlMap && !mlMap.hasImage('parking-icon')) mlMap.addImage('parking-icon', img, { pixelRatio: _mlDPR });
+  }).catch(e => console.warn('Icono de parking no disponible:', e));
 }
 
 // ============================================
@@ -5848,6 +6699,127 @@ function showParkingPopup(props, coords) {
 
 let mlSchoolPopup = null;
 
+// ============================================
+// ROCÓDROMOS
+// ============================================
+// Capa propia de rocódromos (Cartografia/Rocodromos/rocodromos.geojson). Aparecen a partir del zoom 9, agrupados en
+// burbujas con el número de rocódromos hasta el zoom 11; desde el 12 se ve cada uno con su icono y, desde el 13, su nombre.
+const GYM_MIN_ZOOM = 9;
+let mlGymPopup = null;
+
+function loadGymMarkers() {
+  if (!mlMap || mlMap.getSource('gyms-source')) return;
+  fetch('Cartografia/Rocodromos/rocodromos.geojson')
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+    .then(async geojson => {
+      if (mlMap.getSource('gyms-source')) return;
+      mlMap.addSource('gyms-source', { type: 'geojson', data: geojson, cluster: true, clusterMaxZoom: 11, clusterRadius: 44 });
+      await loadGymIcons();
+      // Burbuja de grupo: halo salvia + círculo verde bosque con el número
+      mlMap.addLayer({
+        id: 'gym-clusters-halo', type: 'circle', source: 'gyms-source', minzoom: GYM_MIN_ZOOM, filter: ['has', 'point_count'],
+        paint: { 'circle-color': '#DCE9DF', 'circle-opacity': 0.75, 'circle-radius': ['step', ['get', 'point_count'], 21, 5, 25, 15, 30] }
+      });
+      mlMap.addLayer({
+        id: 'gym-clusters', type: 'circle', source: 'gyms-source', minzoom: GYM_MIN_ZOOM, filter: ['has', 'point_count'],
+        paint: { 'circle-color': '#153E35', 'circle-radius': ['step', ['get', 'point_count'], 15, 5, 18, 15, 22], 'circle-stroke-width': 2.5, 'circle-stroke-color': '#ffffff' }
+      });
+      mlMap.addLayer({
+        id: 'gym-cluster-count', type: 'symbol', source: 'gyms-source', minzoom: GYM_MIN_ZOOM, filter: ['has', 'point_count'],
+        layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-allow-overlap': true },
+        paint: { 'text-color': '#ffffff' }
+      });
+      mlMap.addLayer({
+        id: 'gym-markers-layer', type: 'symbol', source: 'gyms-source', minzoom: GYM_MIN_ZOOM, filter: ['!', ['has', 'point_count']],
+        layout: {
+          'icon-image': ['case', ['==', ['get', 'pago'], 'no'], 'gym-icon-free', 'gym-icon-paid'],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.32, 12, 0.42, 15, 0.55],
+          'icon-allow-overlap': true, 'icon-anchor': 'center'
+        }
+      });
+      mlMap.addLayer({
+        id: 'gym-labels-layer', type: 'symbol', source: 'gyms-source', minzoom: 13, filter: ['!', ['has', 'point_count']],
+        layout: { 'text-field': ['get', 'nombre'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [0, 1.6], 'text-anchor': 'top', 'text-max-width': 9, 'text-optional': true },
+        paint: { 'text-color': '#153E35', 'text-halo-color': 'rgba(255, 255, 255, 0.95)', 'text-halo-width': 2 }
+      });
+      setupGymLayerInteraction();
+      // Conexión con Firestore lista antes del primer toque (la ficha de rocódromo tarda menos en abrir)
+      if (window.KruxGymSheet && window.KruxGymSheet.warm) window.KruxGymSheet.warm();
+    })
+    .catch(err => console.warn('[Rocódromos] No se han podido cargar:', err));
+}
+
+// Iconos: de pago = cuadrado verde bosque con moneda «€» coral; gratuito (municipal o al aire libre) = círculo blanco con borde verde.
+// Se distinguen por la forma y por la moneda, no solo por el color, para leerse bien sobre la ortofoto.
+async function loadGymIcons() {
+  const size = 96;
+  const shadow = '<defs><filter id="s" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.6" flood-color="#0b1f1a" flood-opacity="0.35"/></filter></defs>';
+  const hold = (fg, bg) => `<path d="M17.6 31.6c-2.4-1.3-3.2-4.4-1.8-6.9l3.4-6.2c1.5-2.7 4.9-3.7 7.6-2.2l4.1 2.3c2.6 1.5 3.4 4.9 1.8 7.4l-3.2 5.1c-1.5 2.4-4.7 3.3-7.2 1.9z" fill="${fg}"/><circle cx="24.4" cy="24.4" r="2.5" fill="${bg}"/>`;
+  const paid = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}">${shadow}
+    <rect x="5" y="7" width="36" height="36" rx="11" fill="#153E35" stroke="#ffffff" stroke-width="2.5" filter="url(#s)"/>
+    <g transform="translate(-1 1)">${hold('#ffffff', '#153E35')}</g>
+    <circle cx="38.5" cy="9.5" r="7.5" fill="#FF8D67" stroke="#ffffff" stroke-width="2"/>
+    <text x="38.5" y="13.2" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10.5" font-weight="700" fill="#202923">€</text>
+  </svg>`;
+  const free = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}">${shadow}
+    <circle cx="24" cy="25" r="17" fill="#ffffff" stroke="#153E35" stroke-width="3" filter="url(#s)"/>
+    <g transform="translate(-0.4 0.6)">${hold('#153E35', '#ffffff')}</g>
+  </svg>`;
+  await loadSVGAsImage('gym-icon-paid', paid, size);
+  await loadSVGAsImage('gym-icon-free', free, size);
+}
+
+function setupGymLayerInteraction() {
+  ['gym-clusters', 'gym-markers-layer'].forEach(layer => {
+    mlMap.on('mouseenter', layer, () => { mlMap.getCanvas().style.cursor = 'pointer'; });
+    mlMap.on('mouseleave', layer, () => { mlMap.getCanvas().style.cursor = ''; });
+  });
+  // Grupo: acercar hasta que se separe
+  mlMap.on('click', 'gym-clusters', async (e) => {
+    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    const f = e.features && e.features[0];
+    if (!f) return;
+    try {
+      const zoom = await mlMap.getSource('gyms-source').getClusterExpansionZoom(f.properties.cluster_id);
+      mlMap.easeTo({ center: f.geometry.coordinates, zoom: Math.max(zoom, mlMap.getZoom() + 1) });
+    } catch (_) { mlMap.easeTo({ center: f.geometry.coordinates, zoom: mlMap.getZoom() + 2 }); }
+  });
+  mlMap.on('click', 'gym-markers-layer', (e) => {
+    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    const f = e.features && e.features[0];
+    if (!f) return;
+    // Un toque abre la ficha completa (hoja en móvil, modal en escritorio); el popup queda como alternativa
+    if (window.KruxGymSheet) window.KruxGymSheet.open(f.properties, f.geometry.coordinates.slice());
+    else showGymPopup(f.properties, f.geometry.coordinates.slice());
+  });
+}
+
+function showGymPopup(p, coords) {
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const yes = v => v === true || v === 'true';
+  const types = [[yes(p.cuerda), 'Cuerda'], [yes(p.bloque), 'Bloque'], [yes(p.auto), 'Autobelay']].filter(t => t[0]).map(t => t[1]);
+  const price = p.pago === 'si' ? 'De pago' : p.pago === 'no' ? 'Gratuito' : '';
+  const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${coords[1]},${coords[0]}`;
+  if (!mlGymPopup) mlGymPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: true, maxWidth: '300px', offset: 18, className: 'ml-gym-popup' });
+  mlGymPopup.setLngLat(coords).setHTML(`
+    <div class="ml-gym-popup-content">
+      <button type="button" class="ml-popup-close-btn" data-gym-close aria-label="Cerrar">&times;</button>
+      <p class="ml-gym-kicker">Rocódromo${price ? ` · <span class="ml-gym-price ml-gym-price--${esc(p.pago)}">${price}</span>` : ''}</p>
+      <h3 class="ml-gym-title">${esc(p.nombre)}</h3>
+      ${types.length ? `<ul class="ml-gym-tags">${types.map(t => `<li>${t}</li>`).join('')}</ul>` : ''}
+      <div class="ml-gym-actions">
+        <button type="button" class="ml-gym-btn ml-gym-btn--alt" data-gym-go>Cómo llegar</button>
+        ${window.KruxGymSheet ? '<button type="button" class="ml-gym-btn" data-gym-info>Fotos e información</button>' : ''}
+      </div>
+    </div>`).addTo(mlMap);
+  const el = mlGymPopup.getElement();
+  el.querySelector('[data-gym-close]').onclick = () => mlGymPopup.remove();
+  el.querySelector('[data-gym-go]').onclick = () => window.open(gmapsUrl, '_blank');
+  // Ficha con lo que aporta la comunidad (gym-info.js): fotos, horario, precios, instalaciones y contacto
+  const info = el.querySelector('[data-gym-info]');
+  if (info) info.onclick = () => { mlGymPopup.remove(); window.KruxGymSheet.open(p, coords); };
+}
+
 /**
  * Carga los markers de escuelas como Symbol Layer nativo de MapLibre
  * Esto hace que los iconos escalen con el zoom como las líneas de sectores
@@ -5861,9 +6833,11 @@ function loadSchoolMarkers() {
   console.log('Cargando markers de escuelas como Symbol Layer:', SCHOOL_MARKERS.length);
 
   // Limpiar source/layers existentes si los hay
-  if (mlMap.getLayer('school-labels-layer')) mlMap.removeLayer('school-labels-layer');
-  if (mlMap.getLayer('school-markers-layer')) mlMap.removeLayer('school-markers-layer');
+  ['school-labels-layer', 'school-markers-selected-layer', 'school-markers-layer', 'school-halo-layer']
+    .forEach(id => { if (mlMap.getLayer(id)) mlMap.removeLayer(id); });
   if (mlMap.getSource('schools-source')) mlMap.removeSource('schools-source');
+  kxSelectedSchool = null;
+  kxFocusedSchool = null;
 
   // Crear popup compartido para escuelas
   if (!mlSchoolPopup) {
@@ -5871,8 +6845,12 @@ function loadSchoolMarkers() {
       closeButton: true,
       closeOnClick: false,
       maxWidth: '340px',
-      className: 'ml-school-popup'
+      className: 'ml-school-popup kx-mpop'
     });
+    // En escritorio la ficha es este popup; en móvil, la hoja inferior (hideBottomSheet limpia la selección)
+    mlSchoolPopup.on('close', () => setTimeout(() => {
+      if (!isMobileDevice() && !(mlSchoolPopup && mlSchoolPopup.isOpen())) kxSelectSchool(null);
+    }, 0));
   }
 
   // Crear GeoJSON con las escuelas
@@ -5898,74 +6876,77 @@ function loadSchoolMarkers() {
   // Añadir source
   mlMap.addSource('schools-source', {
     type: 'geojson',
-    data: schoolsGeoJSON
+    data: schoolsGeoJSON,
+    promoteId: 'id'
   });
 
   // Cargar iconos SVG como imágenes
   loadSchoolIcons().then(() => {
-    // Añadir capa de símbolos (iconos)
+    const scale = kxZoomExpr(KX_SCHOOL_SCALE);
+    const zoomFade = ['interpolate', ['linear'], ['zoom'], 11.4, 1, 12, 0.6];
+    const stateOn = ['any', _kxSel, ['boolean', ['feature-state', 'focus'], false]];
+
+    // Halo del estado «en foco»: círculo verde translúcido y mate, detrás del pin y centrado en su círculo.
+    // Es una capa aparte, así que no altera el anclaje del marcador.
+    mlMap.addLayer({
+      id: 'school-halo-layer',
+      type: 'circle',
+      source: 'schools-source',
+      minzoom: 5,
+      maxzoom: 12,
+      paint: {
+        'circle-radius': kxZoomExpr(KX_SCHOOL_SCALE, sc => +(KX_SCHOOL_PIN_W * 0.8 * sc).toFixed(2)),
+        'circle-translate': kxZoomExpr(KX_SCHOOL_SCALE, sc => ['literal', [0, -+(KX_SCHOOL_PIN_BODY_UP * sc).toFixed(2)]]),
+        'circle-translate-anchor': 'viewport',
+        'circle-pitch-alignment': 'viewport',
+        'circle-color': KX_SCHOOL_PIN.selected,
+        'circle-opacity': ['case', ['boolean', ['feature-state', 'focus'], false], 0.3, 0],
+        'circle-stroke-color': KX_SCHOOL_PIN.selected,
+        'circle-stroke-width': 5,
+        'circle-stroke-opacity': ['case', ['boolean', ['feature-state', 'focus'], false], 0.2, 0],
+        'circle-opacity-transition': { duration: 180 },
+        'circle-stroke-opacity-transition': { duration: 180 }
+      }
+    });
+
+    const pinLayout = icon => ({
+      'icon-image': icon,
+      'icon-size': scale,
+      'icon-anchor': 'bottom',
+      'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'icon-pitch-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport'
+    });
+
+    // Estado normal (todas las escuelas); es la capa interactiva
     mlMap.addLayer({
       id: 'school-markers-layer',
       type: 'symbol',
       source: 'schools-source',
       minzoom: 5,
       maxzoom: 12,
-      layout: {
-        'icon-image': ['case',
-          ['==', ['get', 'nombre'], 'Hoz del Río Gritos'], 'school-icon-green',
-          ['==', ['get', 'nombre'], 'Mora'], 'school-icon-green',
-          ['==', ['get', 'nombre'], 'Toledo'], 'school-icon-green',
-          ['==', ['get', 'nombre'], 'Cuenca'], 'school-icon-green',
-          'school-icon-orange'
-        ],
-        // Tamaño que escala con el zoom
-        'icon-size': [
-          'interpolate', ['linear'], ['zoom'],
-          5, 0.3,
-          8, 0.5,
-          10, 0.7,
-          12, 0.9,
-          14, 1.1
-        ],
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': false,
-        // Badge de desarrollo para escuelas no abiertas
-        'icon-anchor': 'center'
-      },
+      layout: pinLayout('kx-school-pin'),
+      paint: { 'icon-opacity': zoomFade }
+    });
+
+    // Seleccionada o en foco: mismo pin con el verde intenso, superpuesto con exactitud
+    mlMap.addLayer({
+      id: 'school-markers-selected-layer',
+      type: 'symbol',
+      source: 'schools-source',
+      minzoom: 5,
+      maxzoom: 12,
+      layout: pinLayout('kx-school-pin-selected'),
       paint: {
-        'icon-opacity': 1
+        'icon-opacity': ['interpolate', ['linear'], ['zoom'], 11.4, ['case', stateOn, 1, 0], 12, ['case', stateOn, 0.6, 0]],
+        'icon-opacity-transition': { duration: 160 }
       }
     });
 
-    // Añadir capa de etiquetas (texto)
-    mlMap.addLayer({
-      id: 'school-labels-layer',
-      type: 'symbol',
-      source: 'schools-source',
-      minzoom: 7,
-      maxzoom: 12,
-      layout: {
-        'text-field': ['get', 'nombre'],
-        'text-font': ['Noto Sans Bold'],
-        'text-size': [
-          'interpolate', ['linear'], ['zoom'],
-          7, 10,
-          10, 12,
-          12, 14,
-          14, 16
-        ],
-        'text-offset': [0, 2.2],
-        'text-anchor': 'top',
-        'text-max-width': 10,
-        'text-allow-overlap': false
-      },
-      paint: {
-        'text-color': '#1f2937',
-        'text-halo-color': 'rgba(255, 255, 255, 0.95)',
-        'text-halo-width': 2,
-        'text-halo-blur': 0
-      }
-    });
+    // Etiqueta flotante independiente del icono: desde el zoom 7, sin solaparse
+    mlMap.addLayer(kxSchoolLabelLayer('school-labels-layer', 'schools-source'));
 
     // Configurar interactividad
     setupSchoolLayerInteraction();
@@ -5978,42 +6959,37 @@ function loadSchoolMarkers() {
  * Carga los iconos SVG de escuelas como imágenes para MapLibre
  */
 async function loadSchoolIcons() {
-  const iconSize = 96; // Tamaño base del icono (se escalará con icon-size)
-
-  // Icono naranja (escuelas normales)
-  const orangeSVG = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${iconSize}" height="${iconSize}">
-      <circle cx="24" cy="24" r="22" fill="#f59e0b"/>
-      <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
-      <g fill="white">
-        <path d="M24 10 L36 32 L12 32 Z" opacity="0.95"/>
-        <path d="M16 20 L24 32 L8 32 Z" opacity="0.7"/>
-      </g>
-      <g transform="translate(36, 10)">
-        <circle cx="0" cy="0" r="8" fill="#fff" stroke="#f59e0b" stroke-width="1.5"/>
-        <text x="0" y="3" text-anchor="middle" font-size="10" fill="#333">🔨</text>
-      </g>
-    </svg>
-  `;
-
-  // Icono verde (Hoz del Río Gritos - abierta)
-  const greenSVG = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${iconSize}" height="${iconSize}">
-      <circle cx="24" cy="24" r="22" fill="#22c55e"/>
-      <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
-      <g fill="white">
-        <path d="M24 10 L36 32 L12 32 Z" opacity="0.95"/>
-        <path d="M16 20 L24 32 L8 32 Z" opacity="0.7"/>
-      </g>
-    </svg>
-  `;
-
-  // Cargar icono naranja
-  await loadSVGAsImage('school-icon-orange', orangeSVG, iconSize);
-
-  // Cargar icono verde
-  await loadSVGAsImage('school-icon-green', greenSVG, iconSize);
+  // Un único pin con tres rellenos: normal (verde mate), seleccionada (verde intenso) y pendiente de aprobación
+  await kxLoadSVGImage('kx-school-pin', kxSchoolPinSVG(KX_SCHOOL_PIN.normal), KX_SCHOOL_PIN_W, KX_SCHOOL_PIN_H);
+  await kxLoadSVGImage('kx-school-pin-selected', kxSchoolPinSVG(KX_SCHOOL_PIN.selected), KX_SCHOOL_PIN_W, KX_SCHOOL_PIN_H);
+  await kxLoadSVGImage('kx-school-pin-pending', kxSchoolPinSVG(KX_SCHOOL_PIN.pending), KX_SCHOOL_PIN_W, KX_SCHOOL_PIN_H);
 }
+
+// Selección y foco son estados independientes: el pin intenso se muestra con cualquiera de los dos y el halo solo con el foco
+function kxSelectSchool(id) {
+  if (kxSelectedSchool != null) kxSetFeatureState({ source: 'schools-source', id: kxSelectedSchool }, { selected: false });
+  kxSelectedSchool = id;
+  if (id != null) kxSetFeatureState({ source: 'schools-source', id }, { selected: true });
+}
+
+/**
+ * Da el foco a una escuela (o lo quita con null). Lo usan el buscador y la navegación.
+ * opts.untilMoveEnd: el foco se retira al acabar el siguiente movimiento del mapa (o a los 4 s si no hay ninguno).
+ */
+function kxFocusSchool(id, opts = {}) {
+  if (kxFocusTimer) { clearTimeout(kxFocusTimer); kxFocusTimer = null; }
+  if (kxFocusedSchool != null) kxSetFeatureState({ source: 'schools-source', id: kxFocusedSchool }, { focus: false });
+  kxFocusedSchool = id != null ? id : null;
+  if (kxFocusedSchool == null) return;
+  kxSetFeatureState({ source: 'schools-source', id: kxFocusedSchool }, { focus: true });
+  if (opts.untilMoveEnd && mlMap) {
+    const mine = kxFocusedSchool;
+    const release = () => { if (kxFocusedSchool === mine) kxFocusSchool(null); };
+    mlMap.once('movestart', () => { clearTimeout(kxFocusTimer); mlMap.once('moveend', release); });
+    kxFocusTimer = setTimeout(release, 4000);
+  }
+}
+window.kxFocusSchool = kxFocusSchool;
 
 /**
  * Helper para cargar un SVG como imagen en MapLibre
@@ -6115,23 +7091,9 @@ async function showSchoolPopup(school, marker) {
  * @returns {number}
  */
 function compareGrades(gradeA, gradeB) {
-  const parseGrade = (grade) => {
-    const match = grade.match(/(\d+)([a-c])?(\+)?/);
-    if (!match) return { num: 0, letter: '', plus: false };
-    return {
-      num: parseInt(match[1]),
-      letter: match[2] || '',
-      plus: !!match[3]
-    };
-  };
-
-  const a = parseGrade(gradeA);
-  const b = parseGrade(gradeB);
-
-  if (a.num !== b.num) return a.num - b.num;
-  if (a.letter !== b.letter) return a.letter.localeCompare(b.letter);
-  if (a.plus !== b.plus) return a.plus ? 1 : -1; // '+' comes after non-'+'
-  return 0;
+  // Orden común de map-ui.js (tabla de colores): «4+» tras 4c, «5» y «7?» al principio de su familia
+  if (typeof kxCompareGrades === 'function') return kxCompareGrades(gradeA, gradeB);
+  return String(gradeA).localeCompare(String(gradeB), 'es', { numeric: true });
 }
 
 /**
@@ -6392,6 +7354,41 @@ function renderWeatherForecast(schoolId, dailyData) {
  */
 async function getSpotterGradeCounts(schoolId) {
   const counts = {};
+  // Intentar leer de la fuente del mapa primero (más rápido), solo si es la de esta escuela
+  if (mlMap && mlCurrentSchool === schoolId) {
+    try {
+      const source = mlMap.getSource('vias-usuarios-source');
+      if (source && source._data?.features?.length > 0) {
+        source._data.features.forEach(f => {
+          const grade = (f.properties?.grado1 || '').toLowerCase().trim();
+          if (grade) counts[grade] = (counts[grade] || 0) + 1;
+        });
+        return counts;
+      }
+    } catch (e) {}
+  }
+  // Fallback: consultar Firestore directamente
+  if (!schoolId || typeof firebase === 'undefined' || !firebase.firestore) return counts;
+  try {
+    const db = firebase.firestore();
+    const snapshot = await db.collection('pending_routes')
+      .where('schoolId', '==', schoolId)
+      .where('status', '==', 'approved')
+      .get();
+    snapshot.forEach(doc => {
+      const grade = (doc.data().grado1 || doc.data().geojsonFeature?.properties?.grado1 || '').toLowerCase().trim();
+      if (grade) counts[grade] = (counts[grade] || 0) + 1;
+    });
+  } catch (e) {}
+  return counts;
+}
+
+/**
+ * Lee las vías aprobadas de Spotters desde Firestore y devuelve { grado: count }
+ * Usa la fuente del mapa si ya está cargada; si no, consulta Firestore directamente.
+ */
+async function getSpotterGradeCounts(schoolId) {
+  const counts = {};
   // Intentar leer de la fuente del mapa primero (más rápido, si ya está cargada)
   if (mlMap) {
     try {
@@ -6581,18 +7578,13 @@ function buildSchoolPopupHtml(school, chartId, gmapsUrl) {
         </div>
       </div>
 
-      <div class='ml-rock-type' id='rock-type-${school.id}'>
-        <span class='ml-rock-icon'>🏔️</span>
-        <span class='ml-rock-text'>${rockType}</span>
+      <div class='ml-rock-type kx-rock-tag' id='rock-type-${school.id}'>
+        ${kxTagHTML({ icon: 'mountain', text: rockType })}
       </div>
 
-      <div class='ml-school-actions'>
-        <button class='ml-school-btn ml-school-btn-directions' id='btn-directions-${school.id}'>
-          ¿Cómo ir?
-        </button>
-        <button class='ml-school-btn ml-school-btn-visit' id='btn-visit-${school.id}'>
-          Visitar escuela
-        </button>
+      <div class='ml-school-actions kx-school-actions'>
+        ${kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary', attrs: { id: `btn-directions-${school.id}` } })}
+        ${kxButtonHTML({ icon: 'map', label: 'Visitar escuela', variant: 'primary', attrs: { id: `btn-visit-${school.id}` } })}
       </div>
     </div>
   `;
@@ -6798,8 +7790,14 @@ function setupResetViewButton() {
   btn.className = 'map-control-btn reset-view-btn';
   btn.title = 'Volver a vista general';
   btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Volver a vista general');
+  btn.classList.add('maplibregl-ctrl');   // la columna de controles de MapLibre solo deja pasar los toques a sus controles
 
-  container.appendChild(btn);
+  // Columna de controles de abajo a la derecha (encima de la ubicación); su aspecto, en app_2.css
+  const stack = mlMap.getContainer().querySelector('.maplibregl-ctrl-bottom-right');
+  if (stack) stack.insertBefore(btn, stack.firstChild);
+  else container.appendChild(btn);
 
   // Función para actualizar visibilidad según zoom
   const updateVisibility = () => {
@@ -6886,27 +7884,20 @@ window.getGradeColor = getGradeColor;
 // Variables globales del Bottom Sheet
 let bsCurrentSchool = null;
 let bsCurrentState = 'hidden'; // 'hidden', 'summary', 'expanded'
-let bsDragStartY = 0;
-let bsCurrentY = 0;
-let bsIsDragging = false;
 let bsGradeData = null; // Cache de datos de grados
 
 // === Sector Bottom Sheet state ===
 let secBsCurrentSector = null;   // { name, props, coords }
 let secBsCurrentState = 'hidden';
-let secBsDragStartY = 0;
-let secBsCurrentY = 0;
-let secBsIsDragging = false;
 
 // === Route Bottom Sheet state ===
 let rbsCurrentState = 'hidden';
-let rbsDragStartY = 0;
-let rbsCurrentY = 0;
-let rbsIsDragging = false;
 
-// Constantes de snap points (porcentaje de pantalla)
-const BS_SUMMARY_PERCENT = 0.35; // 35% de la pantalla
-const BS_EXPANDED_PERCENT = 0.90; // 90% de la pantalla
+// Controladores de las hojas (map-ui.js: KXMapSheet). Escuela y sector tienen dos alturas
+// reales (resumen y expandida); la vía, una sola con contenido desplazable.
+let kxSchoolSheet = null;
+let kxSectorSheet = null;
+let kxRouteSheet = null;
 
 /**
  * Desplazamiento adaptativo del mapa al abrir un bottom sheet.
@@ -7014,34 +8005,41 @@ function isMobileDevice() {
  */
 function initBottomSheet() {
   const bottomSheet = document.getElementById('school-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  const handle = bottomSheet?.querySelector('.bottom-sheet-handle');
+  const drag = document.getElementById('bs-school-drag');
+  const foot = document.getElementById('bs-school-foot');
 
-  if (!bottomSheet || !overlay || !handle) {
+  if (!bottomSheet || !drag || !foot || typeof KXMapSheet === 'undefined') {
     console.warn('Bottom Sheet elementos no encontrados');
     return;
   }
 
-  // Event listeners para gestos táctiles en el handle
-  handle.addEventListener('touchstart', bsHandleTouchStart, { passive: true });
-  handle.addEventListener('touchmove', bsHandleTouchMove, { passive: false });
-  handle.addEventListener('touchend', bsHandleTouchEnd, { passive: true });
+  // Cabecera y pie con los constructores compartidos (los mismos ids de siempre)
+  drag.innerHTML = kxSheetDragHTML({
+    titleId: 'bs-school-name',
+    // Tipo de roca y restricciones juntos bajo el nombre (la etiqueta de restricciones se añade al conocer los datos)
+    metaHTML: kxTagHTML({ icon: 'mountain', textId: 'bs-rock-type', text: 'Caliza' }) + '<span class="bs-tag-slot" id="bs-restriction-slot"></span>'
+  });
+  // Puntos de página encima de los botones (fijos en las dos páginas)
+  foot.innerHTML =
+    `<div class="bs-pdots" role="tablist" aria-label="Páginas de la ficha">
+      <button type="button" class="bs-pdot is-on" role="tab" data-page="0" aria-selected="true" aria-controls="bs-page-0" aria-label="Vías y tiempo"></button>
+      <button type="button" class="bs-pdot" role="tab" data-page="1" aria-selected="false" aria-controls="bs-page-1" aria-label="Condiciones y actividad"></button>
+    </div>` +
+    kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary', size: 'lg', attrs: { id: 'bs-btn-directions' } }) +
+    kxButtonHTML({ icon: 'map', label: 'Visitar escuela', variant: 'primary', size: 'lg', attrs: { id: 'bs-btn-visit' } });
+  kxInitSchoolPages(bottomSheet, foot);
 
-  // También permitir drag desde el header
-  const header = bottomSheet.querySelector('.bs-header');
-  if (header) {
-    header.addEventListener('touchstart', bsHandleTouchStart, { passive: true });
-    header.addEventListener('touchmove', bsHandleTouchMove, { passive: false });
-    header.addEventListener('touchend', bsHandleTouchEnd, { passive: true });
-  }
-
-  // Mouse events para desktop testing
-  handle.addEventListener('mousedown', bsHandleMouseDown);
-  document.addEventListener('mousemove', bsHandleMouseMove);
-  document.addEventListener('mouseup', bsHandleMouseUp);
-
-  // Click en overlay cierra el Bottom Sheet
-  overlay.addEventListener('click', hideBottomSheet);
+  kxSchoolSheet = KXMapSheet.create(bottomSheet, {
+    snaps: ['summary', 'expanded'],
+    // La altura sigue a la página visible: las dos páginas miden lo mismo (el donut absorbe la diferencia);
+    // en la 2 sube hasta mostrar todo el contenido. Solo se amplía más si la página 2 no cabe entera
+    peek: () => document.getElementById(bsPager && bsPager.current() === 1 ? 'bs-page-1' : 'bs-page-0'),
+    peekMax: 0.92,
+    expandable: () => !!bsPager && bsPager.current() === 1 && !!kxSchoolSheet && kxSchoolSheet.capped,
+    onRequestClose: hideBottomSheet,
+    onStateChange: state => { bsCurrentState = state; }
+  });
+  kxBindScrollCue(bottomSheet);   // si el contenido continúa bajo el pie (móviles bajos), el pie lo indica
 
   // Botón direcciones
   const btnDirections = document.getElementById('bs-btn-directions');
@@ -7126,31 +8124,23 @@ function initBottomSheet() {
  */
 function initSectorBottomSheet() {
   const sheet = document.getElementById('sector-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  const handle = sheet?.querySelector('.bottom-sheet-handle');
+  const drag = document.getElementById('secbs-drag');
+  const foot = document.getElementById('secbs-foot');
 
-  if (!sheet || !overlay || !handle) {
+  if (!sheet || !drag || !foot || typeof KXMapSheet === 'undefined') {
     console.warn('Sector Bottom Sheet elementos no encontrados');
     return;
   }
 
-  // Touch listeners en el handle
-  handle.addEventListener('touchstart', secBsHandleTouchStart, { passive: true });
-  handle.addEventListener('touchmove', secBsHandleTouchMove, { passive: false });
-  handle.addEventListener('touchend', secBsHandleTouchEnd, { passive: true });
+  drag.innerHTML = kxSheetDragHTML({ titleId: 'secbs-sector-name' });
+  foot.innerHTML = kxButtonHTML({ icon: 'image', label: 'Ver sector', variant: 'primary', size: 'lg', attrs: { id: 'secbs-btn-view' } });
 
-  // Touch listeners en el header (también arrastrable)
-  const header = sheet.querySelector('.bs-header');
-  if (header) {
-    header.addEventListener('touchstart', secBsHandleTouchStart, { passive: true });
-    header.addEventListener('touchmove', secBsHandleTouchMove, { passive: false });
-    header.addEventListener('touchend', secBsHandleTouchEnd, { passive: true });
-  }
-
-  // Mouse events para testing en desktop
-  handle.addEventListener('mousedown', secBsHandleMouseDown);
-  document.addEventListener('mousemove', secBsHandleMouseMove);
-  document.addEventListener('mouseup', secBsHandleMouseUp);
+  // Una sola altura: la del contenido (cabecera, tarjetas y gráfico), sin ocupar toda la pantalla
+  kxSectorSheet = KXMapSheet.create(sheet, {
+    snaps: ['expanded'],
+    onRequestClose: hideSectorBottomSheet,
+    onStateChange: state => { secBsCurrentState = state; }
+  });
 
   // Click en "Ver Sector"
   const btnView = document.getElementById('secbs-btn-view');
@@ -7165,13 +8155,6 @@ function initSectorBottomSheet() {
     });
   }
 
-  // Click en overlay cierra el sector bottom sheet
-  overlay.addEventListener('click', () => {
-    if (secBsCurrentState !== 'hidden') {
-      hideSectorBottomSheet();
-    }
-  });
-
   console.log('Sector Bottom Sheet inicializado');
 }
 
@@ -7182,8 +8165,7 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
   if (!isMobileDevice()) return false;
 
   const sheet = document.getElementById('sector-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  if (!sheet || !overlay) return false;
+  if (!sheet || !kxSectorSheet) return false;
 
   // Cerrar otros bottom sheets si están abiertos
   hideBottomSheet();
@@ -7200,12 +8182,16 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
   const exposicion = props.exposicion || '';
   const isRestricted = hasRestriction && isCurrentlyRestricted(fechaInicio, fechaFin);
 
-  // Guardar estado actual del sector
-  secBsCurrentSector = { name: sectorName, props: props, coords: coords };
+  const schoolId = mlCurrentSchool || 'valeria';
 
-  // --- Título ---
+  // Guardar estado actual del sector
+  secBsCurrentSector = { name: sectorName, props: props, coords: coords, schoolId };
+
+  // --- Título y foto de la pared ---
   const titleEl = document.getElementById('secbs-sector-name');
-  if (titleEl) titleEl.textContent = sectorName.toUpperCase();
+  if (titleEl) titleEl.textContent = sectorName;
+  const school = typeof SCHOOL_MARKERS !== 'undefined' ? SCHOOL_MARKERS.find(s => s.id === schoolId) : null;
+  kxRenderSheetPhoto(sheet, typeof kxSectorPhoto === 'function' && school ? kxSectorPhoto(school, sectorName) : null);
 
   // --- Fila de restricción ---
   const restrictionIconEl = document.getElementById('secbs-restriction-icon');
@@ -7225,7 +8211,7 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
   const restrictionDatesEl = document.getElementById('secbs-restriction-dates');
   if (restrictionDatesEl) {
     restrictionDatesEl.textContent = hasRestriction
-      ? `(Restricción: ${fechaInicio} - ${fechaFin})`
+      ? `(Restricción: ${fechaInicio} – ${fechaFin})`
       : '';
   }
 
@@ -7244,40 +8230,28 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
 
   // --- Reset contenedores async ---
   const estadoContainer = document.getElementById('secbs-estado-container');
-  if (estadoContainer) estadoContainer.innerHTML = '';
+  if (estadoContainer) estadoContainer.innerHTML = kxSectorEquipHTML({ loading: true });
+  kxRenderSectorExplore();
 
-  const chartContainer = document.getElementById('secbs-grade-chart');
-  if (chartContainer) {
-    chartContainer.innerHTML = '<div style="text-align: center; color: #888;">Cargando...</div>';
-  }
 
-  // --- Mostrar sheet ---
-  sheet.classList.remove('hidden');
-  overlay.classList.remove('hidden');
-
-  requestAnimationFrame(() => {
-    sheet.classList.add('snap-expanded');
-    overlay.classList.add('visible');
-  });
-
-  secBsCurrentState = 'expanded';
+  // --- Mostrar sheet (altura del contenido) ---
+  if (kxSectorSheet) kxSectorSheet.open('expanded');
 
   // --- Cargar datos async ---
   // Gráfico de grados
-  setTimeout(() => {
-    const gradeCounts = countRoutesByGradeForSector(sectorName);
-    renderGradeChart('secbs-grade-chart', gradeCounts);
-  }, 150);
+  kxLoadGradeChart(document.getElementById('secbs-grade-chart'), { schoolId: mlCurrentSchool, sector: sectorName, sectorProps: props, coords: { lng: coords[0], lat: coords[1] }, title: 'Vías por Grado', compactTotal: true, withUngraded: true, static: true });
 
-  // Estado del sector
-  const schoolId = mlCurrentSchool || 'valeria';
-  getSectorEstadoAverage(schoolId, sectorName).then(result => {
-    const container = document.getElementById('secbs-estado-container');
-    if (!container) return;
-    if (result.avg !== null) {
-      container.innerHTML = generateSectorEstadoHTML(result.avg, result.ratedCount, result.totalCount);
-    }
-  });
+  // Equipamiento: votos de estado de todas las vías del sector (GeoJSON completo, no solo las dibujadas)
+  const current = secBsCurrentSector;
+  kxSectorRoutes(schoolId, sectorName)
+    .then(routes => routes.map(r => Number(r.id)).filter(id => !isNaN(id)))
+    .catch(() => undefined)
+    .then(ids => getSectorEstadoAverage(schoolId, sectorName, ids && [...new Set(ids)]))
+    .then(result => {
+      const container = document.getElementById('secbs-estado-container');
+      if (!container || secBsCurrentSector !== current) return;
+      container.innerHTML = kxSectorEquipHTML(result);
+    });
 
   // Admin actions
   const adminActionsEl = document.getElementById('secbs-admin-actions');
@@ -7286,22 +8260,107 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
   return true;
 }
 
+// ============================================
+// FICHA DE SECTOR: EQUIPAMIENTO Y «TU EXPLORACIÓN»
+// ============================================
+
+// «Equipamiento»: media de «Estado de la vía» votada por la comunidad (estado_votes). Nunca una cifra inventada:
+// sin votos suficientes (getSectorEstadoAverage pide el 40 % de las vías valoradas) dice «Sin valoraciones».
+function kxSectorEquipHTML(result) {
+  const r = result || {};
+  const votes = r.votesCount || 0;
+  let value, sub;
+  if (r.loading) {
+    value = '<span class="secbs-equip-none">Cargando…</span>';
+    sub = '';
+  } else if (r.avg != null) {
+    const avg = r.avg.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    value = `<span class="secbs-equip-num">${avg}</span>${kxIcon('star', { size: 26, cls: 'secbs-equip-star' })}<span class="secbs-equip-of">/ 5</span>`;
+    sub = `${votes} ${votes === 1 ? 'valoración' : 'valoraciones'}`;
+  } else {
+    value = '<span class="secbs-equip-none">Sin valoraciones</span>';
+    sub = r.ratedCount ? `${r.ratedCount} de ${r.totalCount} vías valoradas, aún pocas para una media` : 'Valora el estado de sus vías';
+  }
+  return `<section class="secbs-card secbs-equip${r.loading ? ' is-loading' : ''}" title="Valoración de la comunidad sobre el estado de las vías; no es una certificación de seguridad">
+    <span class="secbs-equip-badge" aria-hidden="true">${kxIcon('shieldCheck', { size: 30 })}</span>
+    <div class="secbs-equip-main">
+      <h3 class="secbs-card-title">Equipamiento</h3>
+      <div class="secbs-equip-value">${value}</div>
+      ${sub ? `<p class="secbs-card-sub">${kxEsc(sub)}</p>` : ''}
+    </div>
+  </section>`;
+}
+
+// «Tu exploración». view: resultado de kxSectorProgress o { kind: 'guest' | 'loading' | 'error' }; fromPct: anchura de partida de la barra
+function kxSectorExploreHTML(view, fromPct = 0) {
+  const head = tag => `<div class="secbs-explore-head"><h3 class="secbs-card-title">Tu exploración</h3>${tag || ''}</div>`;
+  const msg = text => `<section class="secbs-card secbs-explore is-msg">${head()}<p class="secbs-explore-msg">${kxEsc(text)}</p></section>`;
+  if (!view || view.kind === 'loading') {
+    return `<section class="secbs-card secbs-explore is-loading" aria-busy="true">${head()}<div class="secbs-explore-nums"><span class="secbs-skel secbs-skel--num"></span><span class="secbs-skel secbs-skel--pct"></span></div><div class="secbs-explore-bar"></div><div class="secbs-explore-foot"><span class="secbs-skel secbs-skel--line"></span></div></section>`;
+  }
+  if (view.kind === 'guest') return msg('Inicia sesión y registra tus ascensiones para ver cuántas vías de este sector has encadenado.');
+  if (view.kind === 'error') return msg('No se pudo cargar tu progreso. Revisa la conexión.');
+  if (view.state === 'no-routes') return msg('Este sector todavía no tiene vías registradas.');
+  const tag = view.state === 'progress' ? '<span class="secbs-explore-tag">En progreso</span>'
+    : view.state === 'complete' ? '<span class="secbs-explore-tag is-done">Completado</span>' : '';
+  const caption = view.state === 'empty' ? '¡Empieza a explorar este sector!'
+    : view.state === 'complete' ? '¡Sector completado!' : null;
+  const right = view.state === 'complete' ? '' : `<span class="secbs-explore-pending">${view.pending} ${view.pending === 1 ? 'pendiente' : 'pendientes'}</span>`;
+  return `<section class="secbs-card secbs-explore is-${view.state}">
+    ${head(tag)}
+    <div class="secbs-explore-nums">
+      <span class="secbs-explore-count"><strong>${view.sent}</strong> / ${view.total} ${view.total === 1 ? 'vía' : 'vías'}</span>
+      <span class="secbs-explore-pct">${view.pct}%</span>
+    </div>
+    <div class="secbs-explore-bar" role="progressbar" aria-label="Vías encadenadas en este sector" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${view.pct}" aria-valuetext="${view.sent} de ${view.total} vías, ${view.pct}%">
+      <span class="secbs-explore-fill" style="width:${fromPct}%" data-pct="${view.pct}"></span>
+    </div>
+    <div class="secbs-explore-foot"><span class="secbs-explore-caption">${caption ? kxEsc(caption) : 'Vías encadenadas<span class="secbs-explore-long"> en este sector</span>'}</span>${right}</div>
+  </section>`;
+}
+
+let secBsExploreSeq = 0;
+
+// Pinta «Tu exploración» del sector abierto con los ascensos ya cargados (userAscentsCache): sin consultas nuevas.
+// Se repinta sola al registrar o borrar un ascenso (evento kx:ascents-changed).
+async function kxRenderSectorExplore() {
+  const el = document.getElementById('secbs-explore');
+  const cur = secBsCurrentSector;
+  if (!el || !cur) return;
+  const seq = ++secBsExploreSeq;
+  const paint = view => {
+    if (seq !== secBsExploreSeq || secBsCurrentSector !== cur) return;
+    const prevFill = el.querySelector('.secbs-explore-fill');
+    const from = prevFill ? parseFloat(prevFill.style.width) || 0 : 0;
+    el.innerHTML = kxSectorExploreHTML(view, from);
+    const fill = el.querySelector('.secbs-explore-fill');
+    if (fill) requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = `${fill.dataset.pct}%`; }));
+  };
+  if (typeof currentUser === 'undefined' || !currentUser) return paint({ kind: 'guest' });
+  const cacheState = typeof userAscentsCacheState !== 'undefined' ? userAscentsCacheState : 'ready';
+  if (cacheState === 'error') return paint({ kind: 'error' });
+  if (cacheState !== 'ready') return paint({ kind: 'loading' });   // al terminar la carga llega kx:ascents-changed
+  let routes;
+  try {
+    routes = await kxSectorRoutes(cur.schoolId, cur.name);
+  } catch (e) {
+    console.warn('Progreso del sector:', e);
+    return paint({ kind: 'error' });
+  }
+  const schoolId = cur.schoolId;
+  // Por id de vía; los ascensos antiguos sin id se guardaron por nombre
+  const sent = r => hasUserSentRoute(schoolId, r.id) || (!!r.name && hasUserSentRoute(schoolId, r.name));
+  paint(kxSectorProgress(routes, sent));
+}
+
+document.addEventListener('kx:ascents-changed', () => { if (secBsCurrentSector) kxRenderSectorExplore(); });
+
 /**
  * Oculta el Sector Bottom Sheet
  */
 function hideSectorBottomSheet() {
-  const sheet = document.getElementById('sector-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  if (!sheet || !overlay) return;
-  if (secBsCurrentState === 'hidden') return;
-
-  sheet.classList.remove('snap-expanded');
-  overlay.classList.remove('visible');
-
-  setTimeout(() => {
-    sheet.classList.add('hidden');
-    overlay.classList.add('hidden');
-  }, 400);
+  if (!kxSectorSheet || secBsCurrentState === 'hidden') return;
+  kxSectorSheet.close();
 
   // Resetear padding del mapa al cerrar el bottom sheet
   if (mlMap) {
@@ -7310,80 +8369,7 @@ function hideSectorBottomSheet() {
 
   secBsCurrentState = 'hidden';
   secBsCurrentSector = null;
-}
-
-// ============================================
-// SECTOR BOTTOM SHEET - GESTOS TÁCTILES
-// ============================================
-
-function secBsHandleTouchStart(e) {
-  secBsIsDragging = true;
-  secBsDragStartY = e.touches[0].clientY;
-  secBsCurrentY = secBsDragStartY;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (sheet) sheet.style.transition = 'none';
-}
-
-function secBsHandleTouchMove(e) {
-  if (!secBsIsDragging) return;
-  e.preventDefault();
-  secBsCurrentY = e.touches[0].clientY;
-  const deltaY = secBsCurrentY - secBsDragStartY;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (!sheet) return;
-  const windowHeight = window.innerHeight;
-  const currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-  sheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function secBsHandleTouchEnd() {
-  if (!secBsIsDragging) return;
-  secBsIsDragging = false;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (!sheet) return;
-  sheet.style.transition = '';
-  sheet.style.transform = '';
-  const deltaY = secBsCurrentY - secBsDragStartY;
-  if (deltaY > 40) {
-    hideSectorBottomSheet();
-  }
-}
-
-function secBsHandleMouseDown(e) {
-  secBsIsDragging = true;
-  secBsDragStartY = e.clientY;
-  secBsCurrentY = secBsDragStartY;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (sheet) sheet.style.transition = 'none';
-  e.preventDefault();
-}
-
-function secBsHandleMouseMove(e) {
-  if (!secBsIsDragging) return;
-  secBsCurrentY = e.clientY;
-  const deltaY = secBsCurrentY - secBsDragStartY;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (!sheet) return;
-  const windowHeight = window.innerHeight;
-  const currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-  sheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function secBsHandleMouseUp() {
-  if (!secBsIsDragging) return;
-  secBsIsDragging = false;
-  const sheet = document.getElementById('sector-bottom-sheet');
-  if (!sheet) return;
-  sheet.style.transition = '';
-  sheet.style.transform = '';
-  const deltaY = secBsCurrentY - secBsDragStartY;
-  if (deltaY > 40) {
-    hideSectorBottomSheet();
-  }
+  kxClearSectorSelection();
 }
 
 // ============================================
@@ -7393,39 +8379,32 @@ function secBsHandleMouseUp() {
 /**
  * Inicializa el Route Bottom Sheet
  */
-function initRouteBottomSheet() {
-  const sheet = document.getElementById('route-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  const handle = sheet?.querySelector('.bottom-sheet-handle');
+// Escritorio: Escape cierra el popup de ficha abierto (vía, sector o escuela)
+function kxBindPopupEscape() {
+  if (kxBindPopupEscape.done) return;
+  kxBindPopupEscape.done = true;
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (document.body.classList.contains('kx-sheet-open') || document.body.classList.contains('kx-map-sheet-open')) return;
+    if (document.querySelector('.modal:not(.hidden), .ml-contribute-overlay, .sector-image-viewer:not(.hidden)')) return;
+    const open = [mlRoutePopup, mlSectorPopup, mlSchoolPopup].find(p => p && p.isOpen());
+    if (open) { e.preventDefault(); open.remove(); }
+  });
+}
 
-  if (!sheet || !overlay || !handle) {
+function initRouteBottomSheet() {
+  kxBindPopupEscape();
+  const sheet = document.getElementById('route-bottom-sheet');
+
+  if (!sheet || typeof KXMapSheet === 'undefined') {
     console.warn('Route Bottom Sheet elementos no encontrados');
     return;
   }
 
-  // Touch listeners en el handle
-  handle.addEventListener('touchstart', rbsHandleTouchStart, { passive: true });
-  handle.addEventListener('touchmove', rbsHandleTouchMove, { passive: false });
-  handle.addEventListener('touchend', rbsHandleTouchEnd, { passive: true });
-
-  // Touch listeners en el header (también arrastrable)
-  const header = sheet.querySelector('.rbs-header');
-  if (header) {
-    header.addEventListener('touchstart', rbsHandleTouchStart, { passive: true });
-    header.addEventListener('touchmove', rbsHandleTouchMove, { passive: false });
-    header.addEventListener('touchend', rbsHandleTouchEnd, { passive: true });
-  }
-
-  // Mouse events para testing en desktop
-  handle.addEventListener('mousedown', rbsHandleMouseDown);
-  document.addEventListener('mousemove', rbsHandleMouseMove);
-  document.addEventListener('mouseup', rbsHandleMouseUp);
-
-  // Click en overlay cierra el route bottom sheet
-  overlay.addEventListener('click', () => {
-    if (rbsCurrentState !== 'hidden') {
-      hideRouteBottomSheet();
-    }
+  kxRouteSheet = KXMapSheet.create(sheet, {
+    snaps: ['expanded'],
+    onRequestClose: hideRouteBottomSheet,
+    onStateChange: state => { rbsCurrentState = state; }
   });
 
   console.log('Route Bottom Sheet inicializado');
@@ -7438,217 +8417,17 @@ async function showRouteBottomSheet(props, coords) {
   if (!isMobileDevice()) return false;
 
   const sheet = document.getElementById('route-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  if (!sheet || !overlay) return false;
+  if (!sheet || !kxRouteSheet) return false;
 
   // Cerrar otros bottom sheets y popups
   hideBottomSheet();
   hideSectorBottomSheet();
   if (mlRoutePopup) mlRoutePopup.remove();
 
-  const grade = props.grado1 || '?';
-  const gradeColor = getGradeColor(grade);
-  const routeId = Number(props.id);
-  const routeName = props.nombre || 'Sin nombre';
-  const sectorName = props.sector || '';
-  const encodedSector = encodeURIComponent(sectorName);
-  const schoolId = mlCurrentSchool || 'valeria';
-
-  // Guardar datos de la vía actual para las funciones de los botones
-  mlCurrentRouteGrade = grade;
-  mlCurrentRouteSector = sectorName;
-  mlCurrentRouteId = routeId;
-  mlCurrentRouteName = routeName;
-
-  // --- Header ---
-  const nameEl = document.getElementById('rbs-route-name');
-  if (nameEl) nameEl.innerHTML = routeName + getVariantLabel(props);
-
-  const gradeEl = document.getElementById('rbs-route-grade');
-  if (gradeEl) {
-    gradeEl.textContent = grade;
-    gradeEl.style.backgroundColor = gradeColor;
-  }
-
-  // Check de ascenso + icono de estilo
-  const hasAscent = (typeof hasUserAscent === 'function') && hasUserAscent(schoolId, routeId);
-  const checkEl = document.getElementById('rbs-ascent-check');
-  if (checkEl) {
-    checkEl.classList.toggle('hidden', !hasAscent);
-  }
-  const styleEl = document.getElementById('rbs-ascent-style');
-  if (styleEl) {
-    if (hasAscent && typeof getUserAscentInfo === 'function' && typeof getAscentStyleSVG === 'function') {
-      const ascentInfo = getUserAscentInfo(schoolId, routeId);
-      if (ascentInfo && ascentInfo.style) {
-        styleEl.innerHTML = getAscentStyleSVG(ascentInfo.style);
-        styleEl.className = 'rbs-ascent-style ascent-style-' + ascentInfo.style;
-        styleEl.classList.remove('hidden');
-      } else {
-        styleEl.classList.add('hidden');
-      }
-    } else {
-      styleEl.classList.add('hidden');
-    }
-  }
-
-  // --- Info items ---
-  const infoContainer = document.getElementById('rbs-info-items');
-  if (infoContainer) {
-    // Normalizar descripcio → descripcion
-    if (!props.descripcion && props.descripcio) {
-      props.descripcion = props.descripcio;
-    }
-
-    const iconClimber = `<img src="icons/placa.png" alt="Tipo" width="32" height="32">`;
-    const iconExpress = `<img src="icons/mosq.png" alt="Expresos" width="32" height="32">`;
-    const iconRope = `<img src="icons/cuerda.png" alt="Cuerda" width="32" height="32">`;
-
-    const hasDescripcion = props.descripcion && props.descripcion.trim();
-    const hasExp = props.exp1;
-    const hasLong = props.long1;
-
-    let infoHTML = '';
-
-    if (hasDescripcion) {
-      infoHTML += `<div class="ml-route-item"><span class="ml-route-icon">${iconClimber}</span><span class="ml-route-text">${props.descripcion}</span></div>`;
-    } else {
-      infoHTML += `<div class="ml-route-item ml-route-item-missing" onclick="mlContributeField(${routeId}, '${schoolId}', 'tipo')"><span class="ml-route-icon">${iconClimber}</span><span class="ml-route-text ml-route-contribute">&iquest;Qu&eacute; tipo de escalada es?</span></div>`;
-    }
-
-    if (hasExp) {
-      infoHTML += `<div class="ml-route-item"><span class="ml-route-icon">${iconExpress}</span><span class="ml-route-text">${props.exp1} express</span></div>`;
-    } else {
-      infoHTML += `<div class="ml-route-item ml-route-item-missing" onclick="mlContributeField(${routeId}, '${schoolId}', 'express')"><span class="ml-route-icon">${iconExpress}</span><span class="ml-route-text ml-route-contribute">&iquest;Cu&aacute;ntos express tiene?</span></div>`;
-    }
-
-    if (hasLong) {
-      infoHTML += `<div class="ml-route-item"><span class="ml-route-icon">${iconRope}</span><span class="ml-route-text">${props.long1} mts</span></div>`;
-    } else {
-      infoHTML += `<div class="ml-route-item ml-route-item-missing" onclick="mlContributeField(${routeId}, '${schoolId}', 'metros')"><span class="ml-route-icon">${iconRope}</span><span class="ml-route-text ml-route-contribute">&iquest;Cu&aacute;ntos metros mide?</span></div>`;
-    }
-
-    infoContainer.innerHTML = infoHTML;
-  }
-
-  // --- Grado ---
-  const gradeContainer2 = document.getElementById('rbs-grade-container');
-  if (gradeContainer2) {
-    getGradeVotes(schoolId, routeId).then(gradeVoteData => {
-      gradeContainer2.innerHTML = generateGradeSliderHTML(routeId, schoolId, grade, gradeVoteData);
-      const rbsBadge = document.getElementById('rbs-consensus-badge');
-      if (rbsBadge) {
-        const officialIdx = ALL_GRADES_ORDERED.indexOf(grade);
-        const showBadge = gradeVoteData.voteCount >= GRADE_CONSENSUS_THRESHOLD &&
-          officialIdx !== -1 && Math.round(gradeVoteData.avgGradeIdx) !== officialIdx;
-        if (showBadge) {
-          rbsBadge.textContent = `${ALL_GRADES_ORDERED[Math.round(gradeVoteData.avgGradeIdx)]} · consenso`;
-          rbsBadge.style.display = '';
-        } else {
-          rbsBadge.style.display = 'none';
-        }
-      }
-    }).catch(() => { gradeContainer2.innerHTML = ''; });
-  }
-
-  // --- Aleje ---
-  const alejeContainer = document.getElementById('rbs-aleje-container');
-  if (alejeContainer) {
-    alejeContainer.innerHTML = '<div style="text-align:center;color:#888;font-size:13px;">Cargando...</div>';
-    getAlejeVotes(schoolId, routeId).then(alejeData => {
-      alejeContainer.innerHTML = generateAlejeBarHTML(routeId, schoolId, alejeData.avg, alejeData.userVote);
-    }).catch(() => { alejeContainer.innerHTML = ''; });
-  }
-
-  // --- Estado ---
-  const estadoContainer = document.getElementById('rbs-estado-container');
-  if (estadoContainer) {
-    estadoContainer.innerHTML = '<div style="text-align:center;color:#888;font-size:13px;">Cargando...</div>';
-    getEstadoVotes(schoolId, routeId).then(estadoData => {
-      estadoContainer.innerHTML = generateEstadoStarsHTML(routeId, schoolId, estadoData.avg, estadoData.userVote);
-    }).catch(() => { estadoContainer.innerHTML = ''; });
-  }
-
-  // --- Botonera ---
-  const actionsContainer = document.getElementById('rbs-actions');
-  if (actionsContainer) {
-    const iconCheck = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-    const iconBookmark = buildBookmarkIcon(routeId);
-    const iconComment = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
-    const iconShare = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
-
-    // Obtener número de comentarios
-    let commentBadge = '';
-    try {
-      if (typeof db !== 'undefined' && typeof normalizeId === 'function') {
-        const commentRouteId = `${schoolId}_${normalizeId(routeName)}`;
-        const commentsSnap = await db.collection('comments').where('routeId', '==', commentRouteId).get();
-        if (commentsSnap.size > 0) {
-          commentBadge = `<span class="ml-comment-count">${commentsSnap.size}</span>`;
-        }
-      }
-    } catch (e) {
-      console.warn('Error fetching comment count:', e);
-    }
-
-    actionsContainer.innerHTML = `
-      <button class="ml-route-action-btn" onclick="mlRegisterAscent(${routeId}, '${encodeURIComponent(routeName)}')" title="Registrar ascenso">${iconCheck}</button>
-      <button class="ml-route-action-btn ${isRouteInProjects(routeId) ? 'bookmark-active' : ''}" id="ml-bookmark-btn" onclick="mlToggleBookmark(${routeId}, '${encodeURIComponent(routeName)}')" title="Guardar">${iconBookmark}</button>
-      <button class="ml-route-action-btn ml-comment-btn" onclick="mlOpenComments(${routeId}, '${encodeURIComponent(routeName)}')" title="Comentarios">${iconComment}${commentBadge}</button>
-      <button class="ml-route-action-btn" onclick="mlShareRoute(${routeId}, '${encodeURIComponent(routeName)}')" title="Compartir">${iconShare}</button>
-    `;
-  }
-
-  const reportSection = document.getElementById('rbs-report-section');
-  if (reportSection) {
-    reportSection.innerHTML = mlReportButtonHTML({ routeId, routeName, schoolId, sector: props.sector || '', grade });
-  }
-
-  // --- Botón Ver vía ---
-  const viewSection = document.getElementById('rbs-view-section');
-  const btnView = document.getElementById('rbs-btn-view');
-  if (viewSection && btnView) {
-    let hasDrawing = false;
-    if (sectorName && typeof hasRouteDrawing === 'function') {
-      hasDrawing = await hasRouteDrawing(schoolId, sectorName, routeId);
-    }
-    if (hasDrawing) {
-      viewSection.classList.remove('hidden');
-      btnView.onclick = () => {
-        hideRouteBottomSheet();
-        mlViewRouteInSector(schoolId, encodedSector, routeId);
-      };
-    } else {
-      viewSection.classList.add('hidden');
-    }
-  }
-
-  // --- Botón Dev (admin) ---
-  const devSection = document.getElementById('rbs-dev-section');
-  const btnDev = document.getElementById('rbs-btn-dev');
-  if (devSection && btnDev) {
-    const isAdmin = await isRoutePopupAdmin();
-    if (isAdmin) {
-      devSection.classList.remove('hidden');
-      btnDev.onclick = () => {
-        hideRouteBottomSheet();
-        mlOpenDrawingEditor(routeId);
-      };
-    } else {
-      devSection.classList.add('hidden');
-    }
-  }
+  kxFillRouteSheet(props, { isTrinomial: false, contribute: true });
 
   // --- Mostrar sheet ---
-  sheet.classList.remove('hidden');
-  overlay.classList.remove('hidden');
-
-  requestAnimationFrame(() => {
-    sheet.classList.add('snap-expanded');
-    overlay.classList.add('visible');
-  });
-
-  rbsCurrentState = 'expanded';
+  kxRouteSheet.open('expanded');
   return true;
 }
 
@@ -7656,18 +8435,8 @@ async function showRouteBottomSheet(props, coords) {
  * Oculta el Route Bottom Sheet
  */
 function hideRouteBottomSheet() {
-  const sheet = document.getElementById('route-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-  if (!sheet || !overlay) return;
-  if (rbsCurrentState === 'hidden') return;
-
-  sheet.classList.remove('snap-expanded');
-  overlay.classList.remove('visible');
-
-  setTimeout(() => {
-    sheet.classList.add('hidden');
-    overlay.classList.add('hidden');
-  }, 400);
+  if (!kxRouteSheet || rbsCurrentState === 'hidden') return;
+  kxRouteSheet.close();
 
   // Resetear padding del mapa al cerrar el bottom sheet
   if (mlMap) {
@@ -7675,80 +8444,7 @@ function hideRouteBottomSheet() {
   }
 
   rbsCurrentState = 'hidden';
-}
-
-// ============================================
-// ROUTE BOTTOM SHEET - GESTOS TÁCTILES
-// ============================================
-
-function rbsHandleTouchStart(e) {
-  rbsIsDragging = true;
-  rbsDragStartY = e.touches[0].clientY;
-  rbsCurrentY = rbsDragStartY;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (sheet) sheet.style.transition = 'none';
-}
-
-function rbsHandleTouchMove(e) {
-  if (!rbsIsDragging) return;
-  e.preventDefault();
-  rbsCurrentY = e.touches[0].clientY;
-  const deltaY = rbsCurrentY - rbsDragStartY;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (!sheet) return;
-  const windowHeight = window.innerHeight;
-  const currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-  sheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function rbsHandleTouchEnd() {
-  if (!rbsIsDragging) return;
-  rbsIsDragging = false;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (!sheet) return;
-  sheet.style.transition = '';
-  sheet.style.transform = '';
-  const deltaY = rbsCurrentY - rbsDragStartY;
-  if (deltaY > 40) {
-    hideRouteBottomSheet();
-  }
-}
-
-function rbsHandleMouseDown(e) {
-  rbsIsDragging = true;
-  rbsDragStartY = e.clientY;
-  rbsCurrentY = rbsDragStartY;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (sheet) sheet.style.transition = 'none';
-  e.preventDefault();
-}
-
-function rbsHandleMouseMove(e) {
-  if (!rbsIsDragging) return;
-  rbsCurrentY = e.clientY;
-  const deltaY = rbsCurrentY - rbsDragStartY;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (!sheet) return;
-  const windowHeight = window.innerHeight;
-  const currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-  sheet.style.transform = `translateY(${newPercent}%)`;
-}
-
-function rbsHandleMouseUp() {
-  if (!rbsIsDragging) return;
-  rbsIsDragging = false;
-  const sheet = document.getElementById('route-bottom-sheet');
-  if (!sheet) return;
-  sheet.style.transition = '';
-  sheet.style.transform = '';
-  const deltaY = rbsCurrentY - rbsDragStartY;
-  if (deltaY > 40) {
-    hideRouteBottomSheet();
-  }
+  mlClearHighlightIfRouteClosed();
 }
 
 /**
@@ -7765,10 +8461,7 @@ function showBottomSheet(school) {
   hideSectorBottomSheet();
   hideRouteBottomSheet();
 
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-
-  if (!bottomSheet || !overlay) {
+  if (!kxSchoolSheet) {
     console.error('Bottom Sheet elementos no encontrados');
     return false;
   }
@@ -7785,18 +8478,13 @@ function showBottomSheet(school) {
   const btnFavorite = document.getElementById('bs-btn-favorite');
   if (btnFavorite) btnFavorite.classList.remove('active');
 
-  // Mostrar elementos
-  bottomSheet.classList.remove('hidden');
-  overlay.classList.remove('hidden');
+  // Siempre empieza en la primera página
+  if (bsPager) bsPager.go(0, { animate: false });
+  kxRenderSchoolPhoto(school);
+  kxRenderSchoolConditions(school, null);
 
-  // Abrir directamente en estado expandido
-  requestAnimationFrame(() => {
-    bottomSheet.classList.remove('snap-summary');
-    bottomSheet.classList.add('snap-expanded');
-    overlay.classList.add('visible');
-  });
-
-  bsCurrentState = 'expanded';
+  // Abre en resumen ajustado a la página 1 (donut y tiempo), sin vista completa
+  kxSchoolSheet.open('summary');
 
   // Cargar estadísticas (esto actualiza los gráficos)
   loadBottomSheetStats(school.id);
@@ -7811,18 +8499,9 @@ function showBottomSheet(school) {
  * Oculta el Bottom Sheet
  */
 function hideBottomSheet() {
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  const overlay = document.getElementById('bottom-sheet-overlay');
-
-  if (!bottomSheet || !overlay) return;
-
-  bottomSheet.classList.remove('snap-summary', 'snap-expanded');
-  overlay.classList.remove('visible');
-
-  setTimeout(() => {
-    bottomSheet.classList.add('hidden');
-    overlay.classList.add('hidden');
-  }, 400);
+  if (!kxSchoolSheet) return;
+  kxSelectSchool(null);
+  kxSchoolSheet.close();
 
   // Resetear padding del mapa al cerrar el bottom sheet
   if (mlMap) {
@@ -7838,24 +8517,14 @@ function hideBottomSheet() {
  * Expande el Bottom Sheet a vista completa
  */
 function expandBottomSheet() {
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  bottomSheet.classList.remove('snap-summary');
-  bottomSheet.classList.add('snap-expanded');
-  bsCurrentState = 'expanded';
+  if (kxSchoolSheet && bsCurrentState !== 'hidden') kxSchoolSheet.setState('expanded');
 }
 
 /**
  * Colapsa el Bottom Sheet a vista resumen
  */
 function collapseBottomSheet() {
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  bottomSheet.classList.remove('snap-expanded');
-  bottomSheet.classList.add('snap-summary');
-  bsCurrentState = 'summary';
+  if (kxSchoolSheet && bsCurrentState !== 'hidden') kxSchoolSheet.setState('summary');
 }
 
 /**
@@ -7864,186 +8533,440 @@ function collapseBottomSheet() {
 function updateBottomSheetContent(school) {
   // Título (mayúsculas)
   const titleEl = document.getElementById('bs-school-name');
-  if (titleEl) titleEl.textContent = school.nombre.toUpperCase();
+  if (titleEl) titleEl.textContent = school.nombre;
 
   // Tipo de roca
   const rockEl = document.getElementById('bs-rock-type');
   if (rockEl) rockEl.textContent = school.rockType || 'Caliza';
 
-  // Reset del total (se actualizará con loadBottomSheetStats)
-  const totalEl = document.getElementById('bs-total-vias');
-  if (totalEl) totalEl.textContent = '';
+  kxRenderSchoolCards(school);
 }
 
 // ============================================
-// GESTOS TÁCTILES
+// DATOS REALES DE LA FICHA: restricciones, actividad del usuario, información práctica
 // ============================================
+// Solo se muestra lo que existe: restricciones y exposición salen de los sectores de la escuela, el aparcamiento
+// de su capa de parkings y la actividad de los ascensos del propio usuario. Un dato ausente no se rellena.
+const kxSchoolFactsCache = new Map();
+let kxSchoolCardsToken = 0;
 
-function bsHandleTouchStart(e) {
-  bsIsDragging = true;
-  bsDragStartY = e.touches[0].clientY;
-  bsCurrentY = bsDragStartY;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (bottomSheet) {
-    bottomSheet.style.transition = 'none';
+async function kxFetchFeatures(path) {
+  if (!path) return null;
+  try {
+    const res = await fetch(path);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return Array.isArray(json.features) ? json.features : null;
+  } catch (e) {
+    return null;
   }
 }
 
-function bsHandleTouchMove(e) {
-  if (!bsIsDragging) return;
-  e.preventDefault();
-
-  const deltaY = e.touches[0].clientY - bsDragStartY;
-  bsCurrentY = e.touches[0].clientY;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  // Calcular posición actual como porcentaje
-  const windowHeight = window.innerHeight;
-  let currentPercent;
-
-  if (bsCurrentState === 'summary') {
-    currentPercent = 100 - (BS_SUMMARY_PERCENT * 100);
-  } else {
-    currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  }
-
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-
-  bottomSheet.style.transform = `translateY(${newPercent}%)`;
+// Con el mapa en reposo se adelantan los datos de la ficha (pastillas y fotos): al abrirla ya están en memoria
+function kxPrewarmSchoolSheet() {
+  const run = () => {
+    try {
+      Object.keys(MAPLIBRE_SCHOOLS).forEach(id => { kxLoadSchoolFacts(id).catch(() => {}); });
+      if (typeof KX_SCHOOL_PHOTOS !== 'undefined') Object.values(KX_SCHOOL_PHOTOS).forEach(ph => { if (ph && ph.src) { const im = new Image(); im.decoding = 'async'; im.src = ph.src; } });
+    } catch (e) { /* adelantar datos es opcional */ }
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 3000 }); else setTimeout(run, 1500);
 }
 
-function bsHandleTouchEnd() {
-  if (!bsIsDragging) return;
-  bsIsDragging = false;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  bottomSheet.style.transition = '';
-  bottomSheet.style.transform = '';
-
-  const deltaY = bsCurrentY - bsDragStartY;
-
-  // Swipe down cierra el Bottom Sheet (solo hay un estado: expandido)
-  if (deltaY > 40) {
-    hideBottomSheet();
+function kxLoadSchoolFacts(schoolId) {
+  const cfg = MAPLIBRE_SCHOOLS[schoolId];
+  if (!cfg || !cfg.geojson) return Promise.resolve(null);
+  if (!kxSchoolFactsCache.has(schoolId)) {
+    kxSchoolFactsCache.set(schoolId, Promise.all([kxFetchFeatures(cfg.geojson.sectores), kxFetchFeatures(cfg.geojson.parkings)])
+      .then(([sectors, parkings]) => {
+        const facts = { restriction: null, exposures: [], parking: parkings ? parkings.length > 0 : null };
+        if (sectors && sectors.length) {
+          const props = sectors.map(f => f.properties || {});
+          const flags = props.map(p => String(p.restr || '').trim().toUpperCase().replace('Í', 'I'));
+          if (flags.includes('SI')) {
+            const active = props.some((p, i) => flags[i] === 'SI' && isCurrentlyRestricted(p.Fecha_inicio || p.Fecha_inic, p.Fecha_fin));
+            facts.restriction = active ? 'active' : 'seasonal';
+          } else if (flags.every(f => f === 'NO')) {
+            facts.restriction = 'none';
+          }
+          const kinds = new Set();
+          props.forEach(p => {
+            const e = String(p.exposicion || '').toLowerCase().trim();
+            if (/sombra/.test(e)) kinds.add('shade');
+            else if (/ma[ñn]ana/.test(e)) kinds.add('morning');
+            else if (/tarde/.test(e)) kinds.add('afternoon');
+            else if (/medio/.test(e)) kinds.add('midday');
+            else if (e.startsWith('sol')) kinds.add('sun');
+          });
+          // «Sol» a secas solo informa cuando no hay una franja concreta
+          if (kinds.has('sun') && ['morning', 'afternoon', 'midday'].some(k => kinds.has(k))) kinds.delete('sun');
+          facts.exposures = ['morning', 'midday', 'afternoon', 'sun', 'shade'].filter(k => kinds.has(k));
+        }
+        return facts;
+      }));
   }
-  // Swipe up no hace nada (ya está expandido)
+  return kxSchoolFactsCache.get(schoolId);
 }
 
-// Mouse events para testing en desktop
-function bsHandleMouseDown(e) {
-  bsIsDragging = true;
-  bsDragStartY = e.clientY;
-  bsCurrentY = bsDragStartY;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (bottomSheet) {
-    bottomSheet.style.transition = 'none';
+// Vías encadenadas (cualquier estilo menos intento), grado máximo y sectores distintos del usuario en la escuela
+async function kxLoadSchoolActivity(schoolId) {
+  if (typeof currentUser === 'undefined' || !currentUser || typeof db === 'undefined') return null;
+  try {
+    const snap = await db.collection('ascents')
+      .where('userId', '==', currentUser.uid)
+      .where('schoolId', '==', schoolId)
+      .get();
+    const routes = new Set();
+    const routeGrade = new Map();   // una vía cuenta una vez en el gráfico por grado
+    const sectors = new Set();
+    let best = null, bestIdx = -1;
+    snap.docs.forEach(d => {
+      const a = d.data();
+      if (a.style === 'project') return;
+      const rk = a.routeId != null ? String(a.routeId) : a.routeName || d.id;
+      routes.add(rk);
+      if (a.grade) routeGrade.set(rk, String(a.grade).trim());
+      if (a.sector) sectors.add(String(a.sector).trim());
+      const idx = typeof _rocoGradeIndex === 'function' ? _rocoGradeIndex(a.grade) : -1;
+      if (idx > bestIdx) { bestIdx = idx; best = a.grade; }
+    });
+    const counts = new Map();
+    routeGrade.forEach(g => counts.set(g, (counts.get(g) || 0) + 1));
+    const byGrade = [...counts].map(([grade, count]) => ({ grade, count }))
+      .sort((x, y) => (typeof _rocoGradeIndex === 'function' ? _rocoGradeIndex(x.grade) - _rocoGradeIndex(y.grade) : 0) || x.grade.localeCompare(y.grade));
+    return { sends: routes.size, maxGrade: best, sectors: sectors.size, byGrade };
+  } catch (e) {
+    console.warn('Actividad en la escuela no disponible:', e);
+    return null;
   }
-  e.preventDefault();
 }
 
-function bsHandleMouseMove(e) {
-  if (!bsIsDragging) return;
-
-  const deltaY = e.clientY - bsDragStartY;
-  bsCurrentY = e.clientY;
-
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
-
-  const windowHeight = window.innerHeight;
-  let currentPercent;
-
-  if (bsCurrentState === 'summary') {
-    currentPercent = 100 - (BS_SUMMARY_PERCENT * 100);
-  } else {
-    currentPercent = 100 - (BS_EXPANDED_PERCENT * 100);
-  }
-
-  const deltaPercent = (deltaY / windowHeight) * 100;
-  const newPercent = Math.max(10, Math.min(100, currentPercent + deltaPercent));
-
-  bottomSheet.style.transform = `translateY(${newPercent}%)`;
+function kxSchoolCardHTML(cls, icon, title, bodyHTML) {
+  return `<section class="bs-kcard ${cls}"><h3 class="bs-kcard-title">${kxIcon(icon, { size: 22 })}<span>${kxEsc(title)}</span></h3>${bodyHTML}</section>`;
 }
 
-function bsHandleMouseUp() {
-  if (!bsIsDragging) return;
-  bsIsDragging = false;
+function kxKStat(value, label) {
+  return `<div class="bs-kstat"><span class="bs-kstat-value">${kxEsc(value)}</span><span class="bs-kstat-label">${kxEsc(label)}</span></div>`;
+}
 
-  const bottomSheet = document.getElementById('school-bottom-sheet');
-  if (!bottomSheet) return;
+// Gráfico «Evolución por grado»: vías encadenadas por el usuario en la escuela, con los colores originales de grado.
+// Pulsar una barra muestra cuántas vías ha hecho el usuario de ese grado.
+function kxEvoChartHTML(byGrade, total, emptyLabel = 'Todavía no has escalado en esta zona') {
+  const scale = typeof GYM_ROCO_GRADE_SCALE !== 'undefined' ? GYM_ROCO_GRADE_SCALE : null;
+  if (!scale) return '';
+  const counts = new Map();
+  (byGrade || []).forEach(g => { const i = _rocoGradeIndex(g.grade); if (i >= 0) counts.set(i, g.count); });
+  // Sin ascensiones (o sin sesión): el mismo gráfico vacío, marcado «Sin información»
+  const noData = !counts.size;
+  // Eje como en las guías: sin los «c+» ni los grados de rocódromo (3, 4, 5+…) salvo que tengan vías
+  const axis = scale.map((grade, i) => ({ grade, n: counts.get(i) || 0 }))
+    .filter(g => g.n || /^[5-9][ab]\+?$|^[5-9]c$/.test(g.grade));
+  // Ventana de al menos 12 grados consecutivos centrada en lo escalado: si el rango es corto, deja margen
+  // por debajo y por encima (los grados sin vías quedan vacíos); si es largo, ocupa justo el rango
+  const pos = axis.map((g, k) => (g.n ? k : -1)).filter(k => k >= 0);
+  const mid = axis.findIndex(g => g.grade === '6b');
+  const lo = noData ? mid : pos[0], hi = noData ? mid : pos[pos.length - 1];
+  const size = Math.min(axis.length, Math.max(12, hi - lo + 1));
+  let start = Math.round((lo + hi) / 2 - (size - 1) / 2);
+  start = Math.max(0, Math.min(axis.length - size, start));
+  const max = noData ? 1 : Math.max(...counts.values());
+  const shown = axis.slice(start, start + size);
+  const bars = shown.map(({ grade, n }, k) => {
+    const vias = `${n} ${n === 1 ? 'vía' : 'vías'}`;
+    const label = `${grade}: ${vias}`;
+    const tip = `<span class="bs-gc-tip" aria-hidden="true">${vias}</span>`;
+    const bar = n ? `<span class="bs-gc-bar" style="height:${Math.max(6, Math.round(n / max * 100))}%;background:${getGradeColor(grade)}"></span>` : '<span class="bs-gc-bar is-empty"></span>';
+    // Burbuja con el número de vías al seleccionar, siempre por encima de la barra más alta; en los extremos se alinea hacia dentro para no salirse de la tarjeta
+    const edge = k < 2 ? ' is-first' : k >= shown.length - 2 ? ' is-last' : '';
+    return `<button type="button" class="bs-gc-col${n ? '' : ' is-zero'}${edge}" data-count="${n}" data-grade="${kxEsc(grade)}" aria-pressed="false" aria-label="${kxEsc(label)}"${noData ? ' disabled tabindex="-1"' : ''}>
+      <span class="bs-gc-track">${tip}${bar}</span><span class="bs-gc-grade">${kxEsc(grade)}</span></button>`;
+  }).join('');
+  const note = noData
+    ? 'Cuando encadenes vías en esta escuela, verás aquí cuántas has hecho de cada grado.'
+    : `Vías distintas que has encadenado en esta escuela, por grado (${total} en total). Toca una barra para ver cuántas vías has hecho de ese grado.`;
+  return `<section class="bs-gc${noData ? ' is-nodata' : ''}" aria-labelledby="bs-gc-title">
+    <header class="bs-gc-head"><h3 class="bs-gc-title" id="bs-gc-title">Evolución por grado (vías)</h3><button type="button" class="bs-info-btn" aria-expanded="false" aria-controls="bs-gc-note" aria-label="Qué muestra este gráfico">${kxIcon('info', { size: 18 })}</button></header>
+    <p class="bs-gc-note" id="bs-gc-note" hidden>${note}</p>
+    <p class="bs-gc-readout" aria-live="polite"></p>
+    <div class="bs-gc-chart" role="group" aria-label="Vías encadenadas por grado">${bars}${noData ? '<span class="bs-gc-empty">${kxEsc(emptyLabel)}</span>' : ''}</div></section>`;
+}
 
-  bottomSheet.style.transition = '';
-  bottomSheet.style.transform = '';
+function kxBindEvoChart(root) {
+  const card = root && root.querySelector('.bs-gc');
+  if (!card) return;
+  const chart = card.querySelector('.bs-gc-chart');
+  const readout = card.querySelector('.bs-gc-readout');
+  const info = card.querySelector('.bs-info-btn');
+  const note = card.querySelector('.bs-gc-note');
+  info.addEventListener('click', () => {
+    const open = note.hidden;
+    note.hidden = !open;
+    info.setAttribute('aria-expanded', String(open));
+  });
+  chart.addEventListener('click', (e) => {
+    const col = e.target.closest('.bs-gc-col');
+    if (!col) return;
+    const on = col.getAttribute('aria-pressed') !== 'true';
+    chart.querySelectorAll('.bs-gc-col').forEach(c => c.setAttribute('aria-pressed', String(c === col && on)));
+    chart.classList.toggle('has-sel', on);
+    const n = Number(col.dataset.count);
+    readout.textContent = on ? `${col.dataset.grade}: ${n} ${n === 1 ? 'vía' : 'vías'}` : '';
+  });
+}
 
-  const deltaY = bsCurrentY - bsDragStartY;
+async function kxRenderSchoolCards(school) {
+  const token = ++kxSchoolCardsToken;
+  const tagSlot = document.getElementById('bs-restriction-slot');
+  const actSlot = document.getElementById('bs-activity-slot');
+  [tagSlot, actSlot].forEach(el => { if (el) el.innerHTML = ''; });
 
-  // Swipe down cierra el Bottom Sheet (solo hay un estado: expandido)
-  if (deltaY > 40) {
-    hideBottomSheet();
+  if (actSlot) actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity is-loading', 'mountain', `Tu actividad en ${school.nombre}`, kxSkeletonHTML('tiles'));
+  // Las pastillas salen en cuanto llegan los datos de la escuela, sin esperar a la actividad (consulta a Firestore)
+  const activityTask = kxLoadSchoolActivity(school.id);
+  const facts = await kxLoadSchoolFacts(school.id).catch(() => null);
+  if (token !== kxSchoolCardsToken) return;   // se abrió otra escuela mientras tanto
+
+  const TAGS = {
+    none: { icon: 'shieldCheck', tone: 'forest', text: 'Sin restricciones' },
+    seasonal: { icon: 'calendarClock', tone: 'warning', text: 'Restricción estacional' },
+    active: { icon: 'ban', tone: 'danger', text: 'Restricción activa' }
+  };
+  const tag = facts && TAGS[facts.restriction];
+  if (tagSlot && facts) {
+    // Exposición solar y aparcamiento como símbolos junto a la roca y las restricciones
+    const SUN = {
+      morning: { icon: 'sunrise', text: 'Mañana', label: 'Sol de mañana' },
+      midday: { icon: 'sun', text: 'Mediodía', label: 'Sol a mediodía' },
+      afternoon: { icon: 'sunset', text: 'Tarde', label: 'Sol de tarde' },
+      sun: { icon: 'sun', text: 'Sol', label: 'Sol' },
+      shade: { icon: 'shadeDot', text: 'Sombra', label: 'Sombra' }
+    };
+    const chips = [];
+    if (tag) chips.push(kxTagHTML(tag));
+    facts.exposures.forEach(k => chips.push(kxTagHTML({ icon: SUN[k].icon, text: SUN[k].text, attrs: { title: SUN[k].label } })));
+    if (facts.parking !== null) chips.push(kxTagHTML({ icon: 'car', text: facts.parking ? 'Sí' : 'No', attrs: { title: facts.parking ? 'Con aparcamiento' : 'Sin aparcamiento' } }));
+    tagSlot.innerHTML = chips.join('');
+    if (kxSchoolSheet) kxSchoolSheet.refresh();
   }
+  const activity = await activityTask;
+  if (token !== kxSchoolCardsToken) return;
+
+  // Solo los datos del propio usuario. Sin sesión, sin ascensos o sin conexión: un estado vacío que lo explica
+  if (actSlot) {
+    const signedIn = typeof currentUser !== 'undefined' && !!currentUser;
+    const empty = (title, text) => `<div class="bs-kempty"><p class="bs-kempty-title">${kxEsc(title)}</p><p class="bs-kempty-text">${kxEsc(text)}</p></div>`;
+    let body;
+    if (!signedIn) body = empty('Todavía no tienes vías registradas', 'Inicia sesión y registra tus ascensiones: tus vías encadenadas, tu grado máximo y los sectores que visites aparecerán aquí.');
+    else if (!activity) body = empty('No se pudo cargar tu actividad', 'Revisa la conexión y vuelve a abrir la ficha.');
+    else if (!activity.sends) body = empty('Todavía no has escalado en esta zona', 'Cuando encadenes tu primera vía en esta escuela, verás aquí tu progreso.');
+    else body = `<div class="bs-kstats bs-kstats--panel">${[
+        kxKStat(String(activity.sends), activity.sends === 1 ? 'Vía encadenada' : 'Vías encadenadas'),
+        kxKStat(activity.maxGrade || '—', 'Grado máximo'),
+        kxKStat(activity.sectors ? String(activity.sectors) : '—', activity.sectors === 1 ? 'Sector visitado' : 'Sectores visitados')
+      ].join('')}</div>`;
+    actSlot.innerHTML = kxSchoolCardHTML('bs-kcard--activity', 'mountain', `Tu actividad en ${school.nombre}`, body)
+      + kxEvoChartHTML(activity && activity.sends ? activity.byGrade : [], activity ? activity.sends : 0, signedIn ? undefined : 'Todavía no tienes vías registradas');
+    kxBindEvoChart(actSlot);
+  }
+
+  if (kxSchoolSheet) kxSchoolSheet.refresh();
 }
 
 // ============================================
-// GRÁFICO DE BARRAS (Vista Resumen)
-// Colores según mockup: verde → amarillo → naranja → rojo
+// FICHA DE ESCUELA EN DOS PÁGINAS: «Vías y tiempo» y «Condiciones y actividad»
 // ============================================
+let bsPager = null;
+let bsDiscipline = 'sport';
+let bsConditionsWeather = null;   // tiempo ya leído de la escuela abierta (para cambiar de modalidad sin pedirlo otra vez)
 
-/**
- * Renderiza el gráfico de barras de vías por grado
- */
-function renderBarChart(gradeData, total) {
-  const container = document.getElementById('bs-bar-chart');
-  const totalEl = document.getElementById('bs-total-vias');
+function kxInitSchoolPages(sheetEl, foot) {
+  const stage = document.getElementById('bs-pages');
+  const track = document.getElementById('bs-pages-track');
+  if (!stage || !track || typeof kxBindPager !== 'function') return;
+  const pages = [...track.querySelectorAll('.bs-page')];
+  const dots = [...foot.querySelectorAll('.bs-pdot')];
+  const sync = (i) => {
+    pages.forEach((p, k) => { const on = k === i; p.toggleAttribute('inert', !on); p.setAttribute('aria-hidden', String(!on)); });
+    dots.forEach((d, k) => { d.classList.toggle('is-on', k === i); d.setAttribute('aria-selected', String(k === i)); d.tabIndex = k === i ? 0 : -1; });
+    sheetEl.dataset.page = String(i);
+  };
+  // La zona de páginas mide lo que la página visible (sin huecos al desplazar la más corta).
+  // Al pasar a una página más corta, el recorte espera a que termine el deslizamiento para no cortar la que sale
+  let shrinkT = 0;
+  const fit = ({ defer = false } = {}) => {
+    const p = pages[bsPager ? bsPager.current() : 0];
+    if (!p) return;
+    clearTimeout(shrinkT);
+    const h = p.offsetHeight;
+    if (defer && h < stage.offsetHeight) shrinkT = setTimeout(() => { stage.style.height = `${p.offsetHeight}px`; }, 440);
+    else stage.style.height = `${h}px`;
+  };
+  // Las dos páginas miden lo mismo (la más alta): la hoja no da escalón al pasar de una a otra.
+  // La corta reparte el hueco entre sus bloques (el donut queda centrado); el donut no cambia de tamaño
+  const equalize = () => {
+    pages.forEach(p => { p.style.minHeight = ''; });
+    const h = Math.max(...pages.map(p => p.offsetHeight));
+    pages.forEach(p => { p.style.minHeight = `${h}px`; });
+  };
+  // Cambio de página: la hoja sube (página 2) o baja (página 1) a la altura de su contenido, animada
+  const resize = () => { if (kxSchoolSheet && kxSchoolSheet.state !== 'hidden') { kxSchoolSheet.measure(); kxSchoolSheet.setState('summary'); } };
+  bsPager = kxBindPager(stage, track, { count: pages.length, onChange: (i) => { sync(i); fit({ defer: true }); resize(); } });
+  sync(0);
+  fit();
+  // Se observa el contenido, no las páginas (su altura mínima la fijamos nosotros)
+  const kids = pages.flatMap(p => [...p.children]);
+  const refit = () => { equalize(); fit(); };
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(refit); kids.forEach(k => ro.observe(k)); }
+  window.addEventListener('resize', refit);
+  equalize();
+  foot.querySelector('.bs-pdots').addEventListener('click', (e) => {
+    const d = e.target.closest('.bs-pdot');
+    if (d) bsPager.go(+d.dataset.page);
+  });
+  foot.querySelector('.bs-pdots').addEventListener('keydown', (e) => {
+    const go = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (go === undefined) return;
+    e.preventDefault();
+    bsPager.go(bsPager.current() + go);
+    const d = dots[bsPager.current()]; if (d) d.focus();
+  });
+  // Pasar a otra página vuelve arriba (cada página empieza por su título)
+  const body = sheetEl.querySelector('.kx-msheet-body');
+  const origGo = bsPager.go;
+  bsPager.go = (i, opts) => { const prev = bsPager.current(); origGo(i, opts); if (body && bsPager.current() !== prev) body.scrollTo({ top: 0, behavior: 'smooth' }); };
+}
 
-  if (!container) return;
+// Imagen de la cabecera (school-photos.js): foto real recortada o ilustración genérica según la roca
+function kxRenderSchoolPhoto(school) {
+  kxRenderSheetPhoto(document.getElementById('school-bottom-sheet'), typeof kxSchoolPhoto === 'function' ? kxSchoolPhoto(school) : null,
+    'Ilustración genérica, no es una foto de esta escuela');
+}
 
-  // Actualizar total
-  if (totalEl && total > 0) {
-    totalEl.textContent = `(${total} total)`;
+// Pone (o quita) la imagen recortada arriba a la derecha de una hoja. genericTitle: aviso al pasar el ratón
+function kxRenderSheetPhoto(sheet, photo, genericTitle) {
+  if (!sheet) return;
+  let hero = sheet.querySelector('.bs-hero');
+  if (!photo) { if (hero) hero.remove(); sheet.classList.remove('has-hero'); return; }
+  if (!hero) {
+    hero = document.createElement('div');
+    hero.className = 'bs-hero';
+    sheet.insertBefore(hero, sheet.firstChild);
   }
+  hero.classList.toggle('is-generic', photo.generic);
+  hero.style.setProperty('--hero-w', photo.width);
+  hero.style.setProperty('--hero-h', photo.height);
+  hero.style.setProperty('--hero-x', photo.offsetX);
+  hero.style.setProperty('--hero-y', photo.offsetY);
+  hero.style.setProperty('--hero-pos', photo.position);
+  hero.innerHTML = `<img src="${kxEsc(photo.src)}" alt="${kxEsc(photo.alt)}" title="${kxEsc(photo.generic && genericTitle ? genericTitle : photo.alt)}" decoding="async">`;
+  const img = hero.querySelector('img');
+  img.addEventListener('error', () => { hero.remove(); sheet.classList.remove('has-hero'); }, { once: true });
+  sheet.classList.add('has-hero');
+}
 
-  if (!gradeData || Object.keys(gradeData).length === 0) {
-    container.innerHTML = '<div style="color: #9ca3af; text-align: center; font-size: 13px; width: 100%; padding: 20px;">Cargando datos...</div>';
+// Valoración textual del grip
+function kxGripLabel(score) {
+  return score >= 80 ? 'Agarre excelente' : score >= 60 ? 'Buen agarre' : score >= 40 ? 'Agarre regular' : 'Agarre pobre';
+}
+
+const KX_CONFIDENCE = { high: 'confianza alta', medium: 'confianza media', low: 'confianza baja' };
+
+function kxFactorRowHTML(icon, label, value, rating, tone) {
+  return `<div class="bs-frow"><span class="bs-frow-ic">${kxIcon(icon, { size: 18 })}</span><span class="bs-frow-l">${kxEsc(label)}</span>`
+    + `<span class="bs-frow-v">${kxEsc(value)}</span><span class="bs-fpill kx-tone-${tone}">${kxEsc(rating)}</span></div>`;
+}
+
+// Tarjeta «Condiciones para escalar» (segunda página). weather: kxcWeatherFromOpenMeteo(...) o null mientras carga
+async function kxRenderSchoolConditions(school, weather, { loaded = false, error = false } = {}) {
+  const slot = document.getElementById('bs-conditions-slot');
+  if (!slot || !school) return;
+  const cfg = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS[school.id] : null;
+  const disciplines = (cfg && Array.isArray(cfg.disciplines) && cfg.disciplines.length ? cfg.disciplines : ['sport']).filter(d => d === 'sport' || d === 'boulder');
+  if (!loaded && !error) { bsConditionsWeather = null; bsDiscipline = disciplines[0] || 'sport'; }
+  if (loaded) bsConditionsWeather = weather;
+  if (!disciplines.includes(bsDiscipline)) bsDiscipline = disciplines[0] || 'sport';
+
+  const infoBtn = (label) => `<button type="button" class="bs-info-btn" aria-expanded="false" aria-controls="bs-grip-info" aria-label="${kxEsc(label)}">${kxIcon('info', { size: 16 })}</button>`;
+  const head = (pill = '', info = '') => `<header class="bs-cond-head">${kxIcon('mountain', { size: 20 })}<h3 class="bs-cond-title" id="bs-cond-title">Condiciones para escalar</h3>${info}${pill}</header>`;
+  const wrap = (inner, cls = '') => `<section class="bs-cond${cls}" aria-labelledby="bs-cond-title">${inner}</section>`;
+
+  if (error) {
+    slot.innerHTML = wrap(head() + `<p class="bs-cond-msg">No se pudo cargar el tiempo de la escuela, así que no hay estimación. Revisa la conexión y vuelve a abrir la ficha.</p>`);
+    return;
+  }
+  if (!loaded || typeof kxcEstimateSchool !== 'function') {
+    slot.innerHTML = wrap(head() + kxSkeletonHTML('lines'), ' is-loading');
     return;
   }
 
-  // Ordenar grados
-  const sortedGrades = sortGrades(Object.keys(gradeData));
-  const maxCount = Math.max(...Object.values(gradeData));
-  const maxHeight = 90; // px máximo de altura
+  const facts = await kxLoadSchoolFacts(school.id).catch(() => null);
+  if (bsCurrentSchool !== school) return;
+  const est = kxcEstimateSchool(weather, { rockType: school.rockType, exposures: facts ? facts.exposures : [] }, bsDiscipline);
+  const f = est.factors;
 
-  let html = '';
-  sortedGrades.forEach((grade, index) => {
-    const count = gradeData[grade];
-    const heightPx = Math.max(8, (count / maxCount) * maxHeight);
-    const color = getGradeColor(grade);
-    const delay = index * 0.03;
+  const cond = est.condition;
+  const pill = cond ? `<span class="bs-cond-pill kx-tone-${cond.tone}">${cond.tone === 'success' ? kxIcon('check', { size: 14, stroke: 2.25 }) : ''}${kxEsc(cond.label)}</span>` : '';
 
-    html += `
-      <div class="bs-bar-item">
-        <span class="bs-bar-count">${count}</span>
-        <div class="bs-bar" style="
-          height: ${heightPx}px;
-          background: ${color};
-          --bar-delay: ${delay}s;
-        "></div>
-        <span class="bs-bar-label">${grade}</span>
+  const seg = disciplines.length > 1 && typeof kxSegmentedHTML === 'function'
+    ? `<div class="bs-cond-seg">${kxSegmentedHTML({ items: disciplines.map(d => ({ value: d, label: d === 'boulder' ? 'Bloque' : 'Deportiva' })), value: bsDiscipline, label: 'Modalidad' })}</div>`
+    : '';
+
+  // Grip: cifra y barra sin contenedor propio; la valoración, la confianza y las notas van en el panel de información
+  const scoreHTML = est.display !== null
+    ? `<p class="bs-grip-score"><b>${kxEsc(est.display)}</b><span>/100</span></p>
+       <div class="bs-grip-bar" role="img" aria-label="${kxEsc(`Grip estimado ${est.display} sobre 100: ${kxGripLabel(est.score).toLowerCase()}, ${KX_CONFIDENCE[est.confidence]}`)}"><span style="--v:${est.score}%"></span></div>`
+    : `<p class="bs-grip-score is-limited"><b>—</b></p>
+       <p class="bs-grip-conf">Faltan datos de ${kxEsc((est.missing.length ? est.missing : ['tiempo']).join(', '))}</p>`;
+
+  const rockName = typeof kxcRock === 'function' ? kxcRock(school.rockType).label : 'roca';
+  const rockPill = f.rock.score === null ? ['Sin datos', 'neutral'] : f.rock.score >= 70 ? ['Buena', 'success'] : f.rock.score >= 40 ? ['Regular', 'warning'] : ['Mala', 'danger'];
+  const rows = [
+    f.temp ? kxFactorRowHTML('thermometer', 'Temperatura', `${Math.round(f.temp.value)} °C`, f.temp.rating, f.temp.tone) : kxFactorRowHTML('thermometer', 'Temperatura', '—', 'Sin datos', 'neutral'),
+    f.humidity ? kxFactorRowHTML('droplet', 'Humedad', `${Math.round(f.humidity.value)} %`, f.humidity.rating, f.humidity.tone) : kxFactorRowHTML('droplet', 'Humedad', '—', 'Sin datos', 'neutral'),
+    f.wind ? kxFactorRowHTML('wind', 'Viento', `${Math.round(f.wind.value)} km/h`, f.wind.rating, f.wind.tone) : kxFactorRowHTML('wind', 'Viento', '—', 'Sin datos', 'neutral'),
+    kxFactorRowHTML('mountain', `Roca (${rockName.toLowerCase()})`, f.rock.rating, rockPill[0], rockPill[1])
+  ].join('');
+
+  const notes = [...est.notes];
+  if (est.range) notes.push(`Varía por sector: de ${est.range.lo} (${est.range.worst}) a ${est.range.hi} (${est.range.best})`);
+  else if (facts && facts.exposures && facts.exposures.length > 1 && !est.limited) notes.push('Los sectores tienen orientaciones distintas; la estimación es general');
+
+  const summary = est.display !== null
+    ? `${kxGripLabel(est.score)} · estimación orientativa, ${KX_CONFIDENCE[est.confidence]}`
+    : 'Estimación limitada: no se muestra una cifra';
+  const info = `<div class="bs-grip-info" id="bs-grip-info" hidden>
+      <p class="bs-grip-sum"><b>${kxEsc(summary)}</b></p>
+      ${notes.length ? `<ul class="bs-cond-notes">${notes.map(n => `<li>${kxEsc(n)}</li>`).join('')}</ul>` : ''}
+      <p><b>¿Qué es?</b> Una estimación orientativa de lo bien que agarra la roca ahora. No es una medición real del rozamiento.</p>
+      <p><b>Qué tiene en cuenta:</b> temperatura (al sol la roca se calienta más que el aire), humedad y punto de rocío, viento, lluvia de las últimas 72 horas y el tiempo de secado según el tipo de roca y la orientación de los sectores. En bloque pesan más la humedad y el frío.</p>
+      <p><b>Por qué varía:</b> cambia con la hora, el sol y la lluvia, y cada sector puede estar distinto. Si faltan datos, la confianza baja y no se muestra una cifra.</p>
+      <p class="bs-grip-src">Datos meteorológicos: Open-Meteo</p>
+    </div>`;
+
+  slot.innerHTML = wrap(head(pill, infoBtn('Qué significan las condiciones para escalar')) + seg + `
+    <div class="bs-cond-body">
+      <div class="bs-grip">
+        <p class="bs-grip-title">Grip de la roca ${infoBtn('Qué significa el grip de la roca')}</p>
+        ${scoreHTML}
       </div>
-    `;
-  });
+      <div class="bs-factors">${rows}</div>
+    </div>
+    ${info}`, est.limited ? ' is-limited' : '');
 
-  container.innerHTML = html;
+  const box = slot.querySelector('#bs-grip-info');
+  const btns = slot.querySelectorAll('.bs-info-btn');
+  btns.forEach(btn => btn.addEventListener('click', () => {
+    const open = box.hidden; box.hidden = !open;
+    btns.forEach(b => b.setAttribute('aria-expanded', String(open)));
+  }));
+  const segEl = slot.querySelector('.kx-seg');
+  if (segEl && typeof kxBindSegmented === 'function') {
+    kxBindSegmented(segEl, (v) => { bsDiscipline = v; kxRenderSchoolConditions(school, bsConditionsWeather, { loaded: true }); });
+  }
 }
 
 // ============================================
-// GRÁFICO CIRCULAR DONUT (Vista Expandida)
+// GRÁFICO CIRCULAR DONUT (recuperado del diseño anterior de la ficha de escuela)
 // ============================================
 
 /**
@@ -8054,7 +8977,7 @@ function renderDonutChart(gradeData) {
   if (!container) return;
 
   if (!gradeData || Object.keys(gradeData).length === 0) {
-    container.innerHTML = '<div style="color: #9ca3af; text-align: center; font-size: 14px; padding: 40px;">Sin datos</div>';
+    container.innerHTML = '<div class="bs-soon"><span class="bs-soon-badge">Próximamente</span><p class="bs-soon-text">Estamos preparando las vías de esta escuela.</p></div>';
     return;
   }
 
@@ -8063,8 +8986,8 @@ function renderDonutChart(gradeData) {
 
   const size = 200;
   const center = size / 2;
-  const radius = 75;
-  const strokeWidth = 28;
+  const radius = 76;
+  const strokeWidth = 44;
   const circumference = 2 * Math.PI * radius;
 
   let segments = '';
@@ -8118,17 +9041,32 @@ function renderDonutChart(gradeData) {
   const svgSegments = container.querySelectorAll('.bs-donut-segment');
   const centerText = document.getElementById('bs-donut-center');
 
+  const showSegment = (segment) => {
+    const grade = segment.getAttribute('data-grade');
+    const count = segment.getAttribute('data-count');
+    const color = segment.getAttribute('stroke');
+    centerText.innerHTML = `
+      <div class="bs-donut-total" style="color: ${color};">${grade.toUpperCase()}</div>
+      <div class="bs-donut-label">${count} Vías</div>
+    `;
+  };
+
   svgSegments.forEach(segment => {
-    segment.addEventListener('mouseenter', () => {
-      const grade = segment.getAttribute('data-grade');
-      const count = segment.getAttribute('data-count');
-      const color = segment.getAttribute('stroke');
-      centerText.innerHTML = `
-        <div class="bs-donut-total" style="color: ${color};">${grade.toUpperCase()}</div>
-        <div class="bs-donut-label">${count} Vías</div>
-      `;
-    });
+    segment.addEventListener('mouseenter', () => showSegment(segment));
+    // Pantallas táctiles: no hay hover, así que tocar un segmento muestra su grado y sus vías
+    segment.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') showSegment(segment); });
   });
+
+  // Táctil: tocar fuera de los segmentos vuelve al total (el equivalente a sacar el ratón del donut)
+  container._kxDefaultCenter = defaultCenterContent;
+  if (!container._kxTouchBound) {
+    container._kxTouchBound = true;
+    document.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' || !container.isConnected || e.target.closest('.bs-donut-segment')) return;
+      const c = document.getElementById('bs-donut-center');
+      if (c) c.innerHTML = container._kxDefaultCenter;
+    }, true);
+  }
 
   // Restaurar total cuando el ratón sale del SVG (no de cada segmento)
   if (svgEl) {
@@ -8145,26 +9083,36 @@ function renderDonutChart(gradeData) {
 /**
  * Carga estadísticas de la escuela para el Bottom Sheet
  */
+// Recuento de vías por grado de cada escuela ya abierta: al volver a abrirla el donut sale al instante
+const bsGradeCountCache = new Map();
+let bsStatsSeq = 0;
+
 async function loadBottomSheetStats(schoolId) {
   const schoolConfig = MAPLIBRE_SCHOOLS[schoolId];
+  const seq = ++bsStatsSeq;
 
   // Referencias a elementos
-  const barSkeleton = document.getElementById('bs-bar-skeleton');
-  const barContainer = document.getElementById('bs-bar-chart');
   const donutSkeleton = document.getElementById('bs-donut-skeleton');
   const donutContainer = document.getElementById('bs-donut-chart');
 
   // Mostrar skeletons, ocultar gráficos
-  if (barSkeleton) barSkeleton.classList.remove('hidden');
-  if (barContainer) barContainer.classList.add('hidden');
+  const cached = bsGradeCountCache.get(schoolId);
+  if (cached) {
+    bsGradeData = cached;
+    hideSkeletonsShowCharts();
+    renderDonutChart(cached);
+    if (kxSchoolSheet) kxSchoolSheet.refresh();
+    return;
+  }
+
   if (donutSkeleton) donutSkeleton.classList.remove('hidden');
   if (donutContainer) donutContainer.classList.add('hidden');
 
   if (!schoolConfig) {
     console.warn('Escuela no configurada en MAPLIBRE_SCHOOLS:', schoolId);
     hideSkeletonsShowCharts();
-    renderBarChart({}, 0);
     renderDonutChart({});
+    if (kxSchoolSheet) kxSchoolSheet.refresh();   // la altura de resumen depende de la tarjeta del donut
     return;
   }
 
@@ -8175,7 +9123,10 @@ async function loadBottomSheetStats(schoolId) {
       throw new Error('No hay ruta de vías configurada');
     }
 
+    // Cartografía y vías de spotters a la vez (antes iban una tras otra)
+    const spotterTask = getSpotterGradeCounts(schoolId).catch(() => ({}));
     const response = await fetch(viasPath);
+    if (seq !== bsStatsSeq) return;   // se abrió otra escuela mientras tanto
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -8185,8 +9136,8 @@ async function loadBottomSheetStats(schoolId) {
 
     if (!geojson.features || geojson.features.length === 0) {
       hideSkeletonsShowCharts();
-      renderBarChart({}, 0);
-      renderDonutChart({});
+        renderDonutChart({});
+    if (kxSchoolSheet) kxSchoolSheet.refresh();   // la altura de resumen depende de la tarjeta del donut
       return;
     }
 
@@ -8204,7 +9155,8 @@ async function loadBottomSheetStats(schoolId) {
     });
 
     // Sumar vías aprobadas de Spotters
-    const spotterCounts = await getSpotterGradeCounts(schoolId);
+    const spotterCounts = await spotterTask;
+    if (seq !== bsStatsSeq) return;
     Object.entries(spotterCounts).forEach(([grade, count]) => {
       gradeCount[grade] = (gradeCount[grade] || 0) + count;
       totalVias += count;
@@ -8212,19 +9164,20 @@ async function loadBottomSheetStats(schoolId) {
 
     // Guardar en cache
     bsGradeData = gradeCount;
+    bsGradeCountCache.set(schoolId, gradeCount);
 
     // Ocultar skeletons, mostrar gráficos
     hideSkeletonsShowCharts();
 
     // Renderizar gráficos
-    renderBarChart(gradeCount, totalVias);
     renderDonutChart(gradeCount);
+    if (kxSchoolSheet) kxSchoolSheet.refresh();   // la altura de resumen depende de la tarjeta del donut
 
   } catch (error) {
     console.warn('Error cargando stats para Bottom Sheet:', error);
     hideSkeletonsShowCharts();
-    renderBarChart({}, 0);
     renderDonutChart({});
+    if (kxSchoolSheet) kxSchoolSheet.refresh();   // la altura de resumen depende de la tarjeta del donut
   }
 }
 
@@ -8232,13 +9185,9 @@ async function loadBottomSheetStats(schoolId) {
  * Oculta los skeletons y muestra los contenedores de gráficos
  */
 function hideSkeletonsShowCharts() {
-  const barSkeleton = document.getElementById('bs-bar-skeleton');
-  const barContainer = document.getElementById('bs-bar-chart');
   const donutSkeleton = document.getElementById('bs-donut-skeleton');
   const donutContainer = document.getElementById('bs-donut-chart');
 
-  if (barSkeleton) barSkeleton.classList.add('hidden');
-  if (barContainer) barContainer.classList.remove('hidden');
   if (donutSkeleton) donutSkeleton.classList.add('hidden');
   if (donutContainer) donutContainer.classList.remove('hidden');
 }
@@ -8247,6 +9196,7 @@ function hideSkeletonsShowCharts() {
  * Variable global para almacenar datos del pronóstico semanal del Bottom Sheet
  */
 let bsWeatherForecastData = null;
+let bsWeatherNow = null;   // tiempo actual de la escuela abierta (tarjeta y cabecera de la previsión)
 
 /**
  * Carga datos meteorológicos para el Bottom Sheet (actual + 7 días)
@@ -8267,6 +9217,9 @@ async function loadBottomSheetWeather(school) {
   tempEl.textContent = '--°C';
   precipEl.textContent = '--%';
   rainEl.textContent = '-- mm';
+  const descEl = document.getElementById('bs-weather-desc');
+  if (descEl) descEl.textContent = '\u00a0';
+  bsWeatherNow = null;
   if (windDirEl) windDirEl.textContent = '-';
   if (windSpeedEl) windSpeedEl.textContent = '--';
 
@@ -8276,19 +9229,22 @@ async function loadBottomSheetWeather(school) {
     forecastPanel.classList.add('hidden');
     forecastPanel.classList.remove('visible');
   }
+  const nowEl = document.getElementById('bs-forecast-now');
+  if (nowEl) nowEl.innerHTML = '';
   const weatherCard = document.getElementById('bs-weather-widget');
   if (weatherCard) {
     weatherCard.classList.remove('expanded');
   }
   if (forecastScroll) {
-    forecastScroll.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:20px;">Cargando pronóstico...</div>';
+    forecastScroll.innerHTML = '<p class="bs-forecast-msg">Cargando pronóstico…</p>';
   }
 
   try {
     const lat = school.coords[1];
     const lng = school.coords[0];
     // Solicitar datos actuales + pronóstico de 7 días
-    const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,precipitation_probability,precipitation,wind_speed_10m,wind_direction_10m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,wind_direction_10m_dominant&timezone=auto&forecast_days=7`;
+    // Una sola petición para el tiempo, el pronóstico y las condiciones para escalar (humedad, rocío, sol y lluvia de las últimas 72 h)
+    const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,wind_speed_10m,wind_direction_10m,weather_code,is_day,shortwave_radiation&hourly=precipitation&past_hours=72&forecast_hours=1&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,wind_direction_10m_dominant&timezone=auto&forecast_days=7`;
 
     const response = await fetch(apiUrl);
     if (!response.ok) throw new Error('Weather API error');
@@ -8299,15 +9255,25 @@ async function loadBottomSheetWeather(school) {
     if (current) {
       tempEl.textContent = `${Math.round(current.temperature_2m)}°C`;
       precipEl.textContent = `${current.precipitation_probability || 0}%`;
-      rainEl.textContent = `${current.precipitation || 0} mm`;
+      rainEl.textContent = `${kxFmtMm(current.precipitation)} mm`;
       if (windDirEl) windDirEl.textContent = getWindDirection(current.wind_direction_10m || 0);
       if (windSpeedEl) windSpeedEl.textContent = `${Math.round(current.wind_speed_10m)}`;
+      if (descEl) descEl.textContent = getWeatherDescription(current.weather_code);
+      bsWeatherNow = {
+        code: current.weather_code,
+        temp: Math.round(current.temperature_2m),
+        prob: current.precipitation_probability || 0,
+        mm: current.precipitation,
+        windDir: getWindDirection(current.wind_direction_10m || 0),
+        wind: Math.round(current.wind_speed_10m)
+      };
+      renderBottomSheetForecastNow();
 
       // Actualizar icono según código del tiempo
       const weatherCode = current.weather_code;
-      const iconName = getWeatherIconName(weatherCode);
-      if (iconEl && iconName) {
-        iconEl.src = `icons/weather/${iconName}.png`;
+      const iconPath = getWeatherIcon(weatherCode);
+      if (iconEl && iconPath) {
+        iconEl.src = iconPath;
         iconEl.onerror = () => {
           iconEl.src = 'icons/weather/partly-cloudy.png';
         };
@@ -8319,10 +9285,14 @@ async function loadBottomSheetWeather(school) {
       bsWeatherForecastData = data.daily;
       renderBottomSheetForecast(data.daily);
     }
+
+    // Condiciones para escalar (segunda página), con los mismos datos
+    if (bsCurrentSchool === school) kxRenderSchoolConditions(school, typeof kxcWeatherFromOpenMeteo === 'function' ? kxcWeatherFromOpenMeteo(data) : null, { loaded: true });
   } catch (error) {
     console.warn('Error cargando clima para Bottom Sheet:', error);
+    if (bsCurrentSchool === school) kxRenderSchoolConditions(school, null, { error: true });
     if (forecastScroll) {
-      forecastScroll.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:20px;">No se pudo cargar el pronóstico</div>';
+      forecastScroll.innerHTML = '<p class="bs-forecast-msg">No se pudo cargar el pronóstico</p>';
     }
   }
 }
@@ -8345,24 +9315,20 @@ function renderBottomSheetForecast(dailyData) {
     const maxTemp = Math.round(dailyData.temperature_2m_max[i]);
     const minTemp = Math.round(dailyData.temperature_2m_min[i]);
     const precipProb = dailyData.precipitation_probability_max[i] || 0;
-    const precipSum = dailyData.precipitation_sum[i] || 0;
+    const precipSum = kxFmtMm(dailyData.precipitation_sum[i]);
     const windSpeed = Math.round(dailyData.wind_speed_10m_max[i]);
     const windDir = getWindDirection(dailyData.wind_direction_10m_dominant[i]);
     const weatherCode = dailyData.weather_code[i];
-    const iconName = getWeatherIconName(weatherCode);
-
-    // Destacar "Hoy" si es el primer día
     const isToday = i === 0;
-    const displayDayName = isToday ? 'Hoy' : dayName;
 
     html += `
-      <div class="bs-forecast-day">
+      <div class="bs-forecast-day${isToday ? ' is-today' : ''}"${isToday ? ' aria-current="date"' : ''}>
         <div class="bs-forecast-day-info">
-          <div class="bs-forecast-day-name">${displayDayName}</div>
+          <div class="bs-forecast-day-name">${isToday ? 'Hoy' : dayName}</div>
           <div class="bs-forecast-day-date">${dateStr}</div>
         </div>
         <div class="bs-forecast-icon-wrap">
-          <img src="icons/weather/${iconName}.png" alt="Clima" onerror="this.src='icons/weather/partly-cloudy.png'">
+          <img src="${getWeatherIcon(weatherCode)}" alt="${getWeatherDescription(weatherCode)}" onerror="this.onerror=null;this.src='icons/weather/partly-cloudy.png'">
         </div>
         <div class="bs-forecast-temps">
           <span class="bs-forecast-temp-max">${maxTemp}°</span>
@@ -8370,8 +9336,8 @@ function renderBottomSheetForecast(dailyData) {
         </div>
         <div class="bs-forecast-details">
           <span class="bs-forecast-precip">
-            <img src="icons/weather/Gota.png" alt="" onerror="this.style.display='none'">
-            ${precipProb}%|${precipSum} mm
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+            ${precipProb}% · ${precipSum} mm
           </span>
           <span class="bs-forecast-wind">${windDir} ${windSpeed} km/h</span>
         </div>
@@ -8380,6 +9346,42 @@ function renderBottomSheetForecast(dailyData) {
   }
 
   forecastScroll.innerHTML = html;
+}
+
+// Cabecera de la previsión: el tiempo de ahora, igual que en la tarjeta
+function renderBottomSheetForecastNow() {
+  const el = document.getElementById('bs-forecast-now');
+  const n = bsWeatherNow;
+  if (!el || !n) return;
+  el.innerHTML = `
+    <img class="bs-weather-icon" src="${getWeatherIcon(n.code)}" alt="" onerror="this.onerror=null;this.src='icons/weather/partly-cloudy.png'">
+    <span class="bs-weather-sep" aria-hidden="true"></span>
+    <div class="bs-weather-temp-wrap"><span class="bs-weather-temp">${n.temp}°C</span><span class="bs-weather-desc">${getWeatherDescription(n.code)}</span></div>
+    <span class="bs-weather-sep" aria-hidden="true"></span>
+    <div class="bs-weather-right">
+      <div class="bs-weather-stat"><svg width="16" height="16" viewBox="0 0 24 24" fill="#3b82f6" aria-hidden="true"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg><span>${n.prob}% · ${kxFmtMm(n.mm)} mm</span></div>
+      <div class="bs-weather-stat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" aria-hidden="true"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg><span>${n.windDir} ${n.wind} km/h</span></div>
+    </div>`;
+}
+
+// Milímetros con coma y como mucho un decimal («0,6», «8»)
+function kxFmtMm(v) {
+  return (Math.round((Number(v) || 0) * 10) / 10).toLocaleString('es-ES', { maximumFractionDigits: 1 });
+}
+
+function getWeatherDescription(code) {
+  if (code === 0) return 'Despejado';
+  if (code === 1) return 'Mayormente despejado';
+  if (code === 2) return 'Parcialmente nuboso';
+  if (code === 3) return 'Nublado';
+  if (code >= 45 && code <= 48) return 'Niebla';
+  if (code >= 51 && code <= 57) return 'Llovizna';
+  if (code >= 61 && code <= 67) return 'Lluvia';
+  if (code >= 71 && code <= 77) return 'Nieve';
+  if (code >= 80 && code <= 82) return 'Chubascos';
+  if (code >= 85 && code <= 86) return 'Chubascos de nieve';
+  if (code >= 95 && code <= 99) return 'Tormenta';
+  return 'Parcialmente nuboso';
 }
 
 /**
@@ -8391,24 +9393,23 @@ function toggleBottomSheetForecast() {
 
   if (!forecastPanel || !weatherCard) return;
 
-  const isHidden = forecastPanel.classList.contains('hidden');
-
-  if (isHidden) {
-    // Mostrar panel
+  if (forecastPanel.classList.contains('hidden')) {
     forecastPanel.classList.remove('hidden');
+    document.body.classList.add('kx-forecast-open');   // la ficha de detrás no se desplaza
     weatherCard.classList.add('expanded');
     // Pequeño delay para la animación
-    requestAnimationFrame(() => {
-      forecastPanel.classList.add('visible');
-    });
+    requestAnimationFrame(() => forecastPanel.classList.add('visible'));
+    const close = document.getElementById('bs-forecast-close');
+    if (close) setTimeout(() => close.focus({ preventScroll: true }), 60);
   } else {
-    // Ocultar panel
     forecastPanel.classList.remove('visible');
+    document.body.classList.remove('kx-forecast-open');
     weatherCard.classList.remove('expanded');
     // Esperar animación antes de ocultar
     setTimeout(() => {
-      forecastPanel.classList.add('hidden');
+      if (!forecastPanel.classList.contains('visible')) forecastPanel.classList.add('hidden');
     }, 300);
+    weatherCard.focus({ preventScroll: true });
   }
 }
 
@@ -8418,13 +9419,16 @@ function toggleBottomSheetForecast() {
 function initBottomSheetForecastEvents() {
   const weatherCard = document.getElementById('bs-weather-widget');
   const forecastClose = document.getElementById('bs-forecast-close');
+  const panel = document.getElementById('bs-forecast-panel');
+
+  // La previsión es una ventana sobre toda la pantalla: fuera de la hoja (que se desplaza) para no recortarse
+  if (panel && panel.parentElement !== document.body) document.body.appendChild(panel);
 
   if (weatherCard) {
-    weatherCard.addEventListener('click', (e) => {
-      // Evitar toggle si no hay datos
-      if (bsWeatherForecastData) {
-        toggleBottomSheetForecast();
-      }
+    const open = () => { if (bsWeatherForecastData) toggleBottomSheetForecast(); };
+    weatherCard.addEventListener('click', open);
+    weatherCard.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
     });
   }
 
@@ -8433,6 +9437,13 @@ function initBottomSheetForecastEvents() {
       e.stopPropagation();
       toggleBottomSheetForecast();
     });
+  }
+  if (panel) {
+    // Tocar fuera de la tarjeta o pulsar Escape cierra
+    panel.addEventListener('click', (e) => { if (e.target === panel) toggleBottomSheetForecast(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !panel.classList.contains('hidden')) { e.stopPropagation(); toggleBottomSheetForecast(); }
+    }, true);
   }
 }
 
@@ -8517,6 +9528,7 @@ setupSchoolLayerInteraction = function () {
 
       showSchoolPopup(school, null);
     }
+    kxSelectSchool(feature.id != null ? feature.id : props.id);
   });
 };
 
@@ -8677,24 +9689,14 @@ async function loadApprovedRoutesFromFirestore(schoolId, minZoom = 14) {
               type: 'circle',
               source: sourceId,
               minzoom: minZoom,
-              paint: {
-                'circle-radius': [
-                  'interpolate', ['linear'], ['zoom'],
-                  14, isMobileDevice() ? 2 : 3,
-                  16, isMobileDevice() ? 3.5 : 5,
-                  18, isMobileDevice() ? 5.5 : 8,
-                  20, isMobileDevice() ? 9 : 14
-                ],
-                'circle-color': generateGradeColorExpression('grado1'),
-                'circle-stroke-color': '#FFD700',
-                'circle-stroke-width': isMobileDevice() ? 2 : 2.5,
-                'circle-opacity': 0.95
-              }
+              // Aporte de la comunidad: mismo círculo, con el borde dorado que lo identifica
+              paint: kxRoutePaint('#FFD700')
             });
             if (!mlUserViasInteractionAttached) {
               setupUserViasInteraction();
               mlUserViasInteractionAttached = true;
             }
+            if (mlGradeFocus || !isFullGradeRange()) applyGradeFilter();
           }
         } catch (err) {
           console.error('[ApprovedRoutes] Error procesando snapshot:', err);
@@ -8816,18 +9818,6 @@ async function showUserRoutePopup(props, coords) {
       </button>
     </div>` : '';
 
-  // Obtener votaciones de aleje desde Firestore
-  const alejeData = await getAlejeVotes(schoolId, routeId);
-  const alejeHTML = generateAlejeBarHTML(routeId, schoolId, alejeData.avg, alejeData.userVote);
-
-  // Obtener votaciones de estado de la vía desde Firestore
-  const estadoData = await getEstadoVotes(schoolId, routeId);
-  const estadoHTML = generateEstadoStarsHTML(routeId, schoolId, estadoData.avg, estadoData.userVote);
-
-  // Obtener votaciones de grado desde Firestore
-  const gradeVoteData = await getGradeVotes(schoolId, routeId);
-  const gradeSliderHTML = generateGradeSliderHTML(routeId, schoolId, grade, gradeVoteData);
-  const consensusBadgeHTML = buildConsensusBadgeHTML(grade, gradeVoteData);
 
   const html = `
     <div class="ml-route-popup-new">
@@ -8836,7 +9826,6 @@ async function showUserRoutePopup(props, coords) {
         ${ascentCheckHTML}
         <span class="ml-route-name">${routeName}</span>
         <span class="ml-route-grade" style="background-color: ${gradeColor}">${grade}</span>
-        ${consensusBadgeHTML}
       </div>
 
       <!-- Info items con iconos + sugerencias independientes por campo -->
@@ -8879,13 +9868,13 @@ async function showUserRoutePopup(props, coords) {
       </div>
 
       <!-- Slider de votación de grado -->
-      ${gradeSliderHTML}
+      <div id="ml-variant-grade-${routeId}"></div>
 
       <!-- Indicador de Aleje -->
-      ${alejeHTML}
+      <div id="ml-variant-aleje-${routeId}"></div>
 
       <!-- Estado de la Vía (estrellas) -->
-      ${estadoHTML}
+      <div id="ml-variant-estado-${routeId}"></div>
 
       <!-- Botonera -->
       <div class="ml-route-actions">
@@ -8935,11 +9924,16 @@ async function showUserRoutePopup(props, coords) {
     closeButton: true,
     closeOnClick: false,
     maxWidth: '340px',
-    className: 'ml-route-popup'
+    className: 'ml-route-popup kx-mpop'
   })
     .setLngLat(coords)
     .setHTML(html)
     .addTo(mlMap);
+
+  if (Number.isFinite(routeId)) {
+    kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: `ml-variant-grade-${routeId}`, aleje: `ml-variant-aleje-${routeId}`, estado: `ml-variant-estado-${routeId}` });
+  }
+  kxWatchRoutePopup(mlRoutePopup);
 }
 
 // ============================================
@@ -9081,13 +10075,13 @@ async function loadApprovedPOIFromFirestore(schoolId) {
           if (!mlMap.hasImage('poi-svg-default')) typesToLoad.push('');
           Promise.all(typesToLoad.map(async poiType => {
             try {
-              const img = await createSVGPinImage(poiType, 50);
+              const img = await createSVGPinImage(poiType);
               const imgId = poiType === '' ? 'poi-svg-default' : 'poi-svg-' + poiType;
               if (!mlMap.hasImage(imgId)) mlMap.addImage(imgId, img, { sdf: false, pixelRatio: _mlDPR });
             } catch (e) {
               console.warn('[ApprovedPOI] Error creando icono para', poiType, e);
             }
-          }));
+          })).then(() => { if (typesToLoad.length) kxReloadSourceData(sourceId); });
 
           const geojson = { type: 'FeatureCollection', features };
 
@@ -9102,17 +10096,10 @@ async function loadApprovedPOIFromFirestore(schoolId) {
               minzoom: 13,
               layout: {
                 'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-                'icon-size': [
-                  'interpolate', ['linear'], ['zoom'],
-                  13, 0.5,
-                  14, 0.7,
-                  16, 0.9,
-                  18, 1.1,
-                  20, 1.3
-                ],
+                'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 16, 0.9, 18, 1, 20, 1.12],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true,
-                'icon-anchor': 'bottom'
+                'icon-anchor': 'center'
               }
             });
             if (!mlUserPOIInteractionAttached) {
@@ -9135,19 +10122,11 @@ async function loadApprovedPOIFromFirestore(schoolId) {
  * Carga sectores aprobados desde pending_sectors en Firestore y los dibuja en el mapa
  * como líneas (misma lógica que los sectores estáticos de GeoJSON).
  */
-function setupUserSectorsInteraction(lineLayerId) {
-  mlMap.on('mouseenter', lineLayerId, () => {
-    mlMap.getCanvas().style.cursor = 'pointer';
-  });
-  mlMap.on('mouseleave', lineLayerId, () => {
-    mlMap.getCanvas().style.cursor = '';
-  });
-  mlMap.on('click', lineLayerId, async (e) => {
-    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
-    if (!e.features || e.features.length === 0) return;
-    const props = e.features[0].properties;
-    const coords = e.lngLat;
+function setupUserSectorsInteraction(hitLayerId) {
+  kxBindSectorEvents(hitLayerId);
+}
 
+async function mlOpenUserSector(props, coords) {
     const adminRole = await checkAdminRole();
     const adminHTML = adminRole === 'admin' && props.docId ? `
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding:0 4px 4px;">
@@ -9168,7 +10147,6 @@ function setupUserSectorsInteraction(lineLayerId) {
       mlMap.flyTo({ center: coords, zoom: mlMap.getZoom(), speed: 0.8, curve: 1, padding: { top: 450, bottom: 0, left: 0, right: 0 } });
       showSectorPopup(props, [coords.lng, coords.lat], adminHTML);
     }
-  });
 }
 
 async function loadApprovedSectorsFromFirestore(schoolId) {
@@ -9242,12 +10220,13 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
 
           console.log(`%c[ApprovedSectors] Realtime: ${features.length} sectores para ${schoolId} (skippedVertices=${skippedVertices}, skippedSchool=${skippedSchool})`, 'color: #2196F3; font-weight: bold');
 
+          kxAssignSectorColors(features);
           const geojson = { type: 'FeatureCollection', features };
 
           if (mlMap.getSource(sourceId)) {
             mlMap.getSource(sourceId).setData(geojson);
           } else {
-            mlMap.addSource(sourceId, { type: 'geojson', data: geojson });
+            mlMap.addSource(sourceId, { type: 'geojson', data: geojson, generateId: true });
 
             const school = MAPLIBRE_SCHOOLS[schoolId];
             const sectorMinZoom = school?.zoomLevels?.sectores || 12;
@@ -9258,14 +10237,7 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
               source: sourceId,
               minzoom: sectorMinZoom,
               layout: { 'line-cap': 'round', 'line-join': 'round' },
-              paint: {
-                'line-color': generateSectorCasingColorExpression(),
-                'line-width': [
-                  'interpolate', ['linear'], ['zoom'],
-                  12, 4, 14, 6, 16, 10, 18, 14, 20, 18
-                ],
-                'line-opacity': 0.9
-              }
+              paint: kxSectorCasingPaint()
             });
 
             mlMap.addLayer({
@@ -9274,21 +10246,16 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
               source: sourceId,
               minzoom: sectorMinZoom,
               layout: { 'line-cap': 'round', 'line-join': 'round' },
-              paint: {
-                'line-color': generateSectorColorExpression(),
-                'line-width': [
-                  'interpolate', ['linear'], ['zoom'],
-                  12, 2, 14, 4, 16, 7, 18, 10, 20, 14
-                ],
-                'line-opacity': 1
-              }
+              paint: kxSectorLinePaint()
             });
+            kxAddSectorHitLayer(sourceId, 'sectores-usuarios-hit-layer', sectorMinZoom);
 
             if (!mlUserSectorsInteractionAttached) {
-              setupUserSectorsInteraction(lineLayerId);
+              setupUserSectorsInteraction('sectores-usuarios-hit-layer');
               mlUserSectorsInteractionAttached = true;
             }
           }
+          kxRefreshSectorLabels(sourceId);
         } catch (err) {
           console.error('[ApprovedSectors] Error procesando snapshot:', err);
         }
@@ -9464,7 +10431,7 @@ async function loadMyPendingPOIFromFirestore(schoolId) {
           for (const poiType of usedTypes2) {
             const imgId = 'poi-svg-' + poiType;
             if (!mlMap.hasImage(imgId)) {
-              try { mlMap.addImage(imgId, await createSVGPinImage(poiType, 50), { sdf: false, pixelRatio: _mlDPR }); } catch (e) {}
+              try { mlMap.addImage(imgId, await createSVGPinImage(poiType), { sdf: false, pixelRatio: _mlDPR }); } catch (e) {}
             }
           }
 
@@ -9483,8 +10450,8 @@ async function loadMyPendingPOIFromFirestore(schoolId) {
               paint: { 'icon-opacity': 0.6 },
               layout: {
                 'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-                'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 16, 0.9, 20, 1.3],
-                'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'bottom'
+                'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 16, 0.9, 18, 1, 20, 1.12],
+                'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
               }
             });
             mlMap.on('click', layerId, (e) => {
@@ -9654,7 +10621,7 @@ async function loadMyPendingSchoolsFromFirestore() {
 
     console.log(`[MyPendingSchools] ${features.length} escuelas pendientes propias`);
 
-    if (!mlMap.hasImage('school-icon-orange')) await loadSchoolIcons();
+    if (!mlMap.hasImage('kx-school-pin-pending')) await loadSchoolIcons();
 
     const sourceId = 'pending-my-schools-source';
     const layerId = 'pending-my-schools-layer';
@@ -9671,14 +10638,16 @@ async function loadMyPendingSchoolsFromFirestore() {
       minzoom: 5,
       maxzoom: 12,
       layout: {
-        'icon-image': 'school-icon-orange',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 8, 0.5, 10, 0.65, 12, 0.75],
+        'icon-image': 'kx-school-pin-pending',
+        'icon-size': kxZoomExpr(KX_SCHOOL_SCALE),
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
+        'icon-anchor': 'bottom',
+        'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP],
         'text-field': ['concat', ['get', 'nombre'], '\n⏳'],
         'text-font': ['Noto Sans Bold'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 7, 10, 12, 13],
-        'text-offset': [0, 2.4],
+        'text-offset': [0, 0.5],
         'text-anchor': 'top'
       },
       paint: {
@@ -9882,7 +10851,7 @@ async function loadAllPendingForAdmin(schoolId, minZoom = 14) {
       for (const poiType of usedTypesAdmin) {
         const imgId = 'poi-svg-' + poiType;
         if (!mlMap.hasImage(imgId)) {
-          try { mlMap.addImage(imgId, await createSVGPinImage(poiType, 50), { sdf: false, pixelRatio: _mlDPR }); } catch (e) {}
+          try { mlMap.addImage(imgId, await createSVGPinImage(poiType), { sdf: false, pixelRatio: _mlDPR }); } catch (e) {}
         }
       }
       const geojson = { type: 'FeatureCollection', features };
@@ -9898,8 +10867,8 @@ async function loadAllPendingForAdmin(schoolId, minZoom = 14) {
           paint: { 'icon-opacity': 0.8 },
           layout: {
             'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 16, 0.9, 20, 1.3],
-            'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'bottom'
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 16, 0.9, 18, 1, 20, 1.12],
+            'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
           }
         });
         if (!mlAdminPendingPOIInteractionAttached) {
@@ -10052,7 +11021,7 @@ async function loadAllPendingSchoolsForAdmin() {
     });
     if (!features.length) return;
 
-    if (!mlMap.hasImage('school-icon-orange')) await loadSchoolIcons();
+    if (!mlMap.hasImage('kx-school-pin-pending')) await loadSchoolIcons();
 
     const sourceId = 'admin-pending-schools-source';
     const layerId = 'admin-pending-schools-layer';
@@ -10067,14 +11036,16 @@ async function loadAllPendingSchoolsForAdmin() {
       minzoom: 5,
       maxzoom: 12,
       layout: {
-        'icon-image': 'school-icon-orange',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 8, 0.5, 10, 0.65, 12, 0.75],
+        'icon-image': 'kx-school-pin-pending',
+        'icon-size': kxZoomExpr(KX_SCHOOL_SCALE),
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
+        'icon-anchor': 'bottom',
+        'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP],
         'text-field': ['concat', ['get', 'nombre'], '\n⏳'],
         'text-font': ['Noto Sans Bold'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 7, 10, 12, 13],
-        'text-offset': [0, 2.4],
+        'text-offset': [0, 0.5],
         'text-anchor': 'top'
       },
       paint: {
@@ -10251,7 +11222,7 @@ async function loadApprovedSchoolsFromFirestore() {
     if (mlMap.getSource(sourceId)) mlMap.removeSource(sourceId);
 
     // Esperar a que school-icon-green esté disponible (lo carga loadSchoolIcons)
-    if (!mlMap.hasImage('school-icon-green')) {
+    if (!mlMap.hasImage('kx-school-pin')) {
       await loadSchoolIcons();
     }
 
@@ -10268,43 +11239,17 @@ async function loadApprovedSchoolsFromFirestore() {
       minzoom: 5,
       maxzoom: 12,
       layout: {
-        'icon-image': 'school-icon-green',
-        'icon-size': [
-          'interpolate', ['linear'], ['zoom'],
-          5, 0.3, 8, 0.5, 10, 0.65, 12, 0.75
-        ],
+        'icon-image': 'kx-school-pin',
+        'icon-size': kxZoomExpr(KX_SCHOOL_SCALE),
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
-        'icon-anchor': 'center'
+        'icon-anchor': 'bottom',
+        'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP]
       }
     });
 
-    // Etiqueta de nombre debajo del icono (igual que school-labels-layer)
-    mlMap.addLayer({
-      id: labelLayerId,
-      type: 'symbol',
-      source: sourceId,
-      minzoom: 7,
-      maxzoom: 12,
-      layout: {
-        'text-field': ['get', 'nombre'],
-        'text-font': ['Noto Sans Bold'],
-        'text-size': [
-          'interpolate', ['linear'], ['zoom'],
-          7, 10, 10, 12, 12, 14
-        ],
-        'text-offset': [0, 2.2],
-        'text-anchor': 'top',
-        'text-max-width': 10,
-        'text-allow-overlap': false
-      },
-      paint: {
-        'text-color': '#1f2937',
-        'text-halo-color': 'rgba(255, 255, 255, 0.95)',
-        'text-halo-width': 2,
-        'text-halo-blur': 0
-      }
-    });
+    // Etiqueta de nombre (igual que school-labels-layer)
+    mlMap.addLayer(kxSchoolLabelLayer(labelLayerId, sourceId));
 
     // Interactividad: mismo comportamiento que school-markers-layer
     mlMap.on('mouseenter', layerId, () => {
@@ -10416,34 +11361,22 @@ function addGradeFilterButton() {
   btn.id = 'btn-grade-filter';
   btn.className = 'map-control-btn';
   btn.title = 'Filtrar por grado';
-  btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>`;
-  btn.style.cssText = `
-    position: absolute;
-    top: 58px;
-    right: 10px;
-    width: 40px;
-    height: 40px;
-    background: white;
-    border: none;
-    border-radius: 10px;
-    color: #333;
-    cursor: pointer;
-    z-index: 1000;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-    transition: background 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  `;
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Filtrar por grado');
+  btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"></line><line x1="7" y1="12" x2="17" y2="12"></line><line x1="10" y1="17" x2="14" y2="17"></line></svg>`;
+  // Aspecto en app_2.css (MAPA — CONTROLES); la visibilidad la decide updateFilterVisibility
+  btn.style.display = 'none';
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleGradeFilterPanel();
   });
 
-  container.appendChild(btn);
+  // Columna de controles de abajo a la derecha; su aspecto y su orden, en app_2.css
+  btn.classList.add('maplibregl-ctrl');   // la columna de MapLibre solo deja pasar los toques a sus controles
+  const stack = mlMap.getContainer().querySelector('.maplibregl-ctrl-bottom-right');
+  if (stack) stack.insertBefore(btn, stack.firstChild);
+  else (document.getElementById('map-topbar') || container).appendChild(btn);
 
   // Panel desplegable
   const panel = document.createElement('div');
@@ -10466,14 +11399,16 @@ function addGradeFilterButton() {
   mlMap.on('zoom', updateFilterVisibility);
   updateFilterVisibility();
 
-  // Cerrar panel al hacer clic fuera
-  document.addEventListener('click', (e) => {
+  // Cerrar panel al tocar fuera (pointerdown además de click: en iOS un toque sobre el mapa no siempre genera click)
+  const closeFilterOnOutside = (e) => {
     const panelEl = document.getElementById('grade-filter-panel');
     const btnEl = document.getElementById('btn-grade-filter');
     if (panelEl && btnEl && !panelEl.contains(e.target) && !btnEl.contains(e.target)) {
       closeGradeFilterPanel();
     }
-  });
+  };
+  document.addEventListener('click', closeFilterOnOutside);
+  document.addEventListener('pointerdown', closeFilterOnOutside);
 }
 
 /**
@@ -10596,6 +11531,8 @@ function setupThumbDrag(thumbEl, which) {
 
     const maxIdx = ALL_GRADES_ORDERED.length - 1;
     let idx = Math.round(pct * maxIdx);
+
+    if (mlGradeFocus) kxClearGradeFocus({ apply: false });   // mover el rango sustituye al grado elegido
 
     if (which === 'min') {
       idx = Math.min(idx, mlGradeRangeMax);
@@ -10725,6 +11662,7 @@ function closeGradeFilterPanel() {
  * Reset: mostrar todos los grados (rango completo)
  */
 function resetGradeFilter() {
+  kxClearGradeFocus({ apply: false });
   mlGradeRangeMin = 0;
   mlGradeRangeMax = ALL_GRADES_ORDERED.length - 1;
   mlShowOnlyMyRoutes = false;
@@ -10768,9 +11706,11 @@ function applyGradeFilter() {
 
   const gradeActive = !isFullGradeRange();
 
-  // Construir filtro de grados
+  // Construir filtro de grados (un grado elegido desde el gráfico manda sobre el rango)
   let gradeExpr = null;
-  if (gradeActive) {
+  if (mlGradeFocus) {
+    gradeExpr = kxGradeFocusExpr(mlGradeFocus);
+  } else if (gradeActive) {
     const selectedGrades = ALL_GRADES_ORDERED.slice(mlGradeRangeMin, mlGradeRangeMax + 1);
     gradeExpr = ['in', ['get', 'grado1'], ['literal', selectedGrades]];
   }
@@ -10834,6 +11774,9 @@ function applyGradeFilter() {
   }
 
   mlMap.setFilter('vias-layer', combinedFilter);
+  if (mlMap.getLayer('vias-shadow-layer')) mlMap.setFilter('vias-shadow-layer', combinedFilter);
+  kxApplyGradeToUserRoutes(gradeExpr);
+  kxApplyFocusZoom();
 
   // Sincronizar ticks con filtros:
   // - El filtro "Solo vías hechas" no restringe los ticks (ya son vías hechas por construcción).
@@ -10852,6 +11795,145 @@ function applyGradeFilter() {
   }
 }
 
+// ============================================
+// FILTRO DE UN GRADO DESDE EL GRÁFICO («Ver las N vías»)
+// Filtra las vías del mapa por ese grado (y su sector, si viene de una ficha de sector) sin
+// salir del mapa. Mientras está activo, las vías de ese grado se ven desde el zoom de la escuela
+// y una píldora sobre el mapa indica el grado: tocarla vuelve al gráfico; la ✕ quita el filtro.
+// ============================================
+let mlGradeFocus = null;            // { grade, count, schoolId, sector?, sectorProps?, coords? }
+const KX_FOCUS_MINZOOM = 12;        // zoom desde el que se ven las vías filtradas (las demás, desde el de la escuela)
+const KX_FOCUS_LAYERS = ['vias-layer', 'vias-shadow-layer', 'vias-usuarios-layer'];
+let kxUserRoutesBaseFilter;         // filtro propio de vias-usuarios-layer (undefined = aún sin leer)
+
+// Expresión de MapLibre: mismo grado (sin distinguir mayúsculas) y, si hay, mismo sector
+function kxGradeFocusExpr(focus) {
+  const prop = k => ['downcase', ['to-string', ['coalesce', ['get', k], '']]];
+  const byGrade = ['==', prop('grado1'), String(focus.grade).toLowerCase().trim()];
+  return focus.sector ? ['all', byGrade, ['==', prop('sector'), String(focus.sector).toLowerCase().trim()]] : byGrade;
+}
+
+// La misma regla en JavaScript (encuadre y marcadores de variantes)
+function kxRouteMatchesFocus(props, focus) {
+  const p = props || {};
+  if (String(p.grado1 || '').toLowerCase().trim() !== String(focus.grade).toLowerCase().trim()) return false;
+  return !focus.sector || String(p.sector || '').toLowerCase().trim() === String(focus.sector).toLowerCase().trim();
+}
+
+async function kxFocusGrade(ctx) {
+  if (!mlMap || !ctx || !ctx.schoolId || !ctx.grade) return;
+  const known = MAPLIBRE_SCHOOLS[ctx.schoolId] || (typeof mlPendingSchoolsCache !== 'undefined' && mlPendingSchoolsCache.has(ctx.schoolId));
+  if (!known) { if (typeof showToast === 'function') showToast('Esta escuela aún no está disponible', 'info'); return; }
+
+  // El mapa pasa a primer plano: se cierran fichas y popups
+  hideBottomSheet();
+  hideSectorBottomSheet();
+  if (mlSchoolPopup) mlSchoolPopup.remove();
+  if (mlSectorPopup) mlSectorPopup.remove();
+
+  // Se acerca el mapa antes de cargar o filtrar: lejos de la escuela, la carga automática la descargaría enseguida
+  const cfg = MAPLIBRE_SCHOOLS[ctx.schoolId];
+  if (cfg && (mlCurrentSchool !== ctx.schoolId || mlMap.getZoom() < MIN_ZOOM_FOR_AUTO_LOAD)) mlMap.jumpTo({ center: cfg.center, zoom: Math.max(cfg.zoom, MIN_ZOOM_FOR_AUTO_LOAD) });
+  if (mlCurrentSchool !== ctx.schoolId) await mlLoadSchool(ctx.schoolId, true);
+
+  mlGradeFocus = { ...ctx, grade: String(ctx.grade).toLowerCase().trim() };
+  // Un solo filtro de grado a la vez: el rango vuelve a «todos»
+  mlGradeRangeMin = 0;
+  mlGradeRangeMax = ALL_GRADES_ORDERED.length - 1;
+  updateSliderPositions();
+  updateRangeLabels();
+  applyGradeFilter();
+  updateFilterButtonBadge();
+  kxRenderGradeFocusChip();
+  kxFitToGradeFocus();
+}
+
+function kxClearGradeFocus({ apply = true } = {}) {
+  if (!mlGradeFocus) return;
+  mlGradeFocus = null;
+  if (apply && mlMap) {
+    applyGradeFilter();
+    updateFilterButtonBadge();
+  }
+  kxRenderGradeFocusChip();
+}
+
+// Encuadra todas las vías del filtro (las del GeoJSON y las de spotters)
+async function kxFitToGradeFocus() {
+  const focus = mlGradeFocus;
+  if (!focus || !mlMap) return;
+  let feats = [];
+  try { feats = await kxSchoolRouteFeatures(focus.schoolId); } catch (_) {}
+  if (mlGradeFocus !== focus) return;
+  const pts = [...feats, ...(kxSpotterRouteFeatures(focus.schoolId) || [])]
+    .filter(f => kxRouteMatchesFocus(f.properties, focus))
+    .flatMap(kxFeaturePoints);
+  if (!pts.length) return;
+  const b = pts.reduce((m, [x, y]) => [Math.min(m[0], x), Math.min(m[1], y), Math.max(m[2], x), Math.max(m[3], y)], [Infinity, Infinity, -Infinity, -Infinity]);
+  const padding = isMobileDevice() ? { top: 150, bottom: 120, left: 40, right: 40 } : { top: 150, bottom: 90, left: 90, right: 90 };
+  if (b[0] === b[2] && b[1] === b[3]) mlMap.flyTo({ center: [b[0], b[1]], zoom: 18, padding, essential: true });
+  else mlMap.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding, maxZoom: 18.5, duration: 1200, essential: true });
+}
+
+// Las vías filtradas se ven desde más lejos; al quitar el filtro vuelve el zoom de la escuela
+function kxApplyFocusZoom() {
+  if (!mlMap) return;
+  const school = mlCurrentSchool ? MAPLIBRE_SCHOOLS[mlCurrentSchool] : null;
+  const normal = school ? school.zoomLevels.vias : 17;
+  const min = mlGradeFocus ? Math.min(KX_FOCUS_MINZOOM, normal) : normal;
+  for (const id of KX_FOCUS_LAYERS) if (mlMap.getLayer(id)) mlMap.setLayerZoomRange(id, min, 24);
+  if (mlVariantZoomHandler) mlVariantZoomHandler();
+}
+
+// Las vías de spotters reciben el mismo filtro de grado que las demás (antes no se filtraban)
+function kxApplyGradeToUserRoutes(gradeExpr) {
+  if (!mlMap || !mlMap.getLayer('vias-usuarios-layer')) return;
+  if (kxUserRoutesBaseFilter === undefined) kxUserRoutesBaseFilter = mlMap.getFilter('vias-usuarios-layer') || null;
+  const base = kxUserRoutesBaseFilter;
+  mlMap.setFilter('vias-usuarios-layer', gradeExpr ? (base ? ['all', base, gradeExpr] : gradeExpr) : base);
+}
+
+// Marcadores de variantes: se ven si alguna de sus vías cumple el filtro de grado activo
+function kxVariantPassesGradeFilter(entry) {
+  const props = entry.props || [];
+  if (mlGradeFocus) return props.some(p => kxRouteMatchesFocus(p, mlGradeFocus));
+  if (!isFullGradeRange()) {
+    const sel = new Set(ALL_GRADES_ORDERED.slice(mlGradeRangeMin, mlGradeRangeMax + 1));
+    return props.some(p => sel.has(String(p.grado1 || '').toLowerCase().trim()));
+  }
+  return true;
+}
+
+// Píldora del filtro activo sobre el mapa
+function kxRenderGradeFocusChip() {
+  let el = document.getElementById('kx-grade-focus');
+  if (!mlGradeFocus) { if (el) el.remove(); return; }
+  const host = document.getElementById('map');
+  if (!host) return;
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'kx-grade-focus';
+    el.className = 'kx-gfocus';
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-kx-unfocus]')) kxClearGradeFocus();
+      else if (e.target.closest('[data-kx-refocus]')) kxReopenGradeChart();
+    });
+    host.appendChild(el);
+  }
+  const f = mlGradeFocus;
+  const school = MAPLIBRE_SCHOOLS[f.schoolId];
+  el.innerHTML = kxGradeFocusChipHTML({ grade: f.grade, count: f.count, where: [school && school.name, f.sector].filter(Boolean).join(' · ') });
+}
+
+// Vuelve al gráfico de donde salió el filtro, con el grado ya seleccionado
+function kxReopenGradeChart() {
+  const f = mlGradeFocus;
+  if (!f) return;
+  kxPendingChartGrade = f.grade;
+  // El gráfico de grados vive en las fichas de sector; la de escuela conserva su donut
+  if (f.sector && f.sectorProps && f.coords) mlOpenStaticSector(f.sectorProps, f.coords);
+}
+
 /**
  * Actualiza el indicador visual del botón de filtro
  */
@@ -10859,7 +11941,7 @@ function updateFilterButtonBadge() {
   const btn = document.getElementById('btn-grade-filter');
   if (!btn) return;
 
-  if (!isFullGradeRange() || mlShowOnlyMyRoutes || mlShowOnlyProjects) {
+  if (!isFullGradeRange() || mlGradeFocus || mlShowOnlyMyRoutes || mlShowOnlyProjects) {
     btn.classList.add('has-filter');
   } else {
     btn.classList.remove('has-filter');
@@ -10995,34 +12077,18 @@ function addInfoLegendButton() {
   btn.id = 'btn-info-legend';
   btn.className = 'map-control-btn info-legend-btn';
   btn.title = 'Leyenda del mapa';
-  btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8.5" r="0.5" fill="currentColor" stroke="none"/></svg>`;
-  btn.style.cssText = `
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 40px;
-    height: 40px;
-    background: white;
-    border: none;
-    border-radius: 10px;
-    color: #333;
-    cursor: pointer;
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-    transition: background 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  `;
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Leyenda del mapa');
+  btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="16" x2="12" y2="11.5"/><circle cx="12" cy="8.25" r="0.6" fill="currentColor" stroke="none"/></svg>`;
+  // Aspecto en app_2.css (MAPA — CONTROLES)
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleLegendPanel();
   });
 
-  container.appendChild(btn);
+  // Esquina superior derecha de la barra del mapa
+  (document.getElementById('map-topbar') || container).appendChild(btn);
 
   // Panel de leyenda anclado al botón "i"
   const panel = document.createElement('div');
@@ -11031,18 +12097,16 @@ function addInfoLegendButton() {
   panel.innerHTML = buildLegendPanelHTML();
   container.appendChild(panel);
 
-  // Cerrar al pulsar fuera
-  document.addEventListener('click', (e) => {
+  // Cerrar al pulsar fuera (también con pointerdown, por iOS)
+  const closeLegendOnOutside = (e) => {
     const p = document.getElementById('legend-panel');
     const b = document.getElementById('btn-info-legend');
     if (p && b && !p.contains(e.target) && !b.contains(e.target)) {
       closeLegendPanel();
     }
-  });
-
-  // El botón "i" siempre en top: 10px — no se mueve
-  btn.style.top = '10px';
-  panel.style.top = '10px';
+  };
+  document.addEventListener('click', closeLegendOnOutside);
+  document.addEventListener('pointerdown', closeLegendOnOutside);
 }
 
 function buildLegendPanelHTML() {

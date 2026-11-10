@@ -102,54 +102,100 @@ async function getInitialStatus() {
  * Añade el botón de herramienta de desarrollador al mapa
  * Se posiciona justo encima del botón 3D
  */
-// Caché simple del rol para evitar re-consultas durante la creación del botón.
-let _devEditorRoleCache = { ts: 0, hasAccess: false };
+// Caché del rol ligada al usuario: nunca se reutiliza el resultado de otra sesión.
+// Guarda también el «no» para que el watchdog no consulte Firestore cada 5 s.
+let _devEditorRoleCache = { uid: null, ts: 0, hasAccess: false };
 const _DEV_EDITOR_ROLE_TTL = 60000;
 
-async function _getDevEditorAccess() {
+async function _getDevEditorAccess({ force = false } = {}) {
+  const uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) return false;
   const now = Date.now();
-  if (now - _devEditorRoleCache.ts < _DEV_EDITOR_ROLE_TTL && _devEditorRoleCache.hasAccess) {
-    return true;
+  if (!force && _devEditorRoleCache.uid === uid && now - _devEditorRoleCache.ts < _DEV_EDITOR_ROLE_TTL) {
+    return _devEditorRoleCache.hasAccess;
   }
   const ok = await isDevAdminOrSpotter();
-  _devEditorRoleCache = { ts: now, hasAccess: ok };
+  // Si la sesión cambió durante la consulta, el resultado no es de nadie
+  if (!auth.currentUser || auth.currentUser.uid !== uid) return false;
+  _devEditorRoleCache = { uid, ts: Date.now(), hasAccess: ok };
   return ok;
 }
 
-let _devEditorButtonCreating = false;
+// Usuario para el que está montada la herramienta y turno de la comprobación en curso:
+// una comprobación lenta de una sesión anterior se descarta al terminar
+let _devEditorUid = null;
+let _devEditorCheckSeq = 0;
 
-async function addDevEditorButton() {
-  if (_devEditorButtonCreating) return;
-  // Si ya existe, asegurar visibilidad y salir.
-  const existing = document.getElementById('btn-dev-editor');
-  if (existing) {
-    existing.style.display = 'flex';
-    return;
-  }
+// Encabeza la pila de controles del mapa (abajo a la derecha) en cuanto MapLibre la ha creado;
+// hasta entonces el botón espera en #map y se recoloca con 'maplibre:ready'
+function _placeDevEditorButton(btn) {
+  const stack = document.querySelector('#map .maplibregl-ctrl-bottom-right');
+  if (stack && btn.parentElement !== stack) stack.insertBefore(btn, stack.firstChild);
+}
+
+/**
+ * Desmonta todo lo que la herramienta pueda tener abierto con los permisos del usuario anterior:
+ * modos de dibujo (y sus listeners del mapa), menú, modales, datos temporales y el propio botón.
+ */
+function _resetDevEditorSession() {
+  try { deactivateAllModes(); } catch (e) { console.warn('[DevEditor] Error cerrando modos:', e); }
+  ['dev-spotter-menu', 'dev-route-modal', 'dev-poi-modal', 'dev-school-modal', 'dev-sector-modal',
+   'dev-sector-toolbar', 'spotter-sector-photo-prompt'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+  devCurrentSchoolSectors = [];
+  devPendingSectorNames = new Set();
+  devPendingRouteCoords = null;
+  devPendingRouteDocId = null;
+  try {
+    const temp = mlMap && mlMap.getSource && mlMap.getSource('dev-temp-routes');
+    if (temp) temp.setData({ type: 'FeatureCollection', features: [] });
+  } catch (e) {}
+  const btn = document.getElementById('btn-dev-editor');
+  if (btn) btn.remove();
+}
+
+/**
+ * Muestra el botón solo si el usuario actual tiene rol admin/spotter en Firestore.
+ * Sin permiso (o sin sesión) lo retira. retry: reintenta una vez si la primera consulta dice que no.
+ */
+async function addDevEditorButton({ retry = false } = {}) {
   if (!auth || !auth.currentUser) {
     console.log('[DevEditor] addDevEditorButton: sin usuario autenticado');
+    _resetDevEditorSession();
     return;
   }
-  _devEditorButtonCreating = true;
+  const uid = auth.currentUser.uid;
+  const seq = ++_devEditorCheckSeq;
+  const stale = () => seq !== _devEditorCheckSeq || !auth.currentUser || auth.currentUser.uid !== uid;
   try {
     let hasAccess = await _getDevEditorAccess();
-    if (!hasAccess) {
+    if (!hasAccess && retry && !stale()) {
       // Reintentar una vez tras 2s por si fue fallo de red transitorio
       await new Promise(r => setTimeout(r, 2000));
-      hasAccess = await _getDevEditorAccess();
+      if (stale()) return;
+      hasAccess = await _getDevEditorAccess({ force: true });
     }
+    if (stale()) return;
     if (!hasAccess) {
-      console.log('[DevEditor] Usuario sin rol admin/spotter — botón no añadido');
+      console.log('[DevEditor] Usuario sin rol admin/spotter — sin herramienta de edición');
+      _resetDevEditorSession();
       return;
     }
-    // Si entre tanto otra invocación creó el botón, salir
-    if (document.getElementById('btn-dev-editor')) return;
+    // Ya montado para este usuario: asegurar visibilidad y posición
+    const existing = document.getElementById('btn-dev-editor');
+    if (existing) {
+      existing.style.display = 'flex';
+      _placeDevEditorButton(existing);
+      return;
+    }
 
     // Anclar al contenedor del mapa (igual que btn-3d-toggle y dev-spotter-menu)
     // para que position:absolute use el mismo sistema de coordenadas en desktop y mobile.
     const host = document.getElementById('map') || document.body;
     if (!host) {
-      setTimeout(addDevEditorButton, 500);
+      setTimeout(() => addDevEditorButton(), 500);
       return;
     }
 
@@ -168,50 +214,27 @@ async function addDevEditorButton() {
       <path d="M16.24 7.76l2.83-2.83"/>
     </svg>`;
     btn.title = 'Herramienta de desarrollador: Añadir vías';
-    btn.style.cssText = `
-      position: absolute;
-      bottom: 306px;
-      right: 10px;
-      width: 36px;
-      height: 36px;
-      background: white;
-      border: none;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-      font-size: 13px;
-      font-weight: 600;
-      color: #333;
-      cursor: pointer;
-      z-index: 1000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s ease;
-      -webkit-tap-highlight-color: transparent;
-      touch-action: manipulation;
-    `;
+    btn.type = 'button';
+    btn.classList.add('maplibregl-ctrl', 'kx-ctrl-edit');
+    btn.setAttribute('aria-label', 'Herramienta de desarrollador: Añadir vías');
+    // Aspecto en app_2.css (MAPA — CONTROLES); los colores de cada modo siguen en línea
+    btn.style.display = 'flex';
 
     btn.addEventListener('click', toggleDevMode);
     host.appendChild(btn);
+    _placeDevEditorButton(btn);
 
     if (typeof mlMap !== 'undefined' && mlMap) {
-      mlMap.on('zoom', updateDevButtonVisibility);
-      mlMap.on('zoomend', updateDevButtonVisibility);
-      mlMap.on('moveend', updateDevButtonVisibility);
-    }
-
-    // Si el usuario es spotter, intercambiar posiciones de los botones 3D y Spotter
-    const btn3d = document.getElementById('btn-3d-toggle');
-    if (btn3d) {
-      btn3d.style.bottom = '306px';
-      btn.style.bottom = '250px';
+      // off antes de on: el botón se recrea en cada sesión con permisos y no debe acumular listeners
+      ['zoom', 'zoomend', 'moveend'].forEach(ev => {
+        mlMap.off(ev, updateDevButtonVisibility);
+        mlMap.on(ev, updateDevButtonVisibility);
+      });
     }
 
     console.log('[DevEditor] Botón Spotter añadido');
   } catch (err) {
     console.error('[DevEditor] Error añadiendo botón:', err);
-  } finally {
-    _devEditorButtonCreating = false;
   }
 }
 
@@ -487,8 +510,8 @@ function deactivateDevMode() {
 
   const btn = document.getElementById('btn-dev-editor');
   if (btn) {
-    btn.style.background = 'white';
-    btn.style.color = '#333';
+    btn.style.background = '';
+    btn.style.color = '';
     btn.title = 'Herramienta de desarrollador: Añadir vías';
   }
 
@@ -1288,8 +1311,8 @@ function deactivatePOIMode() {
 
   const btn = document.getElementById('btn-dev-editor');
   if (btn) {
-    btn.style.background = 'white';
-    btn.style.color = '#333';
+    btn.style.background = '';
+    btn.style.color = '';
   }
 
   if (mlMap) {
@@ -1458,8 +1481,8 @@ function deactivateSchoolMode() {
 
   const btn = document.getElementById('btn-dev-editor');
   if (btn) {
-    btn.style.background = 'white';
-    btn.style.color = '#333';
+    btn.style.background = '';
+    btn.style.color = '';
   }
 
   if (mlMap) {
@@ -1660,8 +1683,8 @@ function deactivateSectorMode() {
 
   const btn = document.getElementById('btn-dev-editor');
   if (btn) {
-    btn.style.background = 'white';
-    btn.style.color = '#333';
+    btn.style.background = '';
+    btn.style.color = '';
   }
 
   if (mlMap) {
@@ -2002,21 +2025,8 @@ function promptSectorPhoto(schoolId, sectorName, onNo) {
  * Muestra un toast de notificación
  */
 function showDevToast(message, type = 'info') {
-  // Remover toast existente
-  const existing = document.querySelector('.dev-toast');
-  if (existing) existing.remove();
-
-  const toast = document.createElement('div');
-  toast.className = `dev-toast dev-toast-${type}`;
-  toast.textContent = message;
-
-  document.body.appendChild(toast);
-
-  // Auto-remover después de 4 segundos
-  setTimeout(() => {
-    toast.classList.add('dev-toast-hide');
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
+  // Un único sistema de avisos para toda la app (showToast, en user-features.js)
+  showToast(message, type);
 }
 
 // ============================================
@@ -2047,30 +2057,35 @@ async function initDevRouteEditor() {
   }
 
   // Intento inmediato si ya hay usuario.
+  _devEditorUid = auth.currentUser ? auth.currentUser.uid : null;
   if (auth.currentUser) {
-    await addDevEditorButton();
+    await addDevEditorButton({ retry: true });
   }
 
-  // Listener permanente de cambios de auth (login/logout/restauración tardía).
+  // Listener permanente de cambios de auth (login/logout/cambio de usuario/restauración tardía).
+  // Cada cambio desmonta lo del usuario anterior y vuelve a leer el rol real en Firestore.
   auth.onAuthStateChanged(async (user) => {
-    console.log('[DevEditor] onAuthStateChanged:', user ? user.uid : 'null');
+    const uid = user ? user.uid : null;
+    console.log('[DevEditor] onAuthStateChanged:', uid);
+    if (uid !== _devEditorUid) {
+      _resetDevEditorSession();
+      _devEditorUid = uid;
+    }
+    _devEditorRoleCache = { uid: null, ts: 0, hasAccess: false };
     if (user) {
-      // Invalidar caché de rol al cambiar de usuario
-      _devEditorRoleCache = { ts: 0, hasAccess: false };
-      await addDevEditorButton();
+      await addDevEditorButton({ retry: true });
     } else {
-      _devEditorRoleCache = { ts: 0, hasAccess: false };
-      const btn = document.getElementById('btn-dev-editor');
-      if (btn) btn.style.display = 'none';
+      _devEditorCheckSeq++;   // descarta cualquier comprobación que siguiera en curso
     }
   });
 
   // Si el mapa se reinicializa, reasignar listeners y restaurar el botón.
   window.addEventListener('maplibre:ready', async () => {
     if (typeof mlMap !== 'undefined' && mlMap) {
-      mlMap.on('zoom', updateDevButtonVisibility);
-      mlMap.on('zoomend', updateDevButtonVisibility);
-      mlMap.on('moveend', updateDevButtonVisibility);
+      ['zoom', 'zoomend', 'moveend'].forEach(ev => {
+        mlMap.off(ev, updateDevButtonVisibility);
+        mlMap.on(ev, updateDevButtonVisibility);
+      });
     }
     if (auth.currentUser) {
       await addDevEditorButton();

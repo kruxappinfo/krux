@@ -30,7 +30,10 @@ function initAuthStateObserver() {
 
             if (user) {
                 // User signed in - Create/update user document in Firestore
-                createUserDocument(user);
+                // y, si la cuenta aún no tiene @usuario, se le pide que elija uno (usernames.js)
+                createUserDocument(user).then(() => {
+                    if (typeof KruxUsernamePrompt !== 'undefined') KruxUsernamePrompt.maybeShow(user);
+                });
 
                 // Seed default gym tests on first login (defined by src/boot/gymBoot.ts)
                 window.__kruxSeedTests?.().catch(console.error);
@@ -169,7 +172,7 @@ function setupLoginEventListeners() {
                 if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
                     // El usuario cerró el popup o se abrió otro — no mostrar error
                 } else {
-                    showToast('Error: ' + error.message, 'error');
+                    showToast('No se ha podido iniciar sesión', 'error', { detail: kxFriendlyError(error) });
                 }
             } finally {
                 btnLoginGoogle.disabled = false;
@@ -219,7 +222,7 @@ function setupLoginEventListeners() {
                 switch (error.code) {
                     case 'auth/account-exists-with-different-credential':
                         errorMessage = 'Ya existe una cuenta con este email. Usa Google o Email.';
-                        showToast(errorMessage, 'info');
+                        showToast(errorMessage, 'warning');
                         break;
                     case 'auth/popup-closed-by-user':
                         errorMessage = 'Inicio de sesión cancelado';
@@ -293,7 +296,7 @@ function signInWithEmail(email, password) {
         })
         .catch((error) => {
             console.error('Email Sign-in error:', error);
-            showToast('Error: ' + error.message, 'error');
+            showToast('No se ha podido iniciar sesión', 'error', { detail: kxFriendlyError(error) });
         });
 }
 
@@ -302,11 +305,11 @@ function signUpWithEmail(email, password) {
     auth.createUserWithEmailAndPassword(email, password)
         .then((userCredential) => {
             closeLoginModal();
-            showToast('Cuenta creada exitosamente', 'success');
+            showToast('Cuenta creada', 'success');
         })
         .catch((error) => {
             console.error('Registration error:', error);
-            showToast('Error registro: ' + error.message, 'error');
+            showToast('No se ha podido crear la cuenta', 'error', { detail: kxFriendlyError(error) });
         });
 }
 
@@ -381,7 +384,7 @@ async function deleteAccount() {
         // 3. Eliminar la cuenta de Firebase Auth
         await user.delete();
 
-        showToast('Cuenta eliminada correctamente', 'success');
+        showToast('Cuenta eliminada', 'success');
 
         // Recargar la página para mostrar la pantalla de login
         setTimeout(() => {
@@ -397,7 +400,7 @@ async function deleteAccount() {
         if (error.code === 'auth/requires-recent-login') {
             showToast('Por seguridad, cierra sesión y vuelve a iniciar antes de eliminar la cuenta', 'error');
         } else {
-            showToast('Error al eliminar la cuenta: ' + error.message, 'error');
+            showToast('Error al eliminar la cuenta', 'error', { detail: kxFriendlyError(error) });
         }
         return false;
     }

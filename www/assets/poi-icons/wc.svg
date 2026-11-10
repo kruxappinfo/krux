@@ -1,26 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 80">
-  <defs>
-    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="1.2"/>
-      <feOffset dy="1.5"/>
-      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
-      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-  </defs>
-  <g filter="url(#s)">
-    <path d="M32 2 C17 2 6 13 6 28 C6 42 18 56 32 76 C46 56 58 42 58 28 C58 13 47 2 32 2 Z" fill="#00838F"/>
-    <circle cx="32" cy="28" r="17" fill="#FFFFFF"/>
-  </g>
-  <g transform="translate(32 28)" fill="#00838F" stroke="#00838F" stroke-width="2"
-     stroke-linecap="round" stroke-linejoin="round">
-    
-        <circle cx="-5" cy="-7" r="2" fill="#00838F" stroke="none"/>
-        <path d="M-5 -5 L-5 3" fill="none"/>
-        <path d="M-9 -2 L-1 -2" fill="none"/>
-        <path d="M-5 3 L-8 9" fill="none"/>
-        <path d="M-5 3 L-2 9" fill="none"/>
-        <circle cx="5" cy="-7" r="2" fill="#00838F" stroke="none"/>
-        <path d="M2 -1 L5 -5 L8 -1 L6.5 9 L3.5 9 Z" fill="#00838F" stroke="none"/>
-    
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+  <title id="title">wc</title>
+  <!-- Subtle dark keyline for visibility on bright orthophoto -->
+  <circle cx="24" cy="24" r="22.3" fill="#263A34"/>
+  <!-- Matte category disc and crisp white separation ring -->
+  <circle cx="24" cy="24" r="21.1" fill="#657F91" stroke="#FFFFFF" stroke-width="2.4"/>
+  <!-- White pictogram, enlarged for readability -->
+  <g transform="translate(3.5 3.5) scale(0.85)" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="16" cy="12" r="3.5" fill="white"/><circle cx="32" cy="12" r="3.5" fill="white"/><path d="M13 20h6l-2 9-2 10m19-19h-6l2 9 2 10" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>
