@@ -32602,35 +32602,45 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 #route-bottom-sheet .kx-msheet-body > div:empty { display: none; }
 #route-bottom-sheet #rbs-info-items { margin-bottom: 2px; }
 
-/* ---- Cápsulas técnicas ---- */
-.kx-rchips { display: flex; flex-wrap: wrap; gap: 8px; }
+/* ---- Cápsulas técnicas: crecen en alto si el texto pasa a dos líneas ---- */
+.kx-rchips { display: flex; gap: 8px; align-items: stretch; }
 .kx-rchip {
   display: flex;
   align-items: center;
-  flex: 1 1 auto;
   justify-content: center;
+  flex: 1 0 auto;
   gap: 8px;
   min-width: 0;
-  height: 25px;
-  min-height: 0;
-  padding: 0 10px 0 12px;
+  min-height: 40px;
+  padding: 6px 14px 6px 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 20px;
   background: var(--kx-rchip-bg);
   color: #2A2F2C;
   font: inherit;
 }
-.kx-rchip img { flex: none; width: 20px; height: 20px; object-fit: contain; }
+.kx-rchip img { flex: none; width: 22px; height: 22px; object-fit: contain; }
 .kx-rchip-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.78125rem;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: 0.875rem;
   font-weight: 500;
-  line-height: 1;
+  line-height: 1.2;
+  text-align: left;
 }
 .kx-rchip.is-strong .kx-rchip-text { font-weight: 700; color: #11161A; }
+/* Solo el estilo puede encoger y pasar a dos líneas; expreses y longitud no se parten */
+.kx-rchip:not(.is-style) .kx-rchip-text { white-space: nowrap; }
+.kx-rchip.is-style { flex: 1 1 auto; }
+@media (max-width: 369px) {
+  .kx-rchips { flex-wrap: wrap; }
+  .kx-rchip.is-style { flex-basis: 100%; }
+}
 .kx-rchip.is-missing { background: transparent; box-shadow: inset 0 0 0 1px rgba(32, 41, 35, 0.14); color: #6B706D; cursor: pointer; }
 .kx-rchip.is-missing img { opacity: 0.55; }
 
@@ -32742,8 +32752,8 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 .kx-raleje-legend { display: flex; justify-content: space-between; gap: 12px; font-size: 0.6875rem; line-height: 1.2; color: #5F6461; white-space: nowrap; }
 
 /* Estado de la vía: título, estrellas y media en una sola fila */
-.kx-rcard--estado { display: flex; align-items: center; gap: 5px; padding: 8px 10px 8px 12px; }
-@media (max-width: 379px) { .kx-rcard--estado { flex-wrap: wrap; } }
+.kx-rcard--estado { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 8px 10px 9px 12px; }
+.kx-restado-sub { flex-basis: 100%; margin: 1px 0 0; font-size: 0.625rem; line-height: 1.3; color: #5F6461; }
 .kx-rcard--estado .kx-rcard-head { flex: none; }
 .kx-restado-rate { display: contents; }
 .kx-rstars { display: inline-flex; gap: 3px; margin-left: auto; }
@@ -32753,7 +32763,13 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 .kx-restado-val strong { margin-right: 2px; font-weight: 800; color: var(--kx-rforest); }
 
 /* ---- Acciones ---- */
-.kx-ractions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 8px; }
+.kx-ractions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(32, 41, 35, 0.1);
+}
 .kx-ract {
   position: relative;
   display: flex;
@@ -32813,6 +32829,113 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   text-align: center;
 }
 
+/* ---- Incidencia comunicada (tarjeta naranja suave) ---- */
+.kx-rincident {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px 12px 12px;
+  border-radius: 12px;
+  background: #FCE8DC;
+  box-shadow: 0 1px 3px rgba(122, 52, 16, 0.06);
+}
+.kx-rincident-icon { flex: none; width: 30px; height: 30px; color: #E06B24; }
+.kx-rincident-main { flex: 1; min-width: 0; }
+.kx-rincident-title { margin: 0; font-size: 0.875rem; white-space: nowrap; font-weight: 800; line-height: 1.2; color: #7A2410; }
+.kx-rincident-sub { margin: 3px 0 0; font-size: 0.75rem; line-height: 1.3; color: #6B5A51; }
+.kx-rincident-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  height: 34px;
+  min-height: 0;
+  padding: 0 8px 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(122, 52, 16, 0.08);
+  color: #1A1F1C;
+  font-family: var(--kx-font);
+  font-size: 0.78125rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.kx-rincident-btn::before { content: ''; position: absolute; inset: -5px -2px; }
+.kx-rincident-btn:hover { background: #fff; box-shadow: 0 1px 2px rgba(122, 52, 16, 0.08); transform: none; }
+.kx-rincident-btn:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+
+/* ---- Notificar incidencia: acción independiente ---- */
+.kx-rnotify {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 4px 8px 12px;
+  border: 0;
+  border-top: 1px solid rgba(32, 41, 35, 0.1);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #1A1F1C;
+  font-family: var(--kx-font);
+  text-align: left;
+  cursor: pointer;
+  transform: none;
+  will-change: auto;
+}
+.kx-rnotify:hover { background: transparent; box-shadow: none; transform: none; }
+.kx-rnotify:active { background: rgba(21, 62, 53, 0.04); }
+.kx-rnotify:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+.kx-rnotify-flag { flex: none; width: 24px; height: 24px; color: var(--kx-rforest); }
+.kx-rnotify-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.kx-rnotify-title { font-size: 0.9375rem; font-weight: 500; line-height: 1.2; }
+.kx-rnotify-sub { font-size: 0.75rem; line-height: 1.25; color: #5F6461; white-space: normal; }
+.kx-rnotify-chev { flex: none; color: #3A403C; }
+#route-bottom-sheet .rbs-notify { margin-top: 4px; }
+
+/* ---- Hoja «Incidencias comunicadas» ---- */
+#route-incident-sheet .kx-sheet-panel { min-height: 0; }
+#route-incident-sheet .kx-sheet-header { align-items: flex-start; }
+.ri-body { padding: 4px 20px calc(20px + env(safe-area-inset-bottom, 0px)); }
+.ri-item { padding: 14px 16px; margin-bottom: 10px; border-radius: 14px; background: #FCE8DC; }
+.ri-title { margin: 0; font-size: 1rem; font-weight: 800; color: #7A2410; }
+.ri-meta { margin: 4px 0 0; font-size: 0.8125rem; color: #6B5A51; }
+.ri-mine { font-weight: 600; }
+.ri-q { margin: 12px 0 8px; font-size: 0.875rem; font-weight: 700; color: #1A1F1C; }
+.ri-actions { display: flex; gap: 8px; }
+.ri-vote {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid rgba(32, 41, 35, 0.12);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: none;
+  color: #1A1F1C;
+  font-family: var(--kx-font);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transform: none;
+}
+.ri-vote:hover { background: #fff; box-shadow: none; transform: none; }
+.ri-vote.is-yes.is-on { background: #E06B24; border-color: #E06B24; color: #fff; }
+.ri-vote.is-no.is-on { background: var(--kx-forest); border-color: var(--kx-forest); color: #fff; }
+.ri-vote:disabled { opacity: 0.6; }
+.ri-vote:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+.ri-count { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: rgba(32, 41, 35, 0.08); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.ri-vote.is-on .ri-count { background: rgba(255, 255, 255, 0.25); }
+.ri-empty { margin: 8px 0 12px; font-size: 0.9375rem; color: var(--kx-ink-2); }
+.ri-note { margin: 6px 0 0; font-size: 0.8125rem; line-height: 1.4; color: var(--kx-ink-3); }
+
 /* ---- Ver vía y enlaces discretos ---- */
 #route-bottom-sheet .rbs-view-section { margin: 9px -3px 0; padding: 0; border: 0; }
 #route-bottom-sheet .rbs-view-btn {
@@ -32868,6 +32991,8 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 .ml-route-popup-new .kx-ractions { margin-top: 10px; }
 .ml-route-popup-new .kx-rcard + div,
 .ml-route-popup-new div + .kx-ractions { margin-top: 9px; }
+.ml-route-popup-new .kx-rincident { margin-top: 9px; }
+.ml-route-popup-new .ml-route-report-section { margin: 4px 0 0; padding: 0; border: 0; }
 
 /* ====================================================================
    REGISTRO DE ASCENSO: votos de la vía (user-features.js: kxAscentVotes)

@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=218" />
+  <link rel="stylesheet" href="./app_2.css?v=219" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -103,12 +103,12 @@
   <script defer src="./climb-conditions.js?v=1"></script>
   <script defer src="./school-photos.js?v=10"></script>
   <script defer src="./sector-progress.js?v=1"></script>
-  <script defer src="./maplibre-map.js?v=78"></script>
+  <script defer src="./maplibre-map.js?v=79"></script>
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=107"></script>
+  <script defer src="./app_3.js?v=108"></script>
   <script defer src="./activity-ui.js?v=7"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -1362,6 +1362,34 @@
     </section>
   </div>
 
+  <!-- Incidencias de una vía: detalle y «Sigue ahí» / «Ya no está» (maplibre-map.js: kxOpenIncidentSheet) -->
+  <div id="route-incident-sheet" class="kx-sheet hidden" role="dialog" aria-modal="true"
+    aria-labelledby="route-incident-title">
+    <div class="kx-sheet-scrim" data-sheet-close></div>
+    <section class="kx-sheet-panel" tabindex="-1">
+      <div class="kx-sheet-drag">
+        <div class="kx-sheet-handle" aria-hidden="true"></div>
+        <div class="kx-sheet-header">
+          <div class="rr-heading">
+            <h2 class="kx-sheet-title" id="route-incident-title">Incidencias comunicadas</h2>
+            <p class="rr-route" id="route-incident-route"></p>
+          </div>
+          <button type="button" class="sheet-close" data-sheet-close aria-label="Cerrar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="kx-sheet-body ri-body">
+        <div id="route-incident-list"></div>
+        <p class="ri-note">Las incidencias las comunica la comunidad. Si ya no está, márcalo para retirarla.</p>
+      </div>
+    </section>
+  </div>
+
   <!-- Notificar un problema en una vía de KRUX -->
   <div id="route-report-sheet" class="kx-sheet hidden" role="dialog" aria-modal="true"
     aria-labelledby="route-report-title">
@@ -1371,7 +1399,7 @@
         <div class="kx-sheet-handle" aria-hidden="true"></div>
         <div class="kx-sheet-header">
           <div class="rr-heading">
-            <h2 class="kx-sheet-title" id="route-report-title">Notificar un problema</h2>
+            <h2 class="kx-sheet-title" id="route-report-title">Notificar incidencia</h2>
             <p class="rr-route" id="route-report-route"></p>
           </div>
           <button type="button" class="sheet-close" data-sheet-close aria-label="Cerrar">
@@ -2787,8 +2815,14 @@
       <div id="rbs-aleje-container"></div>
       <div id="rbs-estado-container"></div>
 
+      <!-- Incidencias comunicadas por la comunidad (tarjeta naranja, solo si hay alguna activa) -->
+      <div id="rbs-incident-container"></div>
+
       <!-- Ascenso, Guardar, Comentarios, Compartir -->
       <div id="rbs-actions"></div>
+
+      <!-- Notificar incidencia: cualquier usuario, sin registrar ascensión -->
+      <div class="rbs-notify" id="rbs-report-section"></div>
 
       <!-- Ver vía -->
       <div class="rbs-view-section hidden" id="rbs-view-section">
@@ -2798,9 +2832,8 @@
         </button>
       </div>
 
-      <!-- Enlaces discretos: notificar un problema y, para admins, vincular con la imagen -->
+      <!-- Enlace discreto para admins: vincular con la imagen del sector -->
       <div class="rbs-links">
-        <div class="ml-route-report-section" id="rbs-report-section"></div>
         <div class="rbs-dev-section hidden" id="rbs-dev-section">
           <button type="button" class="rbs-dev-btn" id="rbs-btn-dev">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>

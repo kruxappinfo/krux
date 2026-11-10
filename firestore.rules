@@ -588,6 +588,20 @@ service cloud.firestore {
     }
 
     // Route suggestions (sugerencias de usuarios para información faltante de vías)
+    // Incidencias de vía (como en Waze): un documento por usuario, vía y tipo de problema.
+    // Id: {routeKey}_{type}_{uid}. Lectura pública; cada usuario solo escribe o borra su propio voto.
+    match /route_incident_votes/{voteId} {
+      allow read: if true;
+      allow create, update: if isAuthenticated() &&
+        request.resource.data.uid == request.auth.uid &&
+        voteId == request.resource.data.routeKey + '_' + request.resource.data.type + '_' + request.auth.uid &&
+        request.resource.data.vote in ['report', 'confirm', 'deny'] &&
+        request.resource.data.type in ['seguridad', 'grado', 'nombre', 'datos', 'ubicacion', 'otro'] &&
+        request.resource.data.keys().hasOnly(['routeKey', 'schoolId', 'routeId', 'routeName', 'sector', 'type', 'uid', 'vote', 'at']);
+      allow delete: if isAuthenticated() &&
+        (resource.data.uid == request.auth.uid || isAdmin() || isSuperAdmin());
+    }
+
     match /routeSuggestions/{suggestionId} {
       // Admins pueden leer todas las sugerencias
       allow read: if isAuthenticated() && (isAdmin() || isSuperAdmin());
