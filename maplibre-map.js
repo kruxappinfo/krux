@@ -4043,6 +4043,7 @@ async function showRoutePopup(props, coords) {
       <div id="ml-variant-grade-${routeId}"></div>
       <div id="ml-variant-aleje-${routeId}"></div>
       <div id="ml-variant-estado-${routeId}"></div>
+      <div id="ml-variant-incident-${routeId}"></div>
 
       ${kxRouteActionsHTML({ routeId, routeName, hasAscent, commentCount })}
 
@@ -4082,6 +4083,7 @@ async function showRoutePopup(props, coords) {
     .addTo(mlMap);
 
   kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: `ml-variant-grade-${routeId}`, aleje: `ml-variant-aleje-${routeId}`, estado: `ml-variant-estado-${routeId}` });
+  kxRenderRouteIncidents({ schoolId, routeId, routeName, sector: sectorName }, `ml-variant-incident-${routeId}`);
 }
 
 // ============================================
@@ -4241,6 +4243,7 @@ async function mlBuildVariantSlideHTML(variantData, isTrinomial) {
     <div id="ml-variant-grade-${routeId}"></div>
     <div id="ml-variant-aleje-${routeId}"></div>
     <div id="ml-variant-estado-${routeId}"></div>
+    <div id="ml-variant-incident-${routeId}"></div>
 
     ${kxRouteActionsHTML({ routeId, routeName, hasAscent })}
 
@@ -4283,6 +4286,7 @@ function mlLoadVariantSlideAsyncData(variantData, isTrinomial) {
   const routeId = Number(props.id);
   const variantGrade = props._displayGrado || props.grado1 || '?';
   kxRenderRouteVoteCards(schoolId, routeId, variantGrade, { grade: `ml-variant-grade-${routeId}`, aleje: `ml-variant-aleje-${routeId}`, estado: `ml-variant-estado-${routeId}` });
+  kxRenderRouteIncidents({ schoolId, routeId, routeName: props.nombre || 'Sin nombre', sector: props.sector || '' }, `ml-variant-incident-${routeId}`);
 }
 
 /**
@@ -4500,6 +4504,12 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   });
   kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: 'rbs-grade-container', aleje: 'rbs-aleje-container', estado: 'rbs-estado-container' });
 
+  // --- Incidencias comunicadas (tarjeta naranja) ---
+  const incidentEl = document.getElementById('rbs-incident-container');
+  if (incidentEl) incidentEl.innerHTML = '';
+  kxIncidentCtx = null;
+  kxRenderRouteIncidents({ schoolId, routeId, routeName, sector: sectorName }, 'rbs-incident-container');
+
   // --- Acciones ---
   const hasAscent = (typeof hasUserAscent === 'function') && hasUserAscent(schoolId, routeId);
   const actionsEl = document.getElementById('rbs-actions');
@@ -4512,7 +4522,7 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
     });
   }
 
-  // --- Notificar un problema ---
+  // --- Notificar incidencia ---
   const reportSection = document.getElementById('rbs-report-section');
   if (reportSection) reportSection.innerHTML = mlReportButtonHTML({ routeId, routeName, schoolId, sector: sectorName, grade });
 
@@ -4623,17 +4633,17 @@ function kxRouteSplitDescription(text) {
  */
 function kxRouteChipsHTML({ routeId, schoolId, descripcion, exp, long, contribute = true }) {
   const has = v => v != null && String(v).trim() !== '';
-  const chip = (icon, alt, value, field, ask, strong = false) => {
+  const chip = (icon, alt, value, field, ask, strong = false, cls = '') => {
     if (has(value)) {
-      return `<div class="kx-rchip${strong ? ' is-strong' : ''}"><img src="icons/${icon}" alt="${alt}" width="28" height="28"><span class="kx-rchip-text">${kxEscHTML(value)}</span></div>`;
+      return `<div class="kx-rchip${strong ? ' is-strong' : ''}${cls}"><img src="icons/${icon}" alt="${alt}" width="28" height="28"><span class="kx-rchip-text">${kxEscHTML(value)}</span></div>`;
     }
     if (!contribute) return '';
-    return `<button type="button" class="kx-rchip is-missing" onclick="mlContributeField(${routeId}, '${schoolId}', '${field}')"><img src="icons/${icon}" alt="" width="28" height="28"><span class="kx-rchip-text">${ask}</span></button>`;
+    return `<button type="button" class="kx-rchip is-missing${cls}" onclick="mlContributeField(${routeId}, '${schoolId}', '${field}')"><img src="icons/${icon}" alt="" width="28" height="28"><span class="kx-rchip-text">${ask}</span></button>`;
   };
   const expNum = has(exp) ? Number(exp) : null;
   const expText = has(exp) ? `${exp} ${expNum === 1 ? 'exprés' : 'expreses'}` : null;
   const html =
-    chip('placa.png', 'Estilo', kxRouteSplitDescription(descripcion).style, 'tipo', 'Estilo', true) +
+    chip('placa.png', 'Estilo', kxRouteSplitDescription(descripcion).style, 'tipo', 'Estilo', true, ' is-style') +
     chip('mosq.png', 'Equipamiento', expText, 'express', 'Expreses') +
     chip('cuerda.png', 'Longitud', has(long) ? `${long} m` : null, 'metros', 'Metros', true);
   return html ? `<div class="kx-rchips">${html}</div>` : '';
@@ -4672,7 +4682,7 @@ function kxRouteGradeCardHTML(grade, gradeVoteData) {
         <div class="kx-rcard-head"><h3 class="kx-rcard-title">Grado recomendado</h3>${kxRouteInfoBtnHTML('grado', 'el grado recomendado')}</div>
         <p class="kx-rcard-sub">${sub}</p>
       </div>
-      <span class="kx-rgrade-soft${hasVotes ? '' : ' is-empty'}"${hasVotes ? ` style="background:rgba(${hexToRgbComponents(getGradeColor(shown))},0.32)"` : ''}>${shown}</span>
+      <span class="kx-rgrade-soft${hasVotes ? '' : ' is-empty'}"${hasVotes ? ` style="background:rgba(${hexToRgbComponents(getGradeColor(shown))},0.5)"` : ''}>${shown}</span>
     </section>`;
 }
 
@@ -4723,6 +4733,7 @@ function kxRouteEstadoCardHTML(estadoData) {
     <section class="kx-rcard kx-rcard--estado">
       <div class="kx-rcard-head"><h3 class="kx-rcard-title">Estado de la vía</h3>${kxRouteInfoBtnHTML('estado', 'el estado de la vía')}</div>
       <div class="kx-restado-rate"${hasVotes ? ` aria-label="${kxRouteFmtDecimal(avg)} de 5"` : ''}><span class="kx-rstars">${stars}</span>${value}</div>
+      <p class="kx-restado-sub">Valoración media del estado por quienes han registrado una ascensión.</p>
     </section>`;
 }
 
@@ -5732,13 +5743,215 @@ window.mlSubmitContribution = mlSubmitContribution;
 let mlReportRoute = null;
 let mlReportReady = false;
 
+// Fila «Notificar incidencia» de la ficha de vía. Cualquier usuario con sesión puede usarla, sin registrar ascensión.
 function mlReportButtonHTML(route) {
   const data = encodeURIComponent(JSON.stringify(route));
-  return `<button type="button" class="ml-route-report-btn" data-route="${data}" onclick="mlOpenRouteReport(this)">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22V4"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
-    <span>Notificar un problema</span>
+  return `<button type="button" class="kx-rnotify" data-route="${data}" onclick="mlOpenRouteReport(this)">
+    <svg class="kx-rnotify-flag" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21.5V3.5"/><path d="M5 4h13l-2.6 4.5L18 13H5"/></svg>
+    <span class="kx-rnotify-text"><span class="kx-rnotify-title">Notificar incidencia</span><span class="kx-rnotify-sub">Equipamiento, seguridad o información</span></span>
+    <svg class="kx-rnotify-chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
   </button>`;
 }
+
+// ============================================
+// INCIDENCIAS DE VÍA (como en Waze)
+// Cada aviso es público y la comunidad lo confirma («Sigue ahí») o lo niega («Ya no está»).
+// Colección route_incident_votes: un documento por usuario, vía y tipo de problema
+// ({schoolId}_{routeId}_{tipo}_{uid}), con vote = 'report' | 'confirm' | 'deny'.
+// Una incidencia está activa si avisos + confirmaciones superan a los «Ya no está»
+// y alguien la ha avisado o confirmado en los últimos KX_INCIDENT_TTL_DAYS días.
+// ============================================
+
+const KX_INCIDENT_TYPES = {
+  seguridad: 'Chapas o roca en mal estado',
+  grado: 'El grado podría ser incorrecto',
+  nombre: 'El nombre podría ser incorrecto',
+  datos: 'Expreses, metros o tipo incorrectos',
+  ubicacion: 'Ubicación en el mapa incorrecta',
+  otro: 'Otro problema'
+};
+const KX_INCIDENT_ORDER = ['seguridad', 'datos', 'grado', 'nombre', 'ubicacion', 'otro'];
+const KX_INCIDENT_TTL_DAYS = 90;
+
+let kxIncidentCtx = null; // { schoolId, routeId, routeName, sector, incidents }
+
+function kxIncidentRouteKey(schoolId, routeId) {
+  return `${schoolId}_${routeId}`;
+}
+
+function kxCurrentUid() {
+  if (typeof auth !== 'undefined' && auth && auth.currentUser) return auth.currentUser.uid;
+  return (typeof currentUser !== 'undefined' && currentUser) ? currentUser.uid : null;
+}
+
+/**
+ * Incidencias activas de una vía, la de seguridad primero.
+ * → [{ type, label, reports, confirms, denies, firstAt, lastAt, myVote }]
+ */
+async function kxLoadRouteIncidents(schoolId, routeId) {
+  if (!schoolId || !Number.isFinite(Number(routeId)) || typeof firebase === 'undefined' || !firebase.firestore) return [];
+  try {
+    const snap = await firebase.firestore().collection('route_incident_votes')
+      .where('routeKey', '==', kxIncidentRouteKey(schoolId, Number(routeId))).get();
+    const uid = kxCurrentUid();
+    const byType = {};
+    snap.forEach(doc => {
+      const v = doc.data();
+      if (!KX_INCIDENT_TYPES[v.type]) return;
+      const it = byType[v.type] || (byType[v.type] = { type: v.type, label: KX_INCIDENT_TYPES[v.type], reports: 0, confirms: 0, denies: 0, firstAt: null, lastAt: null, myVote: null });
+      const at = v.at && typeof v.at.toDate === 'function' ? v.at.toDate() : new Date();
+      if (v.vote === 'report') it.reports++;
+      else if (v.vote === 'confirm') it.confirms++;
+      else if (v.vote === 'deny') it.denies++;
+      if (v.vote === 'report' && (!it.firstAt || at < it.firstAt)) it.firstAt = at;
+      if (v.vote !== 'deny' && (!it.lastAt || at > it.lastAt)) it.lastAt = at;
+      if (v.uid === uid) it.myVote = v.vote;
+    });
+    const limit = Date.now() - KX_INCIDENT_TTL_DAYS * 86400000;
+    return Object.values(byType)
+      .filter(it => it.reports + it.confirms > it.denies && it.lastAt && it.lastAt.getTime() >= limit)
+      .map(it => ({ ...it, firstAt: it.firstAt || it.lastAt }))
+      .sort((a, b) => KX_INCIDENT_ORDER.indexOf(a.type) - KX_INCIDENT_ORDER.indexOf(b.type));
+  } catch (e) {
+    console.warn('[Incidencias] No se han podido cargar:', e);
+    return [];
+  }
+}
+
+/**
+ * Guarda el voto del usuario sobre una incidencia (sustituye al que tuviera para ese tipo).
+ */
+async function kxSaveIncidentVote({ schoolId, routeId, routeName = '', sector = '', type, vote }) {
+  const uid = kxCurrentUid();
+  if (!uid || !KX_INCIDENT_TYPES[type] || !Number.isFinite(Number(routeId))) return false;
+  const routeKey = kxIncidentRouteKey(schoolId, Number(routeId));
+  await firebase.firestore().collection('route_incident_votes').doc(`${routeKey}_${type}_${uid}`).set({
+    routeKey,
+    schoolId,
+    routeId: Number(routeId),
+    routeName,
+    sector,
+    type,
+    uid,
+    vote,
+    at: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  return true;
+}
+
+// «hace 3 días», «hoy», «hace 2 meses»
+function kxIncidentAgo(date) {
+  const days = Math.floor((Date.now() - date.getTime()) / 86400000);
+  if (days <= 0) return 'hoy';
+  if (days === 1) return 'ayer';
+  if (days < 30) return `hace ${days} días`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? 'hace 1 mes' : `hace ${months} meses`;
+}
+
+/**
+ * Tarjeta naranja «Incidencia comunicada». Vacía si la vía no tiene incidencias activas.
+ */
+function kxRouteIncidentCardHTML(incidents) {
+  if (!incidents || !incidents.length) return '';
+  const first = incidents[0];
+  const summary = incidents.length > 1 ? `${first.label} y ${incidents.length - 1} más.` : `${first.label}.`;
+  return `
+    <section class="kx-rincident" aria-label="Incidencia comunicada">
+      <svg class="kx-rincident-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor"/></svg>
+      <div class="kx-rincident-main">
+        <h3 class="kx-rincident-title">Incidencia comunicada</h3>
+        <p class="kx-rincident-sub">${kxEscHTML(summary)}</p>
+      </div>
+      <button type="button" class="kx-rincident-btn" onclick="kxOpenIncidentSheet()">Ver detalles<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+    </section>`;
+}
+
+/**
+ * Carga y pinta las incidencias de una vía en un contenedor de la ficha.
+ */
+async function kxRenderRouteIncidents({ schoolId, routeId, routeName, sector }, containerId) {
+  const incidents = await kxLoadRouteIncidents(schoolId, routeId);
+  if (Number(mlCurrentRouteId) === Number(routeId)) {
+    kxIncidentCtx = { schoolId, routeId: Number(routeId), routeName, sector, incidents };
+  }
+  const el = document.getElementById(containerId);
+  if (el) el.innerHTML = kxRouteIncidentCardHTML(incidents);
+  return incidents;
+}
+
+function kxRefreshIncidentViews() {
+  const ctx = kxIncidentCtx;
+  if (!ctx) return;
+  const route = { schoolId: ctx.schoolId, routeId: ctx.routeId, routeName: ctx.routeName, sector: ctx.sector };
+  ['rbs-incident-container', `ml-variant-incident-${ctx.routeId}`].forEach(id => {
+    if (document.getElementById(id)) kxRenderRouteIncidents(route, id).then(() => kxRenderIncidentSheet());
+  });
+}
+
+// ---- Hoja «Ver detalles»: cada incidencia con «Sigue ahí» / «Ya no está» ----
+function kxOpenIncidentSheet() {
+  const sheet = document.getElementById('route-incident-sheet');
+  if (!sheet || !kxIncidentCtx) return;
+  document.getElementById('route-incident-route').textContent =
+    [kxIncidentCtx.routeName, kxIncidentCtx.sector].filter(Boolean).join(' · ');
+  kxRenderIncidentSheet();
+  sheet.classList.remove('hidden');
+}
+
+function kxRenderIncidentSheet() {
+  const list = document.getElementById('route-incident-list');
+  if (!list || !kxIncidentCtx) return;
+  const items = kxIncidentCtx.incidents || [];
+  if (!items.length) {
+    list.innerHTML = '<p class="ri-empty">Esta vía ya no tiene incidencias activas.</p>';
+    return;
+  }
+  list.innerHTML = items.map(it => {
+    const avisos = `${it.reports} ${it.reports === 1 ? 'aviso' : 'avisos'}`;
+    const mine = it.myVote === 'report' ? '<span class="ri-mine">La comunicaste tú</span>' : '';
+    return `
+      <article class="ri-item">
+        <h3 class="ri-title">${kxEscHTML(it.label)}</h3>
+        <p class="ri-meta">Comunicada ${kxIncidentAgo(it.firstAt)} · ${avisos}${mine ? ' · ' : ''}${mine}</p>
+        <p class="ri-q">¿Sigue ahí?</p>
+        <div class="ri-actions" role="group" aria-label="¿Sigue ahí? ${kxEscHTML(it.label)}">
+          <button type="button" class="ri-vote is-yes${it.myVote === 'confirm' ? ' is-on' : ''}" aria-pressed="${it.myVote === 'confirm'}" onclick="kxVoteIncident('${it.type}', 'confirm', this)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            Sigue ahí<span class="ri-count">${it.reports + it.confirms}</span>
+          </button>
+          <button type="button" class="ri-vote is-no${it.myVote === 'deny' ? ' is-on' : ''}" aria-pressed="${it.myVote === 'deny'}" onclick="kxVoteIncident('${it.type}', 'deny', this)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            Ya no está<span class="ri-count">${it.denies}</span>
+          </button>
+        </div>
+      </article>`;
+  }).join('');
+}
+
+async function kxVoteIncident(type, vote, btn) {
+  const ctx = kxIncidentCtx;
+  if (!ctx) return;
+  if (!kxCurrentUid()) {
+    if (typeof showToast === 'function') showToast('Inicia sesión para confirmar incidencias', 'info');
+    return;
+  }
+  const it = (ctx.incidents || []).find(i => i.type === type);
+  if (it && it.myVote === vote) return;
+  if (btn) btn.disabled = true;
+  try {
+    await kxSaveIncidentVote({ ...ctx, type, vote });
+    if (typeof showToast === 'function') showToast(vote === 'deny' ? 'Gracias. Lo tendremos en cuenta' : 'Gracias por confirmarlo', 'success');
+    kxRefreshIncidentViews();
+  } catch (e) {
+    console.error('[Incidencias] Error votando:', e);
+    if (typeof showToast === 'function') showToast('No se ha podido guardar tu respuesta', 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+
+window.kxOpenIncidentSheet = kxOpenIncidentSheet;
+window.kxVoteIncident = kxVoteIncident;
 
 function mlOpenRouteReport(btn) {
   let route = null;
@@ -5747,7 +5960,7 @@ function mlOpenRouteReport(btn) {
   if (!route || !sheet) return;
 
   if (typeof currentUser === 'undefined' || !currentUser) {
-    if (typeof showToast === 'function') showToast('Inicia sesión para notificar un problema', 'info');
+    if (typeof showToast === 'function') showToast('Inicia sesión para notificar una incidencia', 'info');
     return;
   }
 
@@ -5823,7 +6036,7 @@ async function mlSubmitRouteReport() {
   const route = mlReportRoute;
   if (!route) return;
   if (typeof currentUser === 'undefined' || !currentUser) {
-    mlShowReportError('Inicia sesión para notificar un problema.');
+    mlShowReportError('Inicia sesión para notificar una incidencia.');
     return;
   }
 
@@ -5867,6 +6080,15 @@ async function mlSubmitRouteReport() {
 
   try {
     await db.collection('routeSuggestions').add(report);
+    // Cada tipo marcado se publica como incidencia para que la comunidad la confirme o la niegue
+    try {
+      await Promise.all(issues.map(type => kxSaveIncidentVote({
+        schoolId: route.schoolId, routeId: route.routeId, routeName: route.routeName || '', sector: route.sector || '', type, vote: 'report'
+      })));
+      kxRefreshIncidentViews();
+    } catch (err) {
+      console.warn('[Incidencias] No se ha podido publicar la incidencia:', err);
+    }
     const sheet = document.getElementById('route-report-sheet');
     if (typeof closeFeedSheet === 'function') closeFeedSheet(sheet);
     else sheet.classList.add('hidden');
@@ -9875,6 +10097,7 @@ async function showUserRoutePopup(props, coords) {
 
       <!-- Estado de la Vía (estrellas) -->
       <div id="ml-variant-estado-${routeId}"></div>
+      <div id="ml-variant-incident-${routeId}"></div>
 
       <!-- Botonera -->
       <div class="ml-route-actions">
@@ -9932,6 +10155,7 @@ async function showUserRoutePopup(props, coords) {
 
   if (Number.isFinite(routeId)) {
     kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: `ml-variant-grade-${routeId}`, aleje: `ml-variant-aleje-${routeId}`, estado: `ml-variant-estado-${routeId}` });
+    kxRenderRouteIncidents({ schoolId, routeId, routeName: props.nombre || 'Sin nombre', sector: props.sector || '' }, `ml-variant-incident-${routeId}`);
   }
   kxWatchRoutePopup(mlRoutePopup);
 }
