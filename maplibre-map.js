@@ -1311,97 +1311,10 @@ function initMapLibre() {
 }
 
 /**
- * Crea el estilo base del mapa con PNOA
+ * Estilo base del mapa: ortofoto del PNOA o mapa topográfico (map-style.js)
  */
 function createBaseStyle() {
-  const style = {
-    version: 8,
-    name: 'KRUX Base',
-    sources: {
-      // Capa base: PNOA via WMTS (más compatible que TMS)
-      'pnoa-source': {
-        type: 'raster',
-        tiles: [
-          'https://www.ign.es/wmts/pnoa-ma?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=OI.OrthoimageCoverage&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg'
-        ],
-        tileSize: 256,
-        attribution: '© <a href="https://www.ign.es">IGN España</a> - PNOA',
-        maxzoom: 20
-      }
-    },
-    layers: [
-      // Capa PNOA
-      {
-        id: 'pnoa-layer',
-        type: 'raster',
-        source: 'pnoa-source',
-        minzoom: 0,
-        maxzoom: 22
-      }
-    ],
-    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'
-  };
-  return addMapTilerLabels(style);
-}
-
-/**
- * Etiquetas (pueblos, agua, picos, carreteras) como capas de texto sobre la ortofoto.
- * Sustituye a las teselas raster de CARTO, que ahora exigen API key.
- * Si no hay clave de MapTiler, el mapa queda sin etiquetas.
- */
-function addMapTilerLabels(style) {
-  const key = MAPLIBRE_CONFIG.MAPTILER_KEY;
-  if (!key || key === 'get_your_own_key') return style;
-
-  style.glyphs = `https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=${key}`;
-  style.sources['labels-source'] = {
-    type: 'vector',
-    url: `https://api.maptiler.com/tiles/v3/tiles.json?key=${key}`,
-    attribution: '© <a href="https://www.maptiler.com/">MapTiler</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-  };
-
-  const name = ['coalesce', ['get', 'name:es'], ['get', 'name']];
-  const text = (size, font = 'Noto Sans Regular') => ({
-    'text-field': name,
-    'text-font': [font],
-    'text-size': size,
-    'text-max-width': 8
-  });
-  const halo = (color = '#ffffff', haloColor = 'rgba(0,0,0,0.75)') => ({
-    'text-color': color,
-    'text-halo-color': haloColor,
-    'text-halo-width': 1.5
-  });
-
-  style.layers.push(
-    {
-      id: 'labels-place-city', type: 'symbol', source: 'labels-source', 'source-layer': 'place',
-      minzoom: 4, maxzoom: 13,
-      filter: ['in', ['get', 'class'], ['literal', ['city', 'town']]],
-      layout: text(['interpolate', ['linear'], ['zoom'], 4, 11, 10, 16], 'Noto Sans Bold'),
-      paint: halo()
-    },
-    {
-      id: 'labels-place-village', type: 'symbol', source: 'labels-source', 'source-layer': 'place',
-      minzoom: 10, maxzoom: 16,
-      filter: ['in', ['get', 'class'], ['literal', ['village', 'suburb', 'hamlet', 'neighbourhood']]],
-      layout: text(['interpolate', ['linear'], ['zoom'], 10, 11, 15, 14]),
-      paint: halo()
-    },
-    {
-      id: 'labels-water', type: 'symbol', source: 'labels-source', 'source-layer': 'water_name',
-      minzoom: 10,
-      layout: text(12, 'Noto Sans Italic'),
-      paint: halo('#bfe3ff')
-    },
-    {
-      id: 'labels-roads', type: 'symbol', source: 'labels-source', 'source-layer': 'transportation_name',
-      minzoom: 13,
-      layout: { ...text(11), 'symbol-placement': 'line' },
-      paint: halo()
-    }
-  );
-  return style;
+  return KxBaseMap.initialStyle(MAPLIBRE_CONFIG.MAPTILER_KEY);
 }
 
 /**
@@ -1433,6 +1346,9 @@ function addMapControls() {
 
   // Sol y sombra: botón, panel y capa (sun-map.js)
   if (window.KxSunMap) KxSunMap.init(mlMap);
+
+  // Vista del mapa base: satélite / topográfico (map-style.js)
+  KxBaseMap.init(mlMap);
 
   // Botón de información / leyenda
   addInfoLegendButton();
