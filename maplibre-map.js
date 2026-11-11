@@ -1431,6 +1431,9 @@ function addMapControls() {
   // Botón de filtro por grado (columna inferior derecha)
   addGradeFilterButton();
 
+  // Sol y sombra: botón, panel y capa (sun-map.js)
+  if (window.KxSunMap) KxSunMap.init(mlMap);
+
   // Botón de información / leyenda
   addInfoLegendButton();
 
