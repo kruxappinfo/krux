@@ -33050,3 +33050,299 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 .kx-rinfo:focus-visible, .kx-ract:focus-visible, .kx-rchip:focus-visible, .kx-avote-opt:focus-visible, .kx-avote-star:focus-visible,
 #route-bottom-sheet .rbs-view-btn:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .kx-rcard.is-loading { animation: none; } }
+
+/* ============================================
+   MAPA — SOL Y SOMBRA (sun-map.js)
+   Botón en la columna de controles y panel con fecha, hora y leyenda
+   ============================================ */
+#map-view .kx-ctrl-sun {
+  position: relative;
+  order: -4;
+  display: flex;
+  width: var(--map-ctrl) !important;
+  height: var(--map-ctrl) !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--map-edge) !important;
+  border-radius: var(--map-r) !important;
+  background: var(--map-solid) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--map-shadow) !important;
+  color: var(--map-ink);
+  cursor: pointer;
+  transform: none !important;
+  will-change: auto !important;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease) !important;
+}
+
+@media (hover: hover) {
+  #map-view .kx-ctrl-sun:not(.is-active):hover { background: #FFFFFF !important; }
+}
+
+#map-view .kx-ctrl-sun.is-active {
+  background: var(--map-accent) !important;
+  border-color: var(--map-accent) !important;
+  color: #FFFFFF;
+}
+
+#map-view .kx-ctrl-sun:focus-visible {
+  outline: 2px solid var(--map-accent);
+  outline-offset: 2px;
+}
+
+/* Panel: junto a la columna de controles, por encima de la escala y la «i» */
+#map-view .kx-sun-panel {
+  position: absolute;
+  z-index: 1001;
+  right: calc(var(--map-gap) + var(--map-ctrl) + 8px);
+  bottom: calc(var(--map-bottom) + 36px);
+  box-sizing: border-box;
+  width: min(300px, calc(100vw - 2 * var(--map-gap) - var(--map-ctrl) - 8px));
+  max-height: calc(100% - var(--map-top) - var(--map-search-h) - 8px - var(--map-bottom) - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--map-edge);
+  border-radius: 20px;
+  background: var(--map-solid);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: 0 1px 2px rgba(20, 28, 24, 0.08), 0 16px 40px rgba(20, 28, 24, 0.22);
+  color: var(--kx-ink);
+  font-family: var(--kx-font);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(8px) scale(0.97);
+  transform-origin: bottom right;
+  transition: opacity 0.2s var(--kx-ease), transform 0.2s var(--kx-ease), visibility 0s 0.2s;
+}
+
+#map-view .kx-sun-panel.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition: opacity 0.2s var(--kx-ease), transform 0.2s var(--kx-ease);
+}
+
+/* Con el filtro de grados abierto el panel se aparta (la capa sigue en el mapa) */
+#map-view:has(.grade-filter-panel.open) .kx-sun-panel { display: none; }
+#map-view:has(.maplibregl-compact-show) .kx-sun-panel { bottom: calc(var(--map-bottom) + 84px); }
+
+.kx-sun-panel [hidden] { display: none !important; }
+
+.kx-sun-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kx-sun-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.kx-sun-title svg { color: #D98A0B; }
+
+.kx-sun-panel .kx-sun-close {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  color: var(--kx-ink-2);
+  cursor: pointer;
+  transform: none;
+}
+
+.kx-sun-panel .kx-sun-close::before { content: ''; position: absolute; inset: -6px; }   /* zona táctil de 44 px */
+.kx-sun-panel .kx-sun-close:hover { background: var(--kx-stone-hover); box-shadow: none; transform: none; }
+
+.kx-sun-panel .kx-seg-btn { min-height: 36px; }
+
+.kx-sun-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--kx-ink-3);
+}
+
+.kx-sun-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.kx-sun-date {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--kx-line);
+  border-radius: 12px;
+  background: var(--kx-surface);
+  color: var(--kx-ink);
+  font: 600 0.875rem/1 var(--kx-font);
+  font-variant-numeric: tabular-nums;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.kx-sun-panel .kx-sun-today {
+  flex: none;
+  height: 40px;
+  min-height: 0;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--kx-stone-card);
+  box-shadow: none;
+  color: var(--kx-ink);
+  font: 600 0.8125rem/1 var(--kx-font);
+  cursor: pointer;
+  transform: none;
+}
+
+.kx-sun-panel .kx-sun-today:hover { background: var(--kx-stone-hover); box-shadow: none; transform: none; }
+
+.kx-sun-time { display: flex; flex-direction: column; gap: 2px; }
+
+.kx-sun-time-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.kx-sun-clock {
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Deslizador de la hora: del amanecer al atardecer */
+.kx-sun-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.kx-sun-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #F2A65A 0%, #FFD76A 22%, #FFE89A 50%, #FFD76A 78%, #E9825A 100%);
+}
+
+.kx-sun-slider::-moz-range-track {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #F2A65A 0%, #FFD76A 22%, #FFE89A 50%, #FFD76A 78%, #E9825A 100%);
+}
+
+.kx-sun-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -8px;
+  border: 2px solid #FFFFFF;
+  border-radius: 50%;
+  background: var(--kx-ink);
+  box-shadow: 0 1px 4px rgba(20, 28, 24, 0.35);
+}
+
+.kx-sun-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #FFFFFF;
+  border-radius: 50%;
+  background: var(--kx-ink);
+  box-shadow: 0 1px 4px rgba(20, 28, 24, 0.35);
+}
+
+.kx-sun-slider:focus-visible { outline: 2px solid var(--map-accent); outline-offset: 2px; border-radius: 8px; }
+
+.kx-sun-ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--kx-ink-3);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.kx-sun-ends > span { display: inline-flex; align-items: center; gap: 4px; }
+
+.kx-sun-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--kx-ink-2);
+}
+
+.kx-sun-key { display: inline-flex; align-items: center; gap: 6px; }
+
+.kx-sun-key i {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(32, 41, 35, 0.14);
+}
+
+.kx-sun-key i.is-sun { background: #FFC43D; }
+.kx-sun-key i.is-shade { background: #2A3063; }
+
+.kx-sun-ramp { flex: 1 0 100%; height: 10px; border-radius: 5px; }
+.kx-sun-ramp-ends { display: flex; flex: 1 0 100%; justify-content: space-between; font-variant-numeric: tabular-nums; }
+
+.kx-sun-status {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--kx-ink);
+}
+
+.kx-sun-status:empty { display: none; }
+
+.kx-sun-note {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--kx-ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #map-view .kx-sun-panel, #map-view .kx-sun-panel.open { transition: none; transform: none; }
+}
