@@ -33055,7 +33055,8 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
    MAPA — SOL Y SOMBRA (sun-map.js)
    Botón en la columna de controles y panel con fecha, hora y leyenda
    ============================================ */
-#map-view .kx-ctrl-sun {
+#map-view .kx-ctrl-sun,
+#map-view .kx-ctrl-base {
   position: relative;
   order: -4;
   display: flex;
@@ -33081,7 +33082,8 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 }
 
 @media (hover: hover) {
-  #map-view .kx-ctrl-sun:not(.is-active):hover { background: #FFFFFF !important; }
+  #map-view .kx-ctrl-sun:not(.is-active):hover,
+  #map-view .kx-ctrl-base:hover { background: #FFFFFF !important; }
 }
 
 #map-view .kx-ctrl-sun.is-active {
@@ -33090,10 +33092,14 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   color: #FFFFFF;
 }
 
-#map-view .kx-ctrl-sun:focus-visible {
+#map-view .kx-ctrl-sun:focus-visible,
+#map-view .kx-ctrl-base:focus-visible {
   outline: 2px solid var(--map-accent);
   outline-offset: 2px;
 }
+
+/* Vista del mapa base (map-style.js): encabeza la columna, encima de sol y sombra */
+#map-view .kx-ctrl-base { order: -5; }
 
 /* Panel: junto a la columna de controles, por encima de la escala y la «i» */
 #map-view .kx-sun-panel {

@@ -587,8 +587,9 @@ const KxSunMap = {
       let src = map.getSource('kx-sun');
       if (!src) {
         map.addSource('kx-sun', { type: 'canvas', canvas: this._canvas, coordinates: coords, animate: false });
-        // Encima de la ortofoto y el sombreado, debajo de etiquetas, sectores y vías
-        const first = map.getStyle().layers.find(l => !['raster', 'hillshade', 'background'].includes(l.type));
+        // Encima del fondo y el sombreado, debajo de curvas de nivel, etiquetas, sectores y vías
+        const first = map.getLayer('kx-contour') ? { id: 'kx-contour' }
+          : map.getStyle().layers.find(l => !['raster', 'hillshade', 'background'].includes(l.type));
         map.addLayer({
           id: 'kx-sun-layer', type: 'raster', source: 'kx-sun',
           paint: { 'raster-opacity': 1, 'raster-fade-duration': 0, 'raster-resampling': 'linear' }
