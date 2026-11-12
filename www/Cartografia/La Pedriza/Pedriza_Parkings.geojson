@@ -4,6 +4,9 @@
 "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
 "features": [
 { "type": "Feature", "properties": { "fid": 1, "id": null, "Descripcion": "Cantocochino" }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.896176938657418, 40.749255247790373 ] ] } },
-{ "type": "Feature", "properties": { "fid": 2, "id": null, "Descripcion": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.883165147569462, 40.741991036668786 ] ] } }
+{ "type": "Feature", "properties": { "fid": 2, "id": null, "Descripcion": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.883165147569462, 40.741991036668786 ] ] } },
+{ "type": "Feature", "properties": { "fid": 3, "id": null, "Descripcion": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.826767649947107, 40.758577449983761 ] ] } },
+{ "type": "Feature", "properties": { "fid": 4, "id": null, "Descripcion": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.853217454253686, 40.739484961562049 ] ] } },
+{ "type": "Feature", "properties": { "fid": 5, "id": null, "Descripcion": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.902458700968244, 40.752289228207253 ] ] } }
 ]
 }
