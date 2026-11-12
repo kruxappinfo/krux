@@ -95,3 +95,72 @@ facebookProvider = new firebase.auth.FacebookAuthProvider();
 // Add scopes for email and public profile
 facebookProvider.addScope('email');
 facebookProvider.addScope('public_profile');
+
+// ============================================
+// COPIA DE SEGURIDAD DE TRAZADOS DE VÍAS
+// ============================================
+// Antes de escribir en sector_route_drawings/{id} se guarda el estado previo en
+// sector_route_drawings/{id}/backups. Las reglas solo dejan añadir copias: nadie
+// puede editarlas ni borrarlas desde la app.
+const KX_DRAWINGS_BACKUP_INTERVAL_MS = 2 * 60 * 1000;
+const _kxDrawingsBackupAt = {};
+
+/**
+ * Guarda una copia del documento de trazados tal como está ahora.
+ * opts.snapshot: lectura ya hecha del documento (evita releerlo)
+ * opts.required: operación destructiva → copia siempre y, si falla, lanza error
+ *                para que el borrado no llegue a ejecutarse.
+ * Sin required, las copias se espacian KX_DRAWINGS_BACKUP_INTERVAL_MS por documento.
+ */
+async function kxBackupRouteDrawings(docRef, reason, opts = {}) {
+    const required = !!opts.required;
+    try {
+        const snapshot = opts.snapshot || await docRef.get();
+        if (!snapshot.exists) return null;
+
+        const data = snapshot.data() || {};
+        const drawingsCount = (data.drawings || []).length;
+        const auxCount = (data.auxElements || []).length + (data.rapelPoints || []).length;
+        if (drawingsCount + auxCount === 0) return null;
+
+        const last = _kxDrawingsBackupAt[docRef.id] || 0;
+        if (!required && Date.now() - last < KX_DRAWINGS_BACKUP_INTERVAL_MS) return null;
+
+        const user = firebase.auth().currentUser;
+        const backupRef = await docRef.collection('backups').add({
+            docId: docRef.id,
+            reason: reason || 'write',
+            drawingsCount,
+            auxCount,
+            data,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            createdBy: user ? user.uid : null
+        });
+        _kxDrawingsBackupAt[docRef.id] = Date.now();
+        return backupRef.id;
+    } catch (e) {
+        console.error('[DrawingsBackup] Error creando copia de seguridad:', e);
+        if (required) {
+            throw new Error('no se pudo crear la copia de seguridad, así que no se ha borrado nada');
+        }
+        return null;
+    }
+}
+
+/**
+ * Restaura una copia: guarda antes el estado actual y sustituye el documento entero.
+ */
+async function kxRestoreRouteDrawings(docRef, backupId) {
+    const backup = await docRef.collection('backups').doc(backupId).get();
+    if (!backup.exists || !backup.data().data) {
+        throw new Error('la copia no existe o está vacía');
+    }
+    await kxBackupRouteDrawings(docRef, 'antes-de-restaurar', { required: true });
+    const user = firebase.auth().currentUser;
+    await docRef.set({
+        ...backup.data().data,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: user ? user.uid : null,
+        restoredFrom: backupId
+    });
+}

@@ -495,7 +495,15 @@ service cloud.firestore {
     // Route drawings on sector images
     match /sector_route_drawings/{drawingId} {
       allow read: if true; // Anyone can see route drawings
-      allow write: if isAuthenticated() && isAdminOrSpotter(); // Admins and Spotters can draw routes
+      allow create, update: if isAuthenticated() && isAdminOrSpotter(); // Admins and Spotters can draw routes
+      // El documento entero no se borra desde la app (solo el super admin)
+      allow delete: if isAuthenticated() && isSuperAdmin();
+
+      // Copias de seguridad de los trazados: solo se pueden añadir, nunca editar ni borrar
+      match /backups/{backupId} {
+        allow read, create: if isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin());
+        allow update, delete: if false;
+      }
     }
 
     // Pending routes (vías pendientes de aprobación)
