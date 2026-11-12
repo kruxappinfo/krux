@@ -3908,6 +3908,9 @@ async function showRoutePopup(props, coords) {
 
   // Verificar si es admin para mostrar botón de desarrollador
   const isAdmin = await isRoutePopupAdmin();
+  // Vías aportadas por la comunidad: no tienen id numérico (votos/incidencias) y llevan pie propio
+  const hasNumericId = Number.isFinite(routeId);
+  const communityHTML = props.docId ? kxUserRouteFooterHTML(props, await checkAdminRole()) : '';
 
   // Verificar si la vía tiene dibujo en la imagen del sector (para mostrar botón "Ver vía")
   let hasDrawing = false;
@@ -3956,7 +3959,7 @@ async function showRoutePopup(props, coords) {
         <span class="ml-route-grade" style="background-color: ${gradeColor}">${grade}</span>
       </div>
 
-      ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1 })}
+      ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, contribute: hasNumericId })}
       ${kxRouteDescriptionHTML(props.descripcion)}
 
       <div id="ml-variant-grade-${routeId}"></div>
@@ -3981,8 +3984,10 @@ async function showRoutePopup(props, coords) {
         </div>
       ` : ''}
 
+      ${communityHTML}
+
       <!-- Botón de desarrollador (solo admins) -->
-      ${isAdmin ? `
+      ${isAdmin && hasNumericId ? `
         <div class="ml-route-dev-section">
           <button class="ml-route-dev-btn" onclick="mlOpenDrawingEditor(${routeId})">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -4001,6 +4006,7 @@ async function showRoutePopup(props, coords) {
     .setHTML(html)
     .addTo(mlMap);
 
+  if (!hasNumericId) return;
   kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: `ml-variant-grade-${routeId}`, aleje: `ml-variant-aleje-${routeId}`, estado: `ml-variant-estado-${routeId}` });
   kxRenderRouteIncidents({ schoolId, routeId, routeName, sector: sectorName }, `ml-variant-incident-${routeId}`);
 }
@@ -4379,6 +4385,9 @@ function mlUpdateBottomSheetContent(props, isTrinomial) {
  * Rellena la ficha de vía móvil (#route-bottom-sheet). Lo inmediato se pinta en el acto;
  * votos, comentarios, «Ver vía» y la herramienta de admin llegan después.
  */
+// docId de la vía de la comunidad abierta en la ficha (descarta respuestas tardías de checkAdminRole)
+let kxRouteSheetDocId = null;
+
 function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}) {
   const schoolId = mlCurrentSchool || 'valeria';
   const grade = props.grado1 || '?';
@@ -4386,6 +4395,8 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   const routeName = props.nombre || 'Sin nombre';
   const sectorName = props.sector || '';
   const encodedSector = encodeURIComponent(sectorName);
+  // Las vías de la comunidad no tienen id numérico: sin votos, incidencias ni sugerencias
+  const hasNumericId = Number.isFinite(routeId);
 
   // Estado global para los botones
   mlCurrentRouteGrade = grade;
@@ -4411,7 +4422,7 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   if (!props.descripcion && props.descripcio) props.descripcion = props.descripcio;
   const chipsEl = document.getElementById('rbs-info-items');
   if (chipsEl) {
-    chipsEl.innerHTML = kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, contribute });
+    chipsEl.innerHTML = kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, contribute: contribute && hasNumericId });
   }
   const descEl = document.getElementById('rbs-desc-container');
   if (descEl) descEl.innerHTML = kxRouteDescriptionHTML(props.descripcion);
@@ -4419,15 +4430,29 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   // --- Grado recomendado, Aleje y Estado (solo lectura) ---
   ['rbs-grade-container', 'rbs-aleje-container', 'rbs-estado-container'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.innerHTML = '<div class="kx-rcard is-loading" aria-hidden="true"></div>';
+    if (el) el.innerHTML = hasNumericId ? '<div class="kx-rcard is-loading" aria-hidden="true"></div>' : '';
   });
-  kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: 'rbs-grade-container', aleje: 'rbs-aleje-container', estado: 'rbs-estado-container' });
+  if (hasNumericId) kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: 'rbs-grade-container', aleje: 'rbs-aleje-container', estado: 'rbs-estado-container' });
 
   // --- Incidencias comunicadas (tarjeta naranja) ---
   const incidentEl = document.getElementById('rbs-incident-container');
   if (incidentEl) incidentEl.innerHTML = '';
   kxIncidentCtx = null;
-  kxRenderRouteIncidents({ schoolId, routeId, routeName, sector: sectorName }, 'rbs-incident-container');
+  if (hasNumericId) kxRenderRouteIncidents({ schoolId, routeId, routeName, sector: sectorName }, 'rbs-incident-container');
+
+  // --- Vía aportada por la comunidad: autoría y acciones de admin ---
+  const communityEl = document.getElementById('rbs-community-section');
+  if (communityEl) {
+    communityEl.innerHTML = '';
+    if (props.docId) {
+      const docId = props.docId;
+      checkAdminRole().then(role => {
+        if (kxRouteSheetDocId !== docId) return;
+        communityEl.innerHTML = kxUserRouteFooterHTML(props, role);
+      });
+    }
+  }
+  kxRouteSheetDocId = props.docId || null;
 
   // --- Acciones ---
   const hasAscent = (typeof hasUserAscent === 'function') && hasUserAscent(schoolId, routeId);
@@ -9874,209 +9899,65 @@ function setupUserViasInteraction() {
     const props = feature.properties;
     const coords = feature.geometry.coordinates;
 
-    // Mostrar popup con el mismo estilo que las vías oficiales
-    showUserRoutePopup(props, coords);
+    // Misma ficha que las vías oficiales (bottom sheet en móvil, popup en escritorio)
+    if (isMobileDevice()) {
+      adaptiveMapPanForBottomSheet(coords);
+      showRouteBottomSheet(props, coords);
+    } else {
+      mlMap.flyTo({
+        center: coords,
+        zoom: mlMap.getZoom(),
+        speed: 0.8,
+        curve: 1,
+        padding: { top: 450, bottom: 0, left: 0, right: 0 }
+      });
+      showRoutePopup(props, coords);
+    }
   });
 }
 
 /**
- * Muestra popup de ruta de usuario con el mismo diseño que las oficiales
+ * Pie de la ficha para vías aportadas por la comunidad (pending_routes aprobadas):
+ * quién la propuso y, para admins, mover o eliminar la propuesta.
  */
-async function showUserRoutePopup(props, coords) {
-  const grade = props.grado1 || '?';
-  const gradeColor = getGradeColor(grade);
-  const routeId = Number(props.id);
-  const routeName = props.nombre || 'Sin nombre';
-  const sectorName = props.sector || '';
-  const encodedSector = encodeURIComponent(sectorName);
-  const schoolId = mlCurrentSchool || 'valeria';
-
-  // Verificar si la vía tiene dibujo en la imagen del sector (para mostrar botón "Ver vía")
-  let hasDrawing = false;
-  if (sectorName && typeof hasRouteDrawing === 'function') {
-    hasDrawing = await hasRouteDrawing(schoolId, sectorName, routeId);
-  }
-
-  // Verificar si el usuario ha completado esta vía
-  const hasAscent = (typeof hasUserAscent === 'function') && hasUserAscent(schoolId, routeId);
-  const ascentInfo = hasAscent && (typeof getUserAscentInfo === 'function') ? getUserAscentInfo(schoolId, routeId) : null;
-
-  // Guardar datos de la vía actual para las funciones de los botones
-  mlCurrentRouteGrade = grade;
-  mlCurrentRouteSector = sectorName;
-  mlCurrentRouteId = routeId;
-  mlCurrentRouteName = routeName;
-
-  // Obtener número de comentarios
-  let commentCount = 0;
-  try {
-    if (typeof db !== 'undefined' && typeof normalizeId === 'function') {
-      const commentRouteId = `${schoolId}_${normalizeId(routeName)}`;
-      const commentsSnap = await db.collection('comments').where('routeId', '==', commentRouteId).get();
-      commentCount = commentsSnap.size;
-    }
-  } catch (e) {
-    console.warn('Error fetching comment count:', e);
-  }
-  const commentBadge = commentCount > 0 ? `<span class="ml-comment-count">${commentCount}</span>` : '';
-
-  // Iconos PNG para info (tamaño 32x32)
-  const iconClimber = `<img src="icons/placa.png" alt="Tipo" width="32" height="32">`;
-  const iconExpress = `<img src="icons/mosq.png" alt="Expresos" width="32" height="32">`;
-  const iconRope = `<img src="icons/cuerda.png" alt="Cuerda" width="32" height="32">`;
-
-  // Iconos SVG de la botonera (tamaño 32x32)
-  const iconCheck = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-  const iconBookmark = buildBookmarkIcon(routeId);
-  const iconComment = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
-  const iconShare = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
-
-  // Check de ascenso + icono de estilo para el header
-  const ascentStyleSVG = ascentInfo && ascentInfo.style && (typeof getAscentStyleSVG === 'function') ? getAscentStyleSVG(ascentInfo.style) : '';
-  const ascentCheckHTML = hasAscent ? `
-    <span class="ml-route-ascent-check">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-    </span>
-    ${ascentStyleSVG ? `<span class="ml-route-ascent-style ascent-style-${ascentInfo.style}">${ascentStyleSVG}</span>` : ''}
-  ` : '';
-
-  // Detectar campos vacíos para sugerir contribuir
-  const hasDescripcion = props.descripcion && props.descripcion.trim();
-  const hasExp = props.exp1;
-  const hasLong = props.long1;
-
-  // Comprobar si el admin puede editar/eliminar esta vía
-  const adminRole = await checkAdminRole();
-  const adminRouteHTML = adminRole === 'admin' && props.docId ? `
-    <div style="display:flex;gap:8px;padding:8px 0 0;border-top:1px solid #e5e7eb;margin-top:4px;">
-      <button onclick="mlDeletePendingItem('pending_routes','${props.docId}');mlCloseRoutePopup();"
-        style="flex:1;background:#DC2626;color:white;border:none;border-radius:6px;padding:7px 10px;cursor:pointer;font-size:12px;font-weight:600;">
-        🗑️ Eliminar
+function kxUserRouteFooterHTML(props, adminRole) {
+  if (!props || !props.docId) return '';
+  const isAdmin = adminRole === 'admin';
+  const author = isAdmin && props.createdByEmail ? ` por <strong>${kxEscHTML(props.createdByEmail)}</strong>` : ' por la comunidad';
+  const docId = kxEscHTML(props.docId);
+  const lng = Number(props.lng), lat = Number(props.lat);
+  const admin = isAdmin ? `
+    <div class="kx-rcommunity-admin">
+      <button type="button" class="kx-radmin" onclick="kxUserRouteMove('${docId}', ${lng}, ${lat})">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5v19M2.5 12h19"/><path d="m9 5.5 3-3 3 3M9 18.5l3 3 3-3M5.5 9l-3 3 3 3M18.5 9l3 3-3 3"/></svg>
+        Mover
       </button>
-      <button onclick="mlStartEditPending('pending_routes','${props.docId}','Point',[${props.lng},${props.lat}]);mlCloseRoutePopup();"
-        style="flex:1;background:#2563EB;color:white;border:none;border-radius:6px;padding:7px 10px;cursor:pointer;font-size:12px;font-weight:600;">
-        ✏️ Mover
+      <button type="button" class="kx-radmin is-danger" onclick="kxUserRouteDelete('${docId}')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5h17M9.5 6.5V4h5v2.5M6 6.5l1 14h10l1-14"/></svg>
+        Eliminar
       </button>
     </div>` : '';
+  return `
+    <div class="kx-rcommunity">
+      <p class="kx-rcommunity-by">Propuesta${author}</p>
+      ${admin}
+    </div>`;
+}
 
-
-  const html = `
-    <div class="ml-route-popup-new">
-      <!-- Header: Check + Nombre + Grado + Badge Usuario -->
-      <div class="ml-route-header">
-        ${ascentCheckHTML}
-        <span class="ml-route-name">${routeName}</span>
-        <span class="ml-route-grade" style="background-color: ${gradeColor}">${grade}</span>
-      </div>
-
-      <!-- Info items con iconos + sugerencias independientes por campo -->
-      <div class="ml-route-info">
-        ${hasDescripcion ? `
-          <div class="ml-route-item">
-            <span class="ml-route-icon">${iconClimber}</span>
-            <span class="ml-route-text">${props.descripcion}</span>
-          </div>
-        ` : `
-          <div class="ml-route-item ml-route-item-missing" onclick="mlContributeField(${routeId}, '${schoolId}', 'tipo')">
-            <span class="ml-route-icon">${iconClimber}</span>
-            <span class="ml-route-text ml-route-contribute">&iquest;Qu&eacute; tipo de escalada es?</span>
-          </div>
-        `}
-
-        ${hasExp ? `
-          <div class="ml-route-item">
-            <span class="ml-route-icon">${iconExpress}</span>
-            <span class="ml-route-text">${props.exp1} express</span>
-          </div>
-        ` : `
-          <div class="ml-route-item ml-route-item-missing" onclick="mlContributeField(${routeId}, '${schoolId}', 'express')">
-            <span class="ml-route-icon">${iconExpress}</span>
-            <span class="ml-route-text ml-route-contribute">&iquest;Cu&aacute;ntos express tiene?</span>
-          </div>
-        `}
-
-        ${hasLong ? `
-          <div class="ml-route-item">
-            <span class="ml-route-icon">${iconRope}</span>
-            <span class="ml-route-text">${props.long1} mts</span>
-          </div>
-        ` : `
-          <div class="ml-route-item ml-route-item-missing" onclick="mlContributeField(${routeId}, '${schoolId}', 'metros')">
-            <span class="ml-route-icon">${iconRope}</span>
-            <span class="ml-route-text ml-route-contribute">&iquest;Cu&aacute;ntos metros mide?</span>
-          </div>
-        `}
-      </div>
-
-      <!-- Slider de votación de grado -->
-      <div id="ml-variant-grade-${routeId}"></div>
-
-      <!-- Indicador de Aleje -->
-      <div id="ml-variant-aleje-${routeId}"></div>
-
-      <!-- Estado de la Vía (estrellas) -->
-      <div id="ml-variant-estado-${routeId}"></div>
-      <div id="ml-variant-incident-${routeId}"></div>
-
-      <!-- Botonera -->
-      <div class="ml-route-actions">
-        <button class="ml-route-action-btn" onclick="mlRegisterAscent(${routeId}, '${encodeURIComponent(routeName)}')" title="Registrar ascenso">
-          ${iconCheck}
-        </button>
-        <button class="ml-route-action-btn ${isRouteInProjects(routeId) ? 'bookmark-active' : ''}" id="ml-bookmark-btn" onclick="mlToggleBookmark(${routeId}, '${encodeURIComponent(routeName)}')" title="Guardar">
-          ${iconBookmark}
-        </button>
-        <button class="ml-route-action-btn ml-comment-btn" onclick="mlOpenComments(${routeId}, '${encodeURIComponent(routeName)}')" title="Comentarios">
-          ${iconComment}
-          ${commentBadge}
-        </button>
-        <button class="ml-route-action-btn" onclick="mlShareRoute(${routeId}, '${encodeURIComponent(routeName)}')" title="Compartir">
-          ${iconShare}
-        </button>
-      </div>
-
-      <!-- Botón Ver vía (solo si tiene dibujo en la imagen) -->
-      ${hasDrawing ? `
-        <div class="ml-route-view-section">
-          <button class="ml-route-view-btn" onclick="mlViewRouteInSector('${schoolId}', '${encodedSector}', ${routeId})">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
-            Ver vía
-          </button>
-        </div>
-      ` : ''}
-
-      <!-- Usuario que subió la vía -->
-      ${props.createdByEmail ? `
-        <div class="ml-route-uploaded-by">
-          Subida por: ${props.createdByEmail}
-        </div>
-      ` : ''}
-
-      <!-- Acciones de admin (solo visible para admins) -->
-      ${adminRouteHTML}
-    </div>
-  `;
-
+function kxCloseRouteView() {
+  if (typeof hideRouteBottomSheet === 'function') hideRouteBottomSheet();
   if (mlRoutePopup) mlRoutePopup.remove();
+}
 
-  mlRoutePopup = new maplibregl.Popup({
-    closeButton: true,
-    closeOnClick: false,
-    maxWidth: '340px',
-    className: 'ml-route-popup kx-mpop'
-  })
-    .setLngLat(coords)
-    .setHTML(html)
-    .addTo(mlMap);
+function kxUserRouteMove(docId, lng, lat) {
+  kxCloseRouteView();
+  mlStartEditPending('pending_routes', docId, 'Point', [lng, lat]);
+}
 
-  if (Number.isFinite(routeId)) {
-    kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: `ml-variant-grade-${routeId}`, aleje: `ml-variant-aleje-${routeId}`, estado: `ml-variant-estado-${routeId}` });
-    kxRenderRouteIncidents({ schoolId, routeId, routeName: props.nombre || 'Sin nombre', sector: props.sector || '' }, `ml-variant-incident-${routeId}`);
-  }
-  kxWatchRoutePopup(mlRoutePopup);
+function kxUserRouteDelete(docId) {
+  if (!confirm('¿Eliminar esta vía del mapa? No se puede deshacer.')) return;
+  kxCloseRouteView();
+  mlDeletePendingItem('pending_routes', docId);
 }
 
 // ============================================

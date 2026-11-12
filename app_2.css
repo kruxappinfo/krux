@@ -32568,6 +32568,49 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 .ml-route-popup-new .kx-rcard + div,
 .ml-route-popup-new div + .kx-ractions { margin-top: 9px; }
 .ml-route-popup-new .kx-rincident { margin-top: 9px; }
+
+/* ---- Vía aportada por la comunidad: autoría y acciones de admin ---- */
+.kx-rcommunity {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(32, 41, 35, 0.08);
+}
+.kx-rcommunity-by {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: #5F6461;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.kx-rcommunity-by strong { font-weight: 600; color: #3A403C; }
+.kx-rcommunity-admin { display: flex; gap: 8px; margin-top: 10px; }
+.kx-radmin {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(32, 41, 35, 0.12);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: none;
+  color: #1A1F1C;
+  font-family: var(--kx-font);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transform: none;
+}
+.kx-radmin:hover { background: #F4F6F4; box-shadow: none; transform: none; }
+.kx-radmin:active { background: rgba(21, 62, 53, 0.06); }
+.kx-radmin:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+.kx-radmin svg { flex: none; color: var(--kx-rforest); }
+.kx-radmin.is-danger { color: #B42318; border-color: rgba(180, 35, 24, 0.28); }
+.kx-radmin.is-danger svg { color: currentColor; }
+.kx-radmin.is-danger:hover { background: #FDF1EF; }
 .ml-route-popup-new .ml-route-report-section { margin: 4px 0 0; padding: 0; border: 0; }
 
 /* ====================================================================
