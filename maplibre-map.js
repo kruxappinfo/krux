@@ -9930,7 +9930,7 @@ function setupUserViasInteraction() {
 function kxUserRouteFooterHTML(props, adminRole) {
   if (!props || !props.docId) return '';
   const isAdmin = adminRole === 'admin';
-  const author = isAdmin && props.createdByEmail ? ` por <strong>${kxEscHTML(props.createdByEmail)}</strong>` : ' por la comunidad';
+  const author = props.createdByEmail ? ` por <strong>${kxEscHTML(props.createdByEmail)}</strong>` : ' por la comunidad';
   const docId = kxEscHTML(props.docId);
   const lng = Number(props.lng), lat = Number(props.lat);
   const admin = isAdmin ? `
