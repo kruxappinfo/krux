@@ -3959,7 +3959,7 @@ async function showRoutePopup(props, coords) {
         <span class="ml-route-grade" style="background-color: ${gradeColor}">${grade}</span>
       </div>
 
-      ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, contribute: hasNumericId })}
+      ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1 })}
       ${kxRouteDescriptionHTML(props.descripcion)}
 
       <div id="ml-variant-grade-${routeId}"></div>
@@ -4395,7 +4395,7 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   const routeName = props.nombre || 'Sin nombre';
   const sectorName = props.sector || '';
   const encodedSector = encodeURIComponent(sectorName);
-  // Las vías de la comunidad no tienen id numérico: sin votos, incidencias ni sugerencias
+  // Las vías de la comunidad no tienen id numérico: sin votos ni incidencias (las sugerencias van por nombre)
   const hasNumericId = Number.isFinite(routeId);
 
   // Estado global para los botones
@@ -4422,7 +4422,7 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   if (!props.descripcion && props.descripcio) props.descripcion = props.descripcio;
   const chipsEl = document.getElementById('rbs-info-items');
   if (chipsEl) {
-    chipsEl.innerHTML = kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, contribute: contribute && hasNumericId });
+    chipsEl.innerHTML = kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, contribute });
   }
   const descEl = document.getElementById('rbs-desc-container');
   if (descEl) descEl.innerHTML = kxRouteDescriptionHTML(props.descripcion);
