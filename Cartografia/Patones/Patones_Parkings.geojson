@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"name": "PO_Parkings",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "fid": 1, "id": null, "Descripcio": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.440385428341943, 40.881106983531552 ] ] } },
+{ "type": "Feature", "properties": { "fid": 2, "id": null, "Descripcio": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.439617633819572, 40.888080336830775 ] ] } },
+{ "type": "Feature", "properties": { "fid": 3, "id": null, "Descripcio": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.454330964521921, 40.884337923743473 ] ] } },
+{ "type": "Feature", "properties": { "fid": 4, "id": null, "Descripcio": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.436264677481231, 40.891157074408198 ] ] } }
+]
+}

@@ -236,6 +236,33 @@ const MAPLIBRE_SCHOOLS = {
       parkings: 15
     }
   },
+  patones: {
+    id: 'patones',
+    name: 'Patones',
+    center: [-3.4452, 40.8864], // [lng, lat]
+    zoom: 16,
+    bounds: [[-3.4544, 40.8810], [-3.4360, 40.8918]], // [[sw], [ne]]
+    // Vector Tiles (preferido - más rápido)
+    tiles: {
+      vias: 'tiles/patones/vias/{z}/{x}/{y}.pbf',
+      sectores: 'tiles/patones/sectores/{z}/{x}/{y}.pbf',
+      parkings: 'tiles/patones/parkings/{z}/{x}/{y}.pbf'
+    },
+    // GeoJSON fallback
+    geojson: {
+      vias: 'Cartografia/Patones/Patones_Vias.geojson',
+      sectores: 'Cartografia/Patones/Patones_Sectores.geojson',
+      parkings: 'Cartografia/Patones/Patones_Parkings.geojson',
+      puntosInteres: 'Cartografia/Patones/Patones_Puntos_interes.geojson',
+      rutasAcceso: 'Cartografia/Patones/Patones_Rutas_acceso.geojson'
+    },
+    zoomLevels: {
+      sectores: 12,
+      sectorNames: 17,
+      vias: 17,
+      parkings: 15
+    }
+  },
   pedriza: {
     id: 'pedriza',
     name: 'La Pedriza',
@@ -272,9 +299,9 @@ const SCHOOL_MARKERS = [
   {
     id: 'patones',
     nombre: 'Patones',
-    coords: [-3.4436, 40.8874],
+    coords: [-3.4452, 40.8864],
     zoom: 16,
-    isOpen: false,
+    isOpen: true,
     rockType: 'Caliza'
   },
   {
