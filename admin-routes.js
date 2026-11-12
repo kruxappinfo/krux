@@ -332,7 +332,8 @@ async function deleteRouteDrawingFromSector(schoolId, sectorName, routeName) {
             const updatedDrawings = drawings.filter(d => d.routeName !== routeName);
 
             if (updatedDrawings.length !== drawings.length) {
-                // Se encontró y eliminó el dibujo
+                // Se encontró el dibujo: copia de seguridad antes de quitarlo
+                await kxBackupRouteDrawings(docRef, 'admin-borrar-via', { snapshot: doc, required: true });
                 await docRef.update({
                     drawings: updatedDrawings,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -621,6 +622,7 @@ async function cleanOrphanedDrawings() {
                 console.log(`[CleanOrphaned] Sector "${sectorName}": eliminando ${orphanedDrawings.length} dibujos huérfanos:`,
                     orphanedDrawings.map(d => d.routeName));
 
+                await kxBackupRouteDrawings(drawingDoc.ref, 'admin-limpiar-huerfanos', { snapshot: drawingDoc, required: true });
                 await db.collection('sector_route_drawings').doc(drawingDoc.id).update({
                     drawings: validDrawings,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),

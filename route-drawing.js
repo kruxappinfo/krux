@@ -83,12 +83,12 @@ const RD_COLORS = {
   normal: '#10b981',        // Verde para vías normales
   selected: '#f59e0b',      // Ámbar para vía seleccionada
   highlight: '#ef4444',     // Rojo para highlight
-  rapel: '#a855f7',         // Púrpura para puntos de rápel
+  rapel: '#202923',         // Granito para el aro de rápel
   point: '#ffffff',         // Blanco para puntos
   number: '#ffffff',        // Blanco para números
-  descent_line: '#00bcd4',  // Cyan para líneas de descenso/ascenso
-  grapas: '#ff9800',        // Naranja para escaleras de grapas
-  cadena: '#78909c'         // Gris azulado para cadenas
+  descent_line: '#F7F6F0',  // Magnesio para líneas de descenso/ascenso
+  grapas: '#F7F6F0',        // Magnesio para escaleras de grapas
+  cadena: '#F7F6F0'         // Magnesio para cadenas
 };
 
 // Tipos de reunión (anchor types)
@@ -1670,33 +1670,7 @@ function drawRouteLineOnly(drawing, isSelected) {
       y: p.y * scaleY
     }));
 
-    // Dibujar borde/sombra para mejor visibilidad
-    rdCtx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-    rdCtx.lineWidth = isSelected ? 7 : 6;
-    rdCtx.lineCap = 'round';
-    rdCtx.lineJoin = 'round';
-    rdCtx.setLineDash([]);
-
-    rdCtx.beginPath();
-    rdCtx.moveTo(scaledPoints[0].x, scaledPoints[0].y);
-    for (let i = 1; i < scaledPoints.length; i++) {
-      rdCtx.lineTo(scaledPoints[i].x, scaledPoints[i].y);
-    }
-    rdCtx.stroke();
-
-    // Dibujar línea principal con color del grado
-    rdCtx.strokeStyle = color;
-    rdCtx.lineWidth = isSelected ? 4 : 3;
-    rdCtx.lineCap = 'round';
-    rdCtx.lineJoin = 'round';
-    rdCtx.setLineDash([]);
-
-    rdCtx.beginPath();
-    rdCtx.moveTo(scaledPoints[0].x, scaledPoints[0].y);
-    for (let i = 1; i < scaledPoints.length; i++) {
-      rdCtx.lineTo(scaledPoints[i].x, scaledPoints[i].y);
-    }
-    rdCtx.stroke();
+    kxDrawTopoLine(rdCtx, scaledPoints, color, { width: isSelected ? 4 : 3 });
   });
 }
 
@@ -1731,406 +1705,20 @@ function drawRouteAnchorOnly(drawing, isSelected) {
 }
 
 /**
- * Dibuja el icono de reunión al final de la vía
- * @param {number} x - Coordenada X del punto final
- * @param {number} y - Coordenada Y del punto final
- * @param {number} prevX - Coordenada X del punto anterior (para calcular dirección)
- * @param {number} prevY - Coordenada Y del punto anterior
- * @param {string} anchorType - Tipo de reunión (quimicos, cadena, mosqueton)
- * @param {string} color - Color del icono (igual que la línea de la vía)
+ * Dibuja la chapa de reunión al final de la vía
+ * (prevX, prevY orientan la flecha de «sin terminar»)
  */
 function drawAnchorIcon(x, y, prevX, prevY, anchorType, color) {
-  const iconSize = 14; // Tamaño reducido del icono
-
-  // Sin terminar: usa sus propias coordenadas y rotación
-  if (anchorType === 'sin_terminar') {
-    drawAnchorSinTerminar(x, y, prevX, prevY, iconSize, color);
-    return;
-  }
-
-  rdCtx.save();
-
-  // Trasladar al punto final (sin rotación - siempre mira hacia arriba)
-  rdCtx.translate(x, y);
-
-  // Dibujar según el tipo de reunión
-  switch(anchorType) {
-    case 'quimicos':
-      drawAnchorQuimicos(0, 0, iconSize, color);
-      break;
-    case 'cadena':
-      drawAnchorCadena(0, 0, iconSize, color);
-      break;
-    case 'mosqueton':
-      drawAnchorMosqueton(0, 0, iconSize, color);
-      break;
-    case 'desconocido':
-      drawAnchorDesconocido(0, 0, iconSize, color);
-      break;
-  }
-
-  rdCtx.restore();
+  kxDrawTopoChip(rdCtx, x, y, anchorType, color, {
+    radius: 8,
+    angle: Math.atan2(y - prevY, x - prevX)
+  });
 }
 
-/**
- * Dibuja reunión de químicos con maillones
- */
-function drawAnchorQuimicos(x, y, size, color) {
-  const scale = size / 20;
-  const outlineWidth = 2 * scale;
-  const outlineColor = 'white';
 
-  // Químico izquierdo con contorno
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = outlineWidth + 2;
-  rdCtx.beginPath();
-  rdCtx.arc(x - 8 * scale, y - 12 * scale, 6 * scale, 0, Math.PI * 2);
-  rdCtx.stroke();
 
-  rdCtx.fillStyle = color;
-  rdCtx.beginPath();
-  rdCtx.arc(x - 8 * scale, y - 12 * scale, 6 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-  rdCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  rdCtx.lineWidth = 1;
-  rdCtx.stroke();
 
-  // Agujero izquierdo
-  rdCtx.fillStyle = 'white';
-  rdCtx.beginPath();
-  rdCtx.arc(x - 8 * scale, y - 12 * scale, 2.5 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
 
-  // Químico derecho con contorno
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = outlineWidth + 2;
-  rdCtx.beginPath();
-  rdCtx.arc(x + 8 * scale, y - 12 * scale, 6 * scale, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.fillStyle = color;
-  rdCtx.beginPath();
-  rdCtx.arc(x + 8 * scale, y - 12 * scale, 6 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-  rdCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  rdCtx.lineWidth = 1;
-  rdCtx.stroke();
-
-  // Agujero derecho
-  rdCtx.fillStyle = 'white';
-  rdCtx.beginPath();
-  rdCtx.arc(x + 8 * scale, y - 12 * scale, 2.5 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-
-  // Maillones/anillas con contorno
-  // Maillon izquierdo
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x - 8 * scale, y - 2 * scale, 3 * scale, 5 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.strokeStyle = color;
-  rdCtx.lineWidth = 2 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x - 8 * scale, y - 2 * scale, 3 * scale, 5 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  // Maillon derecho
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x + 8 * scale, y - 2 * scale, 3 * scale, 5 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.strokeStyle = color;
-  rdCtx.lineWidth = 2 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x + 8 * scale, y - 2 * scale, 3 * scale, 5 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-}
-
-/**
- * Dibuja reunión con cadena
- */
-function drawAnchorCadena(x, y, size, color) {
-  const scale = size / 20;
-  const outlineColor = 'white';
-
-  // Químico izquierdo con contorno
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4;
-  rdCtx.beginPath();
-  rdCtx.arc(x - 14 * scale, y - 14 * scale, 5 * scale, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.fillStyle = color;
-  rdCtx.beginPath();
-  rdCtx.arc(x - 14 * scale, y - 14 * scale, 5 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-  rdCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  rdCtx.lineWidth = 1;
-  rdCtx.stroke();
-
-  // Agujero izquierdo
-  rdCtx.fillStyle = 'white';
-  rdCtx.beginPath();
-  rdCtx.arc(x - 14 * scale, y - 14 * scale, 2 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-
-  // Químico derecho con contorno
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4;
-  rdCtx.beginPath();
-  rdCtx.arc(x + 14 * scale, y - 14 * scale, 5 * scale, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.fillStyle = color;
-  rdCtx.beginPath();
-  rdCtx.arc(x + 14 * scale, y - 14 * scale, 5 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-  rdCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  rdCtx.lineWidth = 1;
-  rdCtx.stroke();
-
-  // Agujero derecho
-  rdCtx.fillStyle = 'white';
-  rdCtx.beginPath();
-  rdCtx.arc(x + 14 * scale, y - 14 * scale, 2 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-
-  // Eslabones de cadena con contorno
-  // Eslabón izquierdo
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x - 8 * scale, y - 6 * scale, 3 * scale, 5 * scale, Math.PI / 6, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.strokeStyle = color;
-  rdCtx.lineWidth = 2 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x - 8 * scale, y - 6 * scale, 3 * scale, 5 * scale, Math.PI / 6, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  // Eslabón central
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x, y - 3 * scale, 4 * scale, 6 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.strokeStyle = color;
-  rdCtx.lineWidth = 2 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x, y - 3 * scale, 4 * scale, 6 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  // Eslabón derecho
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x + 8 * scale, y - 6 * scale, 3 * scale, 5 * scale, -Math.PI / 6, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.strokeStyle = color;
-  rdCtx.lineWidth = 2 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x + 8 * scale, y - 6 * scale, 3 * scale, 5 * scale, -Math.PI / 6, 0, Math.PI * 2);
-  rdCtx.stroke();
-}
-
-/**
- * Dibuja reunión con mosquetón
- */
-function drawAnchorMosqueton(x, y, size, color) {
-  const scale = size / 20;
-  const outlineColor = 'white';
-
-  // Químico izquierdo con contorno
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4;
-  rdCtx.beginPath();
-  rdCtx.arc(x - 8 * scale, y - 20 * scale, 5 * scale, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.fillStyle = color;
-  rdCtx.beginPath();
-  rdCtx.arc(x - 8 * scale, y - 20 * scale, 5 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-  rdCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  rdCtx.lineWidth = 1;
-  rdCtx.stroke();
-
-  // Agujero izquierdo
-  rdCtx.fillStyle = 'white';
-  rdCtx.beginPath();
-  rdCtx.arc(x - 8 * scale, y - 20 * scale, 2 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-
-  // Químico derecho con contorno
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4;
-  rdCtx.beginPath();
-  rdCtx.arc(x + 8 * scale, y - 20 * scale, 5 * scale, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.fillStyle = color;
-  rdCtx.beginPath();
-  rdCtx.arc(x + 8 * scale, y - 20 * scale, 5 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-  rdCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  rdCtx.lineWidth = 1;
-  rdCtx.stroke();
-
-  // Agujero derecho
-  rdCtx.fillStyle = 'white';
-  rdCtx.beginPath();
-  rdCtx.arc(x + 8 * scale, y - 20 * scale, 2 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-
-  // Eslabones pequeños conectando a químicos (con contorno)
-  // Eslabón izquierdo
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x - 6 * scale, y - 12 * scale, 2.5 * scale, 4 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.strokeStyle = color;
-  rdCtx.lineWidth = 2 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x - 6 * scale, y - 12 * scale, 2.5 * scale, 4 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  // Eslabón derecho
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x + 6 * scale, y - 12 * scale, 2.5 * scale, 4 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.strokeStyle = color;
-  rdCtx.lineWidth = 2 * scale;
-  rdCtx.beginPath();
-  rdCtx.ellipse(x + 6 * scale, y - 12 * scale, 2.5 * scale, 4 * scale, 0, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  // Mosquetón central (forma de D) con contorno
-  // Contorno blanco primero
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 5 * scale;
-  rdCtx.beginPath();
-  rdCtx.moveTo(x - 5 * scale, y - 6 * scale);
-  rdCtx.quadraticCurveTo(x - 8 * scale, y + 2 * scale, x, y + 8 * scale);
-  rdCtx.quadraticCurveTo(x + 8 * scale, y + 2 * scale, x + 5 * scale, y - 6 * scale);
-  rdCtx.lineTo(x - 5 * scale, y - 6 * scale);
-  rdCtx.stroke();
-
-  // Mosquetón en color
-  rdCtx.strokeStyle = color;
-  rdCtx.lineWidth = 2.5 * scale;
-  rdCtx.beginPath();
-  rdCtx.moveTo(x - 5 * scale, y - 6 * scale);
-  rdCtx.quadraticCurveTo(x - 8 * scale, y + 2 * scale, x, y + 8 * scale);
-  rdCtx.quadraticCurveTo(x + 8 * scale, y + 2 * scale, x + 5 * scale, y - 6 * scale);
-  rdCtx.lineTo(x - 5 * scale, y - 6 * scale);
-  rdCtx.stroke();
-
-  // Gate del mosquetón con contorno
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 2;
-  rdCtx.strokeRect(x - 2 * scale - 1, y - 4 * scale - 1, 4 * scale + 2, 6 * scale + 2);
-
-  rdCtx.fillStyle = color;
-  rdCtx.fillRect(x - 2 * scale, y - 4 * scale, 4 * scale, 6 * scale);
-}
-
-/**
- * Dibuja reunión desconocida (signo de interrogación)
- */
-function drawAnchorDesconocido(x, y, size, color) {
-  const scale = size / 20;
-  const outlineColor = 'white';
-
-  // Círculo de fondo con contorno
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 4;
-  rdCtx.beginPath();
-  rdCtx.arc(x, y - 8 * scale, 12 * scale, 0, Math.PI * 2);
-  rdCtx.stroke();
-
-  rdCtx.fillStyle = color;
-  rdCtx.beginPath();
-  rdCtx.arc(x, y - 8 * scale, 12 * scale, 0, Math.PI * 2);
-  rdCtx.fill();
-  rdCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  rdCtx.lineWidth = 1;
-  rdCtx.stroke();
-
-  // Signo de interrogación
-  rdCtx.fillStyle = 'white';
-  rdCtx.font = `bold ${16 * scale}px Arial`;
-  rdCtx.textAlign = 'center';
-  rdCtx.textBaseline = 'middle';
-  rdCtx.fillText('?', x, y - 8 * scale);
-}
-
-/**
- * Dibuja flecha de vía sin terminar (editor)
- * La flecha apunta en la dirección del último segmento
- */
-function drawAnchorSinTerminar(x, y, prevX, prevY, size, color) {
-  const scale = size / 20;
-  const outlineColor = 'white';
-
-  // Calcular ángulo desde prevPoint → lastPoint
-  const angle = Math.atan2(y - prevY, x - prevX);
-
-  rdCtx.save();
-  rdCtx.translate(x, y);
-  rdCtx.rotate(angle);
-
-  const arrowLen = 14 * scale;
-  const arrowW = 7 * scale;
-  const stemLen = 8 * scale;
-  const stemW = 3 * scale;
-
-  // Contorno blanco
-  rdCtx.strokeStyle = outlineColor;
-  rdCtx.lineWidth = 3 * scale;
-  rdCtx.lineJoin = 'round';
-  rdCtx.beginPath();
-  rdCtx.moveTo(arrowLen, 0);
-  rdCtx.lineTo(0, -arrowW);
-  rdCtx.lineTo(0, -stemW);
-  rdCtx.lineTo(-stemLen, -stemW);
-  rdCtx.lineTo(-stemLen, stemW);
-  rdCtx.lineTo(0, stemW);
-  rdCtx.lineTo(0, arrowW);
-  rdCtx.closePath();
-  rdCtx.stroke();
-
-  // Relleno con color de la vía
-  rdCtx.fillStyle = color;
-  rdCtx.beginPath();
-  rdCtx.moveTo(arrowLen, 0);
-  rdCtx.lineTo(0, -arrowW);
-  rdCtx.lineTo(0, -stemW);
-  rdCtx.lineTo(-stemLen, -stemW);
-  rdCtx.lineTo(-stemLen, stemW);
-  rdCtx.lineTo(0, stemW);
-  rdCtx.lineTo(0, arrowW);
-  rdCtx.closePath();
-  rdCtx.fill();
-
-  // Borde oscuro sutil
-  rdCtx.strokeStyle = 'rgba(0,0,0,0.4)';
-  rdCtx.lineWidth = 1;
-  rdCtx.stroke();
-
-  rdCtx.restore();
-}
 
 /**
  * Dibuja solo el PUNTO de inicio de una vía y diamantes en puntos de bifurcación
@@ -3165,6 +2753,7 @@ async function saveBranch(anchorType) {
       });
     }
 
+    await kxBackupRouteDrawings(docRef, 'guardar-ramal', { snapshot: doc });
     await docRef.set({
       schoolId: rdCurrentSector.schoolId,
       sectorName: rdCurrentSector.sectorName,
@@ -3257,91 +2846,28 @@ async function saveEditedBranch(anchorType) {
 }
 
 /**
- * Devuelve el SVG del icono de reunión según el tipo
+ * Devuelve el SVG de la chapa de reunión según el tipo.
+ * Mismo lenguaje que kxDrawTopoChip: chapa de magnesio, aro del color
+ * del grado (currentColor) y glifo en granito.
  */
 function getAnchorSVG(type) {
-  switch(type) {
-    case 'quimicos':
-      // Dos químicos con maillones/anillas
-      return `
-        <svg viewBox="0 0 60 80" width="40" height="53">
-          <!-- Químico izquierdo -->
-          <circle cx="15" cy="12" r="10" fill="currentColor"/>
-          <circle cx="15" cy="12" r="4" fill="white"/>
-          <!-- Maillon izquierdo -->
-          <rect x="10" y="22" width="10" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="3"/>
-          <line x1="10" y1="31" x2="20" y2="31" stroke="currentColor" stroke-width="2"/>
-
-          <!-- Químico derecho -->
-          <circle cx="45" cy="12" r="10" fill="currentColor"/>
-          <circle cx="45" cy="12" r="4" fill="white"/>
-          <!-- Maillon derecho -->
-          <rect x="40" y="22" width="10" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="3"/>
-          <line x1="40" y1="31" x2="50" y2="31" stroke="currentColor" stroke-width="2"/>
-        </svg>
-      `;
-    case 'cadena':
-      // Reunión con cadena
-      return `
-        <svg viewBox="0 0 70 60" width="47" height="40">
-          <!-- Químico izquierdo -->
-          <circle cx="10" cy="12" r="8" fill="currentColor"/>
-          <circle cx="10" cy="12" r="3" fill="white"/>
-
-          <!-- Eslabones de cadena -->
-          <ellipse cx="22" cy="22" rx="6" ry="8" fill="none" stroke="currentColor" stroke-width="3"/>
-          <ellipse cx="35" cy="30" rx="6" ry="8" fill="none" stroke="currentColor" stroke-width="3"/>
-          <ellipse cx="48" cy="22" rx="6" ry="8" fill="none" stroke="currentColor" stroke-width="3"/>
-
-          <!-- Químico derecho -->
-          <circle cx="60" cy="12" r="8" fill="currentColor"/>
-          <circle cx="60" cy="12" r="3" fill="white"/>
-        </svg>
-      `;
-    case 'mosqueton':
-      // Con mosquetón
-      return `
-        <svg viewBox="0 0 60 80" width="40" height="53">
-          <!-- Químico izquierdo -->
-          <circle cx="15" cy="12" r="10" fill="currentColor"/>
-          <circle cx="15" cy="12" r="4" fill="white"/>
-
-          <!-- Químico derecho -->
-          <circle cx="45" cy="12" r="10" fill="currentColor"/>
-          <circle cx="45" cy="12" r="4" fill="white"/>
-
-          <!-- Eslabones conectando -->
-          <ellipse cx="20" cy="28" rx="4" ry="6" fill="none" stroke="currentColor" stroke-width="2.5"/>
-          <ellipse cx="40" cy="28" rx="4" ry="6" fill="none" stroke="currentColor" stroke-width="2.5"/>
-
-          <!-- Mosquetón central -->
-          <path d="M22 38 Q30 32 38 38 L38 60 Q30 68 22 60 Z" fill="none" stroke="currentColor" stroke-width="3"/>
-          <line x1="22" y1="50" x2="38" y2="50" stroke="currentColor" stroke-width="2"/>
-          <rect x="26" y="46" width="8" height="8" rx="1" fill="currentColor"/>
-        </svg>
-      `;
-    case 'desconocido':
-      // Tipo desconocido (signo de interrogación)
-      return `
-        <svg viewBox="0 0 60 80" width="40" height="53">
-          <!-- Círculo de fondo -->
-          <circle cx="30" cy="35" r="25" fill="currentColor"/>
-          <!-- Signo de interrogación -->
-          <text x="30" y="43" font-size="32" font-weight="bold" fill="white" text-anchor="middle">?</text>
-        </svg>
-      `;
-    case 'sin_terminar':
-      // Flecha indicando vía sin terminar
-      return `
-        <svg viewBox="0 0 60 80" width="40" height="53">
-          <path d="M30 5 L30 55" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
-          <path d="M15 40 L30 58 L45 40" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-          <line x1="18" y1="68" x2="42" y2="68" stroke="currentColor" stroke-width="4" stroke-dasharray="4 4" stroke-linecap="round"/>
-        </svg>
-      `;
-    default:
-      return '';
-  }
+  const glyphs = {
+    quimicos: '<circle cx="17.8" cy="24" r="4.2"/><circle cx="30.2" cy="24" r="4.2"/>',
+    cadena: '<circle cx="16" cy="17.6" r="2.2" fill="#202923" stroke="none"/><circle cx="32" cy="17.6" r="2.2" fill="#202923" stroke="none"/><polyline points="16,17.6 24,26.2 32,17.6"/><circle cx="24" cy="29.7" r="3.5"/>',
+    mosqueton: '<g transform="rotate(21.8 24 24)"><rect x="18.5" y="13.9" width="11" height="20.2" rx="5.5"/><line x1="24.7" y1="19.4" x2="24.7" y2="28.6"/></g>',
+    sin_terminar: '<line x1="24" y1="32.6" x2="24" y2="15.4"/><polyline points="17.6,22 24,15.4 30.4,22"/>',
+    desconocido: '<text x="24" y="31.5" font-size="22" font-weight="700" font-family="Manrope, -apple-system, sans-serif" fill="#202923" stroke="none" text-anchor="middle">?</text>'
+  };
+  const glyph = glyphs[type];
+  if (!glyph) return '';
+  const dash = type === 'sin_terminar' ? ' stroke-dasharray="10 7"' : '';
+  return `
+    <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden="true">
+      <circle cx="24" cy="24" r="22" fill="#F7F6F0"/>
+      <circle cx="24" cy="24" r="19.8" fill="none" stroke="currentColor" stroke-width="4.4"${dash}/>
+      <g fill="none" stroke="#202923" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${glyph}</g>
+    </svg>
+  `;
 }
 
 /**
@@ -3592,6 +3118,7 @@ async function deleteBranch(routeId, branchId) {
         return d;
       });
 
+      await kxBackupRouteDrawings(docRef, 'borrar-ramal', { snapshot: doc, required: true });
       await docRef.set({
         schoolId: rdCurrentSector.schoolId,
         sectorName: rdCurrentSector.sectorName,
@@ -3988,6 +3515,7 @@ async function saveRouteDrawing(drawing, isEditing = false) {
     }
 
     // Guardar en Firestore
+    await kxBackupRouteDrawings(docRef, 'guardar-trazado', { snapshot: doc });
     await docRef.set({
       schoolId: rdCurrentSector.schoolId,
       sectorName: rdCurrentSector.sectorName,
@@ -4053,6 +3581,7 @@ async function deleteRouteDrawing(routeId, variantIndex = 0) {
       return d.routeName !== baseName;
     });
 
+    await kxBackupRouteDrawings(docRef, 'borrar-trazado', { snapshot: doc, required: true });
     await docRef.set({
       schoolId: rdCurrentSector.schoolId,
       sectorName: rdCurrentSector.sectorName,
@@ -4085,106 +3614,10 @@ async function deleteRouteDrawing(routeId, variantIndex = 0) {
 // rdToggleRapelMode removed - rapel now uses aux system via enterAuxMode('rapel')
 
 /**
- * Dibuja un icono de rápel genérico (reutilizable por editor y visor)
- * @param {CanvasRenderingContext2D} ctx - Contexto del canvas
+ * Dibuja la chapa de rápel - reutilizable por editor y visor
  */
 function drawRapelIcon(ctx, x, y, size, color) {
-  const scale = size / 20;
-  const outlineColor = 'white';
-
-  // Anillo de rápel (arriba)
-  ctx.strokeStyle = outlineColor;
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.arc(x, y - 14 * scale, 7 * scale, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(x, y - 14 * scale, 7 * scale, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // Agujero del anillo
-  ctx.fillStyle = 'white';
-  ctx.beginPath();
-  ctx.arc(x, y - 14 * scale, 3 * scale, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Cuerda izquierda descendente (zigzag)
-  ctx.strokeStyle = outlineColor;
-  ctx.lineWidth = 4 * scale;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(x - 3 * scale, y - 7 * scale);
-  ctx.lineTo(x - 7 * scale, y - 1 * scale);
-  ctx.lineTo(x - 3 * scale, y + 5 * scale);
-  ctx.lineTo(x - 7 * scale, y + 11 * scale);
-  ctx.stroke();
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2 * scale;
-  ctx.beginPath();
-  ctx.moveTo(x - 3 * scale, y - 7 * scale);
-  ctx.lineTo(x - 7 * scale, y - 1 * scale);
-  ctx.lineTo(x - 3 * scale, y + 5 * scale);
-  ctx.lineTo(x - 7 * scale, y + 11 * scale);
-  ctx.stroke();
-
-  // Cuerda derecha descendente (zigzag)
-  ctx.strokeStyle = outlineColor;
-  ctx.lineWidth = 4 * scale;
-  ctx.beginPath();
-  ctx.moveTo(x + 3 * scale, y - 7 * scale);
-  ctx.lineTo(x + 7 * scale, y - 1 * scale);
-  ctx.lineTo(x + 3 * scale, y + 5 * scale);
-  ctx.lineTo(x + 7 * scale, y + 11 * scale);
-  ctx.stroke();
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2 * scale;
-  ctx.beginPath();
-  ctx.moveTo(x + 3 * scale, y - 7 * scale);
-  ctx.lineTo(x + 7 * scale, y - 1 * scale);
-  ctx.lineTo(x + 3 * scale, y + 5 * scale);
-  ctx.lineTo(x + 7 * scale, y + 11 * scale);
-  ctx.stroke();
-
-  // Puntas de flecha
-  ctx.strokeStyle = outlineColor;
-  ctx.lineWidth = 3 * scale;
-  ctx.beginPath();
-  ctx.moveTo(x - 10 * scale, y + 8 * scale);
-  ctx.lineTo(x - 7 * scale, y + 11 * scale);
-  ctx.lineTo(x - 4 * scale, y + 8 * scale);
-  ctx.stroke();
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5 * scale;
-  ctx.beginPath();
-  ctx.moveTo(x - 10 * scale, y + 8 * scale);
-  ctx.lineTo(x - 7 * scale, y + 11 * scale);
-  ctx.lineTo(x - 4 * scale, y + 8 * scale);
-  ctx.stroke();
-
-  ctx.strokeStyle = outlineColor;
-  ctx.lineWidth = 3 * scale;
-  ctx.beginPath();
-  ctx.moveTo(x + 4 * scale, y + 8 * scale);
-  ctx.lineTo(x + 7 * scale, y + 11 * scale);
-  ctx.lineTo(x + 10 * scale, y + 8 * scale);
-  ctx.stroke();
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5 * scale;
-  ctx.beginPath();
-  ctx.moveTo(x + 4 * scale, y + 8 * scale);
-  ctx.lineTo(x + 7 * scale, y + 11 * scale);
-  ctx.lineTo(x + 10 * scale, y + 8 * scale);
-  ctx.stroke();
+  kxDrawTopoChip(ctx, x, y, 'rapel', color, { radius: size * 0.6 });
 }
 
 // ============================================
@@ -4211,11 +3644,11 @@ function showAuxContextMenu(clientX, clientY) {
   menu.innerHTML = `
     <div class="rd-aux-menu-title">Añadir elemento</div>
     <button class="rd-aux-menu-item" onclick="toggleEditAuxMode()">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
         <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
       </svg>
-      <span style="color: ${rdEditAuxMode ? '#3b82f6' : 'inherit'}">${rdEditAuxMode ? '✓ Editar (activo)' : 'Editar'}</span>
+      <span style="color: ${rdEditAuxMode ? '#DCE9DF' : 'inherit'}">${rdEditAuxMode ? '✓ Editar (activo)' : 'Editar'}</span>
     </button>
     <button class="rd-aux-menu-item" onclick="toggleEraserMode()">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
@@ -4226,9 +3659,9 @@ function showAuxContextMenu(clientX, clientY) {
     </button>
     <div class="rd-aux-menu-separator" style="border-top: 1px solid rgba(255,255,255,0.1); margin: 4px 0;"></div>
     <button class="rd-aux-menu-item" onclick="enterAuxMode('rapel')">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${RD_COLORS.rapel}" stroke-width="2">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="5" r="3"/>
-        <circle cx="12" cy="5" r="1.2" fill="${RD_COLORS.rapel}"/>
+        <circle cx="12" cy="5" r="1.2" fill="currentColor"/>
         <polyline points="10,8 8,14 10,20" stroke-linecap="round"/>
         <polyline points="14,8 16,14 14,20" stroke-linecap="round"/>
       </svg>
@@ -4253,6 +3686,15 @@ function showAuxContextMenu(clientX, clientY) {
         <ellipse cx="15" cy="16" rx="5" ry="3.5" transform="rotate(-30 15 16)"/>
       </svg>
       <span>Cadena</span>
+    </button>
+    <div class="rd-aux-menu-separator" style="border-top: 1px solid rgba(255,255,255,0.1); margin: 4px 0;"></div>
+    <button class="rd-aux-menu-item" onclick="closeAuxContextMenu(); showDrawingBackupsModal()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 1 0 3-6.7"/>
+        <polyline points="3 4 3 9 8 9"/>
+        <polyline points="12 7 12 12 15.5 14"/>
+      </svg>
+      <span>Copias de seguridad</span>
     </button>
   `;
 
@@ -4575,63 +4017,12 @@ function drawAuxTemporary() {
 }
 
 /**
- * Dibuja una línea de descenso/ascenso (discontinua, más fina)
+ * Dibuja una línea de descenso/ascenso (discontinua con flecha)
  */
 function drawDescentLineElement(scaledPoints, color) {
-  if (scaledPoints.length < 2) return;
-
-  rdCtx.save();
-
-  // Sombra exterior para contraste
-  rdCtx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-  rdCtx.lineWidth = 4;
-  rdCtx.lineCap = 'round';
-  rdCtx.lineJoin = 'round';
-  rdCtx.setLineDash([10, 6]);
-  rdCtx.beginPath();
-  rdCtx.moveTo(scaledPoints[0].x, scaledPoints[0].y);
-  for (let i = 1; i < scaledPoints.length; i++) {
-    rdCtx.lineTo(scaledPoints[i].x, scaledPoints[i].y);
-  }
-  rdCtx.stroke();
-
-  // Línea principal discontinua
-  rdCtx.strokeStyle = color;
-  rdCtx.lineWidth = 2.5;
-  rdCtx.setLineDash([10, 6]);
-  rdCtx.beginPath();
-  rdCtx.moveTo(scaledPoints[0].x, scaledPoints[0].y);
-  for (let i = 1; i < scaledPoints.length; i++) {
-    rdCtx.lineTo(scaledPoints[i].x, scaledPoints[i].y);
-  }
-  rdCtx.stroke();
-
-  rdCtx.setLineDash([]);
-
-  // Flechas en los extremos para indicar dirección
-  if (scaledPoints.length >= 2) {
-    const last = scaledPoints[scaledPoints.length - 1];
-    const prev = scaledPoints[scaledPoints.length - 2];
-    drawArrowHead(last.x, last.y, prev.x, prev.y, color, 8);
-  }
-
-  rdCtx.restore();
+  kxDrawDescentLine(rdCtx, scaledPoints, color);
 }
 
-/**
- * Dibuja una flecha en el extremo de una línea
- */
-function drawArrowHead(toX, toY, fromX, fromY, color, size) {
-  const angle = Math.atan2(toY - fromY, toX - fromX);
-
-  rdCtx.fillStyle = color;
-  rdCtx.beginPath();
-  rdCtx.moveTo(toX, toY);
-  rdCtx.lineTo(toX - size * Math.cos(angle - Math.PI / 6), toY - size * Math.sin(angle - Math.PI / 6));
-  rdCtx.lineTo(toX - size * Math.cos(angle + Math.PI / 6), toY - size * Math.sin(angle + Math.PI / 6));
-  rdCtx.closePath();
-  rdCtx.fill();
-}
 
 /**
  * Dibuja grapas (U invertida) en cada punto
@@ -4646,106 +4037,16 @@ function drawGrapasElement(scaledPoints, color) {
  * Dibuja un icono de grapa (U) - reutilizable por editor y visor
  */
 function drawGrapaIcon(ctx, x, y, size, color) {
-  const s = size / 12;
-
-  ctx.save();
-
-  // Sombra exterior
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-  ctx.lineWidth = 5 * s;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(x - 6 * s, y - 8 * s);
-  ctx.lineTo(x - 6 * s, y + 2 * s);
-  ctx.quadraticCurveTo(x - 6 * s, y + 8 * s, x, y + 8 * s);
-  ctx.quadraticCurveTo(x + 6 * s, y + 8 * s, x + 6 * s, y + 2 * s);
-  ctx.lineTo(x + 6 * s, y - 8 * s);
-  ctx.stroke();
-
-  // Grapa principal (U)
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3 * s;
-  ctx.beginPath();
-  ctx.moveTo(x - 6 * s, y - 8 * s);
-  ctx.lineTo(x - 6 * s, y + 2 * s);
-  ctx.quadraticCurveTo(x - 6 * s, y + 8 * s, x, y + 8 * s);
-  ctx.quadraticCurveTo(x + 6 * s, y + 8 * s, x + 6 * s, y + 2 * s);
-  ctx.lineTo(x + 6 * s, y - 8 * s);
-  ctx.stroke();
-
-  // Puntos en los extremos superiores (donde se clava)
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(x - 6 * s, y - 8 * s, 2 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x + 6 * s, y - 8 * s, 2 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
+  kxDrawStaple(ctx, x, y, size, color);
 }
 
 /**
  * Dibuja una cadena (eslabones encadenados)
  */
 function drawCadenaElement(scaledPoints, color) {
-  if (scaledPoints.length < 2) return;
-
-  rdCtx.save();
-
-  // Dibujar eslabones a lo largo del path
-  for (let i = 0; i < scaledPoints.length - 1; i++) {
-    const p1 = scaledPoints[i];
-    const p2 = scaledPoints[i + 1];
-    drawChainSegment(p1.x, p1.y, p2.x, p2.y, color);
-  }
-
-  rdCtx.restore();
+  kxDrawChain(rdCtx, scaledPoints, color);
 }
 
-/**
- * Dibuja un segmento de cadena entre dos puntos con eslabones
- */
-function drawChainSegment(x1, y1, x2, y2, color) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const angle = Math.atan2(dy, dx);
-  const linkLength = 12;
-  const linkWidth = 5;
-  const numLinks = Math.max(1, Math.floor(dist / linkLength));
-
-  rdCtx.save();
-  rdCtx.translate(x1, y1);
-  rdCtx.rotate(angle);
-
-  const actualLinkLen = dist / numLinks;
-
-  for (let i = 0; i < numLinks; i++) {
-    const lx = i * actualLinkLen + actualLinkLen / 2;
-    const isEven = i % 2 === 0;
-    const w = isEven ? linkWidth : linkWidth * 0.7;
-    const h = actualLinkLen * 0.4;
-
-    // Sombra
-    rdCtx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-    rdCtx.lineWidth = 4;
-    rdCtx.lineCap = 'round';
-    rdCtx.beginPath();
-    rdCtx.ellipse(lx, 0, h, w, 0, 0, Math.PI * 2);
-    rdCtx.stroke();
-
-    // Eslabón
-    rdCtx.strokeStyle = color;
-    rdCtx.lineWidth = 2;
-    rdCtx.beginPath();
-    rdCtx.ellipse(lx, 0, h, w, 0, 0, Math.PI * 2);
-    rdCtx.stroke();
-  }
-
-  rdCtx.restore();
-}
 
 /**
  * Dibuja puntos de rápel como elemento auxiliar
@@ -4795,6 +4096,7 @@ async function saveAuxElements() {
     }
     allAuxElements = allAuxElements.concat(auxData);
 
+    await kxBackupRouteDrawings(docRef, 'guardar-elementos', { snapshot: doc });
     await docRef.set({
       auxElements: allAuxElements,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -4997,6 +4299,125 @@ function rdConfirm(title, message, confirmText) {
   return new Promise(resolve => {
     showRdConfirmModal(title, message, confirmText, 'Cancelar', () => resolve(true), () => resolve(false));
   });
+}
+
+// ============================================
+// COPIAS DE SEGURIDAD: HISTORIAL Y RESTAURACIÓN
+// ============================================
+
+const RD_BACKUP_REASONS = {
+  'guardar-trazado': 'Antes de guardar un trazado',
+  'borrar-trazado': 'Antes de borrar un trazado',
+  'guardar-ramal': 'Antes de guardar un ramal',
+  'borrar-ramal': 'Antes de borrar un ramal',
+  'guardar-elementos': 'Antes de guardar elementos',
+  'borrador': 'Antes de usar el borrador',
+  'borrar-imagen': 'Antes de borrar una foto',
+  'admin-borrar-via': 'Antes de borrar una vía (admin)',
+  'admin-limpiar-huerfanos': 'Antes de limpiar huérfanos (admin)',
+  'antes-de-restaurar': 'Antes de restaurar otra copia'
+};
+
+function rdDrawingsDocRef() {
+  const docId = `${rdCurrentSector.schoolId}_${normalizeSectorName(rdCurrentSector.sectorName)}`;
+  return db.collection('sector_route_drawings').doc(docId);
+}
+
+/**
+ * Muestra las últimas copias de seguridad de los trazados del sector
+ */
+async function showDrawingBackupsModal() {
+  closeDrawingBackupsModal();
+  if (!rdCurrentSector) return;
+
+  const modal = document.createElement('div');
+  modal.id = 'rd-backups-modal';
+  modal.className = 'rd-modal-overlay';
+  modal.innerHTML = `
+    <div class="rd-modal-container rd-backups-container">
+      <div class="rd-modal-header">
+        <h3>Copias de seguridad</h3>
+      </div>
+      <div class="rd-modal-body">
+        <p>Antes de cada cambio se guarda una copia de los trazados del sector. Las copias no se pueden borrar.</p>
+        <div class="rd-backups-list" id="rd-backups-list">
+          <div class="rd-backups-empty">Cargando copias…</div>
+        </div>
+      </div>
+      <div class="rd-modal-footer">
+        <button class="rd-modal-btn rd-modal-btn-cancel" onclick="closeDrawingBackupsModal()">Cerrar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeDrawingBackupsModal();
+  });
+
+  const list = document.getElementById('rd-backups-list');
+  try {
+    const snap = await rdDrawingsDocRef().collection('backups').orderBy('createdAt', 'desc').limit(30).get();
+    if (!document.getElementById('rd-backups-modal')) return;
+
+    if (snap.empty) {
+      list.innerHTML = '<div class="rd-backups-empty">Todavía no hay copias de este sector. Se crean solas al guardar o borrar.</div>';
+      return;
+    }
+
+    list.innerHTML = snap.docs.map(doc => {
+      const b = doc.data();
+      const date = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate() : null;
+      const when = date
+        ? date.toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : 'Ahora mismo';
+      const vias = `${b.drawingsCount || 0} ${b.drawingsCount === 1 ? 'vía' : 'vías'}`;
+      const aux = b.auxCount ? ` · ${b.auxCount} ${b.auxCount === 1 ? 'elemento' : 'elementos'}` : '';
+      return `
+        <div class="rd-backup-row">
+          <div class="rd-backup-info">
+            <span class="rd-backup-when">${when}</span>
+            <span class="rd-backup-meta">${vias}${aux} · ${RD_BACKUP_REASONS[b.reason] || 'Copia automática'}</span>
+          </div>
+          <button class="rd-backup-restore" onclick="restoreDrawingBackup('${doc.id}')">Restaurar</button>
+        </div>
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('[RouteDrawing] Error cargando copias de seguridad:', error);
+    if (list) list.innerHTML = '<div class="rd-backups-empty">No se pudieron cargar las copias. Revisa la conexión y vuelve a intentarlo.</div>';
+  }
+}
+
+function closeDrawingBackupsModal() {
+  const modal = document.getElementById('rd-backups-modal');
+  if (modal) modal.remove();
+}
+
+/**
+ * Restaura una copia de seguridad (guardando antes el estado actual)
+ */
+async function restoreDrawingBackup(backupId) {
+  const ok = await rdConfirm(
+    'Restaurar copia',
+    'Los trazados del sector volverán a como estaban en esa copia. El estado actual se guarda antes como otra copia, así que podrás deshacerlo.',
+    'Restaurar'
+  );
+  if (!ok) return;
+
+  try {
+    await kxRestoreRouteDrawings(rdDrawingsDocRef(), backupId);
+    closeDrawingBackupsModal();
+
+    await loadRouteDrawings(rdCurrentSector.schoolId, rdCurrentSector.sectorName, rdCurrentSector.imageId);
+    await loadAuxElements(rdCurrentSector.schoolId, rdCurrentSector.sectorName, rdCurrentSector.imageId);
+    const routeList = document.getElementById('rd-route-list');
+    if (routeList) routeList.innerHTML = renderRoutesList();
+    redrawCanvas();
+    showRDToast('Copia restaurada', 'success');
+  } catch (error) {
+    console.error('[RouteDrawing] Error restaurando copia:', error);
+    showRDToast('No se pudo restaurar: ' + error.message, 'error');
+  }
 }
 
 /**
@@ -5425,6 +4846,7 @@ async function saveAllRouteDrawings() {
       allDrawings = [...rdRouteDrawings];
     }
 
+    await kxBackupRouteDrawings(docRef, 'borrador', { snapshot: doc, required: true });
     await docRef.set({
       drawings: allDrawings,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),

@@ -593,6 +593,7 @@ function closeSectorImageViewer() {
   if (lockedPopup) lockedPopup.remove();
 
   // Limpiar variables del canvas
+  svUnwatchCanvasGeometry();
   svCanvas = null;
   svCtx = null;
   svImage = null;
@@ -1658,6 +1659,277 @@ function kxGradeInk(bgColor) {
   return luminance > 0.23 ? '#202923' : '#ffffff';
 }
 
+// ============================================
+// ICONOGRAFÍA DE TOPO (compartida por visor y editor)
+// ============================================
+// Líneas en el color del grado con calzo oscuro; reuniones y elementos
+// auxiliares como chapas de magnesio con glifo en granito.
+const KX_TOPO = {
+  chalk: '#F7F6F0',
+  ink: '#202923',
+  casing: 'rgba(14, 20, 17, 0.62)',
+  hairline: 'rgba(14, 20, 17, 0.55)',
+  shadow: 'rgba(14, 20, 17, 0.45)'
+};
+
+function kxTracePath(ctx, points) {
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+}
+
+/**
+ * Línea de topo: calzo oscuro (o magnesio si está resaltada) + trazo de color
+ * opts: { width, highlighted, alpha, dash }
+ */
+function kxDrawTopoLine(ctx, points, color, opts = {}) {
+  if (!points || points.length < 2) return;
+  const width = opts.width || 3;
+
+  ctx.save();
+  ctx.globalAlpha = opts.alpha === undefined ? 1 : opts.alpha;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.setLineDash(opts.dash || []);
+
+  ctx.strokeStyle = opts.highlighted ? KX_TOPO.chalk : KX_TOPO.casing;
+  ctx.lineWidth = width + (opts.highlighted ? 3.5 : 2.5);
+  kxTracePath(ctx, points);
+  ctx.stroke();
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  kxTracePath(ctx, points);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/**
+ * Punta de flecha rellena con calzo, orientada de (fromX, fromY) a (toX, toY)
+ */
+function kxDrawArrowHead(ctx, toX, toY, fromX, fromY, color, size) {
+  const angle = Math.atan2(toY - fromY, toX - fromX);
+  ctx.save();
+  ctx.translate(toX, toY);
+  ctx.rotate(angle);
+  ctx.setLineDash([]);
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(size * 0.35, 0);
+  ctx.lineTo(-size, -size * 0.62);
+  ctx.lineTo(-size, size * 0.62);
+  ctx.closePath();
+  ctx.strokeStyle = KX_TOPO.casing;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * Glifo de la chapa, centrado en el origen. g = semialtura útil.
+ */
+function kxDrawTopoGlyph(ctx, type, g, angle) {
+  switch (type) {
+    case 'quimicos': // dos anillas
+      ctx.beginPath();
+      ctx.arc(-0.56 * g, 0, 0.38 * g, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0.56 * g, 0, 0.38 * g, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    case 'cadena': // dos anclajes unidos en V a una anilla
+      ctx.beginPath();
+      ctx.arc(-0.72 * g, -0.58 * g, 0.2 * g, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0.72 * g, -0.58 * g, 0.2 * g, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-0.72 * g, -0.58 * g);
+      ctx.lineTo(0, 0.2 * g);
+      ctx.lineTo(0.72 * g, -0.58 * g);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0.52 * g, 0.32 * g, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    case 'mosqueton': { // mosquetón con gatillo
+      const w = 0.5 * g, h = 0.92 * g;
+      ctx.rotate(0.38);
+      ctx.beginPath();
+      ctx.moveTo(-w, -h + w);
+      ctx.arc(0, -h + w, w, Math.PI, 0);
+      ctx.lineTo(w, h - w);
+      ctx.arc(0, h - w, w, 0, Math.PI);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0.06 * g, -0.42 * g);
+      ctx.lineTo(0.06 * g, 0.42 * g);
+      ctx.stroke();
+      break;
+    }
+    case 'sin_terminar': // la vía continúa: flecha en la dirección del trazo
+      ctx.rotate(angle || -Math.PI / 2);
+      ctx.beginPath();
+      ctx.moveTo(-0.78 * g, 0);
+      ctx.lineTo(0.78 * g, 0);
+      ctx.moveTo(0.18 * g, -0.58 * g);
+      ctx.lineTo(0.78 * g, 0);
+      ctx.lineTo(0.18 * g, 0.58 * g);
+      ctx.stroke();
+      break;
+    case 'rapel': // anilla y cuerda que baja
+      ctx.beginPath();
+      ctx.arc(0, -0.62 * g, 0.26 * g, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -0.36 * g);
+      ctx.lineTo(0, 0.86 * g);
+      ctx.moveTo(-0.46 * g, 0.38 * g);
+      ctx.lineTo(0, 0.86 * g);
+      ctx.lineTo(0.46 * g, 0.38 * g);
+      ctx.stroke();
+      break;
+    default: // desconocido
+      ctx.font = `700 ${Math.round(g * 2.1)}px Manrope, -apple-system, 'Segoe UI', sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('?', 0, g * 0.08);
+  }
+}
+
+/**
+ * Chapa de magnesio con aro del color indicado y glifo según el tipo
+ * (reuniones: quimicos, cadena, mosqueton, desconocido, sin_terminar; aux: rapel)
+ * opts: { radius, alpha, angle }
+ */
+function kxDrawTopoChip(ctx, x, y, type, color, opts = {}) {
+  const r = opts.radius || 8;
+  const ring = Math.max(1.5, r * 0.2);
+
+  ctx.save();
+  ctx.globalAlpha = opts.alpha === undefined ? 1 : opts.alpha;
+  ctx.translate(x, y);
+  ctx.setLineDash([]);
+
+  ctx.shadowColor = KX_TOPO.shadow;
+  ctx.shadowBlur = r * 0.6;
+  ctx.shadowOffsetY = r * 0.12;
+  ctx.fillStyle = KX_TOPO.chalk;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  // Filo fino para que la chapa no se pierda sobre roca clara
+  ctx.strokeStyle = KX_TOPO.hairline;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Aro del color del grado (discontinuo si la vía no está terminada)
+  ctx.strokeStyle = color;
+  ctx.lineWidth = ring;
+  if (type === 'sin_terminar') ctx.setLineDash([r * 0.5, r * 0.36]);
+  ctx.beginPath();
+  ctx.arc(0, 0, r - ring / 2 - 0.5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle = KX_TOPO.ink;
+  ctx.fillStyle = KX_TOPO.ink;
+  ctx.lineWidth = Math.max(1.1, r * 0.15);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  kxDrawTopoGlyph(ctx, type, (r - ring) * 0.62, opts.angle);
+
+  ctx.restore();
+}
+
+/**
+ * Grapa (peldaño en U) en magnesio con calzo
+ */
+function kxDrawStaple(ctx, x, y, size, color) {
+  const s = size / 12;
+  const trace = () => {
+    ctx.beginPath();
+    ctx.moveTo(x - 6 * s, y - 5 * s);
+    ctx.lineTo(x - 6 * s, y + 1 * s);
+    ctx.quadraticCurveTo(x - 6 * s, y + 5 * s, x - 2 * s, y + 5 * s);
+    ctx.lineTo(x + 2 * s, y + 5 * s);
+    ctx.quadraticCurveTo(x + 6 * s, y + 5 * s, x + 6 * s, y + 1 * s);
+    ctx.lineTo(x + 6 * s, y - 5 * s);
+  };
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = KX_TOPO.casing;
+  ctx.lineWidth = 4.5 * s;
+  trace();
+  ctx.stroke();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.2 * s;
+  trace();
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Cadena: eslabones alternos a lo largo del recorrido
+ */
+function kxDrawChain(ctx, points, color) {
+  if (!points || points.length < 2) return;
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'round';
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i], p2 = points[i + 1];
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const numLinks = Math.max(1, Math.floor(dist / 10));
+    const step = dist / numLinks;
+
+    ctx.save();
+    ctx.translate(p1.x, p1.y);
+    ctx.rotate(Math.atan2(p2.y - p1.y, p2.x - p1.x));
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.strokeStyle = pass === 0 ? KX_TOPO.casing : color;
+      ctx.lineWidth = pass === 0 ? 3.6 : 1.6;
+      for (let j = 0; j < numLinks; j++) {
+        const cx = j * step + step / 2;
+        ctx.beginPath();
+        ctx.ellipse(cx, 0, step * 0.56, j % 2 === 0 ? 3.2 : 1.4, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+/**
+ * Línea de descenso/acceso: discontinua en magnesio con flecha final
+ */
+function kxDrawDescentLine(ctx, points, color) {
+  if (!points || points.length < 2) return;
+  kxDrawTopoLine(ctx, points, color, { width: 2, dash: [7, 6] });
+  const last = points[points.length - 1];
+  const prev = points[points.length - 2];
+  kxDrawArrowHead(ctx, last.x, last.y, prev.x, prev.y, color, 7);
+}
+
 /**
  * Dibuja la chapa numerada del inicio de una vía (compartido por visor y editor)
  */
@@ -1773,6 +2045,109 @@ async function setupSectorViewerCanvasForGallery(schoolId, sectorName, imageInde
   }
 }
 
+// ============================================
+// GEOMETRÍA DEL OVERLAY (canvas siempre encima de la foto)
+// ============================================
+let svGeometryObserver = null;
+let svGeometryRaf = null;
+
+/**
+ * Ajusta tamaño y posición del canvas al rectángulo real de la imagen.
+ * Usa offset* (layout sin transformar), así no le afecta el zoom/pan activo.
+ * Devuelve true si la geometría cambió.
+ */
+function svSyncCanvasGeometry(img, container) {
+  if (!svCanvas || !svCtx || !img || !container) return false;
+
+  const imgWidth = img.offsetWidth;
+  const imgHeight = img.offsetHeight;
+  if (imgWidth === 0 || imgHeight === 0) return false;
+
+  let left, top;
+  if (img.offsetParent === container) {
+    left = img.offsetLeft;
+    top = img.offsetTop;
+  } else {
+    const containerRect = container.getBoundingClientRect();
+    const imgRect = img.getBoundingClientRect();
+    left = imgRect.left - containerRect.left;
+    top = imgRect.top - containerRect.top;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const changed = svCanvas.displayWidth !== imgWidth || svCanvas.displayHeight !== imgHeight ||
+    svCanvas.dpr !== dpr || svCanvas.kxLeft !== left || svCanvas.kxTop !== top;
+  if (!changed) return false;
+
+  // Resolución interna según DPR para nitidez en pantallas retina
+  svCanvas.width = Math.round(imgWidth * dpr);
+  svCanvas.height = Math.round(imgHeight * dpr);
+
+  svCanvas.style.display = 'block';
+  svCanvas.style.position = 'absolute';
+  svCanvas.style.top = top + 'px';
+  svCanvas.style.left = left + 'px';
+  svCanvas.style.width = imgWidth + 'px';
+  svCanvas.style.height = imgHeight + 'px';
+  // El canvas comparte siempre la transformación de zoom de la imagen
+  svCanvas.style.transform = img.style.transform || 'none';
+  svCanvas.style.transformOrigin = 'center center';
+  svCanvas.style.pointerEvents = 'auto';
+  svCanvas.style.cursor = 'pointer';
+  svCanvas.style.zIndex = '10';
+
+  svCanvas.dpr = dpr;
+  svCanvas.displayWidth = imgWidth;
+  svCanvas.displayHeight = imgHeight;
+  svCanvas.kxLeft = left;
+  svCanvas.kxTop = top;
+  return true;
+}
+
+/**
+ * Re-sincroniza el overlay en el siguiente frame (agrupa ráfagas de eventos)
+ */
+function svScheduleGeometrySync() {
+  if (svGeometryRaf) return;
+  svGeometryRaf = requestAnimationFrame(() => {
+    svGeometryRaf = null;
+    if (!svCanvas || !svImage) return;
+    const container = svCanvas.parentElement;
+    if (svSyncCanvasGeometry(svImage, container)) redrawCanvasOverlay();
+  });
+}
+
+/**
+ * Vigila cualquier cambio de layout (giro, teclado, barras del navegador,
+ * leyenda que aparece, carga tardía de la imagen) para recolocar el overlay.
+ */
+function svWatchCanvasGeometry(img, container) {
+  svUnwatchCanvasGeometry();
+  if (typeof ResizeObserver !== 'undefined') {
+    svGeometryObserver = new ResizeObserver(svScheduleGeometrySync);
+    svGeometryObserver.observe(img);
+    svGeometryObserver.observe(container);
+  }
+  window.addEventListener('resize', svScheduleGeometrySync);
+  window.addEventListener('orientationchange', svScheduleGeometrySync);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', svScheduleGeometrySync);
+  img.addEventListener('load', svScheduleGeometrySync);
+}
+
+function svUnwatchCanvasGeometry() {
+  if (svGeometryObserver) {
+    svGeometryObserver.disconnect();
+    svGeometryObserver = null;
+  }
+  window.removeEventListener('resize', svScheduleGeometrySync);
+  window.removeEventListener('orientationchange', svScheduleGeometrySync);
+  if (window.visualViewport) window.visualViewport.removeEventListener('resize', svScheduleGeometrySync);
+  if (svGeometryRaf) {
+    cancelAnimationFrame(svGeometryRaf);
+    svGeometryRaf = null;
+  }
+}
+
 /**
  * Inicializa el canvas como overlay sobre la imagen de la galería
  * Usa devicePixelRatio para mejor nitidez en pantallas de alta densidad (móviles/retina)
@@ -1789,46 +2164,12 @@ function initCanvasOverlayForGallery(img, container, imageIndex) {
     return;
   }
 
-  // Obtener la posición exacta de la imagen dentro del contenedor
-  const containerRect = container.getBoundingClientRect();
-  const imgRect = img.getBoundingClientRect();
-
-  // Calcular el offset de la imagen respecto al contenedor
-  const imgOffsetLeft = imgRect.left - containerRect.left;
-  const imgOffsetTop = imgRect.top - containerRect.top;
-
-  // Obtener el ratio de píxeles del dispositivo para pantallas de alta densidad
-  const dpr = window.devicePixelRatio || 1;
-
-  // Configurar canvas con mayor resolución interna para nitidez
-  svCanvas.width = imgWidth * dpr;
-  svCanvas.height = imgHeight * dpr;
-
-  // Posicionar canvas EXACTAMENTE sobre la imagen con tamaño visual via CSS
-  svCanvas.style.display = 'block';
-  svCanvas.style.position = 'absolute';
-  svCanvas.style.top = imgOffsetTop + 'px';
-  svCanvas.style.left = imgOffsetLeft + 'px';
-  svCanvas.style.transform = 'none';
-  svCanvas.style.width = imgWidth + 'px';
-  svCanvas.style.height = imgHeight + 'px';
-  svCanvas.style.pointerEvents = 'auto';
-  svCanvas.style.cursor = 'pointer';
-  svCanvas.style.zIndex = '10';
-
-  // Escalar el contexto para que las operaciones de dibujo sean en coordenadas lógicas
-  svCtx.setTransform(1, 0, 0, 1, 0, 0); // Resetear transformaciones previas
-  svCtx.scale(dpr, dpr);
-
-  // Guardar DPR y dimensiones lógicas en el canvas para uso posterior
-  svCanvas.dpr = dpr;
-  svCanvas.displayWidth = imgWidth;
-  svCanvas.displayHeight = imgHeight;
-
-  // Guardar referencia a la imagen para escalar coordenadas
+  // Colocar el canvas exactamente sobre la foto y vigilar cambios de layout
   svImage = img;
+  svCanvas.displayWidth = 0; // forzar recálculo completo al (re)inicializar
+  svSyncCanvasGeometry(img, container);
+  svWatchCanvasGeometry(img, container);
 
-  console.log('[SectorViewer] Canvas overlay configurado para galería:', imgWidth, 'x', imgHeight, '@ DPR:', dpr);
 
   // Aplicar highlight pendiente si existe (svPendingHighlightRoute stores routeId)
   if (svPendingHighlightRoute) {
@@ -2259,6 +2600,7 @@ async function deleteRouteDrawingsForImage(schoolId, sectorName, imageId) {
       const filteredDrawings = drawings.filter(d => d.imageId !== imageId);
 
       if (filteredDrawings.length !== drawings.length) {
+        await kxBackupRouteDrawings(docRef, 'borrar-imagen', { snapshot: doc, required: true });
         await docRef.update({
           drawings: filteredDrawings,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2345,46 +2687,12 @@ function initCanvasOverlay(img) {
     return;
   }
 
-  // Obtener la posición exacta de la imagen dentro del contenedor
-  const containerRect = container.getBoundingClientRect();
-  const imgRect = img.getBoundingClientRect();
-
-  // Calcular el offset de la imagen respecto al contenedor
-  const imgOffsetLeft = imgRect.left - containerRect.left;
-  const imgOffsetTop = imgRect.top - containerRect.top;
-
-  // Obtener el ratio de píxeles del dispositivo para pantallas de alta densidad
-  const dpr = window.devicePixelRatio || 1;
-
-  // Configurar canvas con mayor resolución interna para nitidez
-  svCanvas.width = imgWidth * dpr;
-  svCanvas.height = imgHeight * dpr;
-
-  // Posicionar canvas EXACTAMENTE sobre la imagen con tamaño visual via CSS
-  svCanvas.style.display = 'block';
-  svCanvas.style.position = 'absolute';
-  svCanvas.style.top = imgOffsetTop + 'px';
-  svCanvas.style.left = imgOffsetLeft + 'px';
-  svCanvas.style.transform = 'none';
-  svCanvas.style.width = imgWidth + 'px';
-  svCanvas.style.height = imgHeight + 'px';
-  svCanvas.style.pointerEvents = 'auto';
-  svCanvas.style.cursor = 'pointer';
-  svCanvas.style.zIndex = '10';
-
-  // Escalar el contexto para que las operaciones de dibujo sean en coordenadas lógicas
-  svCtx.setTransform(1, 0, 0, 1, 0, 0); // Resetear transformaciones previas
-  svCtx.scale(dpr, dpr);
-
-  // Guardar DPR y dimensiones lógicas en el canvas para uso posterior
-  svCanvas.dpr = dpr;
-  svCanvas.displayWidth = imgWidth;
-  svCanvas.displayHeight = imgHeight;
-
-  // Guardar referencia a la imagen para escalar coordenadas
+  // Colocar el canvas exactamente sobre la foto y vigilar cambios de layout
   svImage = img;
+  svCanvas.displayWidth = 0; // forzar recálculo completo al (re)inicializar
+  svSyncCanvasGeometry(img, container);
+  svWatchCanvasGeometry(img, container);
 
-  console.log('[SectorViewer] Canvas overlay configurado:', imgWidth, 'x', imgHeight, '@ DPR:', dpr);
 
   // Aplicar highlight pendiente si existe (svPendingHighlightRoute stores routeId)
   if (svPendingHighlightRoute) {
@@ -2630,62 +2938,15 @@ function drawOverlayRouteLine(drawing, canvasWidth, canvasHeight) {
   // Factor de escala para que las líneas se vean consistentes en diferentes tamaños de pantalla
   const scaleFactor = getLineScaleFactor();
 
-  let borderWidth, lineWidth;
-  if (isZoomed) {
-    borderWidth = (isHighlighted ? 4 : 3) * scaleFactor;
-    lineWidth = (isHighlighted ? 2.5 : 2) * scaleFactor;
-  } else {
-    borderWidth = (isHighlighted ? 8 : 6) * scaleFactor;
-    lineWidth = (isHighlighted ? 5 : 4) * scaleFactor;
-  }
-
-  const dashPattern = isZoomed ? [8 * scaleFactor, 6 * scaleFactor] : [];
-
-  let borderColor, mainColor;
-  if (isZoomed) {
-    borderColor = isHighlighted ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.35)';
-    mainColor = addAlphaToColor(color, 0.6);
-  } else {
-    borderColor = isHighlighted ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.65)';
-    mainColor = color;
-  }
+  // Con zoom el trazo se afina y se hace discontinuo para dejar ver la roca
+  const lineOpts = isZoomed
+    ? { width: (isHighlighted ? 2.5 : 2) * scaleFactor, dash: [8 * scaleFactor, 6 * scaleFactor], alpha: 0.7, highlighted: isHighlighted }
+    : { width: (isHighlighted ? 4 : 3) * scaleFactor, highlighted: isHighlighted };
 
   // Dibujar cada path (tronco + ramas)
   paths.forEach(path => {
-    if (!path.points || path.points.length < 2) return;
-
-    // Borde/sombra
-    svCtx.strokeStyle = borderColor;
-    svCtx.lineWidth = borderWidth;
-    svCtx.lineCap = 'round';
-    svCtx.lineJoin = 'round';
-    svCtx.shadowColor = 'transparent';
-    svCtx.shadowBlur = 0;
-    svCtx.setLineDash(dashPattern);
-
-    svCtx.beginPath();
-    svCtx.moveTo(path.points[0].x, path.points[0].y);
-    for (let i = 1; i < path.points.length; i++) {
-      svCtx.lineTo(path.points[i].x, path.points[i].y);
-    }
-    svCtx.stroke();
-
-    // Línea principal
-    svCtx.strokeStyle = mainColor;
-    svCtx.lineWidth = lineWidth;
-    svCtx.lineCap = 'round';
-    svCtx.lineJoin = 'round';
-    svCtx.setLineDash(dashPattern);
-
-    svCtx.beginPath();
-    svCtx.moveTo(path.points[0].x, path.points[0].y);
-    for (let i = 1; i < path.points.length; i++) {
-      svCtx.lineTo(path.points[i].x, path.points[i].y);
-    }
-    svCtx.stroke();
+    kxDrawTopoLine(svCtx, path.points, color, lineOpts);
   });
-
-  svCtx.setLineDash([]);
 }
 
 /**
@@ -2698,9 +2959,9 @@ function drawOverlayRouteAnchor(drawing, canvasWidth, canvasHeight) {
   const color = getRouteColor(drawing);
   const isZoomed = svZoomState.scale > 1;
   const scaleFactor = getLineScaleFactor();
-  const mainColor = isZoomed ? addAlphaToColor(color, 0.6) : color;
-  const iconSize = isZoomed ? 10 * scaleFactor : 14 * scaleFactor;
-  const iconAlpha = isZoomed ? 0.6 : 1;
+  const mainColor = color;
+  const iconSize = (isZoomed ? 5.5 : 8) * scaleFactor;
+  const iconAlpha = isZoomed ? 0.85 : 1;
 
   // Dibujar reunión al final de cada path
   paths.forEach(path => {
@@ -2712,315 +2973,19 @@ function drawOverlayRouteAnchor(drawing, canvasWidth, canvasHeight) {
 }
 
 /**
- * Dibuja el icono de reunión al final de la vía en el visor de sector
+ * Dibuja la chapa de reunión al final de la vía en el visor de sector
  */
 function drawSvAnchorIcon(x, y, prevX, prevY, anchorType, color, size, alpha) {
-  svCtx.save();
-
-  // Aplicar alpha global si es necesario
-  if (alpha < 1) {
-    svCtx.globalAlpha = alpha;
-  }
-
-  // Sin terminar: usa sus propias coordenadas y rotación
-  if (anchorType === 'sin_terminar') {
-    drawSvAnchorSinTerminar(x, y, prevX, prevY, size, color);
-    svCtx.restore();
-    return;
-  }
-
-  // Trasladar al punto final (sin rotación - siempre mira hacia arriba)
-  svCtx.translate(x, y);
-
-  // Dibujar según el tipo de reunión
-  switch(anchorType) {
-    case 'quimicos':
-      drawSvAnchorQuimicos(0, 0, size, color);
-      break;
-    case 'cadena':
-      drawSvAnchorCadena(0, 0, size, color);
-      break;
-    case 'mosqueton':
-      drawSvAnchorMosqueton(0, 0, size, color);
-      break;
-  }
-
-  svCtx.restore();
+  if (!['quimicos', 'cadena', 'mosqueton', 'sin_terminar'].includes(anchorType)) return;
+  kxDrawTopoChip(svCtx, x, y, anchorType, color, {
+    radius: size,
+    alpha,
+    angle: Math.atan2(y - prevY, x - prevX)
+  });
 }
 
-/**
- * Dibuja reunión de químicos con maillones (visor de sector)
- */
-function drawSvAnchorQuimicos(x, y, size, color) {
-  const scale = size / 20;
-  const outlineWidth = 2 * scale;
-  const outlineColor = 'white';
 
-  // Químico izquierdo con contorno
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = outlineWidth + 2;
-  svCtx.beginPath();
-  svCtx.arc(x - 8 * scale, y - 12 * scale, 6 * scale, 0, Math.PI * 2);
-  svCtx.stroke();
 
-  svCtx.fillStyle = color;
-  svCtx.beginPath();
-  svCtx.arc(x - 8 * scale, y - 12 * scale, 6 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-  svCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  svCtx.lineWidth = 1;
-  svCtx.stroke();
-
-  // Agujero izquierdo
-  svCtx.fillStyle = 'white';
-  svCtx.beginPath();
-  svCtx.arc(x - 8 * scale, y - 12 * scale, 2.5 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-
-  // Químico derecho con contorno
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = outlineWidth + 2;
-  svCtx.beginPath();
-  svCtx.arc(x + 8 * scale, y - 12 * scale, 6 * scale, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.fillStyle = color;
-  svCtx.beginPath();
-  svCtx.arc(x + 8 * scale, y - 12 * scale, 6 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-  svCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  svCtx.lineWidth = 1;
-  svCtx.stroke();
-
-  // Agujero derecho
-  svCtx.fillStyle = 'white';
-  svCtx.beginPath();
-  svCtx.arc(x + 8 * scale, y - 12 * scale, 2.5 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-
-  // Maillones/anillas con contorno
-  // Maillon izquierdo
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x - 8 * scale, y - 2 * scale, 3 * scale, 5 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.strokeStyle = color;
-  svCtx.lineWidth = 2 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x - 8 * scale, y - 2 * scale, 3 * scale, 5 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  // Maillon derecho
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x + 8 * scale, y - 2 * scale, 3 * scale, 5 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.strokeStyle = color;
-  svCtx.lineWidth = 2 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x + 8 * scale, y - 2 * scale, 3 * scale, 5 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-}
-
-/**
- * Dibuja reunión con cadena (visor de sector)
- */
-function drawSvAnchorCadena(x, y, size, color) {
-  const scale = size / 20;
-  const outlineColor = 'white';
-
-  // Químico izquierdo con contorno
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4;
-  svCtx.beginPath();
-  svCtx.arc(x - 14 * scale, y - 14 * scale, 5 * scale, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.fillStyle = color;
-  svCtx.beginPath();
-  svCtx.arc(x - 14 * scale, y - 14 * scale, 5 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-  svCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  svCtx.lineWidth = 1;
-  svCtx.stroke();
-
-  // Agujero izquierdo
-  svCtx.fillStyle = 'white';
-  svCtx.beginPath();
-  svCtx.arc(x - 14 * scale, y - 14 * scale, 2 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-
-  // Químico derecho con contorno
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4;
-  svCtx.beginPath();
-  svCtx.arc(x + 14 * scale, y - 14 * scale, 5 * scale, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.fillStyle = color;
-  svCtx.beginPath();
-  svCtx.arc(x + 14 * scale, y - 14 * scale, 5 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-  svCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  svCtx.lineWidth = 1;
-  svCtx.stroke();
-
-  // Agujero derecho
-  svCtx.fillStyle = 'white';
-  svCtx.beginPath();
-  svCtx.arc(x + 14 * scale, y - 14 * scale, 2 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-
-  // Eslabones de cadena con contorno
-  // Eslabón izquierdo
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x - 8 * scale, y - 6 * scale, 3 * scale, 5 * scale, Math.PI / 6, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.strokeStyle = color;
-  svCtx.lineWidth = 2 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x - 8 * scale, y - 6 * scale, 3 * scale, 5 * scale, Math.PI / 6, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  // Eslabón central
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x, y - 3 * scale, 4 * scale, 6 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.strokeStyle = color;
-  svCtx.lineWidth = 2 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x, y - 3 * scale, 4 * scale, 6 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  // Eslabón derecho
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x + 8 * scale, y - 6 * scale, 3 * scale, 5 * scale, -Math.PI / 6, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.strokeStyle = color;
-  svCtx.lineWidth = 2 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x + 8 * scale, y - 6 * scale, 3 * scale, 5 * scale, -Math.PI / 6, 0, Math.PI * 2);
-  svCtx.stroke();
-}
-
-/**
- * Dibuja reunión con mosquetón (visor de sector)
- */
-function drawSvAnchorMosqueton(x, y, size, color) {
-  const scale = size / 20;
-  const outlineColor = 'white';
-
-  // Químico izquierdo con contorno
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4;
-  svCtx.beginPath();
-  svCtx.arc(x - 8 * scale, y - 20 * scale, 5 * scale, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.fillStyle = color;
-  svCtx.beginPath();
-  svCtx.arc(x - 8 * scale, y - 20 * scale, 5 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-  svCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  svCtx.lineWidth = 1;
-  svCtx.stroke();
-
-  // Agujero izquierdo
-  svCtx.fillStyle = 'white';
-  svCtx.beginPath();
-  svCtx.arc(x - 8 * scale, y - 20 * scale, 2 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-
-  // Químico derecho con contorno
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4;
-  svCtx.beginPath();
-  svCtx.arc(x + 8 * scale, y - 20 * scale, 5 * scale, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.fillStyle = color;
-  svCtx.beginPath();
-  svCtx.arc(x + 8 * scale, y - 20 * scale, 5 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-  svCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-  svCtx.lineWidth = 1;
-  svCtx.stroke();
-
-  // Agujero derecho
-  svCtx.fillStyle = 'white';
-  svCtx.beginPath();
-  svCtx.arc(x + 8 * scale, y - 20 * scale, 2 * scale, 0, Math.PI * 2);
-  svCtx.fill();
-
-  // Eslabones pequeños conectando a químicos (con contorno)
-  // Eslabón izquierdo
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x - 6 * scale, y - 12 * scale, 2.5 * scale, 4 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.strokeStyle = color;
-  svCtx.lineWidth = 2 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x - 6 * scale, y - 12 * scale, 2.5 * scale, 4 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  // Eslabón derecho
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 4 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x + 6 * scale, y - 12 * scale, 2.5 * scale, 4 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  svCtx.strokeStyle = color;
-  svCtx.lineWidth = 2 * scale;
-  svCtx.beginPath();
-  svCtx.ellipse(x + 6 * scale, y - 12 * scale, 2.5 * scale, 4 * scale, 0, 0, Math.PI * 2);
-  svCtx.stroke();
-
-  // Mosquetón central (forma de D) con contorno
-  // Contorno blanco primero
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 5 * scale;
-  svCtx.beginPath();
-  svCtx.moveTo(x - 5 * scale, y - 6 * scale);
-  svCtx.quadraticCurveTo(x - 8 * scale, y + 2 * scale, x, y + 8 * scale);
-  svCtx.quadraticCurveTo(x + 8 * scale, y + 2 * scale, x + 5 * scale, y - 6 * scale);
-  svCtx.lineTo(x - 5 * scale, y - 6 * scale);
-  svCtx.stroke();
-
-  // Mosquetón en color
-  svCtx.strokeStyle = color;
-  svCtx.lineWidth = 2.5 * scale;
-  svCtx.beginPath();
-  svCtx.moveTo(x - 5 * scale, y - 6 * scale);
-  svCtx.quadraticCurveTo(x - 8 * scale, y + 2 * scale, x, y + 8 * scale);
-  svCtx.quadraticCurveTo(x + 8 * scale, y + 2 * scale, x + 5 * scale, y - 6 * scale);
-  svCtx.lineTo(x - 5 * scale, y - 6 * scale);
-  svCtx.stroke();
-
-  // Gate del mosquetón con contorno
-  svCtx.strokeStyle = outlineColor;
-  svCtx.lineWidth = 2;
-  svCtx.strokeRect(x - 2 * scale - 1, y - 4 * scale - 1, 4 * scale + 2, 6 * scale + 2);
-
-  svCtx.fillStyle = color;
-  svCtx.fillRect(x - 2 * scale, y - 4 * scale, 4 * scale, 6 * scale);
-}
 
 /**
  * Dibuja todos los elementos auxiliares en el visor de sector
@@ -3028,15 +2993,10 @@ function drawSvAnchorMosqueton(x, y, size, color) {
 function drawSvAuxElements(canvasWidth, canvasHeight) {
   if (!svAuxElements || svAuxElements.length === 0) return;
 
-  const scaleX = canvasWidth / svImage.width;
-  const scaleY = canvasHeight / svImage.height;
+  if (!svImage || !svImage.naturalWidth || !svImage.naturalHeight) return;
+  const scaleX = canvasWidth / svImage.naturalWidth;
+  const scaleY = canvasHeight / svImage.naturalHeight;
 
-  const colors = {
-    descent_line: '#00bcd4',
-    grapas: '#ff9800',
-    cadena: '#78909c',
-    rapel: '#a855f7'
-  };
 
   svAuxElements.forEach(element => {
     if (!element.points || element.points.length === 0) return;
@@ -3046,150 +3006,27 @@ function drawSvAuxElements(canvasWidth, canvasHeight) {
       y: p.y * scaleY
     }));
 
-    const color = colors[element.type] || '#ffffff';
+    const color = KX_TOPO.chalk;
 
     switch (element.type) {
       case 'descent_line':
-        drawSvDescentLine(scaledPoints, color);
+        kxDrawDescentLine(svCtx, scaledPoints, color);
         break;
       case 'grapas':
-        drawSvGrapas(scaledPoints, color);
+        scaledPoints.forEach(pt => kxDrawStaple(svCtx, pt.x, pt.y, 12, color));
         break;
       case 'cadena':
-        drawSvCadena(scaledPoints, color);
+        kxDrawChain(svCtx, scaledPoints, color);
         break;
       case 'rapel':
-        drawSvRapelFromAux(scaledPoints, color);
+        drawSvRapelFromAux(scaledPoints, KX_TOPO.ink);
         break;
     }
   });
 }
 
-/**
- * Dibuja una línea de descenso/ascenso en el visor
- */
-function drawSvDescentLine(scaledPoints, color) {
-  if (scaledPoints.length < 2) return;
 
-  svCtx.save();
 
-  // Sombra
-  svCtx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-  svCtx.lineWidth = 4;
-  svCtx.lineCap = 'round';
-  svCtx.lineJoin = 'round';
-  svCtx.setLineDash([10, 6]);
-  svCtx.beginPath();
-  svCtx.moveTo(scaledPoints[0].x, scaledPoints[0].y);
-  for (let i = 1; i < scaledPoints.length; i++) {
-    svCtx.lineTo(scaledPoints[i].x, scaledPoints[i].y);
-  }
-  svCtx.stroke();
-
-  // Línea principal
-  svCtx.strokeStyle = color;
-  svCtx.lineWidth = 2.5;
-  svCtx.setLineDash([10, 6]);
-  svCtx.beginPath();
-  svCtx.moveTo(scaledPoints[0].x, scaledPoints[0].y);
-  for (let i = 1; i < scaledPoints.length; i++) {
-    svCtx.lineTo(scaledPoints[i].x, scaledPoints[i].y);
-  }
-  svCtx.stroke();
-  svCtx.setLineDash([]);
-
-  // Flecha en el extremo
-  if (scaledPoints.length >= 2) {
-    const last = scaledPoints[scaledPoints.length - 1];
-    const prev = scaledPoints[scaledPoints.length - 2];
-    const angle = Math.atan2(last.y - prev.y, last.x - prev.x);
-    svCtx.fillStyle = color;
-    svCtx.beginPath();
-    svCtx.moveTo(last.x, last.y);
-    svCtx.lineTo(last.x - 8 * Math.cos(angle - Math.PI / 6), last.y - 8 * Math.sin(angle - Math.PI / 6));
-    svCtx.lineTo(last.x - 8 * Math.cos(angle + Math.PI / 6), last.y - 8 * Math.sin(angle + Math.PI / 6));
-    svCtx.closePath();
-    svCtx.fill();
-  }
-
-  svCtx.restore();
-}
-
-/**
- * Dibuja grapas en el visor
- */
-function drawSvGrapas(scaledPoints, color) {
-  scaledPoints.forEach(pt => {
-    if (typeof drawGrapaIcon === 'function') {
-      drawGrapaIcon(svCtx, pt.x, pt.y, 12, color);
-    } else {
-      // Fallback: simple U shape
-      const s = 1;
-      svCtx.save();
-      svCtx.strokeStyle = color;
-      svCtx.lineWidth = 3;
-      svCtx.lineCap = 'round';
-      svCtx.beginPath();
-      svCtx.moveTo(pt.x - 6 * s, pt.y - 8 * s);
-      svCtx.lineTo(pt.x - 6 * s, pt.y + 2 * s);
-      svCtx.quadraticCurveTo(pt.x - 6 * s, pt.y + 8 * s, pt.x, pt.y + 8 * s);
-      svCtx.quadraticCurveTo(pt.x + 6 * s, pt.y + 8 * s, pt.x + 6 * s, pt.y + 2 * s);
-      svCtx.lineTo(pt.x + 6 * s, pt.y - 8 * s);
-      svCtx.stroke();
-      svCtx.restore();
-    }
-  });
-}
-
-/**
- * Dibuja cadena en el visor
- */
-function drawSvCadena(scaledPoints, color) {
-  if (scaledPoints.length < 2) return;
-
-  svCtx.save();
-
-  for (let i = 0; i < scaledPoints.length - 1; i++) {
-    const p1 = scaledPoints[i];
-    const p2 = scaledPoints[i + 1];
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const angle = Math.atan2(dy, dx);
-    const linkLength = 12;
-    const linkWidth = 5;
-    const numLinks = Math.max(1, Math.floor(dist / linkLength));
-    const actualLinkLen = dist / numLinks;
-
-    svCtx.save();
-    svCtx.translate(p1.x, p1.y);
-    svCtx.rotate(angle);
-
-    for (let j = 0; j < numLinks; j++) {
-      const lx = j * actualLinkLen + actualLinkLen / 2;
-      const isEven = j % 2 === 0;
-      const w = isEven ? linkWidth : linkWidth * 0.7;
-      const h = actualLinkLen * 0.4;
-
-      svCtx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-      svCtx.lineWidth = 4;
-      svCtx.lineCap = 'round';
-      svCtx.beginPath();
-      svCtx.ellipse(lx, 0, h, w, 0, 0, Math.PI * 2);
-      svCtx.stroke();
-
-      svCtx.strokeStyle = color;
-      svCtx.lineWidth = 2;
-      svCtx.beginPath();
-      svCtx.ellipse(lx, 0, h, w, 0, 0, Math.PI * 2);
-      svCtx.stroke();
-    }
-
-    svCtx.restore();
-  }
-
-  svCtx.restore();
-}
 
 /**
  * Dibuja puntos de rápel desde auxElements en el visor
@@ -3225,11 +3062,12 @@ function drawSvRapelFromAux(scaledPoints, color) {
 function drawSvRapelPoints(canvasWidth, canvasHeight) {
   if (!svRapelPoints || svRapelPoints.length === 0) return;
 
-  const scaleX = canvasWidth / svImage.width;
-  const scaleY = canvasHeight / svImage.height;
+  if (!svImage || !svImage.naturalWidth || !svImage.naturalHeight) return;
+  const scaleX = canvasWidth / svImage.naturalWidth;
+  const scaleY = canvasHeight / svImage.naturalHeight;
   const isZoomed = svZoomState.scale > 1;
   const scaleFactor = getLineScaleFactor();
-  const color = '#a855f7'; // Púrpura
+  const color = KX_TOPO.ink;
   const size = isZoomed ? 10 * scaleFactor : 14 * scaleFactor;
   const alpha = isZoomed ? 0.6 : 1;
 
@@ -3266,60 +3104,6 @@ function drawSvRapelPoints(canvasWidth, canvasHeight) {
   });
 }
 
-/**
- * Dibuja flecha de vía sin terminar (visor de sector)
- * La flecha apunta en la dirección del último segmento
- */
-function drawSvAnchorSinTerminar(x, y, prevX, prevY, size, color) {
-  const scale = size / 20;
-
-  // Calcular ángulo desde prevPoint → lastPoint
-  const angle = Math.atan2(y - prevY, x - prevX);
-
-  svCtx.save();
-  svCtx.translate(x, y);
-  svCtx.rotate(angle);
-
-  const arrowLen = 14 * scale;
-  const arrowW = 7 * scale;
-  const stemLen = 8 * scale;
-  const stemW = 3 * scale;
-
-  // Contorno blanco
-  svCtx.strokeStyle = 'white';
-  svCtx.lineWidth = 3 * scale;
-  svCtx.lineJoin = 'round';
-  svCtx.beginPath();
-  svCtx.moveTo(arrowLen, 0);
-  svCtx.lineTo(0, -arrowW);
-  svCtx.lineTo(0, -stemW);
-  svCtx.lineTo(-stemLen, -stemW);
-  svCtx.lineTo(-stemLen, stemW);
-  svCtx.lineTo(0, stemW);
-  svCtx.lineTo(0, arrowW);
-  svCtx.closePath();
-  svCtx.stroke();
-
-  // Relleno con color de la vía
-  svCtx.fillStyle = color;
-  svCtx.beginPath();
-  svCtx.moveTo(arrowLen, 0);
-  svCtx.lineTo(0, -arrowW);
-  svCtx.lineTo(0, -stemW);
-  svCtx.lineTo(-stemLen, -stemW);
-  svCtx.lineTo(-stemLen, stemW);
-  svCtx.lineTo(0, stemW);
-  svCtx.lineTo(0, arrowW);
-  svCtx.closePath();
-  svCtx.fill();
-
-  // Borde oscuro sutil
-  svCtx.strokeStyle = 'rgba(0,0,0,0.4)';
-  svCtx.lineWidth = 1;
-  svCtx.stroke();
-
-  svCtx.restore();
-}
 
 /**
  * Dibuja solo el PUNTO de inicio de una vía
