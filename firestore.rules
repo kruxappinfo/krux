@@ -421,11 +421,16 @@ service cloud.firestore {
     
 
     match /admins/{userId} {
-      // Permitir leer su propio documento O si es super admin
+      // Permitir leer su propio documento, o cualquiera si es super admin o admin
+      // (un admin lo necesita para bonificar al spotter cuya propuesta aprueba)
       allow read: if request.auth.uid == userId ||
-                    (isAuthenticated() && request.auth.token.email == 'krux.app.info@gmail.com');
+                    (isAuthenticated() && (request.auth.token.email == 'krux.app.info@gmail.com' || isAdmin()));
       // Permitir escribir solo al super admin
       allow write: if isAuthenticated() && request.auth.token.email == 'krux.app.info@gmail.com';
+      // Un admin solo puede sumar a otro los puntos de una propuesta aprobada (5, 10 o 15), nunca a sí mismo
+      allow update: if isAuthenticated() && isAdmin() && request.auth.uid != userId &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points']) &&
+                      (request.resource.data.points - resource.data.get('points', 0)) in [5, 10, 15];
     }
 
     // ───────── Entrena: catálogo global de ejercicios ─────────

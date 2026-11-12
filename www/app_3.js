@@ -5237,7 +5237,7 @@ function updateFeedComposer(user) {
 // ---------- Paneles inferiores del feed: mensajes y notificaciones ----------
 // initMessages / initNotifications siguen abriendo y cerrando con la clase .hidden; aquí solo se
 // reacciona a esos cambios (MutationObserver) para bloquear el fondo, gestionar el foco y los gestos.
-const FEED_SHEET_IDS = ['messages-dropdown', 'notification-dropdown', 'search-sheet', 'route-report-sheet'];
+const FEED_SHEET_IDS = ['messages-dropdown', 'notification-dropdown', 'search-sheet', 'route-report-sheet', 'route-incident-sheet'];
 const FEED_SHEET_CLOSE_MS = 200;
 let feedSheetOpener = null;
 let feedSheetScroll = null;
@@ -7026,13 +7026,8 @@ async function loadAdminRoutes() {
 
 async function approveAdminRoute(routeId) {
   try {
-    const db = firebase.firestore();
-    await db.collection('pending_routes').doc(routeId).update({
-      status: 'approved',
-      approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      approvedBy: firebase.auth().currentUser?.email
-    });
-    showToast('Vía aprobada', 'success');
+    const award = await kxApprovePending('pending_routes', routeId);
+    showToast(kxApprovalMessage('Vía aprobada', award), 'success');
     loadAdminRoutes();
     loadAdminStats();
   } catch (error) {
@@ -7258,13 +7253,8 @@ async function loadAdminPendingPOI() {
 
 async function approveAdminItem(collection, docId, reloadFn) {
   try {
-    const db = firebase.firestore();
-    await db.collection(collection).doc(docId).update({
-      status: 'approved',
-      approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      approvedBy: firebase.auth().currentUser?.email
-    });
-    showToast('Aprobado correctamente', 'success');
+    const award = await kxApprovePending(collection, docId);
+    showToast(kxApprovalMessage('Aprobado correctamente', award), 'success');
     if (typeof window[reloadFn] === 'function') window[reloadFn]();
     loadAdminStats();
   } catch (error) {

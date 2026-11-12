@@ -255,13 +255,9 @@ async function approveRoute(routeId) {
     if (!confirm('¿Aprobar esta vía? Se añadirá al GeoJSON de exportación.')) return;
 
     try {
-        await db.collection('pending_routes').doc(routeId).update({
-            status: 'approved',
-            approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            approvedBy: currentUser.email
-        });
+        const award = await kxApprovePending('pending_routes', routeId);
 
-        showToast('Vía aprobada correctamente', 'success');
+        showToast(kxApprovalMessage('Vía aprobada correctamente', award).replace('\n', ' · '), 'success');
         await loadRoutes();
     } catch (error) {
         console.error('Error aprobando ruta:', error);

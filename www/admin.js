@@ -400,41 +400,15 @@ function createRouteCard(route) {
     `;
 }
 
-const SPOTTER_POINTS = {
-    pending_routes: 10,
-    pending_poi: 5,
-    pending_schools: 15,
-    pending_sectors: 15
-};
-
-async function awardSpotterPoints(collection, docId) {
-    try {
-        const doc = await db.collection(collection).doc(docId).get();
-        if (!doc.exists) return;
-        const createdBy = doc.data().createdBy;
-        if (!createdBy) return;
-        const points = SPOTTER_POINTS[collection];
-        if (!points) return;
-        await db.collection('admins').doc(createdBy).update({
-            points: firebase.firestore.FieldValue.increment(points)
-        });
-    } catch (e) {
-        console.warn('[Admin] No se pudieron otorgar puntos al spotter:', e);
-    }
-}
+// Puntos y aprobación: spotter-approval.js (kxApprovePending), compartido con los otros paneles
 
 async function approveRoute(routeId) {
     if (!confirm('¿Aprobar esta vía?')) return;
 
     try {
-        await awardSpotterPoints('pending_routes', routeId);
-        await db.collection('pending_routes').doc(routeId).update({
-            status: 'approved',
-            approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            approvedBy: currentUser.email
-        });
+        const award = await kxApprovePending('pending_routes', routeId);
 
-        showToast('Vía aprobada correctamente', 'success');
+        showToast(kxApprovalMessage('Vía aprobada correctamente', award).replace('\n', ' · '), 'success');
         await loadRoutes();
         await loadStats();
     } catch (error) {
@@ -1210,14 +1184,9 @@ async function approveRouteFromMap(routeId) {
     if (!confirm('¿Aprobar esta vía?')) return;
 
     try {
-        await awardSpotterPoints('pending_routes', routeId);
-        await db.collection('pending_routes').doc(routeId).update({
-            status: 'approved',
-            approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            approvedBy: currentUser.email
-        });
+        const award = await kxApprovePending('pending_routes', routeId);
 
-        showToast('Vía aprobada correctamente', 'success');
+        showToast(kxApprovalMessage('Vía aprobada correctamente', award).replace('\n', ' · '), 'success');
         closeMapModal();
         await loadRoutes();
         await loadStats();
@@ -3095,13 +3064,8 @@ async function loadPendingPOI() {
 async function approveItem(collection, docId, reloadFn) {
     if (!confirm('¿Aprobar este elemento?')) return;
     try {
-        await awardSpotterPoints(collection, docId);
-        await db.collection(collection).doc(docId).update({
-            status: 'approved',
-            approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            approvedBy: currentUser.email
-        });
-        showToast('Aprobado correctamente', 'success');
+        const award = await kxApprovePending(collection, docId);
+        showToast(kxApprovalMessage('Aprobado correctamente', award).replace('\n', ' · '), 'success');
         if (typeof reloadFn === 'function') reloadFn();
         loadStats();
     } catch (error) {
