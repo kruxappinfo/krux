@@ -292,6 +292,19 @@ const MAPLIBRE_SCHOOLS = {
   }
 };
 
+// Interruptor de los GeoJSON de vías (*_Vias.geojson). Con false no se cargan en ninguna escuela:
+// la ruta de cada fichero pasa a `geojson.viasDesactivadas` (los ficheros siguen en Cartografia/).
+// Para reactivarlas basta con poner true.
+const MAPLIBRE_VIAS_GEOJSON_ACTIVAS = false;
+if (!MAPLIBRE_VIAS_GEOJSON_ACTIVAS) {
+  Object.values(MAPLIBRE_SCHOOLS).forEach(school => {
+    if (school.geojson && school.geojson.vias) {
+      school.geojson.viasDesactivadas = school.geojson.vias;
+      delete school.geojson.vias;
+    }
+  });
+}
+
 // ============================================
 // MARKERS DE ESCUELAS (para vista general del mapa)
 // ============================================
