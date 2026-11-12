@@ -940,7 +940,7 @@ function createDrawingEditorMandatory(imageUrl, pendingRouteName) {
       </div>
 
       <!-- Instrucciones flotantes con énfasis -->
-      <div class="rd-instructions rd-instructions-mandatory" id="rd-instructions">
+      <div class="rd-instructions" id="rd-instructions" role="status" aria-live="polite">
         <p>Toca en la imagen para dibujar la línea de la vía. Mínimo 2 puntos.</p>
       </div>
 
@@ -1335,7 +1335,7 @@ function createDrawingEditor(imageUrl) {
       </div>
 
       <!-- Instrucciones flotantes -->
-      <div class="rd-instructions" id="rd-instructions">
+      <div class="rd-instructions" id="rd-instructions" role="status" aria-live="polite">
         <p>Elige una vía de la lista para dibujar su línea sobre la foto</p>
       </div>
 
@@ -1432,6 +1432,14 @@ function renderRoutesList() {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 20h9"/>
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+            </button>
+            <button class="rd-btn-fork" onclick="event.stopPropagation(); startBifurcation(${route.routeId}, ${vi})" title="Dibujar variante (ramal)" aria-label="Dibujar una variante de ${name}">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 3v12"/>
+                <circle cx="18" cy="6" r="3"/>
+                <circle cx="6" cy="18" r="3"/>
+                <path d="M18 9a9 9 0 0 1-9 9"/>
               </svg>
             </button>
             <button class="rd-btn-delete" onclick="event.stopPropagation(); deleteRouteDrawing(${route.routeId}, ${vi})" title="Eliminar dibujo" aria-label="Eliminar dibujo de ${name}">
@@ -4482,6 +4490,13 @@ function updateInstructions(text) {
  * Muestra toast de notificación
  */
 function showRDToast(message, type = 'info') {
+  // Con el editor abierto, la foto se ve despejada: los avisos de éxito o de
+  // información no se pintan (el resultado ya se ve en el dibujo y se anuncia
+  // en rd-instructions). Los errores y avisos sí, porque piden una reacción.
+  if (document.getElementById('rd-editor') && (type === 'success' || type === 'info')) {
+    updateInstructions(kxEsc(message));
+    return;
+  }
   // Un único sistema de avisos para toda la app (showToast, en user-features.js)
   showToast(message, type);
 }
