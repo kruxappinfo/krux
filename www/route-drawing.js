@@ -24,6 +24,8 @@ let rdDrawingsLoadFailed = false;       // true si falló loadRouteDrawings: se 
 let rdPendingRouteInfo = null;          // Info de vía pendiente {routeName, docId} - para modo obligatorio
 let rdMandatoryDrawingMode = false;     // Modo dibujo obligatorio (no se puede cerrar sin dibujar)
 let rdEditMode = false;                 // Modo edición (editando un dibujo existente)
+let rdTopoNumbers = new Map();          // Número de croquis de cada trazado de la foto abierta
+let rdLastPointTap = { index: -1, time: 0 }; // Último toque sobre un punto (doble toque = eliminar)
 let rdOriginalDrawing = null;           // Dibujo original siendo editado (para restaurar si se cancela)
 let rdDraggingPointIndex = -1;          // Índice del punto siendo arrastrado (-1 = ninguno)
 let rdIsDragging = false;               // Si estamos arrastrando un punto
@@ -989,15 +991,15 @@ function renderRoutesListMandatory(pendingRouteName) {
 
   return rdRoutesList.map(route => {
     const hasDrawing = rdRouteDrawings.find(d => d.routeId === route.routeId || (!d.routeId && d.routeName === route.nombre));
-    const gradeColor = getGradeColor(route.grado);
+    const gradeColor = kxGradeColorSafe(route.grado);
     const isPendingRoute = route.nombre === pendingRouteName;
 
     return `
       <div class="rd-route-item ${hasDrawing ? 'rd-has-drawing' : ''} ${isPendingRoute ? 'rd-pending-route' : ''}"
            onclick="selectRouteForDrawingMandatory(${route.routeId})">
         <div class="rd-route-info">
-          <span class="rd-route-name">${route.nombre || 'Sin nombre'}</span>
-          <span class="rd-route-grade" style="background-color: ${gradeColor}">${route.grado}</span>
+          <span class="rd-route-name">${kxEsc(route.nombre || 'Sin nombre')}</span>
+          <span class="rd-route-grade" style="background-color: ${gradeColor}; color: ${kxGradeInk(gradeColor)}">${kxEsc(route.grado)}</span>
           ${isPendingRoute ? '<span class="rd-new-badge">NUEVA</span>' : ''}
         </div>
         ${hasDrawing && !isPendingRoute ? `
@@ -1043,7 +1045,7 @@ function selectRouteForDrawingMandatory(routeId) {
   rdDrawingMode = true;
   rdDrawingPoints = [];
 
-  updateInstructions(`Dibujando: ${route.nombre} (${route.grado}). Toca para añadir el primer punto.`);
+  updateInstructions(`Dibujando <strong>${kxEsc(route.nombre || 'Sin nombre')}</strong> (${kxEsc(route.grado)}). Toca el pie de la vía para poner el primer punto.`);
   updateDrawingControls();
 
   console.log('[RouteDrawing] Vía seleccionada (modo obligatorio):', route.nombre, 'id:', route.routeId);
@@ -1133,7 +1135,12 @@ async function loadSectorRoutes(schoolId, sectorName) {
       const expanded = [];
       geojson.features
         .filter(f => f.properties.sector === sectorName)
-        .sort((a, b) => (a.properties.nombre || '').localeCompare(b.properties.nombre || ''))
+        .sort((a, b) => {
+          // Orden natural («Vía 2» antes que «Vía 10»); las vías sin nombre, al final
+          const [na, nb] = [a.properties.nombre || '', b.properties.nombre || ''];
+          if (!na !== !nb) return na ? -1 : 1;
+          return na.localeCompare(nb, 'es', { numeric: true, sensitivity: 'base' });
+        })
         .forEach(f => {
           const p = f.properties;
           const coords = f.geometry.coordinates[0] || f.geometry.coordinates;
@@ -1252,7 +1259,7 @@ function createDrawingEditor(imageUrl) {
       <div class="rd-editor-header">
         <div class="rd-header-left">
           <h2>${rdCurrentSector.sectorName}</h2>
-          <span class="rd-route-count">${rdRoutesList.length} vías</span>
+          <span class="rd-route-count" id="rd-progress">${rdProgressText()}</span>
         </div>
         ${hasMultipleImages ? `
         <div class="rd-image-nav">
@@ -1261,7 +1268,7 @@ function createDrawingEditor(imageUrl) {
               <polyline points="15 18 9 12 15 6"/>
             </svg>
           </button>
-          <span class="rd-image-indicator" id="rd-image-indicator">Foto ${rdCurrentImageIndex + 1} / ${rdSectorImages.length}</span>
+          <span class="rd-image-indicator" id="rd-image-indicator">Foto ${rdCurrentImageIndex + 1} de ${rdSectorImages.length}</span>
           <button class="rd-btn-icon rd-btn-nav-image" id="rd-btn-next-image" onclick="rdNextImage()" title="Foto siguiente" ${rdCurrentImageIndex >= rdSectorImages.length - 1 ? 'disabled' : ''}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9 18 15 12 9 6"/>
@@ -1270,13 +1277,13 @@ function createDrawingEditor(imageUrl) {
         </div>
         ` : ''}
         <div class="rd-header-actions">
-          <button class="rd-btn-icon rd-btn-add" id="rd-btn-add" onclick="rdToggleAddMenu()" title="Añadir elemento">
+          <button class="rd-btn-icon rd-btn-add" id="rd-btn-add" onclick="rdToggleAddMenu()" title="Añadir elemento" aria-label="Añadir elemento">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <line x1="12" y1="5" x2="12" y2="19"/>
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
           </button>
-          <button class="rd-btn-icon rd-btn-routes-toggle" onclick="rdToggleRouteList()" title="Lista de vías">
+          <button class="rd-btn-icon rd-btn-routes-toggle" onclick="rdToggleRouteList()" title="Lista de vías" aria-label="Lista de vías">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="8" y1="6" x2="21" y2="6"/>
               <line x1="8" y1="12" x2="21" y2="12"/>
@@ -1286,13 +1293,15 @@ function createDrawingEditor(imageUrl) {
               <line x1="3" y1="18" x2="3.01" y2="18"/>
             </svg>
           </button>
-          <button class="rd-btn-icon rd-btn-reset" onclick="rdResetView()" title="Resetear vista">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 12a9 9 0 11-9-9"/>
-              <polyline points="21 3 21 9 15 9"/>
+          <button class="rd-btn-icon rd-btn-reset" onclick="rdResetView()" title="Ajustar la foto a la pantalla" aria-label="Ajustar la foto a la pantalla">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3"/>
+              <path d="M21 8V5a2 2 0 0 0-2-2h-3"/>
+              <path d="M3 16v3a2 2 0 0 0 2 2h3"/>
+              <path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
             </svg>
           </button>
-          <button class="rd-btn-icon rd-btn-close" onclick="closeRouteDrawingEditor()" title="Cerrar editor">
+          <button class="rd-btn-icon rd-btn-close" onclick="closeRouteDrawingEditor()" title="Cerrar editor" aria-label="Cerrar editor">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"/>
               <line x1="6" y1="6" x2="18" y2="18"/>
@@ -1309,15 +1318,16 @@ function createDrawingEditor(imageUrl) {
       <!-- Panel lateral de vías (colapsable) -->
       <div class="rd-routes-panel" id="rd-routes-panel">
         <div class="rd-panel-header">
-          <h3>Vías del Sector</h3>
-          <button class="rd-btn-icon" onclick="rdToggleRouteList()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="15 18 9 12 15 6"/>
+          <h3>Vías del sector</h3>
+          <button class="rd-btn-icon rd-btn-panel-close" onclick="rdToggleRouteList()" title="Ocultar la lista" aria-label="Ocultar la lista">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
           </button>
         </div>
         <div class="rd-panel-search">
-          <input type="text" id="rd-route-search" placeholder="Buscar vía..." oninput="rdFilterRoutes()">
+          <input type="search" id="rd-route-search" placeholder="Buscar vía" aria-label="Buscar vía" oninput="rdFilterRoutes()">
         </div>
         <div class="rd-panel-list" id="rd-route-list">
           ${renderRoutesList()}
@@ -1326,7 +1336,7 @@ function createDrawingEditor(imageUrl) {
 
       <!-- Instrucciones flotantes -->
       <div class="rd-instructions" id="rd-instructions">
-        <p>Selecciona una vía de la lista para dibujar su línea en la imagen</p>
+        <p>Elige una vía de la lista para dibujar su línea sobre la foto</p>
       </div>
 
       <!-- Controles de dibujo (ocultos por defecto) -->
@@ -1362,61 +1372,86 @@ function createDrawingEditor(imageUrl) {
 }
 
 /**
- * Renderiza la lista de vías
+ * Busca el trazado de una vía (y variante) en la foto abierta
+ */
+function rdFindDrawing(route) {
+  const vi = route.variantIndex || 0;
+  return rdRouteDrawings.find(d => {
+    const idMatch = d.routeId === route.routeId || (!d.routeId && d.routeName === route.nombre);
+    return idMatch && (d.variantIndex || 0) === vi;
+  });
+}
+
+/**
+ * Texto de avance: cuántas vías del sector tienen trazado en esta foto
+ */
+function rdProgressText() {
+  const total = rdRoutesList.length;
+  if (total === 0) return 'Sin vías';
+  const drawn = rdRoutesList.filter(route => rdFindDrawing(route)).length;
+  return `${drawn} de ${total} dibujadas`;
+}
+
+/**
+ * Renderiza la lista de vías (y actualiza el avance de la cabecera)
  */
 function renderRoutesList() {
+  const progress = document.getElementById('rd-progress');
+  if (progress) progress.textContent = rdProgressText();
+
   if (rdRoutesList.length === 0) {
     return '<p class="rd-empty-message">No hay vías en este sector</p>';
   }
 
+  // Mismo número que la chapa del inicio de la vía sobre la foto
+  const topoNumbers = kxTopoNumbers(rdRouteDrawings);
+
   return rdRoutesList.map(route => {
     const vi = route.variantIndex || 0;
-    const hasDrawing = rdRouteDrawings.find(d => {
-      const idMatch = d.routeId === route.routeId || (!d.routeId && d.routeName === route.nombre);
-      return idMatch && (d.variantIndex || 0) === vi;
-    });
-    const gradeColor = getGradeColor(route.grado);
-    const displayName = vi > 0 ? `${route.nombre || 'Sin nombre'} <em class="rd-variant-label">variante_${vi}</em>` : (route.nombre || 'Sin nombre');
+    const hasDrawing = rdFindDrawing(route);
+    const gradeColor = kxGradeColorSafe(route.grado);
+    const name = kxEsc(route.nombre || 'Sin nombre');
+    const displayName = vi > 0 ? `${name} <em class="rd-variant-label">variante ${vi}</em>` : name;
+    const branchCount = hasDrawing && hasDrawing.branches ? hasDrawing.branches.length : 0;
 
     return `
       <div class="rd-route-item ${hasDrawing ? 'rd-has-drawing' : ''} ${vi > 0 ? 'rd-route-variant-item' : ''}" onclick="selectRouteForDrawing(${route.routeId}, ${vi})">
         <div class="rd-route-status">
-          ${hasDrawing ? `
-            <span class="rd-status-icon rd-status-drawn" title="Dibujo completado">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            </span>
-          ` : `
-            <span class="rd-status-icon rd-status-pending" title="Sin dibujar - Click para dibujar">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 20h9"/>
-                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-              </svg>
-            </span>
-          `}
+          ${hasDrawing
+            ? `<span class="rd-status-icon rd-status-drawn" title="Dibujada: número ${topoNumbers.get(kxDrawingKey(hasDrawing))} en la foto">${topoNumbers.get(kxDrawingKey(hasDrawing))}</span>`
+            : `<span class="rd-status-icon rd-status-pending" title="Sin dibujar"></span>`}
         </div>
         <div class="rd-route-info">
           <span class="rd-route-name">${displayName}</span>
-          <span class="rd-route-grade" style="background-color: ${gradeColor}">${route.grado}</span>
-          ${hasDrawing && hasDrawing.branches && hasDrawing.branches.length > 0 ? `<span class="rd-branch-badge" title="${hasDrawing.branches.length} ramal(es)">${hasDrawing.branches.length}R</span>` : ''}
+          ${branchCount > 0 ? `<span class="rd-branch-badge" title="${branchCount} ramal(es)">${branchCount}R</span>` : ''}
+          <span class="rd-route-grade" style="background-color: ${gradeColor}; color: ${kxGradeInk(gradeColor)}">${kxEsc(route.grado)}</span>
         </div>
         ${hasDrawing ? `
           <div class="rd-route-actions">
-            <button class="rd-btn-edit" onclick="event.stopPropagation(); editRouteDrawing(${route.routeId}, ${vi})" title="Editar dibujo">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <button class="rd-btn-edit" onclick="event.stopPropagation(); editRouteDrawing(${route.routeId}, ${vi})" title="Editar dibujo" aria-label="Editar dibujo de ${name}">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 20h9"/>
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
               </svg>
             </button>
-            <button class="rd-btn-delete" onclick="event.stopPropagation(); deleteRouteDrawing(${route.routeId}, ${vi})" title="Eliminar dibujo">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
+            <button class="rd-btn-delete" onclick="event.stopPropagation(); deleteRouteDrawing(${route.routeId}, ${vi})" title="Eliminar dibujo" aria-label="Eliminar dibujo de ${name}">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/>
+                <path d="M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
               </svg>
             </button>
           </div>
-        ` : ''}
+        ` : `
+          <span class="rd-route-draw-cue" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+          </span>
+        `}
       </div>
     `;
   }).join('');
@@ -1528,6 +1563,9 @@ function redrawCanvas() {
 
   // Dibujar imagen de fondo usando dimensiones lógicas
   rdCtx.drawImage(rdImage, 0, 0, displayWidth, displayHeight);
+
+  // Numeración de croquis de la foto (izquierda → derecha)
+  rdTopoNumbers = kxTopoNumbers(rdRouteDrawings);
 
   // PASO 1: Dibujar TODAS las líneas primero
   rdRouteDrawings.forEach((drawing, index) => {
@@ -2102,8 +2140,8 @@ function drawRoutePointOnly(drawing, isSelected) {
   if (!data) return;
 
   const { scaledPoints, color } = data;
-  // Punto de inicio del tronco
-  drawNumber(scaledPoints[0].x, scaledPoints[0].y, 0, color);
+  // Chapa numerada en el inicio del tronco (mismo número que en la lista y en el visor)
+  drawNumber(scaledPoints[0].x, scaledPoints[0].y, rdTopoNumbers.get(kxDrawingKey(drawing)), color, isSelected);
 
   // Diamantes en puntos de bifurcación
   if (drawing.branches && drawing.branches.length > 0) {
@@ -2137,22 +2175,10 @@ function drawPoint(x, y, color, radius) {
 }
 
 /**
- * Dibuja un punto pequeño de inicio (sin número)
+ * Dibuja la chapa numerada del inicio de una vía
  */
-function drawNumber(x, y, number, bgColor) {
-  const radius = 6; // Punto pequeño
-
-  // Borde oscuro para contraste
-  rdCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-  rdCtx.beginPath();
-  rdCtx.arc(x, y, radius + 2, 0, Math.PI * 2);
-  rdCtx.fill();
-
-  // Punto de color
-  rdCtx.fillStyle = bgColor;
-  rdCtx.beginPath();
-  rdCtx.arc(x, y, radius, 0, Math.PI * 2);
-  rdCtx.fill();
+function drawNumber(x, y, number, bgColor, isSelected = false) {
+  kxDrawTopoBadge(rdCtx, x, y, number, bgColor, { radius: 9, highlighted: isSelected });
 }
 
 // ============================================
@@ -2425,7 +2451,7 @@ function handleCanvasMouseUp(e) {
 
   if (rdIsDragging && rdDraggingPointIndex !== -1) {
     showRDToast(`Punto ${rdDraggingPointIndex + 1} movido`, 'success');
-    updateInstructions(`Punto movido. Continúa editando o haz clic en "Terminar".`);
+    updateInstructions(`Punto movido. Sigue editando o pulsa «Terminar».`);
   }
 
   rdIsDragging = false;
@@ -2500,11 +2526,21 @@ function handleCanvasTouchStart(e) {
   const { x, y } = getCanvasCoordinates(e, true);
   const pointIndex = findNearestPointIndex(x, y);
   if (pointIndex !== -1) {
+    // Doble toque sobre el mismo punto: eliminarlo (equivale al doble clic del ratón)
+    const now = Date.now();
+    if (rdLastPointTap.index === pointIndex && now - rdLastPointTap.time < 350) {
+      rdLastPointTap = { index: -1, time: 0 };
+      rdDeleteSpecificPoint(pointIndex);
+      return;
+    }
+    rdLastPointTap = { index: pointIndex, time: now };
+
     rdDraggingPointIndex = pointIndex;
     rdIsDragging = true;
     rdSelectedPointIndex = pointIndex;
     updateInstructions(`Arrastrando punto ${pointIndex + 1}. Suelta para posicionar.`);
   } else {
+    rdLastPointTap = { index: -1, time: 0 };
     handleDrawingPoint(x, y);
   }
 }
@@ -2670,7 +2706,7 @@ function handleCanvasTouchEnd(e) {
 
   if (rdIsDragging && rdDraggingPointIndex !== -1) {
     showRDToast(`Punto ${rdDraggingPointIndex + 1} movido`, 'success');
-    updateInstructions(`Punto movido. Continúa editando o haz clic en "Terminar".`);
+    updateInstructions(`Punto movido. Sigue editando o pulsa «Terminar».`);
   }
 
   rdIsDragging = false;
@@ -2742,7 +2778,7 @@ function rdDeleteSpecificPoint(index) {
   if (rdDrawingPoints.length === 0) {
     updateInstructions(`Todos los puntos eliminados. Toca para añadir el primer punto.`);
   } else {
-    updateInstructions(`Punto eliminado. Quedan ${rdDrawingPoints.length} punto(s). Doble clic para eliminar otro.`);
+    updateInstructions(`Punto eliminado. Quedan ${rdDrawingPoints.length} punto(s). Doble toque sobre un punto para eliminar otro.`);
   }
 
   updateDrawingControls();
@@ -2765,7 +2801,7 @@ function handleDrawingPoint(x, y) {
   if (rdDrawingPoints.length === 1) {
     updateInstructions(`Punto 1 añadido. Toca para añadir más puntos.`);
   } else {
-    updateInstructions(`${rdDrawingPoints.length} puntos. Arrastra para mover, doble clic para eliminar.`);
+    updateInstructions(`${rdDrawingPoints.length} puntos. Arrastra un punto para moverlo; doble toque para eliminarlo.`);
   }
 
   // Redibujar para mostrar preview
@@ -2906,7 +2942,7 @@ function rdUndoLastPoint() {
     if (rdDrawingPoints.length === 0) {
       updateInstructions(`Dibujando: ${rdCurrentRoute.nombre} (${rdCurrentRoute.grado}). Toca para añadir el primer punto.`);
     } else {
-      updateInstructions(`Punto eliminado. Tienes ${rdDrawingPoints.length} punto(s). Continúa o haz click en "Terminar".`);
+      updateInstructions(`Punto eliminado. Tienes ${rdDrawingPoints.length} punto(s). Sigue o pulsa «Terminar».`);
     }
 
     redrawCanvas();
@@ -3120,7 +3156,8 @@ async function saveBranch(anchorType) {
       allDrawings = doc.data().drawings || [];
       // Reemplazar el drawing actualizado
       allDrawings = allDrawings.map(d => {
-        if ((d.routeId !== undefined && d.routeId === rdBifurcatingDrawing.routeId) ||
+        const sameVariant = (d.variantIndex || 0) === (rdBifurcatingDrawing.variantIndex || 0);
+        if ((d.routeId !== undefined && d.routeId === rdBifurcatingDrawing.routeId && sameVariant) ||
             (d.routeId === undefined && d.routeName === rdBifurcatingDrawing.routeName)) {
           return rdBifurcatingDrawing;
         }
@@ -3491,8 +3528,10 @@ function startEditingBranch(route, drawing, branchId) {
   }
 
   // Eliminar temporalmente el dibujo del array para que no se muestre duplicado
+  // (solo la variante que se edita: las demás variantes de la vía siguen a la vista)
+  const editedVariant = route.variantIndex || 0;
   rdRouteDrawings = rdRouteDrawings.filter(d => {
-    if (d.routeId !== undefined && route.routeId !== undefined) return d.routeId !== route.routeId;
+    if (d.routeId !== undefined && route.routeId !== undefined) return !(d.routeId === route.routeId && (d.variantIndex || 0) === editedVariant);
     if (d.routeId === undefined && route.routeId === undefined) return d.routeName !== route.nombre;
     return true;
   });
@@ -3504,7 +3543,7 @@ function startEditingBranch(route, drawing, branchId) {
   }
 
   const editTarget = branchId > 0 ? `Ramal ${branchId}` : 'Tronco';
-  updateInstructions(`Editando ${editTarget} de: ${route.nombre}. Arrastra puntos para mover, doble clic para eliminar.`);
+  updateInstructions(`Editando ${editTarget} de: ${route.nombre}. Arrastra un punto para moverlo; doble toque para eliminarlo.`);
   updateDrawingControls();
 
   document.getElementById('rd-route-list').innerHTML = renderRoutesList();
@@ -3525,7 +3564,7 @@ async function deleteBranch(routeId, branchId) {
   );
   if (!drawing || !drawing.branches) return;
 
-  if (!confirm(`¿Eliminar Ramal ${branchId} de "${route.nombre}"?`)) return;
+  if (!await rdConfirm('¿Eliminar el ramal?', `Se borrará el ramal ${branchId} de «${kxEsc(route.nombre)}».`, 'Eliminar')) return;
 
   // Eliminar la rama
   drawing.branches = drawing.branches.filter(b => b.branchId !== branchId);
@@ -3655,7 +3694,7 @@ function selectRouteForDrawing(routeId, variantIndex = 0) {
     panel.classList.add('rd-panel-collapsed');
   }
 
-  updateInstructions(`Dibujando: ${route.nombre} (${route.grado}). Toca para añadir el primer punto.`);
+  updateInstructions(`Dibujando <strong>${kxEsc(route.nombre || 'Sin nombre')}</strong> (${kxEsc(route.grado)}). Toca el pie de la vía para poner el primer punto.`);
   updateDrawingControls();
 
   console.log('[RouteDrawing] Vía seleccionada:', route.nombre, 'id:', route.routeId);
@@ -3683,20 +3722,20 @@ function showRouteActionModal(route, existingDrawing) {
   modal.innerHTML = `
     <div class="rd-modal-container rd-action-modal-container">
       <div class="rd-modal-header">
-        <h3>${route.nombre}</h3>
-        <span class="rd-route-grade-header" style="background-color: ${gradeColor}">${route.grado}</span>
+        <h3>${kxEsc(route.nombre || 'Sin nombre')}</h3>
+        <span class="rd-route-grade-header" style="background-color: ${gradeColor}; color: ${kxGradeInk(gradeColor)}">${kxEsc(route.grado)}</span>
       </div>
       <div class="rd-modal-body">
         <p>Esta vía ya tiene un dibujo${hasBranches ? ` con ${branchCount} ramal(es)` : ''}. ¿Qué quieres hacer?</p>
         <div class="rd-action-options">
-          <button class="rd-action-btn rd-action-edit" onclick="closeRouteActionModal(); editRouteDrawing(${route.routeId})">
+          <button class="rd-action-btn rd-action-edit" onclick="closeRouteActionModal(); editRouteDrawing(${route.routeId}, ${route.variantIndex || 0})">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 20h9"/>
               <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
             </svg>
             Editar
           </button>
-          <button class="rd-action-btn rd-action-bifurcate" onclick="closeRouteActionModal(); startBifurcation(${route.routeId})">
+          <button class="rd-action-btn rd-action-bifurcate" onclick="closeRouteActionModal(); startBifurcation(${route.routeId}, ${route.variantIndex || 0})">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M6 3v12"/>
               <circle cx="18" cy="6" r="3"/>
@@ -3732,13 +3771,12 @@ function closeRouteActionModal() {
 /**
  * Inicia el modo bifurcación: el usuario debe tocar la línea para crear el punto de bifurcación
  */
-function startBifurcation(routeId) {
-  const route = rdRoutesList.find(r => r.routeId === routeId);
+function startBifurcation(routeId, variantIndex = 0) {
+  const vi = variantIndex || 0;
+  const route = rdRoutesList.find(r => r.routeId === routeId && (r.variantIndex || 0) === vi);
   if (!route) return;
 
-  const existingDrawing = rdRouteDrawings.find(d =>
-    d.routeId === route.routeId || (!d.routeId && d.routeName === route.nombre)
-  );
+  const existingDrawing = rdFindDrawing(route);
   if (!existingDrawing) {
     showRDToast('No se encontró el dibujo de la vía', 'error');
     return;
@@ -3986,9 +4024,9 @@ async function deleteRouteDrawing(routeId, variantIndex = 0) {
   const vi = variantIndex || 0;
   const route = rdRoutesList.find(r => r.routeId === routeId && (r.variantIndex || 0) === vi);
   const baseName = route ? route.nombre : routeId;
-  const displayName = vi > 0 ? `${baseName} (variante_${vi})` : baseName;
+  const displayName = vi > 0 ? `${baseName} (variante ${vi})` : baseName;
 
-  if (!confirm(`¿Eliminar dibujo de "${displayName}"?`)) return;
+  if (!await rdConfirm('¿Eliminar el dibujo?', `Se borrará la línea de «${kxEsc(displayName)}» en esta foto. La vía no se elimina.`, 'Eliminar')) return;
 
   try {
     const docId = `${rdCurrentSector.schoolId}_${normalizeSectorName(rdCurrentSector.sectorName)}`;
@@ -4920,7 +4958,13 @@ function closeRouteDrawingEditor() {
  */
 function rdToggleRouteList() {
   const panel = document.getElementById('rd-routes-panel');
-  panel.classList.toggle('rd-panel-collapsed');
+  if (!panel) return;
+  const collapsed = panel.classList.toggle('rd-panel-collapsed');
+  if (!collapsed) {
+    // Al abrir, lista completa y sin filtro anterior
+    const search = document.getElementById('rd-route-search');
+    if (search && search.value) { search.value = ''; rdFilterRoutes(); }
+  }
 }
 
 /**
@@ -4932,29 +4976,27 @@ function rdFilterRoutes() {
 
   items.forEach(item => {
     const routeName = item.querySelector('.rd-route-name').textContent.toLowerCase();
-    if (routeName.includes(searchTerm)) {
-      item.style.display = 'flex';
-    } else {
-      item.style.display = 'none';
-    }
+    item.style.display = routeName.includes(searchTerm) ? '' : 'none';
   });
 }
 
 /**
- * Resetea la vista del canvas con doble confirmación usando popups personalizados
+ * Ajusta la foto a la pantalla: quita el zoom y el desplazamiento. No toca los trazados.
  */
 function rdResetView() {
-  // Mostrar primera confirmación
-  showRdConfirmModal(
-    '¿Resetear vista?',
-    'Esto restaurará el zoom y posición original del canvas.',
-    'Continuar',
-    'Cancelar',
-    () => {
-      // Si confirma, mostrar segunda confirmación con input
-      showRdInputConfirmModal();
-    }
-  );
+  rdResetZoom();
+  initializeCanvas();
+  redrawCanvas();
+}
+
+/**
+ * Confirmación con el modal del editor
+ * @returns {Promise<boolean>} true si se confirma
+ */
+function rdConfirm(title, message, confirmText) {
+  return new Promise(resolve => {
+    showRdConfirmModal(title, message, confirmText, 'Cancelar', () => resolve(true), () => resolve(false));
+  });
 }
 
 /**
@@ -5001,94 +5043,6 @@ function showRdConfirmModal(title, message, confirmText, cancelText, onConfirm, 
     if (e.target === modal) {
       modal.remove();
       if (onCancel) onCancel();
-    }
-  });
-}
-
-/**
- * Muestra el modal de confirmación con input de texto
- */
-function showRdInputConfirmModal() {
-  // Eliminar modal existente si hay uno
-  const existing = document.getElementById('rd-confirm-modal');
-  if (existing) existing.remove();
-
-  const modal = document.createElement('div');
-  modal.id = 'rd-confirm-modal';
-  modal.className = 'rd-modal-overlay';
-  modal.innerHTML = `
-    <div class="rd-modal-container">
-      <div class="rd-modal-header rd-modal-header-warning">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-          <line x1="12" y1="9" x2="12" y2="13"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-        <h3>Confirmación requerida</h3>
-      </div>
-      <div class="rd-modal-body">
-        <p>Para confirmar el reseteo, escribe <strong>"Confirmar"</strong> en el campo de abajo:</p>
-        <input type="text" id="rd-confirm-input" class="rd-modal-input" placeholder="Escribe Confirmar aquí..." autocomplete="off">
-        <p class="rd-modal-hint" id="rd-modal-hint"></p>
-      </div>
-      <div class="rd-modal-footer">
-        <button class="rd-modal-btn rd-modal-btn-cancel" id="rd-modal-cancel">Cancelar</button>
-        <button class="rd-modal-btn rd-modal-btn-confirm" id="rd-modal-confirm" disabled>Resetear</button>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(modal);
-
-  const input = document.getElementById('rd-confirm-input');
-  const confirmBtn = document.getElementById('rd-modal-confirm');
-  const hint = document.getElementById('rd-modal-hint');
-
-  // Enfocar input automáticamente
-  setTimeout(() => input.focus(), 100);
-
-  // Validar input en tiempo real
-  input.addEventListener('input', () => {
-    const value = input.value.trim().toLowerCase();
-    if (value === 'confirmar') {
-      confirmBtn.disabled = false;
-      hint.textContent = '✓ Correcto';
-      hint.className = 'rd-modal-hint rd-modal-hint-success';
-    } else if (value.length > 0) {
-      confirmBtn.disabled = true;
-      hint.textContent = 'El texto no coincide';
-      hint.className = 'rd-modal-hint rd-modal-hint-error';
-    } else {
-      confirmBtn.disabled = true;
-      hint.textContent = '';
-      hint.className = 'rd-modal-hint';
-    }
-  });
-
-  // Permitir confirmar con Enter si el texto es correcto
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !confirmBtn.disabled) {
-      confirmBtn.click();
-    }
-  });
-
-  // Event listeners botones
-  document.getElementById('rd-modal-cancel').addEventListener('click', () => {
-    modal.remove();
-  });
-
-  confirmBtn.addEventListener('click', () => {
-    modal.remove();
-    // Ejecutar reset
-    initializeCanvas();
-    redrawCanvas();
-    showRDToast('Vista reseteada correctamente', 'success');
-  });
-
-  // Cerrar con click fuera del modal
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) {
-      modal.remove();
     }
   });
 }

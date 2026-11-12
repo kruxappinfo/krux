@@ -306,24 +306,8 @@ async function openSectorImageViewer(schoolId, sectorName, startIndex = 0) {
         </div>
       ` : ''}
 
-      <!-- Botón flotante para añadir más fotos (solo admins) -->
-      ${isAdmin ? `
-        <button class="gallery-add-fab" onclick="showSectorUploadModal('${schoolId}', '${encodeURIComponent(sectorName)}')" title="Añadir más fotos">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          <span class="gallery-add-fab-label">Añadir foto</span>
-        </button>
-      ` : ''}
-
-      <div class="sector-viewer-footer">
-        <span class="sector-viewer-hint">
-          ${sectorGalleryImages.length > 1 ? 'Desliza para ver más fotos • ' : ''}
-          Pellizca para hacer zoom • Toca las líneas para ver información de las vías
-          ${isAdmin ? ` • ${sectorGalleryImages.length} fotos` : ''}
-        </span>
-      </div>
+      <!-- Pie: leyenda de vías de la foto (renderViewerLegend) o ayuda si no hay trazados -->
+      <div class="sector-viewer-footer" id="sector-viewer-footer"></div>
     `;
   } else {
     // No hay imágenes - mostrar placeholder
@@ -619,6 +603,7 @@ function closeSectorImageViewer() {
   svLockedRoute = null;
   svLockedVariantIndex = null;
   svPendingHighlightRoute = null;
+  svTopoNumbers = new Map();
 
   // Resetear zoom
   resetZoomState();
@@ -1625,6 +1610,85 @@ let svRapelPoints = []; // Puntos de rápel independientes
 let svAuxElements = []; // Elementos auxiliares (líneas de descenso, grapas, cadenas)
 let svRoutesList = [];  // Lista de vías del sector para obtener grados
 let svCurrentImageId = null; // ID de la imagen actual (para galería)
+let svTopoNumbers = new Map(); // Número de croquis de cada trazado de la foto actual
+
+// ============================================
+// CROQUIS: NUMERACIÓN Y COLOR (compartido con route-drawing.js)
+// ============================================
+
+/**
+ * Clave única de un trazado (vía + variante; nombre en trazados antiguos sin id)
+ */
+function kxDrawingKey(drawing) {
+  return drawing.routeId !== undefined && drawing.routeId !== null
+    ? `${drawing.routeId}:${drawing.variantIndex || 0}`
+    : `n:${drawing.routeName}`;
+}
+
+/**
+ * Numera los trazados de una foto de izquierda a derecha, como en un croquis en papel
+ * @returns {Map} clave del trazado → número (empieza en 1)
+ */
+function kxTopoNumbers(drawings) {
+  const start = d => (d.points && d.points[0]) || d.startPoint || { x: Infinity, y: 0 };
+  const numbers = new Map();
+  [...drawings]
+    .sort((a, b) => (start(a).x - start(b).x) || (start(b).y - start(a).y))
+    .forEach((d, i) => numbers.set(kxDrawingKey(d), i + 1));
+  return numbers;
+}
+
+/**
+ * Color de un grado, con respaldo si falta el grado o la tabla
+ */
+function kxGradeColorSafe(grado) {
+  return grado && typeof getGradeColor === 'function' ? (getGradeColor(String(grado)) || '#888888') : '#888888';
+}
+
+/**
+ * Tinta legible sobre el color de un grado: granito en los tonos claros, blanco en los oscuros
+ */
+function kxGradeInk(bgColor) {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(bgColor || '').trim());
+  if (!m) return '#ffffff';
+  const hex = m[1].length === 3 ? m[1].split('').map(c => c + c).join('') : m[1];
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(v => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.23 ? '#202923' : '#ffffff';
+}
+
+/**
+ * Dibuja la chapa numerada del inicio de una vía (compartido por visor y editor)
+ */
+function kxDrawTopoBadge(ctx, x, y, number, color, opts = {}) {
+  const radius = opts.radius || 9;
+  ctx.save();
+  ctx.globalAlpha = opts.alpha === undefined ? 1 : opts.alpha;
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+
+  // Aro de contraste: blanco si la vía está resaltada, granito si no
+  ctx.fillStyle = opts.highlighted ? '#ffffff' : 'rgba(32, 41, 35, 0.9)';
+  ctx.beginPath();
+  ctx.arc(x, y, radius + (opts.highlighted ? 2.5 : 1.5), 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (number) {
+    const label = String(number);
+    ctx.fillStyle = kxGradeInk(color);
+    ctx.font = `700 ${Math.round(radius * (label.length > 1 ? 1.05 : 1.25))}px Manrope, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, y + radius * 0.06);
+  }
+  ctx.restore();
+}
 
 /**
  * Configura el canvas para una imagen específica de la galería
@@ -1654,6 +1718,9 @@ async function setupSectorViewerCanvasForGallery(schoolId, sectorName, imageInde
   // Cargar vías del sector (para obtener grados) y dibujos
   await loadViewerSectorRoutes(schoolId, sectorName);
   await loadViewerRouteDrawingsForImage(schoolId, sectorName, imageData.id);
+
+  svTopoNumbers = kxTopoNumbers(svDrawings);
+  renderViewerLegend();
 
   // Si no hay dibujos, solo mostrar la imagen normal con zoom
   if (svDrawings.length === 0) {
@@ -2404,6 +2471,8 @@ function redrawCanvasOverlay() {
 
   // PASO 5: Dibujar puntos de rápel encima de todo
   drawSvRapelPoints(imgWidth, imgHeight);
+
+  svSyncLegend();
 }
 
 /**
@@ -3266,37 +3335,12 @@ function drawOverlayRoutePoint(drawing, canvasWidth, canvasHeight) {
   // Factor de escala para consistencia entre móvil y desktop
   const scaleFactor = getLineScaleFactor();
 
-  // Con zoom: puntos más pequeños y transparentes
-  let radius, borderRadius;
-  if (isZoomed) {
-    radius = (isHighlighted ? 5 : 4) * scaleFactor;
-    borderRadius = radius + (1.5 * scaleFactor);
-  } else {
-    radius = (isHighlighted ? 8 : 6) * scaleFactor;
-    borderRadius = radius + (2 * scaleFactor);
-  }
-
-  svCtx.shadowColor = 'transparent';
-  svCtx.shadowBlur = 0;
-  let borderColor, pointColor;
-  if (isZoomed) {
-    borderColor = isHighlighted ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.35)';
-    pointColor = addAlphaToColor(color, 0.6);
-  } else {
-    borderColor = isHighlighted ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.65)';
-    pointColor = color;
-  }
-
-  // Punto de inicio del tronco
-  svCtx.fillStyle = borderColor;
-  svCtx.beginPath();
-  svCtx.arc(scaledPoints[0].x, scaledPoints[0].y, borderRadius, 0, Math.PI * 2);
-  svCtx.fill();
-
-  svCtx.fillStyle = pointColor;
-  svCtx.beginPath();
-  svCtx.arc(scaledPoints[0].x, scaledPoints[0].y, radius, 0, Math.PI * 2);
-  svCtx.fill();
+  // Con zoom la chapa encoge (el canvas ya se amplía) y deja ver la roca
+  kxDrawTopoBadge(svCtx, scaledPoints[0].x, scaledPoints[0].y, svTopoNumbers.get(kxDrawingKey(drawing)), color, {
+    radius: (isZoomed ? 6 : 9) * scaleFactor,
+    alpha: isZoomed ? 0.85 : 1,
+    highlighted: isHighlighted
+  });
 
   // (Diamante de bifurcación eliminado - la línea se une directamente)
 }
@@ -3519,9 +3563,9 @@ function showHoverRoutePopup(drawing, number, mouseX, mouseY) {
     (drawing.routeId === undefined && r.nombre === drawing.routeName)
   );
   const baseName = route?.nombre || drawing.routeName || 'Sin nombre';
-  const routeName = dvi > 0 ? `${baseName} (variante_${dvi})` : baseName;
+  const routeName = dvi > 0 ? `${baseName} (variante ${dvi})` : baseName;
   const grado = route?.grado || '?';
-  const gradeColor = typeof getGradeColor === 'function' ? getGradeColor(grado) : '#10b981';
+  const gradeColor = kxGradeColorSafe(grado);
 
   // Eliminar popup anterior si existe
   hideHoverPopup();
@@ -3531,7 +3575,7 @@ function showHoverRoutePopup(drawing, number, mouseX, mouseY) {
   popup.className = 'sv-hover-popup';
   popup.innerHTML = `
     <div class="sv-hover-popup-content">
-      <span class="sv-hover-grade" style="background-color: ${gradeColor}">${grado}</span>
+      <span class="sv-hover-grade" style="background-color: ${gradeColor}; color: ${kxGradeInk(gradeColor)}">${grado}</span>
       <span class="sv-hover-name">${routeName}</span>
     </div>
   `;
@@ -3660,6 +3704,7 @@ function handleOverlayTap(event) {
               svHighlightedVariantIndex = _dvi;
               redrawCanvasOverlay();
               showLockedRoutePopup(drawing, i + 1);
+              svSyncLegend(true);
             }
             return;
           }
@@ -3694,9 +3739,9 @@ function showLockedRoutePopup(drawing, number) {
     (drawing.routeId === undefined && r.nombre === drawing.routeName)
   );
   const baseName = route?.nombre || drawing.routeName || 'Sin nombre';
-  const routeName = dvi > 0 ? `${baseName} (variante_${dvi})` : baseName;
+  const routeName = dvi > 0 ? `${baseName} (variante ${dvi})` : baseName;
   const grado = route?.grado || '?';
-  const gradeColor = typeof getGradeColor === 'function' ? getGradeColor(grado) : '#10b981';
+  const gradeColor = kxGradeColorSafe(grado);
 
   // Eliminar popup anterior si existe
   hideLockedPopup();
@@ -3735,7 +3780,7 @@ function showLockedRoutePopup(drawing, number) {
   popup.className = 'sv-locked-popup';
   popup.innerHTML = `
     <div class="sv-locked-popup-content sv-locked-popup-navigable">
-      <span class="sv-locked-grade" style="background-color: ${gradeColor}">${grado}</span>
+      <span class="sv-locked-grade" style="background-color: ${gradeColor}; color: ${kxGradeInk(gradeColor)}">${grado}</span>
       <span class="sv-locked-name">${routeName}</span>
       <span class="sv-locked-nav-arrow">&#x279C;</span>
     </div>
@@ -3786,6 +3831,109 @@ function showLockedRoutePopup(drawing, number) {
   if (popupRectUpdated.bottom > window.innerHeight) {
     popup.style.top = `${screenY - popupRectUpdated.height - 10}px`;
   }
+}
+
+// ============================================
+// LEYENDA DE VÍAS DEL VISOR
+// ============================================
+
+/**
+ * Datos de la vía de un trazado (nombre con variante y grado)
+ */
+function svRouteOfDrawing(drawing) {
+  const dvi = drawing.variantIndex || 0;
+  const route = svRoutesList.find(r =>
+    (drawing.routeId !== undefined && r.routeId === drawing.routeId && (r.variantIndex || 0) === dvi) ||
+    (drawing.routeId === undefined && r.nombre === drawing.routeName)
+  );
+  const baseName = route?.nombre || drawing.routeName || 'Sin nombre';
+  return { name: dvi > 0 ? `${baseName} (variante ${dvi})` : baseName, grado: route?.grado || '?' };
+}
+
+/**
+ * Pinta el pie del visor: una tira con las vías dibujadas en la foto, en el orden del croquis.
+ * Sin trazados muestra solo la ayuda de gestos.
+ */
+function renderViewerLegend() {
+  const footer = document.getElementById('sector-viewer-footer');
+  if (!footer) return;
+
+  if (svDrawings.length === 0) {
+    const hints = [];
+    if (sectorGalleryImages.length > 1) hints.push('Desliza para ver más fotos');
+    hints.push('Pellizca para ampliar');
+    footer.classList.remove('has-legend');
+    footer.innerHTML = `<span class="sector-viewer-hint">${hints.join(' · ')}</span>`;
+    return;
+  }
+
+  const chips = [...svDrawings]
+    .sort((a, b) => svTopoNumbers.get(kxDrawingKey(a)) - svTopoNumbers.get(kxDrawingKey(b)))
+    .map(drawing => {
+      const key = kxDrawingKey(drawing);
+      const { name, grado } = svRouteOfDrawing(drawing);
+      const gradeColor = kxGradeColorSafe(grado);
+      return `
+        <button type="button" class="sv-legend-chip" data-key="${kxEsc(key)}" aria-pressed="false">
+          <span class="sv-legend-num">${svTopoNumbers.get(key)}</span>
+          <span class="sv-legend-name">${kxEsc(name)}</span>
+          <span class="sv-legend-grade" style="background-color: ${gradeColor}; color: ${kxGradeInk(gradeColor)}">${kxEsc(grado)}</span>
+        </button>`;
+    }).join('');
+
+  footer.classList.add('has-legend');
+  footer.innerHTML = `<div class="sv-legend" id="sv-legend" role="group" aria-label="Vías dibujadas en esta foto">${chips}</div>`;
+  footer.querySelectorAll('.sv-legend-chip').forEach(chip => {
+    chip.addEventListener('click', () => svSelectLegendRoute(chip.dataset.key));
+  });
+  svSyncLegend();
+}
+
+/**
+ * Selecciona (o suelta, si ya lo estaba) una vía desde la leyenda: la resalta en la foto y abre su etiqueta
+ */
+function svSelectLegendRoute(key) {
+  const drawing = svDrawings.find(d => kxDrawingKey(d) === key);
+  if (!drawing || !svCanvas) return;
+
+  const vi = drawing.variantIndex || 0;
+  const wasLocked = svLockedRoute === drawing.routeId && (svLockedVariantIndex || 0) === vi;
+  hideLockedPopup();
+
+  if (wasLocked) {
+    svLockedRoute = null;
+    svLockedVariantIndex = null;
+    svHighlightedRoute = null;
+    svHighlightedVariantIndex = null;
+    redrawCanvasOverlay();
+    return;
+  }
+
+  svLockedRoute = drawing.routeId;
+  svLockedVariantIndex = vi;
+  svHighlightedRoute = drawing.routeId;
+  svHighlightedVariantIndex = vi;
+  redrawCanvasOverlay();
+  showLockedRoutePopup(drawing, svTopoNumbers.get(key));
+}
+
+/**
+ * Marca en la leyenda la vía resaltada en la foto
+ * @param {boolean} reveal - desplaza la tira hasta la vía marcada
+ */
+function svSyncLegend(reveal = false) {
+  const legend = document.getElementById('sv-legend');
+  if (!legend) return;
+
+  const activeKey = svHighlightedRoute !== null && svHighlightedRoute !== undefined
+    ? `${svHighlightedRoute}:${svHighlightedVariantIndex || 0}`
+    : null;
+  legend.querySelectorAll('.sv-legend-chip').forEach(chip => {
+    const active = chip.dataset.key === activeKey;
+    chip.classList.toggle('active', active);
+    chip.setAttribute('aria-pressed', String(active));
+    if (active && reveal) chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  });
 }
 
 /**
@@ -3979,7 +4127,7 @@ function showViewerRouteInfo(drawing, number) {
     (drawing.routeId === undefined && r.nombre === drawing.routeName)
   );
   const baseName = route?.nombre || drawing.routeName || 'Sin nombre';
-  const routeName = dvi > 0 ? `${baseName} (variante_${dvi})` : baseName;
+  const routeName = dvi > 0 ? `${baseName} (variante ${dvi})` : baseName;
 
   // Crear mini popup
   const existing = document.querySelector('.sv-route-info');
