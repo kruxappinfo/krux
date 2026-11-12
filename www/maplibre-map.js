@@ -3908,8 +3908,7 @@ async function showRoutePopup(props, coords) {
 
   // Verificar si es admin para mostrar botón de desarrollador
   const isAdmin = await isRoutePopupAdmin();
-  // Vías aportadas por la comunidad: no tienen id numérico (votos/incidencias) y llevan pie propio
-  const hasNumericId = Number.isFinite(routeId);
+  // Vías aportadas por la comunidad: pie con autoría y acciones de admin
   const communityHTML = props.docId ? kxUserRouteFooterHTML(props, await checkAdminRole()) : '';
 
   // Verificar si la vía tiene dibujo en la imagen del sector (para mostrar botón "Ver vía")
@@ -3987,7 +3986,7 @@ async function showRoutePopup(props, coords) {
       ${communityHTML}
 
       <!-- Botón de desarrollador (solo admins) -->
-      ${isAdmin && hasNumericId ? `
+      ${isAdmin ? `
         <div class="ml-route-dev-section">
           <button class="ml-route-dev-btn" onclick="mlOpenDrawingEditor(${routeId})">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -4006,7 +4005,6 @@ async function showRoutePopup(props, coords) {
     .setHTML(html)
     .addTo(mlMap);
 
-  if (!hasNumericId) return;
   kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: `ml-variant-grade-${routeId}`, aleje: `ml-variant-aleje-${routeId}`, estado: `ml-variant-estado-${routeId}` });
   kxRenderRouteIncidents({ schoolId, routeId, routeName, sector: sectorName }, `ml-variant-incident-${routeId}`);
 }
@@ -4395,8 +4393,6 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   const routeName = props.nombre || 'Sin nombre';
   const sectorName = props.sector || '';
   const encodedSector = encodeURIComponent(sectorName);
-  // Las vías de la comunidad no tienen id numérico: sin votos ni incidencias (las sugerencias van por nombre)
-  const hasNumericId = Number.isFinite(routeId);
 
   // Estado global para los botones
   mlCurrentRouteGrade = grade;
@@ -4430,15 +4426,15 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   // --- Grado recomendado, Aleje y Estado (solo lectura) ---
   ['rbs-grade-container', 'rbs-aleje-container', 'rbs-estado-container'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.innerHTML = hasNumericId ? '<div class="kx-rcard is-loading" aria-hidden="true"></div>' : '';
+    if (el) el.innerHTML = '<div class="kx-rcard is-loading" aria-hidden="true"></div>';
   });
-  if (hasNumericId) kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: 'rbs-grade-container', aleje: 'rbs-aleje-container', estado: 'rbs-estado-container' });
+  kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: 'rbs-grade-container', aleje: 'rbs-aleje-container', estado: 'rbs-estado-container' });
 
   // --- Incidencias comunicadas (tarjeta naranja) ---
   const incidentEl = document.getElementById('rbs-incident-container');
   if (incidentEl) incidentEl.innerHTML = '';
   kxIncidentCtx = null;
-  if (hasNumericId) kxRenderRouteIncidents({ schoolId, routeId, routeName, sector: sectorName }, 'rbs-incident-container');
+  kxRenderRouteIncidents({ schoolId, routeId, routeName, sector: sectorName }, 'rbs-incident-container');
 
   // --- Vía aportada por la comunidad: autoría y acciones de admin ---
   const communityEl = document.getElementById('rbs-community-section');
@@ -9823,6 +9819,7 @@ async function loadApprovedRoutesFromFirestore(schoolId, minZoom = 14) {
               type: 'Feature',
               properties: {
                 fid: `user_${doc.id}`,
+                id: kxCommunityRouteId(doc.id),
                 docId: doc.id,
                 nombre: data.nombre || data.geojsonFeature?.properties?.nombre || 'Sin nombre',
                 grado1: data.grado1 || data.geojsonFeature?.properties?.grado1 || '?',
@@ -9873,6 +9870,16 @@ async function loadApprovedRoutesFromFirestore(schoolId, minZoom = 14) {
         settle();
       });
   });
+}
+
+/**
+ * Id numérico estable para una vía de la comunidad (votos, incidencias, ascensos y proyectos
+ * se indexan por id). Rango 1e9+ para no chocar con los ids de las vías oficiales.
+ */
+function kxCommunityRouteId(docId) {
+  let h = 0;
+  for (let i = 0; i < docId.length; i++) h = (Math.imul(h, 31) + docId.charCodeAt(i)) | 0;
+  return 1000000000 + (Math.abs(h) % 1000000000);
 }
 
 /**
