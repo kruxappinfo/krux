@@ -4,6 +4,30 @@
  */
 
 /* ============================================
+   TEMA DEL EDITOR (oscuro, paleta KRUX)
+   Tokens locales --rd-*: granito de fondo, tiza para el texto y salvia de acento.
+   El color queda reservado a los grados y a los trazados.
+   ============================================ */
+
+:root {
+  --rd-bg: #0E1411;
+  --rd-surface: #202923;
+  --rd-surface-2: #2A342E;
+  --rd-surface-3: #36423A;
+  --rd-line: rgba(247, 246, 240, 0.12);
+  --rd-line-strong: rgba(247, 246, 240, 0.26);
+  --rd-ink: #F7F6F0;
+  --rd-ink-2: rgba(247, 246, 240, 0.7);
+  --rd-ink-3: rgba(247, 246, 240, 0.52);
+  --rd-accent: #DCE9DF;
+  --rd-accent-ink: #153E35;
+  --rd-danger: #F0958B;
+  --rd-danger-bg: #C2362B;
+  --rd-header-h: 4rem;
+  --rd-panel-w: 21rem;
+}
+
+/* ============================================
    EDITOR OVERLAY
    ============================================ */
 
@@ -13,10 +37,12 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.95);
+  background: var(--rd-bg);
   z-index: 10000;
   display: flex;
   flex-direction: column;
+  font-family: var(--kx-font);
+  color: var(--rd-ink);
   animation: rd-fade-in 0.2s ease-out;
   /* Safe Area para móviles con notch */
   padding-top: env(safe-area-inset-top);
@@ -25,16 +51,18 @@
   padding-right: env(safe-area-inset-right);
 }
 
+.rd-modal-overlay {
+  font-family: var(--kx-font);
+}
+
 @keyframes rd-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .rd-editor-container {
+  /* Referencia de los paneles flotantes: quedan dentro del área segura */
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -51,72 +79,75 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 15px 20px;
-  background: #1f2937;
-  border-bottom: 1px solid #374151;
+  gap: 0.75rem;
+  min-height: var(--rd-header-h);
+  padding: 0.5rem 1rem;
+  background: var(--rd-surface);
+  border-bottom: 1px solid var(--rd-line);
   flex-shrink: 0;
 }
 
 .rd-header-left {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.125rem 0.75rem;
+  min-width: 0;
 }
 
 .rd-editor-header h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #ffffff;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--rd-ink);
 }
 
 .rd-route-count {
-  font-size: 13px;
-  color: #9ca3af;
-  background: #374151;
-  padding: 4px 10px;
-  border-radius: 12px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--rd-ink-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .rd-header-actions {
   display: flex;
-  gap: 8px;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 /* Navegación de imágenes en el header */
 .rd-image-nav {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  border-radius: 10px;
-  padding: 4px 8px;
+  gap: 0.25rem;
+  flex-shrink: 0;
 }
 
 .rd-btn-nav-image {
-  width: 32px;
-  height: 32px;
+  width: var(--kx-touch);
+  height: var(--kx-touch);
+  min-height: 0;
   padding: 0;
-  border-radius: 6px;
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #10b981;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  color: var(--rd-ink);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 
 .rd-btn-nav-image:hover:not(:disabled) {
-  background: rgba(16, 185, 129, 0.3);
-  color: #ffffff;
-  border-color: #10b981;
+  background: var(--rd-surface-2);
 }
 
 .rd-btn-nav-image:active:not(:disabled) {
-  transform: scale(0.92);
+  background: var(--rd-surface-3);
 }
 
 .rd-btn-nav-image:disabled {
@@ -125,27 +156,32 @@
 }
 
 .rd-image-indicator {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
-  color: #10b981;
+  color: var(--rd-ink-2);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  min-width: 70px;
+  min-width: 4.75rem;
   text-align: center;
 }
 
+/* Botones de icono: todos neutros; el icono dice qué hacen */
 .rd-btn-icon {
-  width: 40px;
-  height: 40px;
+  width: var(--kx-touch);
+  height: var(--kx-touch);
+  min-height: 0;
   padding: 0;
-  border-radius: 8px;
-  background: rgba(55, 65, 81, 0.6);
-  border: 1px solid #4b5563;
-  color: #d1d5db;
+  border-radius: 50%;
+  background: var(--rd-surface-2);
+  border: 1px solid var(--rd-line);
+  box-shadow: none;
+  color: var(--rd-ink);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .rd-btn-icon svg {
@@ -153,65 +189,41 @@
 }
 
 .rd-btn-icon:hover {
-  background: #4b5563;
-  color: #ffffff;
-  border-color: #6b7280;
+  background: var(--rd-surface-3);
+  border-color: var(--rd-line-strong);
 }
 
 .rd-btn-icon:active {
-  transform: scale(0.95);
+  background: var(--rd-surface-3);
+  transform: scale(0.96);
 }
 
-/* Botón de lista de vías - azul */
+.rd-btn-icon:focus-visible,
+.rd-btn-nav-image:focus-visible,
+.rd-btn-control:focus-visible,
+.rd-btn-edit:focus-visible,
+.rd-btn-delete:focus-visible,
+.rd-route-item:focus-visible {
+  outline: 2px solid var(--rd-accent);
+  outline-offset: 2px;
+}
+
+/* Lista de vías: la acción principal de la cabecera */
 .rd-btn-routes-toggle {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: #3b82f6;
-  color: #93c5fd;
+  background: var(--rd-accent);
+  border-color: var(--rd-accent);
+  color: var(--rd-accent-ink);
 }
 
-.rd-btn-routes-toggle:hover {
-  background: rgba(59, 130, 246, 0.4);
-  color: #ffffff;
-  border-color: #60a5fa;
+.rd-btn-routes-toggle:hover,
+.rd-btn-routes-toggle:active {
+  background: var(--rd-ink);
+  border-color: var(--rd-ink);
 }
 
-/* Botón de reset - amarillo */
-.rd-btn-reset {
-  background: rgba(245, 158, 11, 0.2);
-  border-color: #f59e0b;
-  color: #fcd34d;
-}
-
-.rd-btn-reset:hover {
-  background: rgba(245, 158, 11, 0.4);
-  color: #ffffff;
-  border-color: #fbbf24;
-}
-
-/* Botón de cerrar - rojo */
-.rd-btn-close {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: #ef4444;
-  color: #fca5a5;
-}
-
-.rd-btn-close:hover {
-  background: rgba(239, 68, 68, 0.4);
-  color: #ffffff;
-  border-color: #f87171;
-}
-
-/* Botón de añadir (+) - verde */
-.rd-btn-add {
-  background: rgba(16, 185, 129, 0.2);
-  border-color: #10b981;
-  color: #34d399;
-}
-
-.rd-btn-add:hover {
-  background: rgba(16, 185, 129, 0.4);
-  color: #ffffff;
-  border-color: #34d399;
+.rd-btn-panel-close {
+  background: transparent;
+  border-color: transparent;
 }
 
 /* ============================================
@@ -224,7 +236,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #111827;
+  background: var(--rd-bg);
   overflow: hidden;
 }
 
@@ -250,75 +262,82 @@
 }
 
 /* ============================================
-   PANEL LATERAL DE VÍAS
+   PANEL DE VÍAS
+   Lateral en escritorio; hoja inferior en móvil (ver RESPONSIVE)
    ============================================ */
 
 .rd-routes-panel {
   position: absolute;
-  top: 0;
+  top: var(--rd-header-h);
   right: 0;
-  width: 320px;
+  bottom: 0;
+  width: var(--rd-panel-w);
   max-width: 85vw;
-  height: 100%;
-  background: #1f2937;
-  border-left: 1px solid #374151;
+  background: var(--rd-surface);
+  border-left: 1px solid var(--rd-line);
   display: flex;
   flex-direction: column;
-  transition: transform 0.3s ease;
-  z-index: 100;
-  /* Safe Area para el panel en móviles */
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), visibility 0.28s;
+  z-index: 300;
 }
 
 .rd-routes-panel.rd-panel-collapsed {
   transform: translateX(100%);
+  visibility: hidden;
 }
 
 .rd-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 15px 20px;
-  border-bottom: 1px solid #374151;
+  padding: 0.5rem 0.5rem 0.25rem 1rem;
+  flex-shrink: 0;
 }
 
 .rd-panel-header h3 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--rd-ink);
 }
 
 .rd-panel-search {
-  padding: 12px 20px;
-  border-bottom: 1px solid #374151;
+  padding: 0.25rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--rd-line);
+  flex-shrink: 0;
 }
 
 .rd-panel-search input {
   width: 100%;
-  padding: 10px 14px;
-  background: #111827;
-  border: 1px solid #374151;
-  border-radius: 8px;
-  color: #ffffff;
-  font-size: 14px;
+  min-height: var(--kx-touch);
+  padding: 0 0.875rem;
+  background: var(--rd-bg);
+  border: 1px solid var(--rd-line);
+  border-radius: 0.75rem;
+  color: var(--rd-ink);
+  font-family: inherit;
+  /* 16px: iOS no hace zoom al enfocar */
+  font-size: 1rem;
   outline: none;
-  transition: border-color 0.2s;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color 0.15s ease;
 }
 
 .rd-panel-search input:focus {
-  border-color: #10b981;
+  border-color: var(--rd-accent);
 }
 
 .rd-panel-search input::placeholder {
-  color: #6b7280;
+  color: var(--rd-ink-3);
 }
 
 .rd-panel-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.25rem 0.5rem calc(0.75rem + env(safe-area-inset-bottom));
 }
 
 /* Scrollbar styling */
@@ -331,12 +350,8 @@
 }
 
 .rd-panel-list::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: var(--rd-surface-3);
   border-radius: 4px;
-}
-
-.rd-panel-list::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
 }
 
 /* ============================================
@@ -346,176 +361,157 @@
 .rd-route-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  margin-bottom: 6px;
-  background: #111827;
-  border: 1px solid #374151;
-  border-radius: 8px;
+  gap: 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.375rem 0.5rem 0.375rem 0.625rem;
+  border-radius: 0.75rem;
   cursor: pointer;
-  transition: all 0.2s;
-  gap: 10px;
+  transition: background-color 0.15s ease;
+}
+
+.rd-route-item + .rd-route-item {
+  margin-top: 1px;
 }
 
 .rd-route-item:hover {
-  background: #1f2937;
-  border-color: #10b981;
-  transform: translateX(-2px);
+  background: var(--rd-surface-2);
 }
 
-.rd-route-item.rd-has-drawing {
-  border-color: #10b981;
-  background: linear-gradient(90deg, #111827 0%, #064e3b 100%);
+.rd-route-item:active {
+  background: var(--rd-surface-3);
 }
 
 .rd-route-variant-item {
-  margin-left: 16px;
-  border-left: 3px solid #6366f1;
-  background: #0f172a;
-}
-
-.rd-route-variant-item:hover {
-  border-color: #6366f1;
-}
-
-.rd-route-variant-item.rd-has-drawing {
-  border-color: #6366f1;
-  background: linear-gradient(90deg, #0f172a 0%, #1e1b4b 100%);
+  margin-left: 1.25rem;
 }
 
 .rd-variant-label {
+  display: inline-block;
   font-style: normal;
-  font-size: 0.7em;
-  color: #818cf8;
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: 4px;
-  padding: 1px 5px;
-  margin-left: 4px;
-  vertical-align: middle;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--rd-ink-2);
+  margin-left: 0.25rem;
 }
 
-/* Iconos de estado de vía */
+/* Marcador de estado: número de croquis si está dibujada, hueco si no */
 .rd-route-status {
   flex-shrink: 0;
 }
 
 .rd-status-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Icono de vía dibujada - verde con check */
 .rd-status-drawn {
-  background: rgba(16, 185, 129, 0.2);
-  border: 1px solid #10b981;
-  color: #10b981;
+  background: var(--rd-ink);
+  color: var(--rd-surface);
 }
 
-/* Icono de vía sin dibujar - gris con lápiz */
 .rd-status-pending {
-  background: rgba(107, 114, 128, 0.2);
-  border: 1px solid #6b7280;
-  color: #9ca3af;
-}
-
-.rd-route-item:hover .rd-status-pending {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: #3b82f6;
-  color: #60a5fa;
+  border: 1.5px dashed var(--rd-line-strong);
 }
 
 .rd-route-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.5rem;
   flex: 1;
   min-width: 0;
 }
 
 .rd-route-name {
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 500;
+  color: var(--rd-ink);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rd-route-item:not(.rd-has-drawing) .rd-route-name {
+  color: var(--rd-ink-2);
+  font-weight: 500;
 }
 
 .rd-route-grade {
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
+  min-width: 2.25rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-align: center;
   color: #ffffff;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-/* Contenedor de acciones (editar y eliminar) */
+/* Acciones de una vía dibujada */
 .rd-route-actions {
   display: flex;
-  gap: 6px;
   flex-shrink: 0;
 }
 
-/* Botón de editar - azul */
-.rd-btn-edit {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: rgba(59, 130, 246, 0.2);
-  border: 1px solid #3b82f6;
-  color: #93c5fd;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-
-.rd-btn-edit:hover {
-  background: #3b82f6;
-  color: #ffffff;
-  transform: scale(1.05);
-}
-
-.rd-btn-edit:active {
-  transform: scale(0.95);
-}
-
+.rd-btn-edit,
 .rd-btn-delete {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: rgba(153, 27, 27, 0.3);
-  border: 1px solid #dc2626;
-  color: #fca5a5;
+  width: var(--kx-touch);
+  height: var(--kx-touch);
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  color: var(--rd-ink-2);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
   flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.rd-btn-delete:hover {
-  background: #dc2626;
-  color: #ffffff;
-  transform: scale(1.05);
+.rd-btn-edit:hover,
+.rd-btn-edit:active {
+  background: var(--rd-surface-3);
+  color: var(--rd-ink);
 }
 
+.rd-btn-delete:hover,
 .rd-btn-delete:active {
-  transform: scale(0.95);
+  background: rgba(194, 54, 43, 0.22);
+  color: var(--rd-danger);
+}
+
+/* Vía sin dibujar: el lápiz indica que al tocar la fila se empieza a dibujar */
+.rd-route-draw-cue {
+  width: var(--kx-touch);
+  height: var(--kx-touch);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--rd-ink-3);
+}
+
+.rd-route-item:hover .rd-route-draw-cue {
+  color: var(--rd-accent);
 }
 
 .rd-empty-message {
   text-align: center;
-  color: #6b7280;
-  padding: 40px 20px;
-  font-size: 14px;
+  color: var(--rd-ink-2);
+  padding: 2.5rem 1.25rem;
+  font-size: 0.9375rem;
 }
 
 /* ============================================
@@ -524,44 +520,42 @@
 
 .rd-drawing-controls {
   position: absolute;
-  top: 70px;
-  right: 12px;
-  right: calc(12px + env(safe-area-inset-right));
-  background: rgba(31, 41, 55, 0.9);
+  top: calc(var(--rd-header-h) + 0.75rem);
+  right: 0.75rem;
+  background: rgba(32, 41, 35, 0.94);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
-  padding: 6px;
-  border-radius: 10px;
-  border: 1px solid #374151;
-  display: flex;
+  padding: 0.375rem;
+  border-radius: 1rem;
+  border: 1px solid var(--rd-line);
   flex-direction: column;
-  gap: 6px;
+  gap: 0.375rem;
   z-index: 250;
-  transition: right 0.3s ease, opacity 0.3s ease;
-  animation: rd-fade-in 0.2s ease-out;
+  transition: right 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
 }
 
-/* Cuando el panel de vías está abierto, retraer los controles */
+/* Cuando el panel de vías está abierto, apartar los controles */
 .rd-routes-panel:not(.rd-panel-collapsed) ~ .rd-drawing-controls {
-  right: 332px;
-}
-
-@keyframes rd-fade-in {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
+  right: calc(var(--rd-panel-w) + 0.75rem);
 }
 
 .rd-btn-control {
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid #374151;
-  color: #ffffff;
-  font-size: 12px;
+  min-height: var(--kx-touch);
+  padding: 0 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
+  box-shadow: none;
+  background: var(--rd-surface-2);
+  color: var(--rd-ink);
+  font-family: inherit;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 5px;
-  transition: all 0.2s;
+  justify-content: center;
+  gap: 0.375rem;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
   white-space: nowrap;
 }
 
@@ -570,42 +564,35 @@
 }
 
 .rd-btn-control:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-.rd-btn-control:not(:disabled):hover {
-  transform: translateY(-1px);
-}
-
 .rd-btn-control:not(:disabled):active {
-  transform: translateY(0);
-}
-
-.rd-btn-undo {
-  background: #374151;
+  transform: scale(0.97);
 }
 
 .rd-btn-undo:not(:disabled):hover {
-  background: #4b5563;
+  background: var(--rd-surface-3);
 }
 
 .rd-btn-finish {
-  background: #10b981;
-  border-color: #10b981;
+  background: var(--rd-accent);
+  color: var(--rd-accent-ink);
 }
 
 .rd-btn-finish:not(:disabled):hover {
-  background: #059669;
+  background: var(--rd-ink);
 }
 
 .rd-btn-cancel {
-  background: #991b1b;
-  border-color: #991b1b;
+  background: transparent;
+  border-color: var(--rd-line-strong);
+  color: var(--rd-danger);
 }
 
 .rd-btn-cancel:hover {
-  background: #dc2626;
+  background: rgba(194, 54, 43, 0.22);
 }
 
 /* ============================================
@@ -614,17 +601,21 @@
 
 .rd-instructions {
   position: absolute;
-  bottom: 20px;
-  bottom: calc(20px + env(safe-area-inset-bottom));
+  bottom: 1.25rem;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(31, 41, 55, 0.95);
+  background: rgba(32, 41, 35, 0.94);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
-  padding: 12px 24px;
-  border-radius: 12px;
-  border: 1px solid #374151;
-  max-width: 90%;
+  padding: 0.625rem 1.125rem;
+  border-radius: 0.875rem;
+  border: 1px solid var(--rd-line);
+  width: max-content;
+  max-width: min(90%, 34rem);
   z-index: 200;
+  /* Es solo ayuda: no debe interceptar toques sobre la foto */
+  pointer-events: none;
+  transition: opacity 0.2s ease;
   animation: rd-slide-up 0.3s ease-out;
 }
 
@@ -652,9 +643,14 @@
 
 .rd-instructions p {
   margin: 0;
-  color: #ffffff;
-  font-size: 14px;
+  color: var(--rd-ink);
+  font-size: 0.875rem;
+  line-height: 1.4;
   text-align: center;
+}
+
+.rd-instructions strong {
+  font-weight: 700;
 }
 
 /* ============================================
@@ -667,35 +663,6 @@
 .sector-viewer-actions {
   display: flex;
   gap: 8px;
-}
-
-.sector-viewer-draw {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: #10b981;
-  border: none;
-  color: #ffffff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-}
-
-.sector-viewer-draw:hover {
-  background: #059669;
-  transform: scale(1.05);
-}
-
-.sector-viewer-draw:active {
-  transform: scale(0.95);
-}
-
-/* Actualizar sector-viewer-upload para ser consistente */
-.sector-viewer-upload {
-  width: 40px;
-  height: 40px;
 }
 
 /* ============================================
@@ -759,7 +726,7 @@
 }
 
 .sv-route-info-content {
-  background: rgba(16, 185, 129, 0.95);
+  background: rgba(32, 41, 35, 0.95);
   backdrop-filter: blur(8px);
   padding: 12px 20px;
   border-radius: 12px;
@@ -774,7 +741,7 @@
   height: 28px;
   border-radius: 50%;
   background: #ffffff;
-  color: #10b981;
+  color: #153E35;
   font-weight: bold;
   font-size: 14px;
   display: flex;
@@ -851,126 +818,131 @@
    ============================================ */
 
 @media (max-width: 768px) {
-  .rd-routes-panel {
-    width: 100%;
-    max-width: 100%;
-  }
-
-  .rd-editor-header h2 {
-    font-size: 16px;
-  }
-
-  .rd-route-count {
-    font-size: 12px;
-    padding: 3px 8px;
-  }
-
-  .rd-instructions {
-    bottom: calc(10px + env(safe-area-inset-bottom));
-    padding: 10px 16px;
-  }
-
-  .rd-instructions p {
-    font-size: 13px;
-  }
-
-  .rd-drawing-controls {
-    top: 60px;
-    right: 10px;
-    padding: 5px;
-    gap: 5px;
-  }
-
-  .rd-btn-control {
-    padding: 7px 10px;
-    font-size: 11px;
-    gap: 4px;
-  }
-
-  .rd-btn-control svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  /* En tablet, cuando panel abierto mover controles */
-  .rd-routes-panel:not(.rd-panel-collapsed) ~ .rd-drawing-controls {
-    right: calc(85vw + 10px);
-  }
-}
-
-@media (max-height: 400px) {
-  .rd-drawing-controls {
-    top: auto;
-    bottom: calc(8px + env(safe-area-inset-bottom));
-    right: 50%;
-    transform: translateX(50%);
-    flex-direction: row;
-    animation: rd-slide-up 0.3s ease-out;
-  }
-}
-
-@media (max-width: 480px) {
-  /* Mobile: controles compactos horizontales en la parte inferior */
-  .rd-drawing-controls {
-    top: auto;
-    bottom: calc(10px + env(safe-area-inset-bottom));
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
-    flex-direction: row;
-    padding: 5px 6px;
-    gap: 5px;
-    border-radius: 10px;
-  }
-
-  .rd-btn-control {
-    padding: 8px 10px;
-    font-size: 11px;
-    gap: 3px;
-    border-radius: 6px;
-    min-width: auto;
-    min-height: auto;
-    justify-content: center;
-  }
-
-  .rd-btn-control svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  /* En mobile, cuando panel abierto ocultar controles */
-  .rd-routes-panel:not(.rd-panel-collapsed) ~ .rd-drawing-controls {
-    opacity: 0;
-    pointer-events: none;
-    left: -100%;
-    transform: none;
-  }
-  .rd-header-left {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-  }
-
   .rd-editor-header {
-    padding: 12px 15px;
     flex-wrap: wrap;
-    gap: 8px;
+    padding: 0.5rem 0.75rem;
   }
 
-  .rd-btn-icon {
-    width: 32px;
-    height: 32px;
+  .rd-header-left {
+    flex: 1;
   }
 
+  /* Navegación de fotos: fila propia bajo el título */
   .rd-image-nav {
     order: 3;
     width: 100%;
     justify-content: center;
-    padding: 6px 12px;
   }
 
-  .rd-image-indicator {
-    font-size: 12px;
+  /* Hoja inferior: la foto sigue a la vista mientras se elige vía */
+  .rd-routes-panel {
+    top: auto;
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+    height: min(62%, 34rem);
+    border-left: none;
+    border-top: 1px solid var(--rd-line);
+    border-radius: 1.25rem 1.25rem 0 0;
+    box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.45);
+  }
+
+  .rd-routes-panel.rd-panel-collapsed {
+    transform: translateY(105%);
+  }
+
+  .rd-panel-header {
+    position: relative;
+    padding-top: 1rem;
+  }
+
+  /* Asa de la hoja */
+  .rd-panel-header::before {
+    content: '';
+    position: absolute;
+    top: 0.5rem;
+    left: 50%;
+    width: 2.25rem;
+    height: 0.25rem;
+    margin-left: -1.125rem;
+    border-radius: 0.125rem;
+    background: var(--rd-line-strong);
+  }
+
+  /* Controles en fila, al pie y al alcance del pulgar */
+  .rd-drawing-controls {
+    top: auto;
+    bottom: 0.75rem;
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    flex-direction: row;
+    max-width: calc(100% - 1.5rem);
+  }
+
+  .rd-btn-control {
+    padding: 0 0.875rem;
+  }
+
+  /* La ayuda, encima de los controles */
+  .rd-instructions {
+    bottom: 4.75rem;
+    max-width: calc(100% - 1.5rem);
+  }
+
+  .rd-instructions p {
+    font-size: 0.8125rem;
+  }
+
+  /* Con la hoja abierta, ni controles ni ayuda (quedarían debajo) */
+  .rd-routes-panel:not(.rd-panel-collapsed) ~ .rd-drawing-controls,
+  .rd-routes-panel:not(.rd-panel-collapsed) ~ .rd-instructions {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .rd-routes-panel:not(.rd-panel-collapsed) ~ .rd-drawing-controls {
+    right: auto;
+  }
+}
+
+@media (max-width: 380px) {
+  .rd-btn-control {
+    padding: 0 0.625rem;
+    font-size: 0.8125rem;
+  }
+}
+
+/* Apaisado bajo: hoja a todo el alto y controles en fila */
+@media (max-height: 400px) {
+  .rd-routes-panel {
+    height: 100%;
+    border-radius: 0;
+  }
+
+  .rd-drawing-controls {
+    top: auto;
+    bottom: 0.5rem;
+    right: 50%;
+    left: auto;
+    transform: translateX(50%);
+    flex-direction: row;
+  }
+
+  .rd-instructions {
+    bottom: 4.25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-editor-overlay,
+  .rd-instructions {
+    animation: none;
+  }
+
+  .rd-routes-panel,
+  .rd-drawing-controls {
+    transition: none;
   }
 }
 
@@ -996,7 +968,7 @@
 }
 
 .sv-hover-popup-content {
-  background: rgba(31, 41, 55, 0.98);
+  background: rgba(32, 41, 35, 0.98);
   backdrop-filter: blur(12px);
   padding: 10px 14px;
   border-radius: 10px;
@@ -1067,7 +1039,7 @@
 }
 
 .sv-locked-popup-content {
-  background: rgba(31, 41, 55, 0.95);
+  background: rgba(32, 41, 35, 0.95);
   backdrop-filter: blur(12px);
   padding: 10px 14px;
   border-radius: 10px;
@@ -1105,12 +1077,12 @@
 }
 
 .sv-locked-popup-navigable:active {
-  background: rgba(51, 61, 75, 0.98);
+  background: rgba(42, 52, 46, 0.98);
   transform: scale(0.96);
 }
 
 .sv-locked-nav-arrow {
-  color: #f59e0b;
+  color: #DCE9DF;
   font-size: 16px;
   margin-left: 2px;
   opacity: 0.85;
@@ -1143,7 +1115,7 @@
 
 /* Header en modo obligatorio */
 .rd-mandatory-header {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+  background: var(--rd-surface) !important;
 }
 
 .rd-mandatory-header h2 {
@@ -1184,12 +1156,11 @@
 
 /* Instrucciones en modo obligatorio */
 .rd-instructions-mandatory {
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
-  border: 2px solid #f59e0b !important;
+  border-color: var(--rd-accent) !important;
 }
 
 .rd-instructions-mandatory p {
-  color: #92400e !important;
+  color: var(--rd-ink) !important;
 }
 
 /* ============================================
@@ -1222,9 +1193,9 @@
 }
 
 .rd-modal-container {
-  background: #1f2937;
+  background: #202923;
   border-radius: 16px;
-  border: 1px solid #374151;
+  border: 1px solid #2F3A33;
   max-width: 400px;
   width: 100%;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
@@ -1245,7 +1216,7 @@
 
 .rd-modal-header {
   padding: 20px 24px 16px;
-  border-bottom: 1px solid #374151;
+  border-bottom: 1px solid #2F3A33;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1272,7 +1243,7 @@
 
 .rd-modal-body p {
   margin: 0 0 16px 0;
-  color: #d1d5db;
+  color: #D9DED9;
   font-size: 14px;
   line-height: 1.5;
 }
@@ -1282,14 +1253,14 @@
 }
 
 .rd-modal-body strong {
-  color: #f59e0b;
+  color: #F7F6F0;
 }
 
 .rd-modal-input {
   width: 100%;
   padding: 12px 16px;
-  background: #111827;
-  border: 2px solid #374151;
+  background: #0E1411;
+  border: 2px solid #2F3A33;
   border-radius: 10px;
   color: #ffffff;
   font-size: 15px;
@@ -1304,7 +1275,7 @@
 }
 
 .rd-modal-input::placeholder {
-  color: #6b7280;
+  color: #8A958E;
 }
 
 .rd-modal-hint {
@@ -1315,7 +1286,7 @@
 }
 
 .rd-modal-hint-success {
-  color: #10b981 !important;
+  color: #DCE9DF !important;
 }
 
 .rd-modal-hint-error {
@@ -1344,27 +1315,27 @@
 }
 
 .rd-modal-btn-cancel {
-  background: #374151;
-  color: #d1d5db;
+  background: #2F3A33;
+  color: #D9DED9;
 }
 
 .rd-modal-btn-cancel:hover {
-  background: #4b5563;
+  background: #3B4840;
   color: #ffffff;
 }
 
 .rd-modal-btn-confirm {
-  background: #f59e0b;
-  color: #1f2937;
+  background: #DCE9DF;
+  color: #153E35;
 }
 
 .rd-modal-btn-confirm:hover:not(:disabled) {
-  background: #fbbf24;
+  background: #F7F6F0;
 }
 
 .rd-modal-btn-confirm:disabled {
-  background: #4b5563;
-  color: #9ca3af;
+  background: #3B4840;
+  color: #B4BDB6;
   cursor: not-allowed;
 }
 
@@ -1382,7 +1353,7 @@
 
 .rd-anchor-body > p {
   margin-bottom: 20px;
-  color: #9ca3af;
+  color: #B4BDB6;
 }
 
 .rd-anchor-options {
@@ -1396,8 +1367,8 @@
   align-items: center;
   gap: 16px;
   padding: 16px;
-  background: #111827;
-  border: 2px solid #374151;
+  background: #0E1411;
+  border: 2px solid #2F3A33;
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1405,8 +1376,8 @@
 }
 
 .rd-anchor-option:hover {
-  background: #1f2937;
-  border-color: #10b981;
+  background: #202923;
+  border-color: #DCE9DF;
   transform: translateX(4px);
 }
 
@@ -1444,7 +1415,7 @@
 
 .rd-anchor-desc {
   font-size: 13px;
-  color: #9ca3af;
+  color: #B4BDB6;
 }
 
 .rd-anchor-separator {
@@ -1459,12 +1430,12 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: #374151;
+  background: #2F3A33;
 }
 
 .rd-anchor-separator span {
   font-size: 12px;
-  color: #6b7280;
+  color: #8A958E;
   white-space: nowrap;
 }
 
@@ -1528,7 +1499,7 @@
 }
 
 .rd-image-selector-container {
-  background: #1f2937;
+  background: #202923;
   border-radius: 16px;
   max-width: 600px;
   width: 100%;
@@ -1550,7 +1521,7 @@
 }
 
 .rd-image-selector-subtitle {
-  color: #10b981;
+  color: #DCE9DF;
   font-size: 16px;
   font-weight: 500;
   margin: 0;
@@ -1574,7 +1545,7 @@
 }
 
 .rd-image-selector-item:hover {
-  border-color: #10b981;
+  border-color: #DCE9DF;
   transform: scale(1.02);
 }
 
@@ -1604,8 +1575,8 @@
   display: block;
   width: 100%;
   padding: 14px;
-  background: #374151;
-  color: #9ca3af;
+  background: #2F3A33;
+  color: #B4BDB6;
   border: none;
   border-radius: 10px;
   font-size: 16px;
@@ -1615,7 +1586,7 @@
 }
 
 .rd-image-selector-cancel:hover {
-  background: #4b5563;
+  background: #3B4840;
 }
 
 /* Responsive para selector de imagen */
@@ -1659,8 +1630,8 @@
   gap: 12px;
   width: 100%;
   padding: 16px;
-  background: #111827;
-  border: 2px solid #374151;
+  background: #0E1411;
+  border: 2px solid #2F3A33;
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1684,26 +1655,26 @@
 
 /* Botón Editar - azul */
 .rd-action-edit {
-  border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.1);
-  color: #93c5fd;
+  border-color: #DCE9DF;
+  background: rgba(220, 233, 223, 0.1);
+  color: #DCE9DF;
 }
 
 .rd-action-edit:hover {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: #60a5fa;
+  background: rgba(220, 233, 223, 0.2);
+  border-color: #F7F6F0;
 }
 
 /* Botón Bifurcar - violeta */
 .rd-action-bifurcate {
-  border-color: #8b5cf6;
-  background: rgba(139, 92, 246, 0.1);
-  color: #c4b5fd;
+  border-color: #DCE9DF;
+  background: rgba(220, 233, 223, 0.1);
+  color: #DCE9DF;
 }
 
 .rd-action-bifurcate:hover {
-  background: rgba(139, 92, 246, 0.2);
-  border-color: #a78bfa;
+  background: rgba(220, 233, 223, 0.2);
+  border-color: #F7F6F0;
 }
 
 /* ============================================
@@ -1727,8 +1698,8 @@
   gap: 12px;
   width: 100%;
   padding: 14px 16px;
-  background: #111827;
-  border: 2px solid #374151;
+  background: #0E1411;
+  border: 2px solid #2F3A33;
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1739,8 +1710,8 @@
 }
 
 .rd-branch-option:hover {
-  background: #1f2937;
-  border-color: #8b5cf6;
+  background: #202923;
+  border-color: #DCE9DF;
   transform: translateX(4px);
 }
 
@@ -1750,26 +1721,26 @@
 
 .rd-branch-option svg {
   flex-shrink: 0;
-  color: #9ca3af;
+  color: #B4BDB6;
 }
 
 .rd-branch-option:hover svg {
-  color: #c4b5fd;
+  color: #DCE9DF;
 }
 
 /* Tronco principal - verde */
 .rd-branch-trunk {
-  border-color: #10b981;
-  background: rgba(16, 185, 129, 0.08);
+  border-color: #DCE9DF;
+  background: rgba(220, 233, 223, 0.08);
 }
 
 .rd-branch-trunk:hover {
-  border-color: #34d399;
-  background: rgba(16, 185, 129, 0.15);
+  border-color: #F7F6F0;
+  background: rgba(220, 233, 223, 0.15);
 }
 
 .rd-branch-trunk svg {
-  color: #10b981;
+  color: #DCE9DF;
 }
 
 /* Badge de puntos por rama */
@@ -1777,7 +1748,7 @@
   margin-left: auto;
   font-size: 12px;
   font-weight: 500;
-  color: #6b7280;
+  color: #8A958E;
   background: rgba(107, 114, 128, 0.15);
   padding: 3px 8px;
   border-radius: 8px;
@@ -1789,7 +1760,7 @@
   flex-direction: column;
   gap: 6px;
   padding-top: 12px;
-  border-top: 1px solid #374151;
+  border-top: 1px solid #2F3A33;
 }
 
 .rd-branch-delete-btn {
@@ -1832,9 +1803,9 @@
   justify-content: center;
   font-size: 11px;
   font-weight: 700;
-  color: #c4b5fd;
-  background: rgba(139, 92, 246, 0.2);
-  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #DCE9DF;
+  background: rgba(220, 233, 223, 0.2);
+  border: 1px solid rgba(220, 233, 223, 0.4);
   padding: 2px 7px;
   border-radius: 8px;
   margin-left: 6px;
@@ -1874,7 +1845,7 @@
 .rd-aux-context-menu {
   position: absolute;
   z-index: 1100;
-  background: rgba(17, 24, 39, 0.95);
+  background: rgba(14, 20, 17, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 12px;
   padding: 6px;
@@ -1907,7 +1878,7 @@
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: #e5e7eb;
+  color: #E6E9E4;
   font-size: 14px;
   cursor: pointer;
   transition: background 0.15s;
@@ -1926,4 +1897,14 @@
 
 .rd-aux-menu-item span {
   flex: 1;
+}
+
+/* ============================================
+   MODALES: botones sin los estilos globales de <button> y con área táctil
+   ============================================ */
+
+.rd-modal-btn {
+  min-height: var(--kx-touch);
+  box-shadow: none;
+  font-family: inherit;
 }
