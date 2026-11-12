@@ -488,7 +488,8 @@ service cloud.firestore {
     // Sector images metadata
     match /sector_images/{imageId} {
       allow read: if true; // Anyone can read sector images metadata
-      allow write: if isAuthenticated() && isAdmin(); // Only admins can upload/delete
+      // Admins y spotters suben fotos (el editor Spotter las pide al crear un sector); el super-admin también
+      allow write: if isAuthenticated() && (isSuperAdmin() || isAdminOrSpotter());
     }
 
     // Route drawings on sector images

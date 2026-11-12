@@ -1362,6 +1362,8 @@ async function updateUserProfile(profileData) {
         }
 
         await db.collection('users').doc(currentUser.uid).update(updateData);
+        // Las publicaciones vuelven a leer la foto nueva (app_3.js: kxAuthorPhoto)
+        if (typeof kxAuthorPhotoCache !== 'undefined') kxAuthorPhotoCache.delete(currentUser.uid);
 
         // Also update Firebase Auth profile (this makes it persist)
         const authUpdateData = {
