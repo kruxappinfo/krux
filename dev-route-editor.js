@@ -46,6 +46,7 @@ let devSectorVertices = [];
 const DEV_SECTOR_SOURCE = 'dev-sector-draw-source';
 const DEV_SECTOR_CASING_LAYER = 'dev-sector-draw-casing';
 const DEV_SECTOR_LINE_LAYER = 'dev-sector-draw-line';
+const DEV_SECTOR_MID_LAYER = 'dev-sector-draw-mid';
 const DEV_SECTOR_VERTEX_LAYER = 'dev-sector-draw-vertices';
 
 // ============================================
@@ -1407,20 +1408,68 @@ async function saveSchool() {
 const DEV_SECTOR_MIN_POINTS = 2;
 let _devSectorDblZoom = false;   // el doble toque hacía zoom antes de entrar en el modo
 
+// Edición de la línea: arrastrar un punto lo mueve; tocar la línea (o su asa central) añade un punto en ese tramo
+const DEV_HIT_VERTEX = 22;    // px: radio para coger un punto (dedo incluido)
+const DEV_HIT_MID = 20;       // px: radio del asa central de cada tramo
+const DEV_HIT_LINE = 14;      // px: distancia a la línea para insertar en ella
+const DEV_MID_MIN_SEG = 48;   // px: tramos más cortos no muestran asa (se taparía con los puntos)
+let _devSectorHistory = [];   // estados anteriores de la línea, para Deshacer
+let _devSectorDrag = null;    // { index, moved, inserted, x, y, pan }
+let _devSectorLastDrag = 0;   // el clic que sigue a soltar un punto no añade otro
+let _devSectorLastTouch = 0;  // el ratón emulado tras un toque no repite la pulsación
+let _devSectorAdjust = null;  // docId del sector publicado cuya línea se ajusta (null: sector nuevo)
+
 function _sectorBar() {
   const n = devSectorVertices.length;
   const hint = n === 0 ? 'Toca el mapa para trazar la línea de la pared'
     : n < DEV_SECTOR_MIN_POINTS ? '1 punto · añade al menos otro'
-    : `${n} puntos · sigue o termina`;
+    : `${n} puntos · arrastra o toca la línea`;
   _showDevModeBar({
     icon: DEV_ICONS.sector,
-    title: 'Nuevo sector',
+    title: _devSectorAdjust ? 'Ajustar sector' : 'Nuevo sector',
     hint,
     actions: [
-      { act: 'undo', label: 'Deshacer', icon: DEV_ICONS.undo, disabled: n === 0 },
-      { act: 'finish', label: 'Terminar', icon: DEV_ICONS.check, primary: true, disabled: n < DEV_SECTOR_MIN_POINTS }
+      { act: 'undo', label: 'Deshacer', icon: DEV_ICONS.undo, disabled: _devSectorHistory.length === 0 },
+      { act: 'finish', label: _devSectorAdjust ? 'Guardar' : 'Terminar', icon: DEV_ICONS.check, primary: true, disabled: n < DEV_SECTOR_MIN_POINTS }
     ]
   });
+}
+
+function _sectorSnapshot() {
+  _devSectorHistory.push(devSectorVertices.map(v => v.slice()));
+  if (_devSectorHistory.length > 60) _devSectorHistory.shift();
+}
+
+/**
+ * Qué hay bajo el dedo, por prioridad: un punto, el asa central de un tramo o la propia línea.
+ * index: el punto tocado, o la posición donde insertar el nuevo.
+ */
+function _sectorHit(point) {
+  const pts = devSectorVertices.map(v => mlMap.project(v));
+  const near = (x, y, r) => { const d = Math.hypot(x - point.x, y - point.y); return d <= r ? d : null; };
+  let best = null;
+  pts.forEach((p, i) => {
+    const d = near(p.x, p.y, DEV_HIT_VERTEX);
+    if (d !== null && (!best || d < best.d)) best = { type: 'vertex', index: i, d };
+  });
+  if (best) return best;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if (Math.hypot(b.x - a.x, b.y - a.y) < DEV_MID_MIN_SEG) continue;
+    const d = near((a.x + b.x) / 2, (a.y + b.y) / 2, DEV_HIT_MID);
+    if (d !== null && (!best || d < best.d)) best = { type: 'mid', index: i + 1, d };
+  }
+  if (best) return best;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+    if (!len2) continue;
+    const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2));
+    const x = a.x + t * dx, y = a.y + t * dy;
+    const d = near(x, y, DEV_HIT_LINE);
+    if (d !== null && (!best || d < best.d)) best = { type: 'line', index: i + 1, d, x, y };
+  }
+  return best;
 }
 
 // Escucha del dibujo: se quita mientras el formulario está abierto y vuelve si se cancela
@@ -1428,25 +1477,88 @@ function _sectorDrawListeners(on) {
   if (typeof mlMap === 'undefined' || !mlMap) return;
   mlMap.off('click', handleSectorMapClick);
   mlMap.off('dblclick', handleSectorMapDblClick);
+  mlMap.off('mousedown', _sectorPress);
+  mlMap.off('touchstart', _sectorPress);
+  mlMap.off('mousemove', _sectorDragMove);
+  mlMap.off('touchmove', _sectorDragMove);
+  mlMap.off('mouseup', _sectorRelease);
+  mlMap.off('zoomend', updateSectorDrawPreview);
   if (on) {
     mlMap.on('click', handleSectorMapClick);
     mlMap.on('dblclick', handleSectorMapDblClick);
+    mlMap.on('mousedown', _sectorPress);
+    mlMap.on('touchstart', _sectorPress);
+    mlMap.on('mousemove', _sectorDragMove);
+    mlMap.on('touchmove', _sectorDragMove);
+    mlMap.on('mouseup', _sectorRelease);
+    mlMap.on('zoomend', updateSectorDrawPreview);   // las asas dependen de lo largo que se ve cada tramo
+  } else {
+    _sectorRelease();
   }
   _setDevCursor(on);
 }
 
 /**
- * Activa el modo de dibujo de sector. Necesita una escuela abierta.
+ * Pulsar un punto empieza a arrastrarlo; pulsar el asa de un tramo crea ahí un punto y lo arrastra.
+ * El mapa no se desplaza mientras tanto.
  */
-function activateSectorMode() {
-  deactivateAllModes();
-  if (typeof mlCurrentSchool === 'undefined' || !mlCurrentSchool) {
-    showDevToast('Abre una escuela para añadir un sector\nSi la escuela no existe, créala primero', 'warning');
-    return;
+function _sectorPress(e) {
+  const oe = e.originalEvent;
+  if (oe && oe.target !== mlMap.getCanvas()) return;
+  if (e.type === 'touchstart') {
+    _devSectorLastTouch = Date.now();
+    if (oe.touches && oe.touches.length > 1) return;   // pellizco: zoom, no edición
+  } else if (Date.now() - _devSectorLastTouch < 800) {
+    return;   // ratón emulado por el navegador tras un toque
   }
+  if (_devSectorDrag) return;
+  const hit = _sectorHit(e.point);
+  if (!hit || (hit.type !== 'vertex' && hit.type !== 'mid')) return;
 
+  e.preventDefault();
+  _sectorSnapshot();
+  if (hit.type === 'mid') {
+    const a = devSectorVertices[hit.index - 1], b = devSectorVertices[hit.index];
+    devSectorVertices.splice(hit.index, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+    updateSectorDrawPreview();
+  }
+  _devSectorDrag = { index: hit.index, moved: false, inserted: hit.type === 'mid', x: e.point.x, y: e.point.y, pan: mlMap.dragPan.isEnabled() };
+  mlMap.dragPan.disable();
+  // Soltar fuera del mapa también termina el arrastre
+  window.addEventListener('pointerup', _sectorRelease);
+  window.addEventListener('pointercancel', _sectorRelease);
+  window.addEventListener('touchend', _sectorRelease);
+}
+
+function _sectorDragMove(e) {
+  const d = _devSectorDrag;
+  if (!d) return;
+  if (!d.moved && Math.hypot(e.point.x - d.x, e.point.y - d.y) < 3) return;
+  d.moved = true;
+  devSectorVertices[d.index] = [e.lngLat.lng, e.lngLat.lat];
+  updateSectorDrawPreview();
+}
+
+function _sectorRelease() {
+  window.removeEventListener('pointerup', _sectorRelease);
+  window.removeEventListener('pointercancel', _sectorRelease);
+  window.removeEventListener('touchend', _sectorRelease);
+  const d = _devSectorDrag;
+  if (!d) return;
+  _devSectorDrag = null;
+  if (d.pan && typeof mlMap !== 'undefined' && mlMap) mlMap.dragPan.enable();
+  if (!d.moved && !d.inserted) _devSectorHistory.pop();   // tocar un punto sin moverlo no cambia nada
+  _devSectorLastDrag = Date.now();
+  if (devSectorMode) _sectorBar();
+}
+
+// Prepara el dibujo con unos puntos de partida (vacío para un sector nuevo)
+function _startSectorDraw(vertices, adjustDocId) {
   devSectorMode = true;
-  devSectorVertices = [];
+  devSectorVertices = vertices.map(v => [Number(v[0]), Number(v[1])]);
+  _devSectorHistory = [];
+  _devSectorDrag = null;
+  _devSectorAdjust = adjustDocId || null;
   _sectorBar();
 
   if (!mlMap) return;
@@ -1462,6 +1574,10 @@ function activateSectorMode() {
       data: { type: 'FeatureCollection', features: [] }
     });
 
+    // Tamaños según el zoom: de lejos, puntos y línea finos para ver lo dibujado; de cerca, más grandes.
+    // Coger un punto no depende de su tamaño: se usa un radio fijo en píxeles (DEV_HIT_VERTEX)
+    const z = (lo, mid, hi) => ['interpolate', ['linear'], ['zoom'], 12, lo, 16, mid, 19, hi];
+
     // Línea coral con borde claro: se lee sobre roca, bosque y mapa topográfico
     mlMap.addLayer({
       id: DEV_SECTOR_CASING_LAYER,
@@ -1469,7 +1585,7 @@ function activateSectorMode() {
       source: DEV_SECTOR_SOURCE,
       filter: ['==', '$type', 'LineString'],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#F7F6F0', 'line-width': 6, 'line-opacity': 0.9 }
+      paint: { 'line-color': '#F7F6F0', 'line-width': z(3, 4.5, 6), 'line-opacity': 0.9 }
     });
     mlMap.addLayer({
       id: DEV_SECTOR_LINE_LAYER,
@@ -1477,20 +1593,76 @@ function activateSectorMode() {
       source: DEV_SECTOR_SOURCE,
       filter: ['==', '$type', 'LineString'],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#FF8D67', 'line-width': 3 }
+      paint: { 'line-color': '#FF8D67', 'line-width': z(1.5, 2.25, 3) }
+    });
+    // Asa central de cada tramo: punto pequeño y translúcido que invita a tocar para añadir
+    mlMap.addLayer({
+      id: DEV_SECTOR_MID_LAYER,
+      type: 'circle',
+      source: DEV_SECTOR_SOURCE,
+      filter: ['==', 'kind', 'mid'],
+      paint: {
+        'circle-radius': z(1.5, 2.5, 3.5),
+        'circle-color': '#F7F6F0',
+        'circle-opacity': 0.9,
+        'circle-stroke-color': '#FF8D67',
+        'circle-stroke-width': z(1, 1.25, 1.5)
+      }
     });
     mlMap.addLayer({
       id: DEV_SECTOR_VERTEX_LAYER,
       type: 'circle',
       source: DEV_SECTOR_SOURCE,
-      filter: ['==', '$type', 'Point'],
+      filter: ['==', 'kind', 'vertex'],
       paint: {
-        'circle-radius': 6,
+        'circle-radius': z(2, 3.5, 5),
         'circle-color': '#F7F6F0',
         'circle-stroke-color': '#153E35',
-        'circle-stroke-width': 2
+        'circle-stroke-width': z(1, 1.5, 2)
       }
     });
+  }
+  updateSectorDrawPreview();
+}
+
+/**
+ * Activa el modo de dibujo de sector. Necesita una escuela abierta.
+ */
+function activateSectorMode() {
+  deactivateAllModes();
+  if (typeof mlCurrentSchool === 'undefined' || !mlCurrentSchool) {
+    showDevToast('Abre una escuela para añadir un sector\nSi la escuela no existe, créala primero', 'warning');
+    return;
+  }
+  _startSectorDraw([], null);
+}
+
+/**
+ * Ajusta la línea de un sector ya publicado (admins) con el mismo editor del dibujo.
+ * coords: [[lng, lat], ...]
+ */
+function devAdjustSectorLine(docId, coords) {
+  deactivateAllModes();
+  if (!docId || !Array.isArray(coords) || coords.length < DEV_SECTOR_MIN_POINTS) {
+    showDevToast('Este sector no tiene una línea que ajustar', 'warning');
+    return;
+  }
+  _startSectorDraw(coords, docId);
+}
+
+async function _saveSectorAdjust() {
+  const docId = _devSectorAdjust;
+  try {
+    await db.collection('pending_sectors').doc(docId).update({
+      vertices: devSectorVertices.map(v => ({ lng: v[0], lat: v[1] })),
+      ..._devEditStamp()
+    });
+    deactivateSectorMode();
+    showDevToast('Línea del sector actualizada', 'success');
+  } catch (error) {
+    console.error('[Admin] Error guardando la línea del sector:', error);
+    showDevToast('No se pudo guardar: ' + error.message, 'error');
+    _sectorDrawListeners(true);
   }
 }
 
@@ -1500,13 +1672,15 @@ function activateSectorMode() {
 function deactivateSectorMode() {
   devSectorMode = false;
   devSectorVertices = [];
+  _devSectorHistory = [];
+  _devSectorAdjust = null;
 
   if (typeof mlMap !== 'undefined' && mlMap) {
     _sectorDrawListeners(false);
     if (_devSectorDblZoom) mlMap.doubleClickZoom.enable();
     _devSectorDblZoom = false;
 
-    [DEV_SECTOR_VERTEX_LAYER, DEV_SECTOR_LINE_LAYER, DEV_SECTOR_CASING_LAYER].forEach(id => {
+    [DEV_SECTOR_VERTEX_LAYER, DEV_SECTOR_MID_LAYER, DEV_SECTOR_LINE_LAYER, DEV_SECTOR_CASING_LAYER].forEach(id => {
       if (mlMap.getLayer(id)) mlMap.removeLayer(id);
     });
     if (mlMap.getSource(DEV_SECTOR_SOURCE)) mlMap.removeSource(DEV_SECTOR_SOURCE);
@@ -1517,19 +1691,24 @@ function deactivateSectorMode() {
 }
 
 /**
- * Añade un punto a la línea del sector
+ * Toque en el mapa: en la línea inserta un punto en ese tramo; fuera de ella, lo añade al final.
+ * Tocar un punto existente no hace nada (se arrastra).
  */
 function handleSectorMapClick(e) {
   if (e.originalEvent && e.originalEvent.target !== mlMap.getCanvas()) return;
+  if (Date.now() - _devSectorLastDrag < 350) return;
 
-  // Un doble toque llega como dos clics en el mismo sitio: el segundo no añade un punto repetido
-  const last = devSectorVertices[devSectorVertices.length - 1];
-  if (last) {
-    const p = mlMap.project(last);
-    if (Math.hypot(p.x - e.point.x, p.y - e.point.y) < 10) return;
+  const hit = _sectorHit(e.point);
+  // Un doble toque llega como dos clics en el mismo sitio: el segundo cae sobre el punto recién puesto
+  if (hit && (hit.type === 'vertex' || hit.type === 'mid')) return;
+
+  _sectorSnapshot();
+  if (hit && hit.type === 'line') {
+    const ll = mlMap.unproject([hit.x, hit.y]);
+    devSectorVertices.splice(hit.index, 0, [ll.lng, ll.lat]);
+  } else {
+    devSectorVertices.push([e.lngLat.lng, e.lngLat.lat]);
   }
-
-  devSectorVertices.push([e.lngLat.lng, e.lngLat.lat]);
   updateSectorDrawPreview();
   _sectorBar();
 }
@@ -1547,7 +1726,7 @@ function handleSectorMapDblClick(e) {
 }
 
 /**
- * Actualiza la línea y sus puntos en el mapa
+ * Actualiza la línea, sus puntos y las asas de los tramos en el mapa
  */
 function updateSectorDrawPreview() {
   if (!mlMap || !mlMap.getSource(DEV_SECTOR_SOURCE)) return;
@@ -1555,7 +1734,7 @@ function updateSectorDrawPreview() {
   const features = devSectorVertices.map((v, i) => ({
     type: 'Feature',
     geometry: { type: 'Point', coordinates: v },
-    properties: { index: i }
+    properties: { kind: 'vertex', index: i }
   }));
   if (devSectorVertices.length >= 2) {
     features.push({
@@ -1563,29 +1742,43 @@ function updateSectorDrawPreview() {
       geometry: { type: 'LineString', coordinates: devSectorVertices },
       properties: {}
     });
+    // Mientras se arrastra no se muestran asas: solo estorbarían
+    if (!_devSectorDrag) {
+      for (let i = 0; i < devSectorVertices.length - 1; i++) {
+        const a = devSectorVertices[i], b = devSectorVertices[i + 1];
+        const pa = mlMap.project(a), pb = mlMap.project(b);
+        if (Math.hypot(pb.x - pa.x, pb.y - pa.y) < DEV_MID_MIN_SEG) continue;
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] },
+          properties: { kind: 'mid' }
+        });
+      }
+    }
   }
 
   mlMap.getSource(DEV_SECTOR_SOURCE).setData({ type: 'FeatureCollection', features });
 }
 
 /**
- * Da la línea por terminada y abre el formulario. Cancelarlo devuelve al dibujo, con los puntos intactos.
+ * Da la línea por terminada: un sector nuevo abre el formulario (cancelarlo devuelve al dibujo con los puntos
+ * intactos); un sector publicado guarda su nueva línea.
  */
 function finishSectorDraw() {
   if (!devSectorMode || devSectorVertices.length < DEV_SECTOR_MIN_POINTS) return;
   _sectorDrawListeners(false);
+  if (_devSectorAdjust) { _saveSectorAdjust(); return; }
   showSectorModal();
 }
 
 /**
- * Deshace el último punto dibujado
+ * Deshace el último cambio de la línea (punto añadido, insertado o movido)
  */
 function undoSectorVertex() {
-  if (devSectorVertices.length > 0) {
-    devSectorVertices.pop();
-    updateSectorDrawPreview();
-    _sectorBar();
-  }
+  if (!_devSectorHistory.length) return;
+  devSectorVertices = _devSectorHistory.pop();
+  updateSectorDrawPreview();
+  _sectorBar();
 }
 
 /**
@@ -2159,5 +2352,6 @@ window.undoSectorVertex = undoSectorVertex;
 window.finishSectorDraw = finishSectorDraw;
 window.toggleSectorDates = toggleSectorDates;
 window.devEditItem = devEditItem;
+window.devAdjustSectorLine = devAdjustSectorLine;
 
 console.log('[Spotter] Modulo cargado');
