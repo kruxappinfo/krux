@@ -7026,13 +7026,8 @@ async function loadAdminRoutes() {
 
 async function approveAdminRoute(routeId) {
   try {
-    const db = firebase.firestore();
-    await db.collection('pending_routes').doc(routeId).update({
-      status: 'approved',
-      approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      approvedBy: firebase.auth().currentUser?.email
-    });
-    showToast('Vía aprobada', 'success');
+    const award = await kxApprovePending('pending_routes', routeId);
+    showToast(kxApprovalMessage('Vía aprobada', award), 'success');
     loadAdminRoutes();
     loadAdminStats();
   } catch (error) {
@@ -7258,13 +7253,8 @@ async function loadAdminPendingPOI() {
 
 async function approveAdminItem(collection, docId, reloadFn) {
   try {
-    const db = firebase.firestore();
-    await db.collection(collection).doc(docId).update({
-      status: 'approved',
-      approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      approvedBy: firebase.auth().currentUser?.email
-    });
-    showToast('Aprobado correctamente', 'success');
+    const award = await kxApprovePending(collection, docId);
+    showToast(kxApprovalMessage('Aprobado correctamente', award), 'success');
     if (typeof window[reloadFn] === 'function') window[reloadFn]();
     loadAdminStats();
   } catch (error) {
