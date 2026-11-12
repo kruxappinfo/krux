@@ -8236,11 +8236,11 @@ function initBottomSheet() {
       const schoolId = bsCurrentSchool.id;
       const schoolName = bsCurrentSchool.nombre;
       const schoolConfig = MAPLIBRE_SCHOOLS[schoolId];
-
-      hideBottomSheet();
-
+      // hideBottomSheet() deja bsCurrentSchool a null: los datos del vuelo se leen antes de cerrar la hoja
       const flyCenter = schoolConfig ? schoolConfig.center : bsCurrentSchool.coords;
       const flyZoom = schoolConfig ? schoolConfig.zoom : (bsCurrentSchool.zoom || 16);
+
+      hideBottomSheet();
       mlMap.flyTo({
         center: flyCenter,
         zoom: flyZoom,
