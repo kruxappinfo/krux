@@ -241,7 +241,7 @@ const MAPLIBRE_SCHOOLS = {
     name: 'La Pedriza',
     center: [-3.879682, 40.752920],
     zoom: 15,
-    bounds: [[-3.8943, 40.7432], [-3.8651, 40.7626]],
+    bounds: [[-3.9257, 40.7327], [-3.8267, 40.7891]],
     // Vector Tiles (preferido - más rápido)
     tiles: {
       vias: 'tiles/pedriza/vias/{z}/{x}/{y}.pbf',
