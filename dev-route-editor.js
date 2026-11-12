@@ -1759,6 +1759,283 @@ function promptSectorPhoto(schoolId, sectorName, onNo) {
 }
 
 // ============================================
+// EDITAR LO PUBLICADO (admins)
+// ============================================
+// Escuelas, sectores y vías de la comunidad: el admin corrige su información sin borrarlos y volver a crearlos.
+// Las reglas de Firestore solo dejan actualizar a admins; el botón solo se ofrece a admins.
+
+const _DEV_EDIT_COLLECTIONS = { school: 'pending_schools', sector: 'pending_sectors', route: 'pending_routes' };
+const DEV_ROCKS = ['Caliza', 'Granito', 'Arenisca', 'Conglomerado', 'Cuarcita', 'Gneis', 'Basalto'];
+const DEV_EXPOSURES = [['Sol mañana', 'Sol de mañana'], ['Sol mediodía', 'Sol a mediodía'], ['Sol tarde', 'Sol de tarde'], ['Sol total', 'Sol todo el día'], ['Sombra', 'Sombra']];
+
+const _devVal = id => document.getElementById(id)?.value?.trim() || '';
+
+// <option>s con el valor actual siempre disponible: un dato fuera de la lista no se pierde al guardar
+function _devOptions(list, current, empty) {
+  const pairs = list.map(o => (Array.isArray(o) ? o : [o, o]));
+  if (current && !pairs.some(([v]) => v === current)) pairs.push([current, current]);
+  return (empty ? `<option value="">${empty}</option>` : '')
+    + pairs.map(([v, l]) => `<option value="${_devEsc(v)}"${v === current ? ' selected' : ''}>${_devEsc(l)}</option>`).join('');
+}
+
+function _devEditStamp() {
+  return { updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: auth.currentUser ? auth.currentUser.uid : null };
+}
+
+// Aplica un cambio por lotes de 400 (el límite de Firestore es 500 operaciones por lote)
+async function _devBatchUpdate(docs, data) {
+  for (let i = 0; i < docs.length; i += 400) {
+    const batch = db.batch();
+    docs.slice(i, i + 400).forEach(d => batch.update(d.ref, data));
+    await batch.commit();
+  }
+}
+
+async function devEditItem(kind, docId) {
+  const collection = _DEV_EDIT_COLLECTIONS[kind];
+  if (!collection || !docId) return;
+  let snap;
+  try {
+    snap = await db.collection(collection).doc(docId).get();
+  } catch (error) {
+    showDevToast('No se pudo cargar: ' + error.message, 'error');
+    return;
+  }
+  if (!snap.exists) { showDevToast('Este elemento ya no existe', 'warning'); return; }
+  const data = snap.data();
+  if (kind === 'school') _editSchoolSheet(docId, data);
+  else if (kind === 'sector') await _editSectorSheet(docId, data);
+  else await _editRouteSheet(docId, data);
+}
+
+function _editSchoolSheet(docId, d) {
+  const id = 'dev-edit-modal';
+  _openDevSheet({
+    id,
+    icon: DEV_ICONS.escuela,
+    title: 'Editar escuela',
+    sub: d.nombre || '',
+    saveLabel: 'Guardar cambios',
+    focusId: 'dev-edit-name',
+    onSave: async () => {
+      const nombre = _devVal('dev-edit-name');
+      if (!nombre) return _devFormError(id, 'Escribe el nombre de la escuela', 'dev-edit-name');
+      try {
+        await db.collection('pending_schools').doc(docId).update({
+          nombre,
+          descripcion: _devVal('dev-edit-desc') || null,
+          rockType: _devVal('dev-edit-rock') || null,
+          aparcamiento: _devVal('dev-edit-parking') || null,
+          exposicion: _devVal('dev-edit-expo') || null,
+          ..._devEditStamp()
+        });
+        _removeDevSheet(id);
+        showDevToast('Escuela actualizada', 'success');
+      } catch (error) {
+        console.error('[Admin] Error editando escuela:', error);
+        _devFormError(id, 'No se pudo guardar: ' + error.message);
+      }
+    },
+    body: `
+      <div class="dev-form-group">
+        <label for="dev-edit-name">Nombre de la escuela</label>
+        <input type="text" id="dev-edit-name" value="${_devEsc(d.nombre)}" maxlength="80" autocomplete="off" required>
+      </div>
+      <div class="dev-form-group">
+        <label for="dev-edit-desc">Descripción <span>opcional</span></label>
+        <input type="text" id="dev-edit-desc" value="${_devEsc(d.descripcion)}" maxlength="160" autocomplete="off">
+      </div>
+      <div class="dev-form-row">
+        <div class="dev-form-group">
+          <label for="dev-edit-rock">Tipo de roca</label>
+          <select id="dev-edit-rock">${_devOptions(DEV_ROCKS, d.rockType, 'Sin indicar')}</select>
+        </div>
+        <div class="dev-form-group">
+          <label for="dev-edit-parking">Aparcamiento (coche)</label>
+          <select id="dev-edit-parking">${_devOptions([['si', 'Sí, hay'], ['no', 'No hay']], d.aparcamiento, 'Sin indicar')}</select>
+        </div>
+      </div>
+      <div class="dev-form-group">
+        <label for="dev-edit-expo">Sol de la escuela <span>los sectores pueden añadir el suyo</span></label>
+        <select id="dev-edit-expo">${_devOptions(DEV_EXPOSURES, d.exposicion, 'Sin indicar')}</select>
+      </div>`
+  });
+}
+
+async function _editSectorSheet(docId, d) {
+  const id = 'dev-edit-modal';
+  // Las fotos y trazados del sector se enlazan por su nombre: con foto, el nombre no se cambia
+  let locked = false;
+  try {
+    if (d.schoolId && typeof normalizeSectorName === 'function') {
+      const img = await db.collection('sector_images').doc(`${d.schoolId}_${normalizeSectorName(d.nombre || '')}`).get();
+      locked = img.exists;
+    }
+  } catch (error) {
+    console.warn('[Admin] No se pudo comprobar la foto del sector:', error);
+  }
+
+  const overlay = _openDevSheet({
+    id,
+    icon: DEV_ICONS.sector,
+    title: 'Editar sector',
+    sub: d.nombre || '',
+    saveLabel: 'Guardar cambios',
+    focusId: locked ? 'dev-edit-expo' : 'dev-edit-name',
+    onSave: async () => {
+      const nombre = _devVal('dev-edit-name');
+      if (!nombre) return _devFormError(id, 'Escribe el nombre del sector', 'dev-edit-name');
+      const restr = _devVal('dev-edit-restr') || 'NO';
+      const dateStart = _devVal('dev-edit-date-start');
+      const dateEnd = _devVal('dev-edit-date-end');
+      if (restr === 'SI') {
+        if (!_devValidDayMonth(dateStart)) return _devFormError(id, 'Fecha de inicio con formato DD-MM (p. ej. 01-02)', 'dev-edit-date-start');
+        if (!_devValidDayMonth(dateEnd)) return _devFormError(id, 'Fecha de fin con formato DD-MM (p. ej. 30-06)', 'dev-edit-date-end');
+      }
+      try {
+        await db.collection('pending_sectors').doc(docId).update({
+          nombre,
+          exposicion: _devVal('dev-edit-expo') || null,
+          restr,
+          Fecha_inicio: restr === 'SI' ? dateStart : null,
+          Fecha_fin: restr === 'SI' ? dateEnd : null,
+          ..._devEditStamp()
+        });
+        // Las vías apuntan al sector por su nombre: se renombran con él
+        if (nombre !== d.nombre && d.schoolId) {
+          const routes = await db.collection('pending_routes')
+            .where('schoolId', '==', d.schoolId)
+            .where('sector', '==', d.nombre)
+            .get();
+          await _devBatchUpdate(routes.docs.filter(r => r.data().geojsonFeature), { sector: nombre, 'geojsonFeature.properties.sector': nombre });
+          await _devBatchUpdate(routes.docs.filter(r => !r.data().geojsonFeature), { sector: nombre });
+        }
+        _removeDevSheet(id);
+        showDevToast('Sector actualizado', 'success');
+      } catch (error) {
+        console.error('[Admin] Error editando sector:', error);
+        _devFormError(id, 'No se pudo guardar: ' + error.message);
+      }
+    },
+    body: `
+      <div class="dev-form-group">
+        <label for="dev-edit-name">Nombre del sector${locked ? ' <span>tiene foto: no se puede renombrar</span>' : ''}</label>
+        <input type="text" id="dev-edit-name" value="${_devEsc(d.nombre)}" maxlength="80" autocomplete="off" required${locked ? ' disabled' : ''}>
+      </div>
+      <div class="dev-form-row">
+        <div class="dev-form-group">
+          <label for="dev-edit-expo">Orientación <span>opcional</span></label>
+          <select id="dev-edit-expo">${_devOptions(DEV_EXPOSURES, d.exposicion, 'Sin especificar')}</select>
+        </div>
+        <div class="dev-form-group">
+          <label for="dev-edit-restr">Restricción</label>
+          <select id="dev-edit-restr">${_devOptions([['NO', 'Ninguna'], ['SI', 'Por fechas']], String(d.restr || 'NO').toUpperCase() === 'SI' ? 'SI' : 'NO')}</select>
+        </div>
+      </div>
+      <div class="dev-form-row" id="dev-edit-dates"${String(d.restr || '').toUpperCase() === 'SI' ? '' : ' hidden'}>
+        <div class="dev-form-group">
+          <label for="dev-edit-date-start">Desde (DD-MM)</label>
+          <input type="text" id="dev-edit-date-start" value="${_devEsc(d.Fecha_inicio)}" placeholder="01-02" maxlength="5" inputmode="numeric" autocomplete="off">
+        </div>
+        <div class="dev-form-group">
+          <label for="dev-edit-date-end">Hasta (DD-MM)</label>
+          <input type="text" id="dev-edit-date-end" value="${_devEsc(d.Fecha_fin)}" placeholder="30-06" maxlength="5" inputmode="numeric" autocomplete="off">
+        </div>
+      </div>`
+  });
+  overlay.querySelector('#dev-edit-restr').addEventListener('change', e => {
+    overlay.querySelector('#dev-edit-dates').hidden = e.target.value !== 'SI';
+  });
+}
+
+async function _editRouteSheet(docId, d) {
+  const id = 'dev-edit-modal';
+  // Sectores de la escuela para reasignar la vía (solo si es la escuela abierta; si no, queda su sector actual)
+  devCurrentSchoolSectors = [];
+  if (typeof mlCurrentSchool !== 'undefined' && mlCurrentSchool && mlCurrentSchool === d.schoolId) {
+    try { await loadSchoolSectors(); } catch (error) { console.warn('[Admin] No se pudieron cargar los sectores:', error); }
+  }
+  const grade = d.grado1 || d.geojsonFeature?.properties?.grado1 || '';
+  const gradeGroups = DEV_GRADES.map(([label, grades]) =>
+    `<optgroup label="${label}">${grades.map(g => `<option value="${g}"${g === grade ? ' selected' : ''}>${g}</option>`).join('')}</optgroup>`).join('');
+  const knownGrade = DEV_GRADES.some(([, grades]) => grades.includes(grade));
+  const modality = d.modalidad || d.geojsonFeature?.properties?.modalidad || 'Simple';
+
+  _openDevSheet({
+    id,
+    icon: DEV_ICONS.via,
+    title: 'Editar vía',
+    sub: d.nombre || '',
+    saveLabel: 'Guardar cambios',
+    focusId: 'dev-edit-name',
+    onSave: async () => {
+      const nombre = _devVal('dev-edit-name');
+      const grado1 = _devVal('dev-edit-grade');
+      const sector = _devVal('dev-edit-sector');
+      if (!nombre) return _devFormError(id, 'Escribe el nombre de la vía', 'dev-edit-name');
+      if (!grado1) return _devFormError(id, 'Elige el grado', 'dev-edit-grade');
+      if (!sector) return _devFormError(id, 'Elige el sector', 'dev-edit-sector');
+      const fields = {
+        nombre,
+        grado1,
+        sector,
+        exp1: parseInt(_devVal('dev-edit-express')) || null,
+        long1: parseInt(_devVal('dev-edit-meters')) || null,
+        descripcion: _devVal('dev-edit-description') || null,
+        modalidad: _devVal('dev-edit-modality') || 'Simple'
+      };
+      const update = { ...fields, ..._devEditStamp() };
+      // La copia GeoJSON (para exportar) debe coincidir con el documento
+      if (d.geojsonFeature) Object.entries(fields).forEach(([k, v]) => { update[`geojsonFeature.properties.${k}`] = v; });
+      try {
+        await db.collection('pending_routes').doc(docId).update(update);
+        _removeDevSheet(id);
+        showDevToast('Vía actualizada', 'success');
+      } catch (error) {
+        console.error('[Admin] Error editando vía:', error);
+        _devFormError(id, 'No se pudo guardar: ' + error.message);
+      }
+    },
+    body: `
+      <div class="dev-form-group">
+        <label for="dev-edit-name">Nombre de la vía</label>
+        <input type="text" id="dev-edit-name" value="${_devEsc(d.nombre)}" maxlength="80" autocomplete="off" required>
+      </div>
+      <div class="dev-form-row">
+        <div class="dev-form-group">
+          <label for="dev-edit-grade">Grado</label>
+          <select id="dev-edit-grade" required>
+            ${grade && !knownGrade ? `<option value="${_devEsc(grade)}" selected>${_devEsc(grade)}</option>` : ''}
+            ${gradeGroups}
+          </select>
+        </div>
+        <div class="dev-form-group">
+          <label for="dev-edit-sector">Sector</label>
+          <select id="dev-edit-sector" required>${_devOptions(devCurrentSchoolSectors, d.sector || '')}</select>
+        </div>
+      </div>
+      <div class="dev-form-row">
+        <div class="dev-form-group">
+          <label for="dev-edit-express">Chapas <span>opcional</span></label>
+          <input type="number" id="dev-edit-express" value="${_devEsc(d.exp1)}" min="0" max="50" inputmode="numeric">
+        </div>
+        <div class="dev-form-group">
+          <label for="dev-edit-meters">Metros <span>opcional</span></label>
+          <input type="number" id="dev-edit-meters" value="${_devEsc(d.long1)}" min="1" max="500" inputmode="numeric">
+        </div>
+      </div>
+      <div class="dev-form-group">
+        <label for="dev-edit-description">Tipo de escalada <span>opcional</span></label>
+        <input type="text" id="dev-edit-description" value="${_devEsc(d.descripcion)}" maxlength="120" autocomplete="off">
+      </div>
+      <div class="dev-form-group">
+        <label for="dev-edit-modality">Modalidad</label>
+        <select id="dev-edit-modality">${_devOptions(['Simple', 'Multilargo', 'Boulder'], modality)}</select>
+      </div>`
+  });
+}
+
+// ============================================
 // UTILIDADES UI
 // ============================================
 
@@ -1881,5 +2158,6 @@ window.saveSector = saveSector;
 window.undoSectorVertex = undoSectorVertex;
 window.finishSectorDraw = finishSectorDraw;
 window.toggleSectorDates = toggleSectorDates;
+window.devEditItem = devEditItem;
 
 console.log('[Spotter] Modulo cargado');

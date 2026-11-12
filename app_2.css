@@ -32584,7 +32584,8 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   overflow-wrap: anywhere;
 }
 .kx-rcommunity-by strong { font-weight: 600; color: #3A403C; }
-.kx-rcommunity-admin { display: flex; gap: 8px; margin-top: 10px; }
+.kx-rcommunity-admin { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.kx-radmin.is-wide { flex: 1 1 100%; }
 .kx-radmin {
   flex: 1;
   display: inline-flex;
@@ -33483,3 +33484,26 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   .dev-route-modal-overlay,
   .dev-route-modal { animation: none; }
 }
+
+/* ---- Ficha de escuela: hoja de herramientas de admin (solo admins, escuelas de la comunidad) ---- */
+#school-bottom-sheet .bs-page-admin { display: none; }
+#school-bottom-sheet.has-admin-page .bs-page-admin { display: block; padding-top: 48px; }   /* deja pasar la ilustración de la cabecera */
+.bs-pdot-admin { display: none; }
+#school-bottom-sheet.has-admin-page .bs-pdot-admin { display: grid; }
+
+.kx-admincard { padding: 4px 0 8px; }
+.kx-admincard-title { margin: 0; font-size: 1.0625rem; font-weight: 700; line-height: 1.25; color: var(--kx-ink); }
+.kx-admincard-sub { margin: 2px 0 12px; font-size: 0.8125rem; line-height: 1.35; color: var(--kx-ink-3); }
+.kx-admin-list { margin: 0; border-radius: 14px; background: rgba(32, 41, 35, 0.04); overflow: hidden; }
+.kx-admin-row { display: flex; justify-content: space-between; gap: 16px; padding: 11px 14px; font-size: 0.875rem; line-height: 1.35; }
+.kx-admin-row + .kx-admin-row { border-top: 1px solid rgba(32, 41, 35, 0.07); }
+.kx-admin-row dt { flex: none; color: var(--kx-ink-3); }
+.kx-admin-row dd { margin: 0; min-width: 0; text-align: right; font-weight: 600; color: var(--kx-ink); overflow-wrap: anywhere; }
+
+/* Escritorio: las herramientas van plegadas bajo los botones del popup */
+.ml-school-admin { margin-top: 10px; }
+.ml-school-admin-panel { margin-top: 10px; }
+
+/* Hoja de sector: el pie de la comunidad respira como el de la vía */
+#secbs-admin-actions:not(:empty) { padding: 0 4px 8px; }
+

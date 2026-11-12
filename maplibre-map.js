@@ -74,7 +74,7 @@ function mlClearApprovedListeners() {
 function mlClearPendingItemsLayers() {
   // Edición por arrastre (solo admin) que estuviera en curso
   if (mlEditState.docId) mlCancelPendingEdit();
-  mlPendingSchoolsCache.clear();
+  [...mlPendingSchoolsCache.keys()].forEach(id => { if (!mlApprovedSchoolsCache.has(id)) mlPendingSchoolsCache.delete(id); });
 
   if (mlMyPendingRoutesUnsub) { try { mlMyPendingRoutesUnsub(); } catch (e) {} mlMyPendingRoutesUnsub = null; }
   if (mlMyPendingPOIUnsub) { try { mlMyPendingPOIUnsub(); } catch (e) {} mlMyPendingPOIUnsub = null; }
@@ -3127,8 +3127,8 @@ function mlClearSchoolLayers() {
   mlGradeFocus = null;
   kxUserRoutesBaseFilter = undefined;
   kxRenderGradeFocusChip();
-  const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-shadow-layer', 'vias-layer', 'sectores-hit-layer', 'sectores-usuarios-hit-layer', 'sectores-labels-layer', 'sectores-usuarios-labels-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'escuelas-usuarios-layer', 'escuelas-usuarios-labels-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
-  const sourceIds = ['vias-ticks-source', 'vias-source', 'sectores-labels-source', 'sectores-usuarios-labels-source', 'sectores-source', 'parkings-source', 'rutas-acceso-source', 'puntos-interes-source', 'vias-variant-connector-source', 'vias-usuarios-source', 'poi-usuarios-source', 'sectores-usuarios-source', 'escuelas-usuarios-source', 'pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source', 'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source'];
+  const layerIds = ['vias-ticks-circle-layer', 'vias-ticks-layer', 'vias-shadow-layer', 'vias-layer', 'sectores-hit-layer', 'sectores-usuarios-hit-layer', 'sectores-labels-layer', 'sectores-usuarios-labels-layer', 'sectores-layer', 'sectores-casing-layer', 'parkings-layer', 'rutas-acceso-layer', 'puntos-interes-layer', 'vias-variant-connector-layer', 'vias-usuarios-layer', 'poi-usuarios-layer', 'sectores-usuarios-layer', 'sectores-usuarios-casing-layer', 'pending-my-routes-layer', 'pending-my-poi-layer', 'pending-my-sectors-layer', 'pending-my-sectors-casing-layer', 'admin-pending-routes-layer', 'admin-pending-poi-layer', 'admin-pending-sectors-layer', 'admin-pending-sectors-casing-layer'];
+  const sourceIds = ['vias-ticks-source', 'vias-source', 'sectores-labels-source', 'sectores-usuarios-labels-source', 'sectores-source', 'parkings-source', 'rutas-acceso-source', 'puntos-interes-source', 'vias-variant-connector-source', 'vias-usuarios-source', 'poi-usuarios-source', 'sectores-usuarios-source', 'pending-my-routes-source', 'pending-my-poi-source', 'pending-my-sectors-source', 'admin-pending-routes-source', 'admin-pending-poi-source', 'admin-pending-sectors-source'];
 
   // Cancelar listeners realtime antes de eliminar capas/sources
   mlClearApprovedListeners();
@@ -3909,7 +3909,7 @@ async function showRoutePopup(props, coords) {
   // Verificar si es admin para mostrar botón de desarrollador
   const isAdmin = await isRoutePopupAdmin();
   // Vías aportadas por la comunidad: pie con autoría y acciones de admin
-  const communityHTML = props.docId ? kxUserRouteFooterHTML(props, await checkAdminRole()) : '';
+  const communityHTML = props.docId ? kxUserRouteFooterHTML(props, await kxIsAdminUser()) : '';
 
   // Verificar si la vía tiene dibujo en la imagen del sector (para mostrar botón "Ver vía")
   let hasDrawing = false;
@@ -4442,9 +4442,9 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
     communityEl.innerHTML = '';
     if (props.docId) {
       const docId = props.docId;
-      checkAdminRole().then(role => {
+      kxIsAdminUser().then(isAdmin => {
         if (kxRouteSheetDocId !== docId) return;
-        communityEl.innerHTML = kxUserRouteFooterHTML(props, role);
+        communityEl.innerHTML = kxUserRouteFooterHTML(props, isAdmin);
       });
     }
   }
@@ -7222,6 +7222,21 @@ function setupSchoolLayerInteraction() {
 /**
  * Muestra popup de escuela con resumen
  */
+// Escritorio: las herramientas de admin van plegadas bajo los botones, solo para admins
+async function kxRenderSchoolPopupAdmin(school) {
+  const slot = document.getElementById(`school-admin-${school.id}`);
+  if (!slot || !(await kxIsAdminUser()) || !document.body.contains(slot)) return;
+  slot.innerHTML = `
+    <button type="button" class="kx-radmin is-wide" aria-expanded="false">${KX_ADMIN_ICONS.edit} Herramientas de admin</button>
+    <div class="ml-school-admin-panel" hidden>${kxSchoolAdminHTML(school)}</div>`;
+  const btn = slot.querySelector('button');
+  const panel = slot.querySelector('.ml-school-admin-panel');
+  btn.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    btn.setAttribute('aria-expanded', String(!panel.hidden));
+  });
+}
+
 async function showSchoolPopup(school, marker) {
   const lat = school.coords[1];
   const lng = school.coords[0];
@@ -7243,6 +7258,7 @@ async function showSchoolPopup(school, marker) {
     setupSchoolPopupEvents(school, gmapsUrl);
     // Cargar estadísticas si la función existe
     loadSchoolStats(school.id, chartId);
+    kxRenderSchoolPopupAdmin(school);
   }, 100);
 }
 
@@ -7545,51 +7561,17 @@ async function getSpotterGradeCounts(schoolId) {
   return counts;
 }
 
-/**
- * Lee las vías aprobadas de Spotters desde Firestore y devuelve { grado: count }
- * Usa la fuente del mapa si ya está cargada; si no, consulta Firestore directamente.
- */
-async function getSpotterGradeCounts(schoolId) {
-  const counts = {};
-  // Intentar leer de la fuente del mapa primero (más rápido, si ya está cargada)
-  if (mlMap) {
-    try {
-      const source = mlMap.getSource('vias-usuarios-source');
-      if (source && source._data?.features?.length > 0) {
-        source._data.features.forEach(f => {
-          const grade = (f.properties?.grado1 || '').toLowerCase().trim();
-          if (grade) counts[grade] = (counts[grade] || 0) + 1;
-        });
-        return counts;
-      }
-    } catch (e) {}
-  }
-  // Fallback: consultar Firestore directamente
-  if (!schoolId || typeof firebase === 'undefined' || !firebase.firestore) return counts;
-  try {
-    const db = firebase.firestore();
-    const snapshot = await db.collection('pending_routes')
-      .where('schoolId', '==', schoolId)
-      .where('status', '==', 'approved')
-      .get();
-    snapshot.forEach(doc => {
-      const grade = (doc.data().grado1 || doc.data().geojsonFeature?.properties?.grado1 || '').toLowerCase().trim();
-      if (grade) counts[grade] = (counts[grade] || 0) + 1;
-    });
-  } catch (e) {}
-  return counts;
-}
-
 async function loadSchoolStats(schoolId, chartId) {
   const container = document.getElementById(chartId);
   if (!container) return;
 
   try {
     const schoolConfig = MAPLIBRE_SCHOOLS[schoolId];
-    if (schoolConfig && schoolConfig.geojson && schoolConfig.geojson.vias) {
-      const response = await fetch(schoolConfig.geojson.vias);
-      if (response.ok) {
-        const geojson = await response.json();
+    const hasStatic = !!(schoolConfig && schoolConfig.geojson && schoolConfig.geojson.vias);
+    if (hasStatic || mlApprovedSchoolsCache.has(schoolId)) {
+      const response = hasStatic ? await fetch(schoolConfig.geojson.vias) : null;
+      if (!hasStatic || response.ok) {
+        const geojson = hasStatic ? await response.json() : { features: [] };
 
         // 1. Agrupar por grado específico
         const gradeCounts = {};
@@ -7701,7 +7683,7 @@ async function loadSchoolStats(schoolId, chartId) {
  */
 function buildSchoolPopupHtml(school, chartId, gmapsUrl) {
   const weatherId = `weather-${school.id}-${Date.now()}`;
-  const rockType = school.rockType || 'Caliza';
+  const rockType = school.rockType || (school.isUserSchool ? 'Roca sin indicar' : 'Caliza');
 
   return `
     <div class='ml-school-popup-content'>
@@ -7748,6 +7730,7 @@ function buildSchoolPopupHtml(school, chartId, gmapsUrl) {
         ${kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary', attrs: { id: `btn-directions-${school.id}` } })}
         ${kxButtonHTML({ icon: 'map', label: 'Visitar escuela', variant: 'primary', attrs: { id: `btn-visit-${school.id}` } })}
       </div>
+      ${school.docId ? `<div class='ml-school-admin' id='school-admin-${school.id}'></div>` : ''}
     </div>
   `;
 }
@@ -8186,6 +8169,7 @@ function initBottomSheet() {
     `<div class="bs-pdots" role="tablist" aria-label="Páginas de la ficha">
       <button type="button" class="bs-pdot is-on" role="tab" data-page="0" aria-selected="true" aria-controls="bs-page-0" aria-label="Vías y tiempo"></button>
       <button type="button" class="bs-pdot" role="tab" data-page="1" aria-selected="false" aria-controls="bs-page-1" aria-label="Condiciones y actividad"></button>
+      <button type="button" class="bs-pdot bs-pdot-admin" role="tab" data-page="2" aria-selected="false" aria-controls="bs-page-2" aria-label="Herramientas de admin"></button>
     </div>` +
     kxButtonHTML({ icon: 'navigation', label: '¿Cómo ir?', variant: 'secondary', size: 'lg', attrs: { id: 'bs-btn-directions' } }) +
     kxButtonHTML({ icon: 'map', label: 'Visitar escuela', variant: 'primary', size: 'lg', attrs: { id: 'bs-btn-visit' } });
@@ -8195,7 +8179,7 @@ function initBottomSheet() {
     snaps: ['summary', 'expanded'],
     // La altura sigue a la página visible: las dos páginas miden lo mismo (el donut absorbe la diferencia);
     // en la 2 sube hasta mostrar todo el contenido. Solo se amplía más si la página 2 no cabe entera
-    peek: () => document.getElementById(bsPager && bsPager.current() === 1 ? 'bs-page-1' : 'bs-page-0'),
+    peek: () => document.getElementById('bs-page-' + (bsPager ? bsPager.current() : 0)),
     peekMax: 0.92,
     expandable: () => !!bsPager && bsPager.current() === 1 && !!kxSchoolSheet && kxSchoolSheet.capped,
     onRequestClose: hideBottomSheet,
@@ -8644,6 +8628,7 @@ function showBottomSheet(school) {
   if (bsPager) bsPager.go(0, { animate: false });
   kxRenderSchoolPhoto(school);
   kxRenderSchoolConditions(school, null);
+  kxRenderSchoolAdminPage(school);
 
   // Abre en resumen ajustado a la página 1 (donut y tiempo), sin vista completa
   kxSchoolSheet.open('summary');
@@ -8699,7 +8684,7 @@ function updateBottomSheetContent(school) {
 
   // Tipo de roca
   const rockEl = document.getElementById('bs-rock-type');
-  if (rockEl) rockEl.textContent = school.rockType || 'Caliza';
+  if (rockEl) rockEl.textContent = school.rockType || (school.isUserSchool ? 'Roca sin indicar' : 'Caliza');
 
   kxRenderSchoolCards(school);
 }
@@ -8735,37 +8720,63 @@ function kxPrewarmSchoolSheet() {
   if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 3000 }); else setTimeout(run, 1500);
 }
 
+// Restricciones y exposición a partir de las propiedades de los sectores (+ exposiciones sueltas, p. ej. la de la escuela)
+function kxBuildSchoolFacts(props, parking, extraExposures = []) {
+  const facts = { restriction: null, exposures: [], parking };
+  const kinds = new Set();
+  const addExposure = (raw) => {
+    const e = String(raw || '').toLowerCase().trim();
+    if (/sombra/.test(e)) kinds.add('shade');
+    else if (/ma[ñn]ana/.test(e)) kinds.add('morning');
+    else if (/tarde/.test(e)) kinds.add('afternoon');
+    else if (/medio/.test(e)) kinds.add('midday');
+    else if (e.startsWith('sol')) kinds.add('sun');
+  };
+  if (props.length) {
+    const flags = props.map(p => String(p.restr || '').trim().toUpperCase().replace('Í', 'I'));
+    if (flags.includes('SI')) {
+      const active = props.some((p, i) => flags[i] === 'SI' && isCurrentlyRestricted(p.Fecha_inicio || p.Fecha_inic, p.Fecha_fin));
+      facts.restriction = active ? 'active' : 'seasonal';
+    } else if (flags.every(f => f === 'NO')) {
+      facts.restriction = 'none';
+    }
+    props.forEach(p => addExposure(p.exposicion));
+  }
+  extraExposures.forEach(addExposure);
+  // «Sol» a secas solo informa cuando no hay una franja concreta
+  if (kinds.has('sun') && ['morning', 'afternoon', 'midday'].some(k => kinds.has(k))) kinds.delete('sun');
+  facts.exposures = ['morning', 'midday', 'afternoon', 'sun', 'shade'].filter(k => kinds.has(k));
+  return facts;
+}
+
+// Escuela de Firestore: su orientación y aparcamiento (los edita un admin) más los sectores aprobados. Sin caché: es una consulta corta
+// y un sector nuevo o editado debe verse al abrir la ficha.
+async function kxLoadUserSchoolFacts(schoolId) {
+  const data = mlApprovedSchoolsCache.get(schoolId);
+  if (!data) return null;
+  let props = [];
+  try {
+    const snap = await firebase.firestore().collection('pending_sectors')
+      .where('schoolId', '==', schoolId)
+      .where('status', '==', 'approved')
+      .get();
+    props = snap.docs.map(d => d.data());
+  } catch (e) {
+    console.warn('Error cargando sectores de la escuela:', e);
+  }
+  const parking = data.aparcamiento === 'si' ? true : data.aparcamiento === 'no' ? false : null;
+  return kxBuildSchoolFacts(props, parking, data.exposicion ? [data.exposicion] : []);
+}
+
 function kxLoadSchoolFacts(schoolId) {
   const cfg = MAPLIBRE_SCHOOLS[schoolId];
-  if (!cfg || !cfg.geojson) return Promise.resolve(null);
+  if (!cfg || !cfg.geojson) return mlApprovedSchoolsCache.has(schoolId) ? kxLoadUserSchoolFacts(schoolId) : Promise.resolve(null);
   if (!kxSchoolFactsCache.has(schoolId)) {
     kxSchoolFactsCache.set(schoolId, Promise.all([kxFetchFeatures(cfg.geojson.sectores), kxFetchFeatures(cfg.geojson.parkings)])
-      .then(([sectors, parkings]) => {
-        const facts = { restriction: null, exposures: [], parking: parkings ? parkings.length > 0 : null };
-        if (sectors && sectors.length) {
-          const props = sectors.map(f => f.properties || {});
-          const flags = props.map(p => String(p.restr || '').trim().toUpperCase().replace('Í', 'I'));
-          if (flags.includes('SI')) {
-            const active = props.some((p, i) => flags[i] === 'SI' && isCurrentlyRestricted(p.Fecha_inicio || p.Fecha_inic, p.Fecha_fin));
-            facts.restriction = active ? 'active' : 'seasonal';
-          } else if (flags.every(f => f === 'NO')) {
-            facts.restriction = 'none';
-          }
-          const kinds = new Set();
-          props.forEach(p => {
-            const e = String(p.exposicion || '').toLowerCase().trim();
-            if (/sombra/.test(e)) kinds.add('shade');
-            else if (/ma[ñn]ana/.test(e)) kinds.add('morning');
-            else if (/tarde/.test(e)) kinds.add('afternoon');
-            else if (/medio/.test(e)) kinds.add('midday');
-            else if (e.startsWith('sol')) kinds.add('sun');
-          });
-          // «Sol» a secas solo informa cuando no hay una franja concreta
-          if (kinds.has('sun') && ['morning', 'afternoon', 'midday'].some(k => kinds.has(k))) kinds.delete('sun');
-          facts.exposures = ['morning', 'midday', 'afternoon', 'sun', 'shade'].filter(k => kinds.has(k));
-        }
-        return facts;
-      }));
+      .then(([sectors, parkings]) => kxBuildSchoolFacts(
+        sectors ? sectors.map(f => f.properties || {}) : [],
+        parkings ? parkings.length > 0 : null
+      )));
   }
   return kxSchoolFactsCache.get(schoolId);
 }
@@ -8972,12 +8983,14 @@ function kxInitSchoolPages(sheetEl, foot) {
   };
   // Cambio de página: la hoja sube (página 2) o baja (página 1) a la altura de su contenido, animada
   const resize = () => { if (kxSchoolSheet && kxSchoolSheet.state !== 'hidden') { kxSchoolSheet.measure(); kxSchoolSheet.setState('summary'); } };
-  bsPager = kxBindPager(stage, track, { count: pages.length, onChange: (i) => { sync(i); fit({ defer: true }); resize(); } });
+  // La tercera hoja (herramientas de admin) solo cuenta cuando la ficha la muestra (.has-admin-page)
+  bsPager = kxBindPager(stage, track, { count: () => (sheetEl.classList.contains('has-admin-page') ? pages.length : pages.length - 1), onChange: (i) => { sync(i); fit({ defer: true }); resize(); } });
   sync(0);
   fit();
   // Se observa el contenido, no las páginas (su altura mínima la fijamos nosotros)
   const kids = pages.flatMap(p => [...p.children]);
   const refit = () => { equalize(); fit(); };
+  sheetEl._kxRefit = refit;
   if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(refit); kids.forEach(k => ro.observe(k)); }
   window.addEventListener('resize', refit);
   equalize();
@@ -8996,6 +9009,40 @@ function kxInitSchoolPages(sheetEl, foot) {
   const body = sheetEl.querySelector('.kx-msheet-body');
   const origGo = bsPager.go;
   bsPager.go = (i, opts) => { const prev = bsPager.current(); origGo(i, opts); if (body && bsPager.current() !== prev) body.scrollTo({ top: 0, behavior: 'smooth' }); };
+}
+
+// Escuelas aportadas por la comunidad: tercera hoja de la ficha con sus datos y las herramientas de admin.
+// El resto de usuarios no ve ni la hoja ni su punto de página.
+const KX_ROCK_OPTIONS = ['Caliza', 'Granito', 'Arenisca', 'Conglomerado', 'Cuarcita', 'Gneis', 'Basalto'];
+
+function kxSchoolAdminHTML(school) {
+  const parking = { si: 'Con aparcamiento', no: 'Sin aparcamiento' }[school.aparcamiento] || 'Sin indicar';
+  const rows = [
+    ['Roca', school.rockType || 'Sin indicar'],
+    ['Aparcamiento', parking],
+    ['Sol', school.exposicion || 'Sin indicar'],
+    ['Descripción', school.descripcion || 'Sin descripción']
+  ].map(([k, v]) => `<div class="kx-admin-row"><dt>${kxEscHTML(k)}</dt><dd>${kxEscHTML(v)}</dd></div>`).join('');
+  return `
+    <section class="kx-admincard" aria-label="Herramientas de admin">
+      <h3 class="kx-admincard-title">Herramientas de admin</h3>
+      <p class="kx-admincard-sub">Datos de la escuela tal y como los ven los demás</p>
+      <dl class="kx-admin-list">${rows}</dl>
+      ${kxCommunityFooterHTML({ kind: 'school', docId: school.docId, coords: school.coords, author: school.createdByEmail, isAdmin: true })}
+    </section>`;
+}
+
+async function kxRenderSchoolAdminPage(school) {
+  const sheet = document.getElementById('school-bottom-sheet');
+  const slot = document.getElementById('bs-admin-slot');
+  if (!sheet || !slot) return;
+  sheet.classList.remove('has-admin-page');
+  slot.innerHTML = '';
+  if (!school || !school.docId) return;
+  if (!(await kxIsAdminUser()) || bsCurrentSchool !== school) return;
+  slot.innerHTML = kxSchoolAdminHTML(school);
+  sheet.classList.add('has-admin-page');
+  if (sheet._kxRefit) sheet._kxRefit();
 }
 
 // Imagen de la cabecera (school-photos.js): foto real recortada o ilustración genérica según la roca
@@ -9269,6 +9316,17 @@ async function loadBottomSheetStats(schoolId) {
 
   if (donutSkeleton) donutSkeleton.classList.remove('hidden');
   if (donutContainer) donutContainer.classList.add('hidden');
+
+  if (!schoolConfig && mlApprovedSchoolsCache.has(schoolId)) {
+    // Escuela de Firestore: solo cuenta sus vías aprobadas
+    const counts = await getSpotterGradeCounts(schoolId).catch(() => ({}));
+    if (seq !== bsStatsSeq) return;
+    bsGradeData = counts;
+    hideSkeletonsShowCharts();
+    renderDonutChart(counts);
+    if (kxSchoolSheet) kxSchoolSheet.refresh();
+    return;
+  }
 
   if (!schoolConfig) {
     console.warn('Escuela no configurada en MAPLIBRE_SCHOOLS:', schoolId);
@@ -9923,48 +9981,122 @@ function setupUserViasInteraction() {
   });
 }
 
-/**
- * Pie de la ficha para vías aportadas por la comunidad (pending_routes aprobadas):
- * quién la propuso y, para admins, mover o eliminar la propuesta.
- */
-function kxUserRouteFooterHTML(props, adminRole) {
-  if (!props || !props.docId) return '';
-  const isAdmin = adminRole === 'admin';
-  const author = props.createdByEmail ? ` por <strong>${kxEscHTML(props.createdByEmail)}</strong>` : ' por la comunidad';
-  const docId = kxEscHTML(props.docId);
-  const lng = Number(props.lng), lat = Number(props.lat);
-  const admin = isAdmin ? `
+// ============================================
+// LO APORTADO POR LA COMUNIDAD: AUTORÍA Y HERRAMIENTAS DE ADMIN
+// ============================================
+// Escuelas, sectores y vías creados desde el editor Spotter comparten pie: quién lo propuso y, solo para
+// admins, editar la información, moverlo (o ajustar la línea) y eliminarlo.
+const KX_ADMIN_COLLECTIONS = { school: 'pending_schools', sector: 'pending_sectors', route: 'pending_routes' };
+const kxAdminItems = new Map();   // docId → { kind, coords }
+
+async function kxIsAdminUser() {
+  try {
+    if ((await checkAdminRole()) === 'admin') return true;
+    const u = typeof auth !== 'undefined' ? auth.currentUser : null;
+    return !!u && u.email === 'krux.app.info@gmail.com';
+  } catch (e) {
+    return false;
+  }
+}
+
+const KX_ADMIN_ICONS = {
+  edit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
+  move: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5v19M2.5 12h19"/><path d="m9 5.5 3-3 3 3M9 18.5l3 3 3-3M5.5 9l-3 3 3 3M18.5 9l3 3-3 3"/></svg>',
+  trash: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5h17M9.5 6.5V4h5v2.5M6 6.5l1 14h10l1-14"/></svg>'
+};
+
+function kxCommunityFooterHTML({ kind, docId, coords, author, isAdmin }) {
+  if (!docId) return '';
+  kxAdminItems.set(docId, { kind, coords });
+  const id = kxEscHTML(docId);
+  const who = author ? ` por <strong>${kxEscHTML(author)}</strong>` : ' por la comunidad';
+  const tools = isAdmin ? `
     <div class="kx-rcommunity-admin">
-      <button type="button" class="kx-radmin" onclick="kxUserRouteMove('${docId}', ${lng}, ${lat})">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5v19M2.5 12h19"/><path d="m9 5.5 3-3 3 3M9 18.5l3 3 3-3M5.5 9l-3 3 3 3M18.5 9l3 3-3 3"/></svg>
-        Mover
-      </button>
-      <button type="button" class="kx-radmin is-danger" onclick="kxUserRouteDelete('${docId}')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5h17M9.5 6.5V4h5v2.5M6 6.5l1 14h10l1-14"/></svg>
-        Eliminar
-      </button>
+      <button type="button" class="kx-radmin is-wide" onclick="kxAdminEdit('${id}')">${KX_ADMIN_ICONS.edit} Editar información</button>
+      <button type="button" class="kx-radmin" onclick="kxAdminMove('${id}')">${KX_ADMIN_ICONS.move} ${kind === 'sector' ? 'Ajustar línea' : 'Mover'}</button>
+      <button type="button" class="kx-radmin is-danger" onclick="kxAdminDelete('${id}')">${KX_ADMIN_ICONS.trash} Eliminar</button>
     </div>` : '';
   return `
     <div class="kx-rcommunity">
-      <p class="kx-rcommunity-by">Propuesta${author}</p>
-      ${admin}
+      <p class="kx-rcommunity-by">Propuesta${who}</p>
+      ${tools}
     </div>`;
 }
 
-function kxCloseRouteView() {
-  if (typeof hideRouteBottomSheet === 'function') hideRouteBottomSheet();
-  if (mlRoutePopup) mlRoutePopup.remove();
+// Pie de la ficha de una vía de la comunidad
+function kxUserRouteFooterHTML(props, isAdmin) {
+  if (!props || !props.docId) return '';
+  return kxCommunityFooterHTML({ kind: 'route', docId: props.docId, coords: [Number(props.lng), Number(props.lat)], author: props.createdByEmail, isAdmin });
 }
 
-function kxUserRouteMove(docId, lng, lat) {
-  kxCloseRouteView();
-  mlStartEditPending('pending_routes', docId, 'Point', [lng, lat]);
+// Cierra cualquier ficha o popup abiertos antes de abrir una herramienta
+function kxAdminClose() {
+  hideBottomSheet();
+  hideSectorBottomSheet();
+  hideRouteBottomSheet();
+  document.querySelectorAll('.maplibregl-popup').forEach(pp => pp.remove());
 }
 
-function kxUserRouteDelete(docId) {
-  if (!confirm('¿Eliminar esta vía del mapa? No se puede deshacer.')) return;
-  kxCloseRouteView();
-  mlDeletePendingItem('pending_routes', docId);
+function kxAdminEdit(docId) {
+  const it = kxAdminItems.get(docId);
+  if (!it) return;
+  kxAdminClose();
+  if (typeof window.devEditItem === 'function') window.devEditItem(it.kind, docId);
+  else if (typeof showToast === 'function') showToast('El editor no está disponible', 'error');
+}
+
+function kxAdminMove(docId) {
+  const it = kxAdminItems.get(docId);
+  if (!it) return;
+  kxAdminClose();
+  mlStartEditPending(KX_ADMIN_COLLECTIONS[it.kind], docId, it.kind === 'sector' ? 'LineString' : 'Point', it.coords);
+}
+
+// Sectores, vías y puntos de una escuela (para eliminarlos con ella: sin escuela no se pueden ver)
+async function kxSchoolChildRefs(schoolId) {
+  const db = firebase.firestore();
+  const lists = await Promise.all(['pending_sectors', 'pending_routes', 'pending_poi']
+    .map(c => db.collection(c).where('schoolId', '==', schoolId).get()));
+  return lists.flatMap(snap => snap.docs.map(d => d.ref));
+}
+
+async function kxAdminDelete(docId) {
+  const it = kxAdminItems.get(docId);
+  if (!it) return;
+  const db = firebase.firestore();
+  try {
+    let refs = [];
+    let msg;
+    if (it.kind === 'school') {
+      refs = await kxSchoolChildRefs(docId);
+      msg = refs.length
+        ? `¿Eliminar la escuela y sus ${refs.length} sectores, vías y puntos de interés? No se puede deshacer.`
+        : '¿Eliminar esta escuela? No se puede deshacer.';
+    } else if (it.kind === 'sector') {
+      msg = '¿Eliminar este sector? Sus vías no se borran. No se puede deshacer.';
+    } else {
+      msg = '¿Eliminar esta vía del mapa? No se puede deshacer.';
+    }
+    if (!confirm(msg)) return;
+    kxAdminClose();
+
+    refs.push(db.collection(KX_ADMIN_COLLECTIONS[it.kind]).doc(docId));
+    // Lotes de 400: el límite de Firestore es 500 operaciones por lote
+    for (let i = 0; i < refs.length; i += 400) {
+      const batch = db.batch();
+      refs.slice(i, i + 400).forEach(r => batch.delete(r));
+      await batch.commit();
+    }
+    kxAdminItems.delete(docId);
+    if (it.kind === 'school' && mlCurrentSchool === docId) {
+      mlClearSchoolLayers();
+      mlCurrentSchool = null;
+    }
+    if (typeof showToast === 'function') showToast(it.kind === 'school' ? 'Escuela eliminada' : it.kind === 'sector' ? 'Sector eliminado' : 'Vía eliminada', 'success');
+  } catch (err) {
+    console.error('[Admin] Error eliminando:', err);
+    if (typeof showToast === 'function') showToast('No se pudo eliminar: ' + err.message, 'error');
+  }
 }
 
 // ============================================
@@ -10158,18 +10290,11 @@ function setupUserSectorsInteraction(hitLayerId) {
 }
 
 async function mlOpenUserSector(props, coords) {
-    const adminRole = await checkAdminRole();
-    const adminHTML = adminRole === 'admin' && props.docId ? `
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding:0 4px 4px;">
-        <button onclick="mlDeletePendingItem('pending_sectors','${props.docId}');document.querySelectorAll('.maplibregl-popup').forEach(p=>p.remove());"
-          style="flex:1;background:#DC2626;color:white;border:none;border-radius:8px;padding:8px 10px;cursor:pointer;font-size:12px;font-weight:600;">
-          🗑️ Eliminar
-        </button>
-        <button onclick="mlStartEditPending('pending_sectors','${props.docId}','LineString',${props.verticesCoordsStr});document.querySelectorAll('.maplibregl-popup').forEach(p=>p.remove());"
-          style="flex:1;background:#2563EB;color:white;border:none;border-radius:8px;padding:8px 10px;cursor:pointer;font-size:12px;font-weight:600;">
-          ✏️ Editar
-        </button>
-      </div>` : '';
+    let line = [];
+    try { line = JSON.parse(props.verticesCoordsStr || '[]'); } catch (e) { /* sin línea que ajustar */ }
+    const adminHTML = props.docId
+      ? kxCommunityFooterHTML({ kind: 'sector', docId: props.docId, coords: line, author: props.createdByEmail, isAdmin: await kxIsAdminUser() })
+      : '';
 
     if (isMobileDevice()) {
       adaptiveMapPanForBottomSheet(coords);
@@ -10218,7 +10343,7 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
               skippedSchool++;
               return;
             }
-            if (!data.vertices || !Array.isArray(data.vertices) || data.vertices.length < 3) {
+            if (!data.vertices || !Array.isArray(data.vertices) || data.vertices.length < 2) {
               skippedVertices++;
               return;
             }
@@ -10629,7 +10754,7 @@ async function loadMyPendingSchoolsFromFirestore() {
       .where('status', '==', 'pending')
       .get();
 
-    if (snapshot.empty) return;
+    if (snapshot.empty) { kxClearSchoolSource('pending-my-schools-source'); return; }
 
     const features = [];
     snapshot.forEach(doc => {
@@ -10648,7 +10773,7 @@ async function loadMyPendingSchoolsFromFirestore() {
       });
     });
 
-    if (features.length === 0) return;
+    if (features.length === 0) { kxClearSchoolSource('pending-my-schools-source'); return; }
 
     console.log(`[MyPendingSchools] ${features.length} escuelas pendientes propias`);
 
@@ -10688,9 +10813,9 @@ async function loadMyPendingSchoolsFromFirestore() {
       }
     });
 
-    mlMap.on('mouseenter', layerId, () => { mlMap.getCanvas().style.cursor = 'pointer'; });
-    mlMap.on('mouseleave', layerId, () => { mlMap.getCanvas().style.cursor = ''; });
-    mlMap.on('click', layerId, (e) => {
+    kxMapOnce('mouseenter', layerId, () => { mlMap.getCanvas().style.cursor = 'pointer'; });
+    kxMapOnce('mouseleave', layerId, () => { mlMap.getCanvas().style.cursor = ''; });
+    kxMapOnce('click', layerId, (e) => {
       if (mlMap.getCanvas().style.cursor === 'crosshair') return;
       if (!e.features || e.features.length === 0) return;
       const props = e.features[0].properties;
@@ -11029,7 +11154,7 @@ async function loadAllPendingSchoolsForAdmin() {
     const snapshot = await db.collection('pending_schools')
       .where('status', '==', 'pending')
       .get();
-    if (snapshot.empty) return;
+    if (snapshot.empty) { kxClearSchoolSource('admin-pending-schools-source'); return; }
 
     const features = [];
     snapshot.forEach(doc => {
@@ -11050,7 +11175,7 @@ async function loadAllPendingSchoolsForAdmin() {
         geometry: { type: 'Point', coordinates: data.coordinates }
       });
     });
-    if (!features.length) return;
+    if (!features.length) { kxClearSchoolSource('admin-pending-schools-source'); return; }
 
     if (!mlMap.hasImage('kx-school-pin-pending')) await loadSchoolIcons();
 
@@ -11086,9 +11211,9 @@ async function loadAllPendingSchoolsForAdmin() {
       }
     });
 
-    mlMap.on('mouseenter', layerId, () => { mlMap.getCanvas().style.cursor = 'pointer'; });
-    mlMap.on('mouseleave', layerId, () => { mlMap.getCanvas().style.cursor = ''; });
-    mlMap.on('click', layerId, (e) => {
+    kxMapOnce('mouseenter', layerId, () => { mlMap.getCanvas().style.cursor = 'pointer'; });
+    kxMapOnce('mouseleave', layerId, () => { mlMap.getCanvas().style.cursor = ''; });
+    kxMapOnce('click', layerId, (e) => {
       if (mlMap.getCanvas().style.cursor === 'crosshair') return;
       if (!e.features || !e.features.length) return;
       const props = e.features[0].properties;
@@ -11198,158 +11323,175 @@ function mlCancelPendingEdit() {
   if (toolbar) toolbar.classList.add('hidden');
 }
 
-async function loadApprovedSchoolsFromFirestore() {
-  try {
-    if (typeof firebase === 'undefined' || !firebase.firestore) return;
+// ============================================
+// ESCUELAS APROBADAS (capa global y en vivo)
+// ============================================
+// No dependen de la escuela abierta ni de la sesión: se suscriben una vez, sobreviven a entrar y salir de
+// una escuela y a los cambios de usuario, y se actualizan solas cuando un admin aprueba, edita o elimina una.
+const mlApprovedSchoolsCache = new Map();   // docId → datos completos de la escuela aprobada
+let mlApprovedSchoolsUnsub = null;
+let mlApprovedSchoolsReady = null;
+let mlApprovedSchoolsClickAttached = false;
+const KX_USER_SCHOOL_SOURCE = 'escuelas-usuarios-source';
+const KX_USER_SCHOOL_LAYER = 'escuelas-usuarios-layer';
+const KX_USER_SCHOOL_LABELS = 'escuelas-usuarios-labels-layer';
 
-    const db = firebase.firestore();
-    const snapshot = await db.collection('pending_schools')
-      .where('status', '==', 'approved')
-      .get();
+// Los eventos por capa sobreviven a removeLayer: se enlazan una sola vez para no abrir la ficha varias veces
+const mlBoundLayerEvents = new Set();
+function kxMapOnce(type, layerId, fn) {
+  const key = `${type}:${layerId}`;
+  if (mlBoundLayerEvents.has(key)) return;
+  mlBoundLayerEvents.add(key);
+  mlMap.on(type, layerId, fn);
+}
 
-    if (snapshot.empty) {
-      console.log('[ApprovedSchools] No hay escuelas aprobadas pendientes');
-      return;
-    }
+// Escuela aprobada con la forma de las oficiales (la usan las fichas) más sus datos propios
+function kxUserSchool(id) {
+  const d = mlApprovedSchoolsCache.get(id);
+  if (!d) return null;
+  return {
+    id, docId: id,
+    nombre: d.nombre || 'Sin nombre',
+    coords: d.coordinates,
+    zoom: 16,
+    isOpen: true,
+    rockType: d.rockType || '',
+    descripcion: d.descripcion || '',
+    aparcamiento: d.aparcamiento || '',
+    exposicion: d.exposicion || '',
+    createdByEmail: d.createdByEmail || '',
+    isUserSchool: true
+  };
+}
 
-    const features = [];
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      if (!data.coordinates || !Array.isArray(data.coordinates)) return;
-
-      // Registrar en cache para que mlLoadSchool pueda cargarla como pending school
-      mlPendingSchoolsCache.set(doc.id, { nombre: data.nombre, coordinates: data.coordinates });
-      features.push({
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: data.coordinates
-        },
-        properties: {
-          id: doc.id,
-          docId: doc.id,
-          nombre: data.nombre || 'Sin nombre',
-          zoom: 16,
-          isOpen: true,
-          rockType: data.rockType || '',
-          coords: JSON.stringify(data.coordinates),
-          isUserSchool: true,
-          lng: data.coordinates[0],
-          lat: data.coordinates[1]
-        }
-      });
+function kxOpenUserSchool(id) {
+  const school = kxUserSchool(id);
+  if (!school) return;
+  if (isMobileDevice()) {
+    if (mlSchoolPopup) mlSchoolPopup.remove();
+    adaptiveMapPanForBottomSheet(school.coords);
+    showBottomSheet(school);
+  } else {
+    mlMap.flyTo({
+      center: school.coords,
+      zoom: mlMap.getZoom(),
+      speed: 0.8,
+      curve: 1,
+      padding: { top: 450, bottom: 0, left: 0, right: 0 }
     });
-
-    if (features.length === 0) return;
-
-    console.log(`[ApprovedSchools] Cargando ${features.length} escuelas aprobadas`);
-
-    const sourceId = 'escuelas-usuarios-source';
-    const layerId = 'escuelas-usuarios-layer';
-    const labelLayerId = 'escuelas-usuarios-labels-layer';
-
-    if (mlMap.getLayer(labelLayerId)) mlMap.removeLayer(labelLayerId);
-    if (mlMap.getLayer(layerId)) mlMap.removeLayer(layerId);
-    if (mlMap.getSource(sourceId)) mlMap.removeSource(sourceId);
-
-    // Esperar a que school-icon-green esté disponible (lo carga loadSchoolIcons)
-    if (!mlMap.hasImage('kx-school-pin')) {
-      await loadSchoolIcons();
-    }
-
-    mlMap.addSource(sourceId, {
-      type: 'geojson',
-      data: { type: 'FeatureCollection', features }
-    });
-
-    // Capa de iconos — mismo icono verde que las escuelas abiertas
-    mlMap.addLayer({
-      id: layerId,
-      type: 'symbol',
-      source: sourceId,
-      minzoom: 5,
-      maxzoom: 12,
-      layout: {
-        'icon-image': 'kx-school-pin',
-        'icon-size': kxZoomExpr(KX_SCHOOL_SCALE),
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': true,
-        'icon-anchor': 'bottom',
-        'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP]
-      }
-    });
-
-    // Etiqueta de nombre (igual que school-labels-layer)
-    mlMap.addLayer(kxSchoolLabelLayer(labelLayerId, sourceId));
-
-    // Interactividad: mismo comportamiento que school-markers-layer
-    mlMap.on('mouseenter', layerId, () => {
-      mlMap.getCanvas().style.cursor = 'pointer';
-    });
-    mlMap.on('mouseleave', layerId, () => {
-      mlMap.getCanvas().style.cursor = '';
-    });
-    mlMap.on('click', layerId, async (e) => {
-      if (!e.features || e.features.length === 0) return;
-      const props = e.features[0].properties;
-
-      const school = {
-        id: props.id,
-        nombre: props.nombre,
-        coords: JSON.parse(props.coords),
-        zoom: props.zoom || 16,
-        isOpen: props.isOpen,
-        rockType: props.rockType || ''
-      };
-
-      const adminRole = await checkAdminRole();
-      if (adminRole === 'admin') {
-        new maplibregl.Popup({ closeButton: true, maxWidth: '290px' })
-          .setLngLat(school.coords)
-          .setHTML(`<div style="padding:10px;font-size:13px;max-width:250px;">
-            <strong>${school.nombre}</strong><br>
-            <small style="color:#9ca3af;">Escuela aprobada</small><br><br>
-            <div style="display:flex;flex-direction:column;gap:8px;">
-              <button onclick="mlLoadSchool('${props.id}',true);this.closest('.maplibregl-popup').remove();"
-                style="background:#2563EB;color:white;border:none;border-radius:6px;padding:8px 12px;cursor:pointer;font-size:12px;font-weight:600;">
-                Entrar a la escuela
-              </button>
-              <div style="display:flex;gap:8px;">
-                <button onclick="mlStartEditPending('pending_schools','${props.docId}','Point',[${props.lng},${props.lat}]);this.closest('.maplibregl-popup').remove();"
-                  style="flex:1;background:#6b7280;color:white;border:none;border-radius:6px;padding:7px 10px;cursor:pointer;font-size:12px;font-weight:600;">
-                  ✏️ Mover
-                </button>
-                <button onclick="mlDeletePendingItem('pending_schools','${props.docId}');this.closest('.maplibregl-popup').remove();"
-                  style="flex:1;background:#DC2626;color:white;border:none;border-radius:6px;padding:7px 10px;cursor:pointer;font-size:12px;font-weight:600;">
-                  🗑️ Eliminar
-                </button>
-              </div>
-            </div>
-          </div>`)
-          .addTo(mlMap);
-        return;
-      }
-
-      if (isMobileDevice()) {
-        if (mlSchoolPopup) mlSchoolPopup.remove();
-        adaptiveMapPanForBottomSheet(school.coords);
-        showBottomSheet(school);
-      } else {
-        mlMap.flyTo({
-          center: school.coords,
-          zoom: mlMap.getZoom(),
-          speed: 0.8,
-          curve: 1,
-          padding: { top: 450, bottom: 0, left: 0, right: 0 }
-        });
-        showSchoolPopup(school, null);
-      }
-    });
-
-    console.log(`[ApprovedSchools] ✅ Capa de escuelas de usuarios añadida`);
-  } catch (error) {
-    console.error('[ApprovedSchools] Error cargando escuelas aprobadas:', error);
+    showSchoolPopup(school, null);
   }
+}
+
+async function kxApplyUserSchools(features) {
+  if (!mlMap) return;
+  const data = { type: 'FeatureCollection', features };
+  const existing = mlMap.getSource(KX_USER_SCHOOL_SOURCE);
+  if (existing) { existing.setData(data); return; }
+
+  // El icono verde lo carga loadSchoolIcons
+  if (!mlMap.hasImage('kx-school-pin')) await loadSchoolIcons();
+  if (!mlMap) return;
+  const again = mlMap.getSource(KX_USER_SCHOOL_SOURCE);   // otro snapshot pudo crearla mientras esperábamos
+  if (again) { again.setData(data); return; }
+
+  mlMap.addSource(KX_USER_SCHOOL_SOURCE, { type: 'geojson', data });
+  // Mismo icono verde y etiqueta que las escuelas oficiales abiertas
+  mlMap.addLayer({
+    id: KX_USER_SCHOOL_LAYER,
+    type: 'symbol',
+    source: KX_USER_SCHOOL_SOURCE,
+    minzoom: 5,
+    maxzoom: 12,
+    layout: {
+      'icon-image': 'kx-school-pin',
+      'icon-size': kxZoomExpr(KX_SCHOOL_SCALE),
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'icon-anchor': 'bottom',
+      'icon-offset': [0, KX_SCHOOL_PIN_TIP_GAP]
+    }
+  });
+  mlMap.addLayer(kxSchoolLabelLayer(KX_USER_SCHOOL_LABELS, KX_USER_SCHOOL_SOURCE));
+
+  if (!mlApprovedSchoolsClickAttached) {
+    mlApprovedSchoolsClickAttached = true;
+    mlMap.on('mouseenter', KX_USER_SCHOOL_LAYER, () => { mlMap.getCanvas().style.cursor = 'pointer'; });
+    mlMap.on('mouseleave', KX_USER_SCHOOL_LAYER, () => { mlMap.getCanvas().style.cursor = ''; });
+    mlMap.on('click', KX_USER_SCHOOL_LAYER, (e) => {
+      if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+      if (!e.features || e.features.length === 0) return;
+      kxOpenUserSchool(e.features[0].properties.id);
+    });
+  }
+}
+
+// Las marcas «pendiente» (⏳) de quien las propuso se vuelven a pedir cuando cambia el conjunto de aprobadas
+function kxClearSchoolSource(sourceId) {
+  try { if (mlMap && mlMap.getSource(sourceId)) mlMap.getSource(sourceId).setData({ type: 'FeatureCollection', features: [] }); } catch (e) {}
+}
+
+function kxRefreshPendingSchoolMarkers() {
+  if (typeof auth === 'undefined' || !auth.currentUser) return;
+  checkAdminRole().then(role => {
+    if (role === 'admin') loadAllPendingSchoolsForAdmin();
+    else if (role === 'spotter') loadMyPendingSchoolsFromFirestore();
+  }).catch(() => {});
+}
+
+function loadApprovedSchoolsFromFirestore() {
+  if (mlApprovedSchoolsReady) return mlApprovedSchoolsReady;
+  if (typeof firebase === 'undefined' || !firebase.firestore || !mlMap) return Promise.resolve();
+
+  mlApprovedSchoolsReady = new Promise((resolve) => {
+    let first = true;
+    const settle = () => { if (first) { first = false; resolve(); } };
+
+    mlApprovedSchoolsUnsub = firebase.firestore().collection('pending_schools')
+      .where('status', '==', 'approved')
+      .onSnapshot(async (snapshot) => {
+        try {
+          const isUpdate = !first;
+          const seen = new Set();
+          const features = [];
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            if (!data.coordinates || !Array.isArray(data.coordinates)) return;
+            seen.add(doc.id);
+            mlApprovedSchoolsCache.set(doc.id, data);
+            // mlLoadSchool la busca aquí para cargarla como escuela de Firestore
+            mlPendingSchoolsCache.set(doc.id, { nombre: data.nombre, coordinates: data.coordinates });
+            features.push({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: data.coordinates },
+              properties: {
+                id: doc.id,
+                docId: doc.id,
+                nombre: data.nombre || 'Sin nombre',
+                isUserSchool: true
+              }
+            });
+          });
+          [...mlApprovedSchoolsCache.keys()].forEach(id => {
+            if (!seen.has(id)) { mlApprovedSchoolsCache.delete(id); mlPendingSchoolsCache.delete(id); }
+          });
+          console.log(`[ApprovedSchools] Realtime: ${features.length} escuelas aprobadas`);
+          await kxApplyUserSchools(features);
+          if (isUpdate) kxRefreshPendingSchoolMarkers();
+        } catch (err) {
+          console.error('[ApprovedSchools] Error procesando snapshot:', err);
+        }
+        settle();
+      }, (err) => {
+        // Una escucha que falla no se recupera sola: se reintenta
+        console.error('[ApprovedSchools] Error onSnapshot:', err);
+        mlApprovedSchoolsUnsub = null;
+        mlApprovedSchoolsReady = null;
+        settle();
+        setTimeout(loadApprovedSchoolsFromFirestore, 5000);
+      });
+  });
+  return mlApprovedSchoolsReady;
 }
 
 // ============================================

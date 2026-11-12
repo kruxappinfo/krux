@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=223" />
+  <link rel="stylesheet" href="./app_2.css?v=225" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -105,7 +105,7 @@
   <script defer src="./sector-progress.js?v=1"></script>
   <script defer src="./sun-map.js?v=2"></script>
   <script defer src="./map-style.js?v=1"></script>
-  <script defer src="./maplibre-map.js?v=85"></script>
+  <script defer src="./maplibre-map.js?v=86"></script>
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
@@ -125,7 +125,7 @@
   <script defer src="./mobile-auth.js?v=2"></script>
 
   <script defer src="./spotter-approval.js?v=1"></script>
-  <script defer src="./dev-route-editor.js?v=6"></script>
+  <script defer src="./dev-route-editor.js?v=7"></script>
   <script defer src="./map-search.js?v=6"></script>
 
   <script defer src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
@@ -2740,6 +2740,10 @@
         <div id="bs-conditions-slot"></div>
         <!-- Tu actividad en la escuela (maplibre-map.js: kxRenderSchoolCards) -->
         <div id="bs-activity-slot"></div>
+      </section>
+      <!-- Solo admins, en escuelas aportadas por la comunidad (maplibre-map.js: kxRenderSchoolAdminPage) -->
+      <section class="bs-page bs-page-admin" id="bs-page-2" role="tabpanel" aria-label="Herramientas de admin">
+        <div id="bs-admin-slot"></div>
       </section>
       </div>
       </div>
