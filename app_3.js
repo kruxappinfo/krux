@@ -10430,7 +10430,7 @@ async function submitPost() {
       type: postType,
       userId: currentUser.uid,
       userName: currentUser.displayName || 'Usuario',
-      userPhoto: currentUser.photoURL || '',
+      userPhoto: await kxAuthorPhoto(currentUser.uid) || currentUser.photoURL || '',
       likes: 0,
       liked: false,
       commentsCount: 0,
@@ -10810,6 +10810,34 @@ function buildFeedBookmarkButton(postId, bookmarked) {
       </button>`;
 }
 
+// ============================================
+// FOTO DEL AUTOR
+// La foto del perfil de KRUX (users/{uid}.photoURL) manda sobre la de Google y sobre la copia
+// guardada en cada publicación o comentario, que se queda vieja al cambiar de foto.
+// ============================================
+const kxAuthorPhotoCache = new Map();
+
+function kxAuthorPhoto(uid) {
+  if (!uid || typeof db === 'undefined') return Promise.resolve('');
+  if (!kxAuthorPhotoCache.has(uid)) {
+    kxAuthorPhotoCache.set(uid, db.collection('users').doc(uid).get()
+      .then(doc => (doc.exists && doc.data().photoURL) || '')
+      .catch(e => { console.warn('Error cargando foto de perfil:', e); return ''; }));
+  }
+  return kxAuthorPhotoCache.get(uid);
+}
+
+function kxHydrateAuthorPhotos(root) {
+  if (!root || !root.querySelectorAll) return;
+  root.querySelectorAll('img[data-author-photo]').forEach(img => {
+    const uid = img.dataset.authorPhoto;
+    if (!uid) return;
+    kxAuthorPhoto(uid).then(url => {
+      if (url && img.getAttribute('src') !== url) img.src = url;
+    });
+  });
+}
+
 function renderPostCard(post, container) {
   const card = document.createElement('div');
   card.className = `feed-card feed-card-${post.type || 'text'}`;
@@ -10854,7 +10882,7 @@ function renderPostCard(post, container) {
   // Header - Editorial style with inline meta
   const headerHTML = `
     <div class="feed-card-header">
-      <img src="${userPhoto || generateAvatarFallback(userName, 200)}" alt="${userName}" class="feed-avatar feed-avatar-clickable" data-user-id="${post.userId || ''}" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(userName, 200)}'; this.onerror=null;">
+      <img src="${userPhoto || generateAvatarFallback(userName, 200)}" alt="${userName}" class="feed-avatar feed-avatar-clickable" data-user-id="${post.userId || ''}" data-author-photo="${post.userId || ''}" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(userName, 200)}'; this.onerror=null;">
       <div class="feed-header-content">
         <div class="feed-header-row">
           <span class="feed-username feed-username-clickable" data-user-id="${post.userId || ''}">${userName}</span>
@@ -11038,6 +11066,7 @@ function renderPostCard(post, container) {
   // La entrada animada va por CSS (@keyframes feedCardFadeIn). Sin transform inline: un transform
   // persistente atraparía las hojas inferiores (position: fixed) dentro de la tarjeta.
   container.appendChild(card);
+  kxHydrateAuthorPhotos(card);
 }
 
 // Attach event listeners to feed
@@ -11371,7 +11400,7 @@ async function loadInlineComments(postId, container) {
 
       html += `
         <div class="feed-comment-item" data-comment-id="${doc.id}" data-post-id="${postId}">
-          <img src="${photoUrl}" alt="${comment.userName}" class="feed-comment-avatar" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(comment.userName || 'U', 40)}'; this.onerror=null;">
+          <img src="${photoUrl}" alt="${comment.userName}" class="feed-comment-avatar" data-author-photo="${comment.userId || ''}" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(comment.userName || 'U', 40)}'; this.onerror=null;">
           <div class="feed-comment-content">
             <div class="feed-comment-header">
               <span class="feed-comment-username">${comment.userName || 'Usuario'}</span>
@@ -11441,6 +11470,7 @@ async function loadInlineComments(postId, container) {
     });
 
     container.innerHTML = html;
+    kxHydrateAuthorPhotos(container);
 
     // Portal container for dropdowns
     const dropdownPortal = document.getElementById('dropdown-portal');
@@ -11937,7 +11967,7 @@ async function loadReplies(postId, commentId, container) {
              data-parent-id="${commentId}"
              data-post-id="${postId}"
              data-username="${replyUserName}">
-          <img src="${photoUrl}" alt="${replyUserName}" class="feed-comment-avatar" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(replyUserName, 28)}'; this.onerror=null;">
+          <img src="${photoUrl}" alt="${replyUserName}" class="feed-comment-avatar" data-author-photo="${reply.userId || ''}" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(replyUserName, 28)}'; this.onerror=null;">
           <div class="feed-comment-content">
             <div class="feed-comment-header">
               <span class="feed-comment-username">${replyUserName}</span>
@@ -12007,6 +12037,7 @@ async function loadReplies(postId, commentId, container) {
     });
 
     container.innerHTML = html;
+    kxHydrateAuthorPhotos(container);
 
     // Attach like listeners for replies
     container.querySelectorAll('.feed-reply-like-btn').forEach(btn => {
@@ -12714,7 +12745,7 @@ async function handleInlineCommentSubmit(postId, form) {
     const commentData = {
       userId: currentUser.uid,
       userName: currentUser.displayName || 'Usuario',
-      userPhoto: currentUser.photoURL || '',
+      userPhoto: await kxAuthorPhoto(currentUser.uid) || currentUser.photoURL || '',
       text: text,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
@@ -13386,7 +13417,7 @@ function renderPostInModal(post, container) {
   // Header - Matches feed card layout: avatar, user+time, location, three-dot menu
   const headerHTML = `
     <div class="feed-card-header">
-      <img src="${userPhoto || generateAvatarFallback(userName, 200)}" alt="${userName}" class="feed-avatar" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(userName, 200)}'; this.onerror=null;">
+      <img src="${userPhoto || generateAvatarFallback(userName, 200)}" alt="${userName}" class="feed-avatar" data-author-photo="${post.userId || ''}" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(userName, 200)}'; this.onerror=null;">
       <div class="feed-header-content">
         <div class="feed-header-row">
           <span class="feed-username">${userName}</span>
@@ -13504,6 +13535,7 @@ function renderPostInModal(post, container) {
   `;
 
   container.innerHTML = headerHTML + contentHTML + kxAscentListHTML(kxPostAscents(post)) + actionsHTML;
+  kxHydrateAuthorPhotos(container);
 
   // Fotos y vídeos de la publicación ampliada se abren en el visor, en el orden publicado
   container._lightboxItems = modalMedia;
