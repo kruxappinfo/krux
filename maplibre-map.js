@@ -11267,6 +11267,12 @@ async function mlDeletePendingItem(collection, docId) {
 function mlStartEditPending(collection, docId, type, coords) {
   mlCancelPendingEdit();
 
+  // La línea de un sector se ajusta con el editor del dibujo: arrastrar puntos y tocar la línea para añadir
+  if (type === 'LineString' && collection === 'pending_sectors' && typeof window.devAdjustSectorLine === 'function') {
+    window.devAdjustSectorLine(docId, coords);
+    return;
+  }
+
   mlEditState.docId = docId;
   mlEditState.collection = collection;
   mlEditState.type = type;
