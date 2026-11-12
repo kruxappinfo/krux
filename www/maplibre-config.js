@@ -287,7 +287,8 @@ const MAPLIBRE_SCHOOLS = {
       sectores: 12,
       sectorNames: 17,
       vias: 17,
-      parkings: 15
+      parkings: 15,
+      puntosInteres: 12 // escuela muy grande: los POI se ven desde más lejos (por defecto, 13-14)
     }
   }
 };

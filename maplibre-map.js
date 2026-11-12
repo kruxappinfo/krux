@@ -2910,6 +2910,25 @@ function _kxPOIBadgeImage(poiType, src) {
   });
 }
 
+// Zoom mínimo de los POI: cada escuela puede bajarlo con zoomLevels.puntosInteres (p. ej. La Pedriza,
+// que es muy grande); sin valor se mantiene el de siempre.
+function kxPoiMinZoom(schoolId, fallback) {
+  const school = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS[schoolId] : null;
+  const z = school && school.zoomLevels ? school.zoomLevels.puntosInteres : null;
+  return Number.isFinite(z) ? z : fallback;
+}
+function kxPoiIconSize(minZoom, startSize) {
+  const z0 = Math.min(minZoom, 15);
+  return ['interpolate', ['linear'], ['zoom'], z0, startSize, 16, 0.9, 18, 1, 20, 1.12];
+}
+// Reajusta una capa de POI que ya existía (venía de otra escuela) al zoom de la actual.
+function kxApplyPoiZoom(layerId, schoolId, fallback, startSize) {
+  if (!mlMap || !mlMap.getLayer(layerId)) return;
+  const mz = kxPoiMinZoom(schoolId, fallback);
+  mlMap.setLayerZoomRange(layerId, mz, 24);
+  mlMap.setLayoutProperty(layerId, 'icon-size', kxPoiIconSize(mz, startSize));
+}
+
 /**
  * Carga los puntos de interés con pins SVG diferenciados por tipo y color.
  */
@@ -2952,10 +2971,10 @@ async function mlLoadPuntosInteres(url) {
       id: layerId,
       type: 'symbol',
       source: sourceId,
-      minzoom: 14,
+      minzoom: kxPoiMinZoom(mlCurrentSchool, 14),
       layout: {
         'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.78, 16, 0.9, 18, 1, 20, 1.12],
+        'icon-size': kxPoiIconSize(kxPoiMinZoom(mlCurrentSchool, 14), 0.78),
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
         'icon-anchor': 'center'
@@ -10250,16 +10269,17 @@ async function loadApprovedPOIFromFirestore(schoolId) {
 
           if (mlMap.getSource(sourceId)) {
             mlMap.getSource(sourceId).setData(geojson);
+            kxApplyPoiZoom(layerId, schoolId, 13, 0.7);
           } else {
             mlMap.addSource(sourceId, { type: 'geojson', data: geojson });
             mlMap.addLayer({
               id: layerId,
               type: 'symbol',
               source: sourceId,
-              minzoom: 13,
+              minzoom: kxPoiMinZoom(schoolId, 13),
               layout: {
                 'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-                'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 16, 0.9, 18, 1, 20, 1.12],
+                'icon-size': kxPoiIconSize(kxPoiMinZoom(schoolId, 13), 0.7),
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true,
                 'icon-anchor': 'center'
@@ -10596,17 +10616,18 @@ async function loadMyPendingPOIFromFirestore(schoolId) {
 
           if (mlMap.getSource(sourceId)) {
             mlMap.getSource(sourceId).setData(geojson);
+            kxApplyPoiZoom(layerId, schoolId, 13, 0.7);
           } else {
             mlMap.addSource(sourceId, { type: 'geojson', data: geojson });
             mlMap.addLayer({
               id: layerId,
               type: 'symbol',
               source: sourceId,
-              minzoom: 13,
+              minzoom: kxPoiMinZoom(schoolId, 13),
               paint: { 'icon-opacity': 0.6 },
               layout: {
                 'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-                'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 16, 0.9, 18, 1, 20, 1.12],
+                'icon-size': kxPoiIconSize(kxPoiMinZoom(schoolId, 13), 0.7),
                 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
               }
             });
@@ -11013,17 +11034,18 @@ async function loadAllPendingForAdmin(schoolId, minZoom = 14) {
       const geojson = { type: 'FeatureCollection', features };
       if (mlMap.getSource(poiSourceId)) {
         mlMap.getSource(poiSourceId).setData(geojson);
+        kxApplyPoiZoom(poiLayerId, schoolId, 13, 0.7);
       } else {
         mlMap.addSource(poiSourceId, { type: 'geojson', data: geojson });
         mlMap.addLayer({
           id: poiLayerId,
           type: 'symbol',
           source: poiSourceId,
-          minzoom: 13,
+          minzoom: kxPoiMinZoom(schoolId, 13),
           paint: { 'icon-opacity': 0.8 },
           layout: {
             'icon-image': ['coalesce', ['image', ['get', '_svgIcon']], ['image', 'poi-svg-default']],
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 16, 0.9, 18, 1, 20, 1.12],
+            'icon-size': kxPoiIconSize(kxPoiMinZoom(schoolId, 13), 0.7),
             'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
           }
         });
