@@ -292,15 +292,15 @@ const MAPLIBRE_SCHOOLS = {
   }
 };
 
-// Interruptor de los GeoJSON de vías (*_Vias.geojson). Con false no se cargan en ninguna escuela:
-// la ruta de cada fichero pasa a `geojson.viasDesactivadas` (los ficheros siguen en Cartografia/).
-// Para reactivarlas basta con poner true.
-const MAPLIBRE_VIAS_GEOJSON_ACTIVAS = false;
-if (!MAPLIBRE_VIAS_GEOJSON_ACTIVAS) {
+// Interruptor de los GeoJSON de rutas de acceso (*_Rutas_acceso.geojson). Con false no se cargan
+// en ninguna escuela: la ruta de cada fichero pasa a `geojson.rutasAccesoDesactivadas` (los ficheros
+// siguen en Cartografia/). Para reactivarlas basta con poner true.
+const MAPLIBRE_RUTAS_ACCESO_ACTIVAS = false;
+if (!MAPLIBRE_RUTAS_ACCESO_ACTIVAS) {
   Object.values(MAPLIBRE_SCHOOLS).forEach(school => {
-    if (school.geojson && school.geojson.vias) {
-      school.geojson.viasDesactivadas = school.geojson.vias;
-      delete school.geojson.vias;
+    if (school.geojson && school.geojson.rutasAcceso) {
+      school.geojson.rutasAccesoDesactivadas = school.geojson.rutasAcceso;
+      delete school.geojson.rutasAcceso;
     }
   });
 }
