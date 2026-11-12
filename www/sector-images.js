@@ -1639,6 +1639,52 @@ function kxTopoNumbers(drawings) {
   return numbers;
 }
 
+// ============================================
+// REUNIONES COMPARTIDAS (compartido con route-drawing.js)
+// ============================================
+
+// Finales a esta distancia (px de la foto) se consideran la misma reunión
+const KX_SHARED_ANCHOR_TOL = 3;
+
+/**
+ * Finales de todos los ramales de los trazados (tronco y ramas) con reunión
+ * @returns {Array} {drawing, key, branchId, point, anchorType}
+ */
+function kxPathEnds(drawings) {
+  const ends = [];
+  (drawings || []).forEach(d => {
+    const dk = kxDrawingKey(d);
+    if (d.points && d.points.length >= 2) {
+      ends.push({ drawing: d, key: `${dk}#0`, branchId: 0, point: d.points[d.points.length - 1], anchorType: d.anchorType });
+    }
+    (d.branches || []).forEach(b => {
+      if (b.points && b.points.length >= 1) {
+        ends.push({ drawing: d, key: `${dk}#${b.branchId}`, branchId: b.branchId, point: b.points[b.points.length - 1], anchorType: b.anchorType });
+      }
+    });
+  });
+  return ends.filter(e => e.anchorType && e.point);
+}
+
+/**
+ * Agrupa por finales que coinciden: una sola chapa para varias vías.
+ * colorOf(drawing) da el color de cada vía.
+ * @returns {Map} clave de ramal → { lead, colors } (solo grupos de 2 o más)
+ */
+function kxSharedAnchors(drawings, colorOf) {
+  const groups = [];
+  kxPathEnds(drawings).forEach(end => {
+    const group = groups.find(g => g.some(m => Math.hypot(m.point.x - end.point.x, m.point.y - end.point.y) <= KX_SHARED_ANCHOR_TOL));
+    if (group) group.push(end); else groups.push([end]);
+  });
+  const shared = new Map();
+  groups.filter(g => g.length > 1).forEach(g => {
+    const colors = g.map(m => colorOf(m.drawing));
+    g.forEach((m, i) => shared.set(m.key, { lead: i === 0, colors }));
+  });
+  return shared;
+}
+
 /**
  * Color de un grado, con respaldo si falta el grado o la tabla
  */
@@ -1810,7 +1856,7 @@ function kxDrawTopoGlyph(ctx, type, g, angle) {
 /**
  * Chapa de magnesio con aro del color indicado y glifo según el tipo
  * (reuniones: quimicos, cadena, mosqueton, desconocido, sin_terminar; aux: rapel)
- * opts: { radius, alpha, angle }
+ * opts: { radius, alpha, angle, colors } (colors: reunión compartida por varias vías)
  */
 function kxDrawTopoChip(ctx, x, y, type, color, opts = {}) {
   const r = opts.radius || 8;
@@ -1839,13 +1885,18 @@ function kxDrawTopoChip(ctx, x, y, type, color, opts = {}) {
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Aro del color del grado (discontinuo si la vía no está terminada)
-  ctx.strokeStyle = color;
+  // Aro del color del grado (discontinuo si la vía no está terminada).
+  // Con varias vías en la misma reunión, el aro se reparte en sus colores.
+  const ringColors = opts.colors && opts.colors.length > 1 ? opts.colors : [color];
+  const slice = (Math.PI * 2) / ringColors.length;
   ctx.lineWidth = ring;
   if (type === 'sin_terminar') ctx.setLineDash([r * 0.5, r * 0.36]);
-  ctx.beginPath();
-  ctx.arc(0, 0, r - ring / 2 - 0.5, 0, Math.PI * 2);
-  ctx.stroke();
+  ringColors.forEach((c, i) => {
+    ctx.strokeStyle = c;
+    ctx.beginPath();
+    ctx.arc(0, 0, r - ring / 2 - 0.5, -Math.PI / 2 + slice * i, -Math.PI / 2 + slice * (i + 1));
+    ctx.stroke();
+  });
   ctx.setLineDash([]);
 
   ctx.strokeStyle = KX_TOPO.ink;
@@ -2963,23 +3014,30 @@ function drawOverlayRouteAnchor(drawing, canvasWidth, canvasHeight) {
   const iconSize = (isZoomed ? 5.5 : 8) * scaleFactor;
   const iconAlpha = isZoomed ? 0.85 : 1;
 
+  // Reuniones que comparten varias vías: la chapa la dibuja solo la primera
+  const shared = kxSharedAnchors(svDrawings, getRouteColor);
+  const drawingKey = kxDrawingKey(drawing);
+
   // Dibujar reunión al final de cada path
   paths.forEach(path => {
     if (!path.anchorType || !path.points || path.points.length < 2) return;
+    const share = shared.get(`${drawingKey}#${path.branchId}`);
+    if (share && !share.lead) return;
     const lastPoint = path.points[path.points.length - 1];
     const prevPoint = path.points[path.points.length - 2];
-    drawSvAnchorIcon(lastPoint.x, lastPoint.y, prevPoint.x, prevPoint.y, path.anchorType, mainColor, iconSize, iconAlpha);
+    drawSvAnchorIcon(lastPoint.x, lastPoint.y, prevPoint.x, prevPoint.y, path.anchorType, mainColor, iconSize, iconAlpha, share && share.colors);
   });
 }
 
 /**
  * Dibuja la chapa de reunión al final de la vía en el visor de sector
  */
-function drawSvAnchorIcon(x, y, prevX, prevY, anchorType, color, size, alpha) {
+function drawSvAnchorIcon(x, y, prevX, prevY, anchorType, color, size, alpha, colors) {
   if (!['quimicos', 'cadena', 'mosqueton', 'sin_terminar'].includes(anchorType)) return;
   kxDrawTopoChip(svCtx, x, y, anchorType, color, {
     radius: size,
     alpha,
+    colors,
     angle: Math.atan2(y - prevY, x - prevX)
   });
 }

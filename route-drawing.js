@@ -1698,8 +1698,14 @@ function drawRouteAnchorOnly(drawing, isSelected) {
   const scaleX = displayWidth / rdImage.width;
   const scaleY = displayHeight / rdImage.height;
 
+  // Reuniones que comparten varias vías: una sola chapa, dibujada por la primera
+  const shared = kxSharedAnchors(rdRouteDrawings, d => getRouteDrawingData(d, false).color);
+  const drawingKey = kxDrawingKey(drawing);
+
   paths.forEach(path => {
     if (!path.anchorType || !path.points || path.points.length < 2) return;
+    const share = shared.get(`${drawingKey}#${path.branchId}`);
+    if (share && !share.lead) return;
 
     const scaledPoints = path.points.map(p => ({
       x: p.x * scaleX,
@@ -1708,7 +1714,7 @@ function drawRouteAnchorOnly(drawing, isSelected) {
 
     const lastPoint = scaledPoints[scaledPoints.length - 1];
     const prevPoint = scaledPoints[scaledPoints.length - 2];
-    drawAnchorIcon(lastPoint.x, lastPoint.y, prevPoint.x, prevPoint.y, path.anchorType, color);
+    drawAnchorIcon(lastPoint.x, lastPoint.y, prevPoint.x, prevPoint.y, path.anchorType, color, share && share.colors);
   });
 }
 
@@ -1716,9 +1722,10 @@ function drawRouteAnchorOnly(drawing, isSelected) {
  * Dibuja la chapa de reunión al final de la vía
  * (prevX, prevY orientan la flecha de «sin terminar»)
  */
-function drawAnchorIcon(x, y, prevX, prevY, anchorType, color) {
+function drawAnchorIcon(x, y, prevX, prevY, anchorType, color, colors) {
   kxDrawTopoChip(rdCtx, x, y, anchorType, color, {
     radius: 8,
+    colors,
     angle: Math.atan2(y - prevY, x - prevX)
   });
 }
@@ -2558,6 +2565,19 @@ async function rdFinishDrawing() {
   if (rdDrawingPoints.length < 2) {
     showRDToast('Se requieren al menos 2 puntos para guardar', 'warning');
     return;
+  }
+
+  // ¿Termina junto a la reunión de otra vía? Se ofrece compartirla
+  const near = rdFindNearbyAnchor();
+  if (near) {
+    const name = kxEsc(rdDrawingLabel(near.drawing));
+    const share = await rdConfirm('¿Compartir reunión?', `El final queda junto a la reunión de «${name}». Las dos vías compartirán la misma reunión.`, 'Compartir');
+    if (share) {
+      rdDrawingPoints[rdDrawingPoints.length - 1] = { x: near.point.x, y: near.point.y };
+      redrawCanvas();
+      await selectAnchorType(near.anchorType);
+      return;
+    }
   }
 
   // Mostrar modal para seleccionar tipo de reunión
@@ -3696,6 +3716,14 @@ function showAuxContextMenu(clientX, clientY) {
       <span>Cadena</span>
     </button>
     <div class="rd-aux-menu-separator" style="border-top: 1px solid rgba(255,255,255,0.1); margin: 4px 0;"></div>
+    <button class="rd-aux-menu-item" onclick="closeAuxContextMenu(); showSharedAnchorsModal()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 21V12a7 7 0 0 1 7-7"/>
+        <path d="M19 21V12a7 7 0 0 0-7-7"/>
+        <circle cx="12" cy="5" r="2.2"/>
+      </svg>
+      <span>Unir reuniones</span>
+    </button>
     <button class="rd-aux-menu-item" onclick="closeAuxContextMenu(); showDrawingBackupsModal()">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 12a9 9 0 1 0 3-6.7"/>
@@ -4310,6 +4338,192 @@ function rdConfirm(title, message, confirmText) {
 }
 
 // ============================================
+// REUNIONES COMPARTIDAS: UNIR FINALES CERCANOS
+// ============================================
+
+// Fracción del ancho de la foto bajo la que dos finales se consideran «junto a»
+const RD_NEAR_ANCHOR_FRACTION = 0.05;
+
+/**
+ * Nombre legible de un trazado (con la variante si la tiene)
+ */
+function rdDrawingLabel(drawing) {
+  const dvi = drawing.variantIndex || 0;
+  const route = rdRoutesList.find(r =>
+    (drawing.routeId !== undefined && r.routeId === drawing.routeId && (r.variantIndex || 0) === dvi) ||
+    (drawing.routeId === undefined && r.nombre === drawing.routeName)
+  );
+  const name = (route && route.nombre) || drawing.routeName || 'Sin nombre';
+  return dvi > 0 ? `${name} (variante ${dvi})` : name;
+}
+
+/**
+ * Final con reunión de otra vía que queda junto al final que se acaba de dibujar
+ * @returns {Object|null} {drawing, point, anchorType} del final más cercano
+ */
+function rdFindNearbyAnchor() {
+  if (!rdCurrentRoute || rdDrawingPoints.length < 2 || !rdImage) return null;
+  const last = rdDrawingPoints[rdDrawingPoints.length - 1];
+  const limit = rdImage.width * RD_NEAR_ANCHOR_FRACTION;
+  const ownKey = kxDrawingKey({ routeId: rdCurrentRoute.routeId, variantIndex: rdCurrentRoute.variantIndex, routeName: rdCurrentRoute.nombre });
+  let best = null;
+  kxPathEnds(rdRouteDrawings).forEach(end => {
+    if (kxDrawingKey(end.drawing) === ownKey || end.anchorType === 'sin_terminar') return;
+    const dist = Math.hypot(end.point.x - last.x, end.point.y - last.y);
+    if (dist <= limit && (!best || dist < best.dist)) best = { dist, drawing: end.drawing, point: end.point, anchorType: end.anchorType };
+  });
+  return best;
+}
+
+/**
+ * Grupos de finales de vías distintas que quedan cerca pero aún no comparten reunión
+ * @returns {Array} grupos de finales (kxPathEnds)
+ */
+function rdNearbyAnchorGroups() {
+  if (!rdImage) return [];
+  const limit = rdImage.width * RD_NEAR_ANCHOR_FRACTION;
+  const ends = kxPathEnds(rdRouteDrawings).filter(e => e.anchorType !== 'sin_terminar');
+  const groups = [];
+  ends.forEach(end => {
+    const hits = groups.filter(g => g.some(m => Math.hypot(m.point.x - end.point.x, m.point.y - end.point.y) <= limit));
+    if (hits.length === 0) { groups.push([end]); return; }
+    // Une los grupos que este final enlaza
+    const merged = [end].concat(...hits);
+    hits.forEach(h => groups.splice(groups.indexOf(h), 1));
+    groups.push(merged);
+  });
+  const sameSpot = g => g.every(m => Math.hypot(m.point.x - g[0].point.x, m.point.y - g[0].point.y) <= KX_SHARED_ANCHOR_TOL);
+  return groups
+    .filter(g => new Set(g.map(m => kxDrawingKey(m.drawing))).size > 1 && !sameSpot(g))
+    .map(g => g.sort((a, b) => (rdTopoNumbers.get(kxDrawingKey(a.drawing)) || 0) - (rdTopoNumbers.get(kxDrawingKey(b.drawing)) || 0)));
+}
+
+/**
+ * Lista las reuniones cercanas y permite unirlas
+ */
+function showSharedAnchorsModal() {
+  closeSharedAnchorsModal();
+  if (!rdCurrentSector) return;
+
+  rdTopoNumbers = kxTopoNumbers(rdRouteDrawings);
+  const groups = rdNearbyAnchorGroups();
+  rdSharedAnchorGroups = groups;
+
+  const rows = groups.map((g, gi) => {
+    const types = [...new Set(g.map(m => m.anchorType))];
+    const members = g.map(m => {
+      const color = getRouteDrawingData(m.drawing, false).color;
+      const n = rdTopoNumbers.get(kxDrawingKey(m.drawing));
+      const branch = m.branchId > 0 ? ` · ramal ${m.branchId}` : '';
+      return `<span class="rd-share-member"><span class="rd-share-num" style="border-color: ${color}">${n}</span>${kxEsc(rdDrawingLabel(m.drawing))}${branch}</span>`;
+    }).join('');
+    const buttons = types.map(t => `
+      <button class="rd-share-join" onclick="joinSharedAnchors(${gi}, '${t}')">
+        ${types.length > 1 ? `Unir como ${kxEsc(RD_ANCHOR_TYPES[t]?.name || t)}` : 'Unir'}
+      </button>`).join('');
+    return `
+      <div class="rd-share-row">
+        <div class="rd-share-members">${members}</div>
+        <div class="rd-share-actions">${buttons}</div>
+      </div>`;
+  }).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'rd-shared-modal';
+  modal.className = 'rd-modal-overlay';
+  modal.innerHTML = `
+    <div class="rd-modal-container rd-share-container">
+      <div class="rd-modal-header">
+        <h3>Unir reuniones</h3>
+      </div>
+      <div class="rd-modal-body">
+        <p>${groups.length
+          ? 'Estas vías terminan una junto a otra. Al unirlas comparten la misma reunión y sus líneas se juntan.'
+          : 'No hay vías que terminen una junto a otra sin compartir reunión.'}</p>
+        ${groups.length ? `<div class="rd-share-list">${rows}</div>` : ''}
+      </div>
+      <div class="rd-modal-footer">
+        <button class="rd-modal-btn rd-modal-btn-cancel" onclick="closeSharedAnchorsModal()">Cerrar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeSharedAnchorsModal();
+  });
+}
+
+function closeSharedAnchorsModal() {
+  const modal = document.getElementById('rd-shared-modal');
+  if (modal) modal.remove();
+}
+
+let rdSharedAnchorGroups = [];
+
+/**
+ * Junta los finales de un grupo en un punto y les da el mismo tipo de reunión
+ */
+async function joinSharedAnchors(groupIndex, anchorType) {
+  const group = rdSharedAnchorGroups[groupIndex];
+  if (!group) return;
+  if (rdDrawingsLoadFailed) {
+    showRDToast('No se puede guardar: los dibujos no se cargaron. Vuelve a abrir el editor.', 'error');
+    return;
+  }
+
+  const target = {
+    x: Math.round(group.reduce((sum, m) => sum + m.point.x, 0) / group.length),
+    y: Math.round(group.reduce((sum, m) => sum + m.point.y, 0) / group.length)
+  };
+
+  // Cambios sobre una copia: si falla el guardado, la foto queda como estaba
+  const changed = new Map();
+  group.forEach(m => {
+    const dk = kxDrawingKey(m.drawing);
+    const copy = changed.get(dk) || JSON.parse(JSON.stringify(m.drawing));
+    if (m.branchId > 0) {
+      const branch = (copy.branches || []).find(b => b.branchId === m.branchId);
+      if (!branch) return;
+      branch.points[branch.points.length - 1] = { ...target };
+      branch.anchorType = anchorType;
+    } else {
+      copy.points[copy.points.length - 1] = { ...target };
+      copy.anchorType = anchorType;
+    }
+    copy.updatedAt = new Date().toISOString();
+    copy.updatedBy = auth.currentUser?.uid;
+    changed.set(dk, copy);
+  });
+
+  try {
+    const docRef = rdDrawingsDocRef();
+    const doc = await docRef.get();
+    const imageId = rdCurrentSector.imageId;
+    const allDrawings = (doc.exists ? doc.data().drawings || [] : []).map(d => {
+      if (imageId && (d.imageId || 'legacy_0') !== imageId) return d;
+      return changed.get(kxDrawingKey(d)) || d;
+    });
+
+    await kxBackupRouteDrawings(docRef, 'unir-reuniones', { snapshot: doc, required: true });
+    await docRef.set({
+      schoolId: rdCurrentSector.schoolId,
+      sectorName: rdCurrentSector.sectorName,
+      drawings: allDrawings,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: auth.currentUser?.uid
+    }, { merge: true });
+
+    rdRouteDrawings = rdRouteDrawings.map(d => changed.get(kxDrawingKey(d)) || d);
+    redrawCanvas();
+    showSharedAnchorsModal();
+    updateInstructions('Reuniones unidas.');
+  } catch (error) {
+    console.error('[RouteDrawing] Error uniendo reuniones:', error);
+    showRDToast('No se pudieron unir las reuniones: ' + error.message, 'error');
+  }
+}
+
+// ============================================
 // COPIAS DE SEGURIDAD: HISTORIAL Y RESTAURACIÓN
 // ============================================
 
@@ -4320,6 +4534,7 @@ const RD_BACKUP_REASONS = {
   'borrar-ramal': 'Antes de borrar un ramal',
   'guardar-elementos': 'Antes de guardar elementos',
   'borrador': 'Antes de usar el borrador',
+  'unir-reuniones': 'Antes de unir reuniones',
   'borrar-imagen': 'Antes de borrar una foto',
   'admin-borrar-via': 'Antes de borrar una vía (admin)',
   'admin-limpiar-huerfanos': 'Antes de limpiar huérfanos (admin)',
@@ -4905,6 +5120,9 @@ window.rdPrevImage = rdPrevImage;
 window.rdNextImage = rdNextImage;
 // Funciones para selección de tipo de reunión
 window.showAnchorTypeModal = showAnchorTypeModal;
+window.showSharedAnchorsModal = showSharedAnchorsModal;
+window.closeSharedAnchorsModal = closeSharedAnchorsModal;
+window.joinSharedAnchors = joinSharedAnchors;
 window.closeAnchorModal = closeAnchorModal;
 window.selectAnchorType = selectAnchorType;
 window.rdToggleAddMenu = rdToggleAddMenu;
