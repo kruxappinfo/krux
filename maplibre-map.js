@@ -1880,8 +1880,16 @@ function kxOpenTerrainViewer(schoolId) {
       sectors.push({ feature: f, user: sourceId === 'sectores-usuarios-source', name: p.nombre || p.name || '', color: kxSectorColorOf(f) });
     });
   });
+  // Caminos de acceso: en 2D están desactivados (MAPLIBRE_RUTAS_ACCESO_ACTIVAS), pero en 3D sí se dibujan
+  const g = MAPLIBRE_SCHOOLS[schoolId].geojson || {};
+  const pathsUrl = g.rutasAcceso || g.rutasAccesoDesactivadas;
+  const pathsReady = pathsUrl
+    ? fetch(pathsUrl).then(r => (r.ok ? r.json() : null)).then(d => (d && d.features) || []).catch(() => [])
+    : Promise.resolve([]);
   const c = mlMap.getCenter();
-  kxTerrain3D.open(schoolId, {
+  pathsReady.then(paths => kxTerrain3D.open(schoolId, {
+    paths,
+    pathColor: KX_MAP.access,
     container: document.getElementById('map-view'),
     name: MAPLIBRE_SCHOOLS[schoolId].name,
     center: [c.lng, c.lat],
@@ -1902,7 +1910,7 @@ function kxOpenTerrainViewer(schoolId) {
       // El mapa 2D queda donde se estaba mirando en 3D
       if (center && mlMap) mlMap.jumpTo({ center });
     }
-  }).catch(e => {
+  })).catch(e => {
     console.warn('[3D] Visor de relieve no disponible, se usa el 3D del mapa:', e);
     enable3DMode();
   });
