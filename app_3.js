@@ -7458,6 +7458,14 @@ function renderAdminSuggestions() {
     long1: ' m'
   };
 
+  // Datos de las variantes de una vía (exp2/long2…): mismas etiquetas con el número de variante
+  for (let n = 2; n <= 5; n++) {
+    fieldLabels['exp' + n] = `Express (variante ${n - 1})`;
+    fieldLabels['long' + n] = `Metros (variante ${n - 1})`;
+    fieldUnits['exp' + n] = ' express';
+    fieldUnits['long' + n] = ' m';
+  }
+
   listEl.innerHTML = adminSuggestions.map(suggestion => {
     if (suggestion.kind === 'report') return adminReportCardHTML(suggestion);
     const date = suggestion.createdAt?.toDate?.() ?
