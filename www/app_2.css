@@ -34698,8 +34698,10 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   position: absolute;
   left: -0.875rem;
   top: -0.875rem;
+  display: block;
   width: 1.75rem;
   height: 1.75rem;
+  max-width: none;  /* el contenedor mide 0: sin esto un max-width:100% global colapsa la insignia */
   filter: drop-shadow(0 1px 3px rgba(20, 28, 24, 0.4));
 }
 #map-view .kx-t3d-poi > i {
