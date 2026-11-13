@@ -63,7 +63,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=230" />
+  <link rel="stylesheet" href="./app_2.css?v=231" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -90,7 +90,7 @@
   <script defer src="./usernames.js?v=2"></script>
   <script defer src="./auth.js?v=7"></script>
 
-  <script defer src="./user-features.js?v=12"></script>
+  <script defer src="./user-features.js?v=13"></script>
 
   <script defer src="./route-photos.js?v=2"></script>
 
@@ -111,7 +111,7 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=112"></script>
+  <script defer src="./app_3.js?v=113"></script>
   <script defer src="./activity-ui.js?v=7"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -1660,8 +1660,8 @@
   <div id="ascent-modal" class="modal hidden">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 id="ascent-modal-title">Registrar Ascenso</h3>
-        <button id="close-ascent-modal" class="close-btn">x</button>
+        <h3 id="ascent-modal-title">Registrar ascenso</h3>
+        <button type="button" id="close-ascent-modal" class="close-btn" aria-label="Cerrar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <form id="ascent-form">
         <input type="hidden" id="ascent-school-id">
@@ -1670,7 +1670,7 @@
         <input type="hidden" id="ascent-grade">
 
         <div class="form-group" id="route-display-group">
-          <label>Ví­a</label>
+          <label>Vía</label>
           <div id="display-route-name" class="route-name-display"></div>
         </div>
 
@@ -1708,9 +1708,15 @@
           <input type="text" id="gm-route-input" placeholder="Ej: Amarilla sector A" autocomplete="off">
         </div>
 
-        <div class="form-group">
-          <label for="ascent-date">Fecha</label>
-          <input type="date" id="ascent-date" required>
+        <div class="kx-ascent-pair">
+          <div class="form-group">
+            <label for="ascent-date">Fecha</label>
+            <input type="date" id="ascent-date" required>
+          </div>
+          <div class="form-group">
+            <label for="ascent-tries">Intentos</label>
+            <input type="number" id="ascent-tries" min="1" value="1" inputmode="numeric">
+          </div>
         </div>
 
         <div class="form-group">
@@ -1718,29 +1724,29 @@
           <input type="hidden" id="ascent-style" value="redpoint">
           <div class="style-dropdown">
             <div class="style-dropdown-toggle" id="style-dropdown-toggle">
-              <span class="style-icon">🔴</span>
+              <span class="style-icon" data-style="redpoint" aria-hidden="true"></span>
               <span class="style-dropdown-label"><strong>Redpoint</strong> — Encadenada tras haberla probado antes</span>
-              <span class="style-dropdown-arrow">&#9662;</span>
+              <svg class="style-dropdown-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
             </div>
             <div class="style-dropdown-menu" id="style-dropdown-menu">
               <div class="style-option selected" data-value="redpoint">
-                <span class="style-icon">🔴</span>
+                <span class="style-icon" data-style="redpoint" aria-hidden="true"></span>
                 <span class="style-text"><strong>Redpoint</strong> — Encadenada tras haberla probado antes</span>
               </div>
               <div class="style-option" data-value="onsight">
-                <span class="style-icon">👁️</span>
+                <span class="style-icon" data-style="onsight" aria-hidden="true"></span>
                 <span class="style-text"><strong>A vista</strong> — Encadenada a la primera, sin info previa</span>
               </div>
               <div class="style-option" data-value="flash">
-                <span class="style-icon">⚡</span>
+                <span class="style-icon" data-style="flash" aria-hidden="true"></span>
                 <span class="style-text"><strong>Flash</strong> — Encadenada a la primera, con info previa</span>
               </div>
               <div class="style-option" data-value="toprope">
-                <span class="style-icon">🪀</span>
-                <span class="style-text"><strong>Top Rope</strong> — Escalada con cuerda por arriba</span>
+                <span class="style-icon" data-style="toprope" aria-hidden="true"></span>
+                <span class="style-text"><strong>Top rope</strong> — Escalada con cuerda por arriba</span>
               </div>
               <div class="style-option" data-value="project">
-                <span class="style-icon">🎯</span>
+                <span class="style-icon" data-style="project" aria-hidden="true"></span>
                 <span class="style-text"><strong>Intento</strong> — Probada, pero sin encadenar</span>
               </div>
             </div>
@@ -1748,13 +1754,8 @@
         </div>
 
         <div class="form-group">
-          <label for="ascent-tries">Intentos</label>
-          <input type="number" id="ascent-tries" min="1" value="1">
-        </div>
-
-        <div class="form-group">
           <label for="ascent-notes">Notas</label>
-          <textarea id="ascent-notes" rows="3" placeholder="Sensaciones, beta, companí­a..."></textarea>
+          <textarea id="ascent-notes" rows="2" placeholder="Sensaciones, beta, compañía…"></textarea>
         </div>
 
         <div class="form-group rating-group">
@@ -3893,7 +3894,7 @@
     <div class="modal-content gym-picker-content">
       <div class="modal-header">
         <h3>Rocódromo</h3>
-        <button type="button" id="gym-picker-close" class="close-btn">✕</button>
+        <button type="button" id="gym-picker-close" class="close-btn" aria-label="Cerrar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <button type="button" id="gym-picker-gps" class="gym-picker-gps-btn">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v3.5M12 19.5V23M1 12h3.5M19.5 12H23"/><circle cx="12" cy="12" r="9" opacity=".25" stroke-width="1.5"/></svg>

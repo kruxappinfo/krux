@@ -34103,3 +34103,364 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 #route-bottom-sheet .kx-msheet-body,
 #route-bottom-sheet .rbs-head { touch-action: pan-y; }
 #route-bottom-sheet { overflow-x: clip; }
+
+/* ============================================
+   REGISTRAR ASCENSO / SESIÓN ROCÓDROMO — misma estética que las fichas y el perfil
+   Un solo modal (#ascent-modal) para vía exterior, edición y sesión de rocódromo,
+   más la hoja de elegir rocódromo (#gym-picker-sheet), que se abre encima.
+   ============================================ */
+#ascent-modal.modal,
+#gym-picker-sheet.modal {
+  z-index: 10030;  /* por encima de la barra de navegación (10000) */
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  background: var(--kx-scrim);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-family: var(--kx-font);
+}
+#gym-picker-sheet.modal { z-index: 10040; }
+
+#ascent-modal .modal-content,
+#gym-picker-sheet .modal-content {
+  display: block;
+  width: min(440px, 100%);
+  max-width: none;
+  max-height: 100%;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--kx-radius-sheet);
+  background: var(--kx-chalk);
+  box-shadow: var(--kx-shadow-pop);
+  color: var(--kx-ink);
+  animation: kxAscentIn var(--kx-dur-slow) var(--kx-ease);
+}
+@keyframes kxAscentIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Cabecera fija al hacer scroll */
+#ascent-modal .modal-header,
+#gym-picker-sheet .modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 20px 16px 12px 24px;
+  background: var(--kx-chalk);
+}
+#ascent-modal .modal-header h3,
+#gym-picker-sheet .modal-header h3 {
+  font-family: var(--kx-font);
+  font-size: var(--kx-fs-display);
+  font-weight: var(--kx-fw-heavy);
+  letter-spacing: var(--kx-ls-tight);
+  line-height: var(--kx-lh-tight);
+  color: var(--kx-ink);
+}
+#ascent-modal .close-btn,
+#gym-picker-sheet .close-btn {
+  width: 44px; height: 44px;
+  min-width: 44px; min-height: 44px;
+  max-width: 44px; max-height: 44px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kx-stone-card);
+  color: var(--kx-ink-2);
+  box-shadow: none;
+  transition: background var(--kx-dur-fast) var(--kx-ease);
+}
+#ascent-modal .close-btn:hover,
+#gym-picker-sheet .close-btn:hover { background: var(--kx-stone-hover); color: var(--kx-ink); transform: none; }
+#ascent-modal .close-btn:active,
+#gym-picker-sheet .close-btn:active { transform: scale(0.94); }
+
+#ascent-form { padding: 4px 24px calc(24px + env(safe-area-inset-bottom, 0px)); }
+#gym-picker-sheet .modal-content > :not(.modal-header) { margin-left: 24px; margin-right: 24px; }
+#gym-picker-sheet .gym-picker-list { margin-bottom: 20px; }
+
+/* Etiquetas y campos */
+#ascent-modal .form-group { margin-bottom: 20px; }
+#ascent-modal .form-group > label,
+#ascent-modal .form-group > label[for] {
+  margin-bottom: 8px;
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-strong);
+  color: var(--kx-ink-2);
+}
+#ascent-modal .gm-optional { margin-left: 2px; font-size: var(--kx-fs-caption); font-weight: var(--kx-fw-text); color: var(--kx-ink-3); }
+
+#ascent-modal .form-group input:not([type="radio"]):not([type="hidden"]),
+#ascent-modal .form-group textarea,
+#ascent-modal #gm-grade-select,
+#gym-picker-sheet .form-group input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--kx-line);
+  border-radius: var(--kx-radius-sm);
+  background: var(--kx-surface);
+  color: var(--kx-ink);
+  font-family: var(--kx-font);
+  font-size: var(--kx-fs-body);   /* 16px: sin zoom en iOS */
+  font-weight: var(--kx-fw-text);
+  line-height: 1.3;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color var(--kx-dur-fast) var(--kx-ease), box-shadow var(--kx-dur-fast) var(--kx-ease);
+}
+#ascent-modal .form-group textarea { min-height: 96px; resize: vertical; }
+#ascent-modal .form-group input::placeholder,
+#ascent-modal .form-group textarea::placeholder,
+#gym-picker-sheet .form-group input::placeholder { color: var(--kx-ink-3); opacity: 0.8; }
+#ascent-modal .form-group input:focus,
+#ascent-modal .form-group textarea:focus,
+#ascent-modal #gm-grade-select:focus,
+#gym-picker-sheet .form-group input:focus {
+  outline: none;
+  border-color: var(--kx-forest);
+  box-shadow: 0 0 0 3px var(--kx-primary-soft);
+}
+
+/* Fecha: sin el gris nativo de iOS y sin desbordar el ancho */
+#ascent-modal input[type="date"] { text-align: left; }
+#ascent-modal input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+#ascent-modal input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: pointer; }
+
+/* Grado (select) con chevrón propio */
+#ascent-modal #gm-grade-select {
+  padding-right: 44px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2344504A' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  cursor: pointer;
+}
+
+/* Vía seleccionada: tarjeta de piedra */
+#ascent-modal .route-name-display {
+  padding: 12px 14px;
+  border-radius: var(--kx-radius-sm);
+  background: var(--kx-stone-card);
+  color: var(--kx-forest);
+  font-size: var(--kx-fs-lead);
+  font-weight: var(--kx-fw-heavy);
+  letter-spacing: var(--kx-ls-tight);
+}
+
+/* Rocódromo */
+#ascent-modal .gm-gym-trigger {
+  min-height: 48px;
+  padding: 12px 14px;
+  border: 1px solid var(--kx-line);
+  border-radius: var(--kx-radius-sm);
+  background: var(--kx-surface);
+  color: var(--kx-ink-2);
+  transition: border-color var(--kx-dur-fast) var(--kx-ease), background var(--kx-dur-fast) var(--kx-ease);
+}
+#ascent-modal .gm-gym-trigger:hover { background: var(--kx-stone-card); }
+#ascent-modal .gm-gym-trigger:active { border-color: var(--kx-forest); }
+#ascent-modal .gm-gym-icon { color: var(--kx-forest); }
+#ascent-modal .gm-gym-trigger-left span { font-size: var(--kx-fs-body); font-weight: var(--kx-fw-text); color: var(--kx-ink); }
+
+/* Vía indoor / Boulder: control segmentado como las pestañas del perfil */
+#ascent-modal .gm-type-seg {
+  gap: 4px;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-stone-card);
+}
+#ascent-modal .gm-type-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: transparent;
+  box-shadow: none;
+  color: var(--kx-ink-2);
+  font-family: var(--kx-font);
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-strong);
+  transition: background var(--kx-dur) var(--kx-ease), color var(--kx-dur) var(--kx-ease);
+}
+#ascent-modal .gm-type-btn:hover { background: var(--kx-stone-hover); transform: none; box-shadow: none; }
+#ascent-modal .gm-type-btn.active { background: var(--kx-forest); color: #fff; }
+
+/* Estilo: campo + menú flotante */
+#ascent-modal .style-dropdown-toggle {
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid var(--kx-line);
+  border-radius: var(--kx-radius-sm);
+  background: var(--kx-surface);
+  transition: border-color var(--kx-dur-fast) var(--kx-ease), box-shadow var(--kx-dur-fast) var(--kx-ease);
+}
+#ascent-modal .style-dropdown-toggle:hover { border-color: rgba(32, 41, 35, 0.18); }
+#ascent-modal .style-dropdown.open .style-dropdown-toggle {
+  border-color: var(--kx-forest);
+  border-radius: var(--kx-radius-sm);
+  box-shadow: 0 0 0 3px var(--kx-primary-soft);
+}
+#ascent-modal .style-dropdown-label,
+#ascent-modal .style-text { font-size: var(--kx-fs-meta); color: var(--kx-ink-3); }
+#ascent-modal .style-dropdown-label strong,
+#ascent-modal .style-text strong { font-weight: var(--kx-fw-strong); color: var(--kx-ink); }
+#ascent-modal .style-dropdown-arrow { color: var(--kx-ink-3); transition: transform var(--kx-dur) var(--kx-ease); }
+#ascent-modal .style-dropdown-menu {
+  top: calc(100% + 6px);
+  max-height: 280px;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--kx-radius-md);
+  background: var(--kx-surface);
+  box-shadow: var(--kx-shadow-pop);
+}
+#ascent-modal .style-dropdown.open .style-dropdown-menu { animation: kxProfileMenuIn var(--kx-dur) var(--kx-ease); }
+#ascent-modal .style-option {
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border-radius: var(--kx-radius-xs);
+}
+#ascent-modal .style-option:hover { background: var(--kx-stone-card); }
+#ascent-modal .style-option.selected { background: var(--kx-sage-soft); }
+#ascent-modal .style-option.selected .style-text strong { color: var(--kx-forest); }
+
+/* Punto de color por estilo (sustituye a los emojis) */
+#ascent-modal .style-icon {
+  width: 12px; height: 12px;
+  flex: 0 0 12px;
+  margin: 0 4px;
+  border-radius: 50%;
+  background: var(--kx-ink-3);
+  font-size: 0;
+}
+#ascent-modal .style-icon[data-style="redpoint"] { background: var(--kx-danger); }
+#ascent-modal .style-icon[data-style="onsight"]  { background: var(--kx-forest); }
+#ascent-modal .style-icon[data-style="flash"]    { background: var(--kx-coral); }
+#ascent-modal .style-icon[data-style="toprope"]  { background: var(--kx-info); }
+#ascent-modal .style-icon[data-style="project"]  { background: transparent; box-shadow: inset 0 0 0 2px var(--kx-ink-3); }
+
+/* Valoración: estrellas forest como las del estado de la vía */
+#ascent-modal .star-rating { gap: 0; margin-left: -8px; }
+#ascent-modal .star-rating label {
+  display: inline-grid;
+  place-items: center;
+  width: 44px; height: 44px;
+  margin: 0;
+  border-radius: 50%;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--kx-rstar-off);
+  transition: color var(--kx-dur-fast) var(--kx-ease), transform var(--kx-dur-fast) var(--kx-ease);
+}
+#ascent-modal .star-rating input:checked ~ label,
+#ascent-modal .star-rating label:hover,
+#ascent-modal .star-rating label:hover ~ label { color: var(--kx-forest); }
+#ascent-modal .star-rating label:active { transform: scale(0.9); }
+
+/* Votos de la vía */
+#ascent-modal .kx-avote { margin: 28px 0 24px; }
+
+/* Botón principal */
+#ascent-modal .submit-btn {
+  min-height: 52px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-forest);
+  box-shadow: none;
+  color: #fff;
+  font-family: var(--kx-font);
+  font-size: var(--kx-fs-body);
+  font-weight: var(--kx-fw-strong);
+  transition: background var(--kx-dur-fast) var(--kx-ease), transform var(--kx-dur-fast) var(--kx-ease);
+}
+#ascent-modal .submit-btn:hover { background: var(--kx-primary-hover); transform: none; box-shadow: none; }
+#ascent-modal .submit-btn:active { background: var(--kx-primary-pressed); transform: scale(0.98); }
+#ascent-modal .submit-btn:disabled { opacity: 0.55; }
+
+/* Hoja de rocódromo */
+#gym-picker-sheet .gym-picker-gps-btn {
+  min-height: 48px;
+  width: calc(100% - 48px);
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-sage-soft);
+  box-shadow: none;
+  color: var(--kx-forest);
+  font-family: var(--kx-font);
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-strong);
+}
+#gym-picker-sheet .gym-picker-gps-btn:hover { background: var(--kx-sage); transform: none; box-shadow: none; }
+#gym-picker-sheet .gym-picker-gps-btn:active { background: var(--kx-sage-hover); }
+#gym-picker-sheet .gym-picker-search-group { margin-bottom: 8px; }
+#gym-picker-sheet .gym-picker-item {
+  min-height: 56px;
+  padding: 8px;
+  border-bottom: 0;
+  border-radius: var(--kx-radius-sm);
+}
+#gym-picker-sheet .gym-picker-item:hover,
+#gym-picker-sheet .gym-picker-item:active { background: var(--kx-stone-card); }
+#gym-picker-sheet .gym-picker-item-avatar {
+  width: 40px; height: 40px;
+  border-radius: var(--kx-radius-sm);
+  background: var(--kx-forest);
+  font-family: var(--kx-font);
+  font-weight: var(--kx-fw-strong);
+}
+#gym-picker-sheet .gym-picker-add .gym-picker-add-icon { background: var(--kx-sage-soft); color: var(--kx-forest); }
+#gym-picker-sheet .gym-picker-item-name { font-size: var(--kx-fs-body); color: var(--kx-ink); }
+#gym-picker-sheet .gym-picker-item-name strong { font-weight: var(--kx-fw-strong); }
+#gym-picker-sheet .gym-picker-city { font-size: var(--kx-fs-caption); color: var(--kx-ink-3); }
+#gym-picker-sheet .gym-picker-empty { font-size: var(--kx-fs-meta); color: var(--kx-ink-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  #ascent-modal .modal-content,
+  #gym-picker-sheet .modal-content,
+  #ascent-modal .style-dropdown.open .style-dropdown-menu { animation: none; }
+}
+
+/* Registrar ascenso — versión compacta */
+#ascent-modal .modal-content { width: min(400px, 100%); }
+#ascent-modal .modal-header { padding: 16px 12px 8px 20px; }
+#ascent-modal .modal-header h3 { font-size: var(--kx-fs-title); }
+#ascent-form { padding: 4px 20px calc(20px + env(safe-area-inset-bottom, 0px)); }
+#ascent-modal .form-group { margin-bottom: 14px; }
+#ascent-modal .form-group > label { margin-bottom: 6px; font-size: var(--kx-fs-caption); }
+#ascent-modal .form-group input:not([type="radio"]):not([type="hidden"]),
+#ascent-modal .form-group textarea,
+#ascent-modal #gm-grade-select,
+#ascent-modal .gm-gym-trigger,
+#ascent-modal .style-dropdown-toggle { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+#ascent-modal .form-group textarea { min-height: 68px; }
+#ascent-modal .route-name-display { padding: 10px 12px; font-size: var(--kx-fs-body); }
+#ascent-modal .gm-type-btn { min-height: 36px; }
+#ascent-modal .style-option { min-height: 44px; padding: 6px 10px; }
+
+/* Fecha + intentos en una fila */
+#ascent-modal .kx-ascent-pair { display: grid; grid-template-columns: minmax(0, 1fr) 6.5rem; gap: 12px; }
+#ascent-modal .kx-ascent-pair .form-group { min-width: 0; }
+
+/* Estrellas: 44 px de área táctil y glifo de 24 px */
+#ascent-modal .rating-group { margin-bottom: 4px; }
+#ascent-modal .star-rating { margin-left: -8px; }
+#ascent-modal .star-rating label { font-size: 24px; }
+
+#ascent-modal .kx-avote { margin: 18px 0 18px; }
+#ascent-modal .kx-avote-row { margin-top: 10px; gap: 6px; }
+#ascent-modal .kx-avote-opt { padding: 0 14px; }
+#ascent-modal .kx-avote-stars { margin-left: -8px; }
+#ascent-modal .submit-btn { min-height: 48px; margin-top: 6px; }
