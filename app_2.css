@@ -34095,3 +34095,11 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 
 #edit-profile-modal .edit-profile-header { position: sticky; top: 0; z-index: 1; background: var(--kx-chalk); }
 #edit-profile-modal .edit-profile-form { padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+
+/* ---------- Ficha de vía: cambio de vía sin saltos y deslizamiento a las contiguas ---------- */
+/* Tarjetas de la vía anterior mientras llegan las de la nueva (misma altura: la ficha no encoge) */
+#route-bottom-sheet .is-refreshing { opacity: 0.45; transition: opacity var(--kx-dur-fast) var(--kx-ease); }
+/* El desplazamiento horizontal lo lleva la ficha (vía anterior / siguiente); el vertical sigue siendo el scroll */
+#route-bottom-sheet .kx-msheet-body,
+#route-bottom-sheet .rbs-head { touch-action: pan-y; }
+#route-bottom-sheet { overflow-x: clip; }

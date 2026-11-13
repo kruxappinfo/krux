@@ -4413,58 +4413,46 @@ async function mlVariantNav(direction) {
  * Reutiliza el bottom sheet existente pero le prepone navegación de variantes.
  */
 async function mlShowVariantGroupBottomSheet(groupFeatures, startIndex, coords) {
-  mlCurrentVariantGroup = groupFeatures;
-  mlCurrentVariantSlide = startIndex >= 0 ? startIndex : 0;
-
+  const index = startIndex >= 0 ? startIndex : 0;
   const isTrinomial = groupFeatures[0].props._isTrinomialGroup;
-  const currentVariant = groupFeatures[mlCurrentVariantSlide];
 
-  // Primero mostrar el bottom sheet estándar con los datos de la variante actual
-  const propsForSheet = { ...currentVariant.props };
+  // Primero la ficha estándar con los datos de la variante actual (quita la barra de variantes anterior)
+  const shown = await showRouteBottomSheet(kxVariantSheetProps(groupFeatures[index], isTrinomial), coords);
+  if (!shown) return;
+
+  mlCurrentVariantGroup = groupFeatures;
+  mlCurrentVariantSlide = index;
+  kxMountRouteVariantBar(groupFeatures, index, isTrinomial);
+}
+
+// Props de una variante para la ficha: en un trinomio (B1) grado, expreses y metros son los de esa variante
+function kxVariantSheetProps(variant, isTrinomial) {
+  const props = { ...variant.props };
   if (isTrinomial) {
-    // Para B1, sobrescribir grado1/exp1/long1 con los del trinomio
-    propsForSheet.grado1 = propsForSheet._displayGrado || propsForSheet.grado1;
-    propsForSheet.exp1 = propsForSheet._displayExp;
-    propsForSheet.long1 = propsForSheet._displayLong;
+    props.grado1 = props._displayGrado || props.grado1;
+    props.exp1 = props._displayExp;
+    props.long1 = props._displayLong;
   }
+  return props;
+}
 
-  await showRouteBottomSheet(propsForSheet, coords);
-
-  // Añadir barra de navegación de variantes al inicio del bottom sheet
+// Barra de grados de las variantes bajo la cabecera de la ficha de vía
+function kxMountRouteVariantBar(groupFeatures, index, isTrinomial) {
+  kxRemoveRouteVariantBar();
   const sheet = document.getElementById('route-bottom-sheet');
-  if (!sheet) return;
-
-  // Eliminar barra de variantes previa si existe
-  const existingBadges = sheet.querySelector('.rbs-variant-badge-bar');
-  if (existingBadges) existingBadges.remove();
-
-  // Insertar badges de grado después del handle del bottom sheet
-  const handle = sheet.querySelector('.rbs-handle') || sheet.firstElementChild;
-  if (handle) {
-    const badgeBar = document.createElement('div');
-    badgeBar.innerHTML = mlBuildVariantBadgesHTML(
-      groupFeatures, mlCurrentVariantSlide, isTrinomial,
-      'mlVariantGoToBottomSheet', 'rbs-variant-badge-bar'
-    ).replace('ml-variant-badge-bar', 'ml-variant-badge-bar rbs-variant-badge-bar');
-    handle.insertAdjacentElement('afterend', badgeBar.firstElementChild);
-  }
-
-  // Añadir swipe horizontal al contenido del bottom sheet
-  const sheetContent = sheet.querySelector('.rbs-content') || sheet;
-  sheetContent.addEventListener('touchstart', mlBottomSheetSwipeStart, { passive: true });
-  sheetContent.addEventListener('touchend', mlBottomSheetSwipeEnd, { passive: true });
+  const head = sheet && (sheet.querySelector('.rbs-handle') || sheet.firstElementChild);
+  if (!head) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = mlBuildVariantBadgesHTML(
+    groupFeatures, index, isTrinomial,
+    'mlVariantGoToBottomSheet', 'rbs-variant-badge-bar'
+  ).replace('ml-variant-badge-bar', 'ml-variant-badge-bar rbs-variant-badge-bar');
+  head.insertAdjacentElement('afterend', tmp.firstElementChild);
 }
 
-function mlBottomSheetSwipeStart(e) {
-  mlVariantSwipeStartX = e.changedTouches[0].screenX;
-}
-
-function mlBottomSheetSwipeEnd(e) {
-  const diff = mlVariantSwipeStartX - e.changedTouches[0].screenX;
-  if (Math.abs(diff) > 50 && mlCurrentVariantGroup) {
-    const n = mlCurrentVariantGroup.length;
-    mlVariantGoToBottomSheet((mlCurrentVariantSlide + (diff > 0 ? 1 : -1) + n) % n);
-  }
+function kxRemoveRouteVariantBar() {
+  const bar = document.getElementById('rbs-variant-badge-bar');
+  if (bar) bar.remove();
 }
 
 /**
@@ -4493,16 +4481,8 @@ async function mlVariantGoToBottomSheet(index) {
     });
   }
 
-  // Preparar props para el bottom sheet
-  const propsForSheet = { ...currentVariant.props };
-  if (isTrinomial) {
-    propsForSheet.grado1 = propsForSheet._displayGrado || propsForSheet.grado1;
-    propsForSheet.exp1 = propsForSheet._displayExp;
-    propsForSheet.long1 = propsForSheet._displayLong;
-  }
-
   // Actualizar datos del bottom sheet sin cerrar/reabrir
-  mlUpdateBottomSheetContent(propsForSheet, isTrinomial);
+  mlUpdateBottomSheetContent(kxVariantSheetProps(currentVariant, isTrinomial), isTrinomial);
 }
 
 /**
@@ -4534,6 +4514,11 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   mlCurrentRouteId = routeId;
   mlCurrentRouteName = routeName;
 
+  // Vías contiguas del sector para deslizar la ficha a los lados
+  kxRouteSheetProps = props;
+  kxRouteSheetNav = null;
+  kxRouteSheetComputeNav();
+
   // --- Cabecera ---
   const nameEl = document.getElementById('rbs-route-name');
   if (nameEl) nameEl.innerHTML = routeName + getVariantLabel(props);
@@ -4558,11 +4543,16 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   if (descEl) descEl.innerHTML = kxRouteDescriptionHTML(props.descripcion);
 
   // --- Grado recomendado, Aleje y Estado (solo lectura) ---
+  // Al pasar de una vía a otra con la ficha abierta, las tarjetas anteriores se quedan (atenuadas) hasta
+  // que llegan las nuevas: si se cambiaran por esqueletos, más bajos, la ficha encogería y volvería a crecer
   ['rbs-grade-container', 'rbs-aleje-container', 'rbs-estado-container'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.innerHTML = '<div class="kx-rcard is-loading" aria-hidden="true"></div>';
+    if (!el) return;
+    if (el.querySelector('.kx-rcard:not(.is-loading)')) el.classList.add('is-refreshing');
+    else el.innerHTML = '<div class="kx-rcard is-loading" aria-hidden="true"></div>';
   });
-  kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: 'rbs-grade-container', aleje: 'rbs-aleje-container', estado: 'rbs-estado-container' });
+  kxRenderRouteVoteCards(schoolId, routeId, grade, { grade: 'rbs-grade-container', aleje: 'rbs-aleje-container', estado: 'rbs-estado-container' },
+    { isCurrent: () => mlCurrentRouteId === routeId });
 
   // --- Incidencias comunicadas (tarjeta naranja) ---
   const incidentEl = document.getElementById('rbs-incident-container');
@@ -4605,22 +4595,194 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   const btnView = document.getElementById('rbs-btn-view');
   const devSection = document.getElementById('rbs-dev-section');
   const btnDev = document.getElementById('rbs-btn-dev');
-  if (viewSection) viewSection.classList.add('hidden');
-  if (devSection) devSection.classList.add('hidden');
+  // Los botones visibles se quedan mientras se comprueba la vía nueva (sin acción): ocultarlos y volver a
+  // mostrarlos movía la ficha. Si la vía nueva no tiene trazado, se ocultan al saberlo.
+  if (btnView) btnView.onclick = null;
+  if (btnDev) btnDev.onclick = null;
   Promise.all([
     (sectorName && typeof hasRouteDrawing === 'function') ? hasRouteDrawing(schoolId, sectorName, routeId) : Promise.resolve(false),
     isRoutePopupAdmin()
   ]).then(([hasDrawing, isAdmin]) => {
     if (mlCurrentRouteId !== routeId) return;
-    if (viewSection && btnView && hasDrawing) {
-      viewSection.classList.remove('hidden');
-      btnView.onclick = () => { hideRouteBottomSheet(); mlViewRouteInSector(schoolId, encodedSector, routeId, isTrinomial ? (Number(props._variantIndex) || 0) : 0); };
+    if (viewSection && btnView) {
+      viewSection.classList.toggle('hidden', !hasDrawing);
+      if (hasDrawing) btnView.onclick = () => { hideRouteBottomSheet(); mlViewRouteInSector(schoolId, encodedSector, routeId, isTrinomial ? (Number(props._variantIndex) || 0) : 0); };
     }
-    if (devSection && btnDev && isAdmin) {
-      devSection.classList.remove('hidden');
-      btnDev.onclick = () => { hideRouteBottomSheet(); mlOpenDrawingEditor(routeId); };
+    if (devSection && btnDev) {
+      devSection.classList.toggle('hidden', !isAdmin);
+      if (isAdmin) btnDev.onclick = () => { hideRouteBottomSheet(); mlOpenDrawingEditor(routeId); };
     }
-  }).catch(() => {});
+  }).catch(() => {
+    if (mlCurrentRouteId !== routeId) return;
+    if (viewSection) viewSection.classList.add('hidden');
+    if (devSection) devSection.classList.add('hidden');
+  });
+}
+
+// ============================================
+// FICHA DE VÍA — DESLIZAR A LA VÍA CONTIGUA
+// Arrastrar la ficha a la izquierda abre la vía siguiente del sector y a la derecha la anterior,
+// en el orden de las vías en la pared (su id). En un trinomio se recorren antes sus variantes.
+// ============================================
+let kxRouteSheetProps = null;   // props de la vía abierta en la ficha
+let kxRouteSheetNav = null;     // { prev, next }: vías contiguas, o null mientras se calculan
+let kxRouteSheetBusy = false;   // animación de cambio de vía en curso
+
+// Vías del sector ordenadas por id: [{ id, props, point }]
+async function kxRouteSheetStops(schoolId, sectorName) {
+  const target = String(sectorName || '').toLowerCase().trim();
+  const seen = new Set();
+  const stops = [];
+  const add = f => {
+    const p = f.properties || {};
+    if (String(p.sector || '').toLowerCase().trim() !== target) return;
+    const id = Number(p.id);
+    if (!Number.isFinite(id) || seen.has(id)) return;
+    seen.add(id);
+    const g = f.geometry;
+    const point = g && (g.type === 'MultiPoint' ? g.coordinates[0] : g.type === 'Point' ? g.coordinates : null);
+    stops.push({ id, props: p, point });
+  };
+  (await kxSchoolRouteFeatures(schoolId)).forEach(add);
+  (kxSpotterRouteFeatures(schoolId) || []).forEach(add);
+  return stops.sort((a, b) => a.id - b.id);
+}
+
+async function kxRouteSheetComputeNav() {
+  const props = kxRouteSheetProps;
+  if (!props || !props.sector || !mlCurrentSchool) return;
+  try {
+    const stops = await kxRouteSheetStops(mlCurrentSchool, props.sector);
+    if (kxRouteSheetProps !== props) return;   // ya se abrió otra vía
+    const i = stops.findIndex(s => s.id === Number(props.id));
+    kxRouteSheetNav = i < 0 ? null : { prev: stops[i - 1] || null, next: stops[i + 1] || null };
+  } catch (e) {
+    console.warn('Vías contiguas:', e);
+  }
+}
+
+// Trinomio abierto con su barra de variantes (sus variantes se recorren antes de cambiar de vía)
+function kxRouteSheetTrinomial() {
+  const group = mlCurrentVariantGroup;
+  return group && group[0].props._isTrinomialGroup && document.getElementById('rbs-variant-badge-bar') ? group : null;
+}
+
+function kxRouteSheetCanStep(dir) {
+  const tri = kxRouteSheetTrinomial();
+  if (tri) {
+    const j = mlCurrentVariantSlide + dir;
+    if (j >= 0 && j < tri.length) return true;
+  }
+  return !!(kxRouteSheetNav && (dir > 0 ? kxRouteSheetNav.next : kxRouteSheetNav.prev));
+}
+
+// Cambia el contenido de la ficha a la variante o vía contigua (sin animación)
+function kxRouteSheetGo(dir) {
+  const tri = kxRouteSheetTrinomial();
+  if (tri) {
+    const j = mlCurrentVariantSlide + dir;
+    if (j >= 0 && j < tri.length) { mlVariantGoToBottomSheet(j); return; }
+  }
+  const stop = kxRouteSheetNav && (dir > 0 ? kxRouteSheetNav.next : kxRouteSheetNav.prev);
+  if (!stop) return;
+
+  if (stop.point && mlMap) {
+    mlApplyRouteHighlight(stop.point, stop.id);
+    adaptiveMapPanForBottomSheet(stop.point);
+  }
+
+  // ¿Pertenece a un grupo de variantes? Entonces la ficha lleva su barra de grados
+  const key = stop.props._variantGroupKey || mlVariantFeatureIndex.get(stop.id);
+  const group = key ? mlVariantGroups.get(key) : null;
+  if (group && group.length >= 2) {
+    const isTrinomial = !!group[0].props._isTrinomialGroup;
+    let index = isTrinomial ? (dir < 0 ? group.length - 1 : 0) : group.findIndex(gf => Number(gf.props.id) === stop.id);
+    if (index < 0) index = 0;
+    if (group === mlCurrentVariantGroup && document.getElementById('rbs-variant-badge-bar')) {
+      mlVariantGoToBottomSheet(index);
+      return;
+    }
+    mlCurrentVariantGroup = group;
+    mlCurrentVariantSlide = index;
+    kxMountRouteVariantBar(group, index, isTrinomial);
+    kxFillRouteSheet(kxVariantSheetProps(group[index], isTrinomial), { isTrinomial });
+    return;
+  }
+
+  kxRemoveRouteVariantBar();
+  mlCurrentVariantGroup = null;
+  const props = { ...stop.props };
+  if (!props.descripcion && props.descripcio) props.descripcion = props.descripcio;
+  kxFillRouteSheet(props, { isTrinomial: false, contribute: true });
+}
+
+function kxInitRouteSheetSwipe(sheet) {
+  let g = null;
+  const reduceMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Lo que se desliza: cabecera, barra de variantes y contenido (el tirador se queda)
+  const parts = () => sheet.querySelectorAll('.rbs-head, .rbs-variant-badge-bar, .kx-msheet-body');
+  const place = (x, ms = 0, opacity = 1) => parts().forEach(el => {
+    el.style.transition = ms ? `transform ${ms}ms var(--kx-ease), opacity ${ms}ms var(--kx-ease)` : 'none';
+    el.style.transform = x ? `translate3d(${x}px, 0, 0)` : '';
+    el.style.opacity = opacity === 1 ? '' : String(opacity);
+  });
+
+  const step = dir => {
+    kxRouteSheetBusy = true;
+    const w = sheet.clientWidth || window.innerWidth;
+    const out = reduceMotion() ? 0 : 170;
+    const inn = reduceMotion() ? 0 : 260;
+    place(-dir * w * 0.6, out, 0);
+    setTimeout(() => {
+      kxRouteSheetGo(dir);
+      const body = sheet.querySelector('.kx-msheet-body');
+      if (body) body.scrollTop = 0;
+      place(dir * w * 0.3, 0, 0);
+      void sheet.offsetWidth;   // fija la posición de partida antes de animar la entrada
+      place(0, inn, 1);
+      setTimeout(() => { parts().forEach(el => { el.style.transition = ''; }); kxRouteSheetBusy = false; }, inn);
+    }, out);
+  };
+
+  sheet.addEventListener('touchstart', e => {
+    g = null;
+    if (e.touches.length !== 1 || kxRouteSheetBusy || rbsCurrentState === 'hidden') return;
+    if (e.target.closest('input, textarea, select, .kx-gchart')) return;
+    const t = e.touches[0];
+    g = { x0: t.clientX, y0: t.clientY, t0: performance.now(), axis: null, dx: 0 };
+  }, { passive: true });
+
+  sheet.addEventListener('touchmove', e => {
+    if (!g || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const dx = t.clientX - g.x0, dy = t.clientY - g.y0;
+    if (!g.axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      g.axis = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'x' : 'y';
+      if (g.axis === 'x') { g.prev = kxRouteSheetCanStep(-1); g.next = kxRouteSheetCanStep(1); }
+    }
+    if (g.axis !== 'x') return;
+    if (e.cancelable) e.preventDefault();
+    // Sin vía en esa dirección: la ficha cede un poco y vuelve (rebote)
+    g.dx = (dx > 0 && !g.prev) || (dx < 0 && !g.next) ? dx * 0.25 : dx;
+    place(g.dx);
+  }, { passive: false });
+
+  const end = cancelled => {
+    if (!g || g.axis !== 'x') { g = null; return; }
+    const w = sheet.clientWidth || window.innerWidth;
+    const v = g.dx / Math.max(1, performance.now() - g.t0);
+    let dir = 0;
+    if (!cancelled) {
+      if ((g.dx < -w * 0.2 || v < -0.5) && g.next) dir = 1;
+      else if ((g.dx > w * 0.2 || v > 0.5) && g.prev) dir = -1;
+    }
+    g = null;
+    if (dir) step(dir);
+    else place(0, reduceMotion() ? 0 : 220);
+  };
+  sheet.addEventListener('touchend', () => end(false));
+  sheet.addEventListener('touchcancel', () => end(true));
 }
 
 // ============================================
@@ -4854,8 +5016,12 @@ async function kxRouteCommentCount(schoolId, routeName) {
  * Pinta las tres tarjetas de votos (grado, aleje, estado) en sus contenedores.
  * Se usa al abrir la ficha y tras votar desde el registro de ascenso.
  */
-function kxRenderRouteVoteCards(schoolId, routeId, grade, ids) {
-  const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+function kxRenderRouteVoteCards(schoolId, routeId, grade, ids, { isCurrent = null } = {}) {
+  const set = (id, html) => {
+    if (isCurrent && !isCurrent()) return;   // ya se pasó a otra vía
+    const el = document.getElementById(id);
+    if (el) { el.innerHTML = html; el.classList.remove('is-refreshing'); }
+  };
   return Promise.all([
     getGradeVotes(schoolId, routeId).then(d => set(ids.grade, kxRouteGradeCardHTML(grade, d))).catch(() => set(ids.grade, '')),
     getAlejeVotes(schoolId, routeId).then(d => set(ids.aleje, kxRouteAlejeCardHTML(d))).catch(() => set(ids.aleje, '')),
@@ -8692,6 +8858,7 @@ function initRouteBottomSheet() {
     onRequestClose: hideRouteBottomSheet,
     onStateChange: state => { rbsCurrentState = state; }
   });
+  kxInitRouteSheetSwipe(sheet);
 
   console.log('Route Bottom Sheet inicializado');
 }
@@ -8710,6 +8877,8 @@ async function showRouteBottomSheet(props, coords) {
   hideSectorBottomSheet();
   if (mlRoutePopup) mlRoutePopup.remove();
 
+  kxRemoveRouteVariantBar();
+  mlCurrentVariantGroup = null;
   kxFillRouteSheet(props, { isTrinomial: false, contribute: true });
 
   // --- Mostrar sheet ---
