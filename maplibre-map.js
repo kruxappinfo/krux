@@ -2137,12 +2137,16 @@ function add3DTerrain() {
   }
 
   try {
-    // Añadir fuente de terreno (solo la primera vez)
+    // Añadir fuente de terreno (solo la primera vez): relieve propio donde lo hay, MapTiler en el resto
     if (!mlMap.getSource('terrain-source')) {
+      kxRegisterDemProtocol();
       mlMap.addSource('terrain-source', {
         type: 'raster-dem',
-        url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MAPLIBRE_CONFIG.MAPTILER_KEY}`,
-        tileSize: 256
+        tiles: ['kxdem://{z}/{x}/{y}'],
+        tileSize: 512,
+        maxzoom: 14,
+        encoding: 'mapbox',
+        attribution: `${KX_LOCAL_DEM_ATTRIBUTION} · © <a href="https://www.maptiler.com/copyright/" target="_blank">MapTiler</a>`
       });
     }
 
@@ -2172,6 +2176,39 @@ function add3DTerrain() {
   } catch (error) {
     console.error('Error al añadir terreno 3D:', error);
   }
+}
+
+// Ruta de la tesela de relieve propia que cubre z/x/y, o null si la zona no tiene MDT propio
+function kxLocalDemTile(z, x, y) {
+  for (const zone of (typeof KX_LOCAL_DEM !== 'undefined' ? KX_LOCAL_DEM : [])) {
+    const r = zone.zooms[z];
+    if (r && x >= r[0] && x <= r[1] && y >= r[2] && y <= r[3]) return `${zone.path}/${z}/${x}/${y}.webp`;
+  }
+  return null;
+}
+
+// Protocolo kxdem://z/x/y: sirve la tesela propia (MDT05 del IGN) si existe y, si no o si falla, la de MapTiler.
+// Mismo formato en ambas (Terrain-RGB, 512 px), así MapLibre las mezcla sin notar el cambio de fuente.
+let kxDemProtocolReady = false;
+function kxRegisterDemProtocol() {
+  if (kxDemProtocolReady) return;
+  kxDemProtocolReady = true;
+  maplibregl.addProtocol('kxdem', async (params, abortController) => {
+    const [z, x, y] = params.url.replace('kxdem://', '').split('/').map(Number);
+    const remote = `https://api.maptiler.com/tiles/terrain-rgb-v2/${z}/${x}/${y}?key=${MAPLIBRE_CONFIG.MAPTILER_KEY}`;
+    const local = kxLocalDemTile(z, x, y);
+    if (local) {
+      try {
+        const res = await fetch(local, { signal: abortController.signal });
+        if (res.ok) return { data: await res.arrayBuffer() };
+      } catch (e) {
+        if (e.name === 'AbortError') throw e;
+      }
+    }
+    const res = await fetch(remote, { signal: abortController.signal });
+    if (!res.ok) throw new Error(`Relieve ${z}/${x}/${y}: HTTP ${res.status}`);
+    return { data: await res.arrayBuffer() };
+  });
 }
 
 /**
