@@ -20652,9 +20652,9 @@ body.plan-editor-open { overflow: hidden; }
 }
 
 #feed-view .icon-btn:focus-visible,
-:is(#feed-view, #view-post-modal) .feed-action-btn:focus-visible,
-:is(#feed-view, #view-post-modal) .feed-post-menu-btn:focus-visible,
-:is(#feed-view, #view-post-modal) .feed-post-menu-item:focus-visible,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn:focus-visible,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-btn:focus-visible,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-item:focus-visible,
 #chat-modal button:focus-visible,
 #create-post-modal button:focus-visible,
 .bottom-nav .nav-item:focus-visible {
@@ -20718,7 +20718,7 @@ body.plan-editor-open { overflow: hidden; }
 }
 
 /* ---------- Cabecera de publicación: autor · lugar · hora ---------- */
-:is(#feed-view, #view-post-modal) .feed-card-header {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-card-header {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -20734,7 +20734,7 @@ body.plan-editor-open { overflow: hidden; }
   background: none;
 }
 
-:is(#feed-view, #view-post-modal) .feed-avatar {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-avatar {
   width: 46px;
   height: 46px;
   border-radius: 50%;
@@ -20743,7 +20743,7 @@ body.plan-editor-open { overflow: hidden; }
   flex-shrink: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-header-content {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-header-content {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -20752,12 +20752,12 @@ body.plan-editor-open { overflow: hidden; }
   padding-top: 1px;
 }
 
-:is(#feed-view, #view-post-modal) .feed-header-row {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-header-row {
   display: flex;
   align-items: center;
 }
 
-:is(#feed-view, #view-post-modal) .feed-username {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-username {
   font-size: 1.0625rem;
   font-weight: 600;
   line-height: 1.25;
@@ -20768,7 +20768,7 @@ body.plan-editor-open { overflow: hidden; }
   white-space: nowrap;
 }
 
-:is(#feed-view, #view-post-modal) .feed-location-text {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-location-text {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -20778,7 +20778,7 @@ body.plan-editor-open { overflow: hidden; }
   min-width: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-location-text span {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-location-text span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -20790,25 +20790,25 @@ body.plan-editor-open { overflow: hidden; }
   flex-shrink: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-time-row {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-time-row {
   font-size: 0.8125rem;
   line-height: 1.3;
   color: var(--kx-ink-3);
 }
 
-:is(#feed-view, #view-post-modal) .feed-time {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-time {
   color: inherit;
   font-size: inherit;
 }
 
 /* ---------- Menú de publicación (⋯) ---------- */
-:is(#feed-view, #view-post-modal) .feed-post-menu-wrapper {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-wrapper {
   position: relative;
   flex-shrink: 0;
   margin: -5px -6px 0 0; /* el icono (22 px dentro de 44) queda 5 px más adentro que el borde del contenido */
 }
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-btn {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-btn {
   display: flex;
   flex: 0 0 44px; /* sin esto la fila de la cabecera lo encogía y el icono se salía de la tarjeta */
   align-items: center;
@@ -20828,16 +20828,16 @@ body.plan-editor-open { overflow: hidden; }
   transition: background 0.2s var(--kx-ease);
 }
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-btn:hover {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-btn:hover {
   background: rgba(32, 41, 35, 0.06);
 }
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-btn svg {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-btn svg {
   width: 22px;
   height: 22px;
 }
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-dropdown {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-dropdown {
   position: absolute;
   top: calc(100% - 4px);
   right: 0;
@@ -20853,18 +20853,18 @@ body.plan-editor-open { overflow: hidden; }
   z-index: 60;
 }
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-dropdown.hidden {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-dropdown.hidden {
   display: none;
 }
 
 /* Pequeño desplegable junto a los tres puntos (también en móvil) */
-:is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden) {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-dropdown:not(.hidden) {
   min-width: 180px;
   transform-origin: top right;
   animation: kxPopIn 0.14s var(--kx-ease);
 }
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-dropdown.opens-up {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-dropdown.opens-up {
   top: auto;
   bottom: calc(100% - 4px);
   transform-origin: bottom right;
@@ -20876,9 +20876,9 @@ body.plan-editor-open { overflow: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(#feed-view, #view-post-modal) .feed-post-menu-dropdown:not(.hidden) { animation: none; }}
+  :is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-dropdown:not(.hidden) { animation: none; }}
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-item {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-item {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -20896,23 +20896,23 @@ body.plan-editor-open { overflow: hidden; }
   cursor: pointer;
 }
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-item:hover {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-item:hover {
   background: var(--kx-surface-2);
 }
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-item svg {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-item svg {
   width: 22px;
   height: 22px;
   stroke-width: 1.75px;
   flex-shrink: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-post-menu-item-danger {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-post-menu-item-danger {
   color: var(--kx-danger);
 }
 
 /* ---------- Foto ---------- */
-:is(#feed-view, #view-post-modal) .feed-media-wrapper {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-media-wrapper {
   position: relative;
   margin: 0 0 12px;
   border-radius: var(--kx-radius-media);
@@ -20920,7 +20920,7 @@ body.plan-editor-open { overflow: hidden; }
   background: var(--kx-stone);
 }
 
-:is(#feed-view, #view-post-modal) .feed-image-container {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-image-container {
   position: relative;
   aspect-ratio: 1.3;
   max-height: none;
@@ -20929,7 +20929,7 @@ body.plan-editor-open { overflow: hidden; }
   background: var(--kx-stone);
 }
 
-:is(#feed-view, #view-post-modal) .feed-image-container .feed-image {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-image-container .feed-image {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -20941,7 +20941,7 @@ body.plan-editor-open { overflow: hidden; }
   display: block;
 }
 
-:is(#feed-view, #view-post-modal) .feed-images-grid {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-images-grid {
   display: grid;
   gap: 3px;
   aspect-ratio: 1.3;
@@ -20949,26 +20949,26 @@ body.plan-editor-open { overflow: hidden; }
   overflow: hidden;
 }
 
-:is(#feed-view, #view-post-modal) .feed-images-grid.grid-2,
-:is(#feed-view, #view-post-modal) .feed-images-grid.grid-modal {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-images-grid.grid-2,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-images-grid.grid-modal {
   grid-template-columns: 1fr 1fr;
 }
 
-:is(#feed-view, #view-post-modal) .feed-images-grid.grid-3 {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-images-grid.grid-3 {
   grid-template-columns: 1.4fr 1fr;
   grid-template-rows: 1fr 1fr;
 }
 
-:is(#feed-view, #view-post-modal) .feed-images-grid.grid-3 .feed-image:first-child {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-images-grid.grid-3 .feed-image:first-child {
   grid-row: 1 / span 2;
 }
 
-:is(#feed-view, #view-post-modal) .feed-images-grid.grid-4 {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-images-grid.grid-4 {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
 }
 
-:is(#feed-view, #view-post-modal) .feed-images-grid .feed-image {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-images-grid .feed-image {
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -21013,26 +21013,26 @@ body.plan-editor-open { overflow: hidden; }
   height: 16px;
 }
 
-:is(#feed-view, #view-post-modal) .feed-video-container {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-video-container {
   margin: 0 0 12px;
   border-radius: var(--kx-radius-media);
   overflow: hidden;
   background: #000;
 }
 
-:is(#feed-view, #view-post-modal) .feed-video {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-video {
   display: block;
   width: 100%;
   max-height: 70vh;
 }
 
 /* ---------- Texto ---------- */
-:is(#feed-view, #view-post-modal) .feed-text-content {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-content {
   margin: 0 0 4px;
   padding: 0 2px;
 }
 
-:is(#feed-view, #view-post-modal) .feed-text-title {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-title {
   margin: 0 0 6px;
   font-size: 1.25rem;
   font-weight: 700;
@@ -21041,7 +21041,7 @@ body.plan-editor-open { overflow: hidden; }
   color: var(--kx-ink);
 }
 
-:is(#feed-view, #view-post-modal) .feed-text-body {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-body {
   margin: 0;
   font-size: 1.0625rem;
   line-height: 1.5;
@@ -21050,7 +21050,7 @@ body.plan-editor-open { overflow: hidden; }
   text-wrap: pretty;
 }
 
-:is(#feed-view, #view-post-modal, #chat-modal) .mention-link {
+:is(#feed-view, #view-post-modal, #profile-view, #chat-modal) .mention-link {
   padding: 0 0.28em;
   border-radius: 6px;
   background: var(--kx-sage);
@@ -21059,8 +21059,8 @@ body.plan-editor-open { overflow: hidden; }
   cursor: pointer;
 }
 
-:is(#feed-view, #view-post-modal) .feed-text-edit-input,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-input {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-input,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-input {
   width: 100%;
   padding: 12px 14px;
   border: 1px solid var(--kx-line);
@@ -21073,25 +21073,25 @@ body.plan-editor-open { overflow: hidden; }
   resize: vertical;
 }
 
-:is(#feed-view, #view-post-modal) .feed-text-edit-input:focus,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-input:focus {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-input:focus,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-input:focus {
   outline: 2px solid var(--kx-primary);
   outline-offset: 1px;
   background: #fff;
 }
 
-:is(#feed-view, #view-post-modal) .feed-text-edit-actions,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-actions {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-actions,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
 }
 
-:is(#feed-view, #view-post-modal) .feed-text-edit-cancel,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-cancel,
-:is(#feed-view, #view-post-modal) .feed-text-edit-save,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-save {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-cancel,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-cancel,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-save,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-save {
   min-height: 44px;
   padding: 0 18px;
   border: 0;
@@ -21102,20 +21102,20 @@ body.plan-editor-open { overflow: hidden; }
   cursor: pointer;
 }
 
-:is(#feed-view, #view-post-modal) .feed-text-edit-cancel,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-cancel {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-cancel,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-cancel {
   background: var(--kx-surface-2);
   color: var(--kx-ink);
 }
 
-:is(#feed-view, #view-post-modal) .feed-text-edit-save,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-save {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-save,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-save {
   background: var(--kx-primary);
   color: #fff;
 }
 
 /* ---------- Acciones: me gusta · comentar · guardar ---------- */
-:is(#feed-view, #view-post-modal) .feed-actions-bar {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-actions-bar {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -21124,7 +21124,7 @@ body.plan-editor-open { overflow: hidden; }
   border: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-btn {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
@@ -21144,48 +21144,48 @@ body.plan-editor-open { overflow: hidden; }
   transition: background 0.2s var(--kx-ease), color 0.2s var(--kx-ease), transform 0.2s var(--kx-ease);
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-btn:hover {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn:hover {
   background: rgba(32, 41, 35, 0.05);
 }
 
 /* Comentar pegado a me gusta: el contador de uno y el icono del otro quedan a unos 10 px */
-:is(#feed-view, #view-post-modal) .feed-action-btn[data-action="like"] {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn[data-action="like"] {
   padding-right: 4px !important;
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-btn[data-action="comment"] {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn[data-action="comment"] {
   padding-left: 4px !important;
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-btn:active {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn:active {
   transform: scale(0.94);
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-btn svg {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn svg {
   width: 24px;
   height: 24px;
   stroke-width: 1.75px;
   flex-shrink: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-count {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-count {
   min-width: 0.5em;
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-btn.liked {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn.liked {
   color: var(--kx-ink);
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-btn.liked svg {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn.liked svg {
   fill: var(--kx-heart);
   stroke: var(--kx-heart);
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-btn.bookmarked {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn.bookmarked {
   color: var(--kx-primary);
 }
 
-:is(#feed-view, #view-post-modal) .feed-action-btn.bookmarked svg {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn.bookmarked svg {
   fill: var(--kx-primary);
   stroke: var(--kx-primary);
 }
@@ -21195,25 +21195,25 @@ body.plan-editor-open { overflow: hidden; }
 }
 
 /* ---------- Comentarios y respuestas ---------- */
-:is(#feed-view, #view-post-modal) .feed-comments-section {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comments-section {
   margin: 0 -2px;
   padding: 12px 0 8px;
   border-top: 1px solid var(--kx-line);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comments-section.hidden {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comments-section.hidden {
   display: none;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-form {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-form {
   display: flex;
   align-items: center;
   gap: 10px;
   margin: 0 0 6px;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-form-avatar,
-:is(#feed-view, #view-post-modal) .feed-comment-avatar {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-form-avatar,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-avatar {
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -21222,8 +21222,8 @@ body.plan-editor-open { overflow: hidden; }
   flex-shrink: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-input,
-:is(#feed-view, #view-post-modal) .feed-comment-reply-input {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-input,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-input {
   flex: 1;
   min-width: 0;
   height: 44px;
@@ -21236,22 +21236,22 @@ body.plan-editor-open { overflow: hidden; }
   color: var(--kx-ink);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-input::placeholder,
-:is(#feed-view, #view-post-modal) .feed-comment-reply-input::placeholder,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-input::placeholder,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-input::placeholder,
 #chat-modal .chat-input::placeholder,
 #create-post-modal textarea::placeholder {
   color: var(--kx-ink-3);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-input:focus,
-:is(#feed-view, #view-post-modal) .feed-comment-reply-input:focus {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-input:focus,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-input:focus {
   outline: 2px solid var(--kx-primary);
   outline-offset: 1px;
   background: #fff;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-submit,
-:is(#feed-view, #view-post-modal) .feed-comment-reply-submit {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-submit,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-submit {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -21266,31 +21266,31 @@ body.plan-editor-open { overflow: hidden; }
   flex-shrink: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-submit:hover,
-:is(#feed-view, #view-post-modal) .feed-comment-reply-submit:hover {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-submit:hover,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-submit:hover {
   background: var(--kx-primary-hover);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-submit svg,
-:is(#feed-view, #view-post-modal) .feed-comment-reply-submit svg {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-submit svg,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-submit svg {
   width: 20px;
   height: 20px;
   stroke: #fff;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-reply-form {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-form {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 6px 0 4px;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-reply-form.hidden,
-:is(#feed-view, #view-post-modal) .feed-comment-replies.hidden {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-form.hidden,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-replies.hidden {
   display: none;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-item {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-item {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -21298,29 +21298,29 @@ body.plan-editor-open { overflow: hidden; }
   border: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-content {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-content {
   flex: 1;
   min-width: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-header {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-header {
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-username {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-username {
   font-size: 0.9375rem;
   font-weight: 600;
   color: var(--kx-ink);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-time {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-time {
   font-size: 0.8125rem;
   color: var(--kx-ink-3);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-text {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-text {
   margin: 2px 0 2px;
   font-size: 1rem;
   line-height: 1.45;
@@ -21328,7 +21328,7 @@ body.plan-editor-open { overflow: hidden; }
   overflow-wrap: anywhere;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-actions {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -21336,7 +21336,7 @@ body.plan-editor-open { overflow: hidden; }
   margin: 0 0 0 -8px;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-action-btn {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -21352,33 +21352,33 @@ body.plan-editor-open { overflow: hidden; }
   cursor: pointer;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-action-btn:hover {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-action-btn:hover {
   background: rgba(32, 41, 35, 0.05);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-action-btn svg {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-action-btn svg {
   width: 17px;
   height: 17px;
   stroke-width: 1.75px;
   flex-shrink: 0;
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-action-btn.liked {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-action-btn.liked {
   color: var(--kx-ink);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-action-btn.liked svg {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-action-btn.liked svg {
   fill: var(--kx-heart);
   stroke: var(--kx-heart);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-replies {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-replies {
   margin: 4px 0 0;
   padding: 0 0 0 4px;
   border-left: 1px solid var(--kx-line);
 }
 
-:is(#feed-view, #view-post-modal) .feed-comment-menu-btn {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-menu-btn {
   width: 36px;
   height: 36px;
   margin: -6px -8px 0 auto;
@@ -21493,15 +21493,15 @@ body.plan-editor-open { overflow: hidden; }
 }
 
 /* ---------- Publicaciones con ascensos / actividad (legado) ---------- */
-:is(#feed-view, #view-post-modal) .feed-ascensions-card,
-:is(#feed-view, #view-post-modal) .feed-activity-stats {
+:is(#feed-view, #view-post-modal, #profile-view) .feed-ascensions-card,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-activity-stats {
   margin: 0 0 12px;
   padding: 14px;
   border-radius: var(--kx-radius-media);
   background: var(--kx-surface-2);
 }
 
-:is(#feed-view, #view-post-modal) .achievement-icon svg {
+:is(#feed-view, #view-post-modal, #profile-view) .achievement-icon svg {
   width: 18px;
   height: 18px;
 }
@@ -22792,11 +22792,11 @@ body {
 
 /* La regla global antigua «button { background; box-shadow }» no aplica a las superficies rediseñadas.
    :where() no suma especificidad: cualquier estilo de clase (p. ej. .feed-composer) sigue mandando. */
-:where(#feed-view, .kx-sheet, #chat-modal, #create-post-modal, #view-post-modal, #confirm-modal) button {
+:where(#feed-view, #profile-view, .kx-sheet, #chat-modal, #create-post-modal, #view-post-modal, #confirm-modal) button {
   box-shadow: none;
 }
 
-:where(#feed-view, .kx-sheet, #chat-modal, #create-post-modal, #view-post-modal, #confirm-modal) button:hover {
+:where(#feed-view, #profile-view, .kx-sheet, #chat-modal, #create-post-modal, #view-post-modal, #confirm-modal) button:hover {
   box-shadow: none;
 }
 
@@ -22890,10 +22890,10 @@ h1, h2, h3 {
 /* Controles reales del feed: mismos estados que .kx-btn */
 #create-post-modal .btn-post-create,
 .feed-state-btn,
-:is(#feed-view, #view-post-modal) .feed-text-edit-save,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-save,
-:is(#feed-view, #view-post-modal) .feed-comment-submit,
-:is(#feed-view, #view-post-modal) .feed-comment-reply-submit,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-save,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-save,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-submit,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-submit,
 #chat-modal .chat-send-btn {
   background: var(--kx-primary);
   color: #fff;
@@ -22903,27 +22903,27 @@ h1, h2, h3 {
 
 #create-post-modal .btn-post-create:hover:not(:disabled),
 .feed-state-btn:hover,
-:is(#feed-view, #view-post-modal) .feed-text-edit-save:hover,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-save:hover,
-:is(#feed-view, #view-post-modal) .feed-comment-submit:hover,
-:is(#feed-view, #view-post-modal) .feed-comment-reply-submit:hover,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-save:hover,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-save:hover,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-submit:hover,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-submit:hover,
 #chat-modal .chat-send-btn:hover {
   background: var(--kx-primary-hover);
 }
 
 #create-post-modal .btn-post-create:active:not(:disabled),
 .feed-state-btn:active,
-:is(#feed-view, #view-post-modal) .feed-text-edit-save:active,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-save:active,
-:is(#feed-view, #view-post-modal) .feed-comment-submit:active,
-:is(#feed-view, #view-post-modal) .feed-comment-reply-submit:active,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-save:active,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-save:active,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-submit:active,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-reply-submit:active,
 #chat-modal .chat-send-btn:active {
   background: var(--kx-primary-pressed);
   transform: scale(0.97);
 }
 
-:is(#feed-view, #view-post-modal) .feed-text-edit-cancel:hover,
-:is(#feed-view, #view-post-modal) .feed-comment-edit-cancel:hover,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-text-edit-cancel:hover,
+:is(#feed-view, #view-post-modal, #profile-view) .feed-comment-edit-cancel:hover,
 #confirm-modal .btn-secondary:hover {
   background: var(--kx-sage);
 }
@@ -24987,7 +24987,7 @@ body.kx-sheet-open #feed-view .feed-container {
 }
 
 /* En el feed y la publicación abierta la tarjeta alinea con el texto (la tarjeta ya aporta su relleno) */
-:is(#feed-view, #view-post-modal) .kx-ascent-list {
+:is(#feed-view, #view-post-modal, #profile-view) .kx-ascent-list {
   margin: 4px 2px 8px;
 }
 
@@ -33674,4 +33674,403 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 @media (prefers-reduced-motion: reduce) {
   #map-view .kx-t3d-spinner { animation-duration: 2.4s; }
   #map-view .kx-t3d-label, #map-view .kx-t3d-hint { transition: none; }
+}
+
+/* ====================================================================
+   PERFIL — misma estética que el feed y las fichas del mapa
+   --------------------------------------------------------------------
+   Alcance: #profile-view (perfil propio y ajeno). Solo estilos: los ids y
+   clases que usa app_3.js no cambian. Las publicaciones son las tarjetas del
+   feed (sus reglas incluyen #profile-view). Sin cristal: la vista es una
+   página sobre blanco cálido; el volumen lo llevan las tarjetas.
+   ==================================================================== */
+
+#profile-view {
+  background: var(--kx-bg);
+  color: var(--kx-ink);
+  font-family: var(--kx-font);
+}
+
+#profile-view ::selection { background: rgba(21, 62, 53, 0.16); color: var(--kx-ink); }
+
+#profile-view .profile-scroll-container {
+  max-width: 640px;
+  padding: 0 20px calc(var(--kx-nav-h) + 40px + env(safe-area-inset-bottom, 0px));
+  background: transparent;
+}
+
+#profile-view :is(button, [tabindex]):focus-visible {
+  outline: 2px solid var(--kx-forest);
+  outline-offset: 2px;
+}
+
+/* ---------- Cabecera del perfil ajeno: atrás · @usuario ---------- */
+#profile-view .profile-view-header {
+  margin: 0 -20px;
+  padding: max(8px, env(safe-area-inset-top, 0px)) 8px 8px;
+  background: var(--kx-bg);
+  border-bottom: 1px solid var(--kx-line);
+}
+
+#profile-view .profile-view-header .back-btn {
+  width: var(--kx-touch);
+  height: var(--kx-touch);
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink);
+  transform: none;
+}
+
+#profile-view .profile-view-header .back-btn:active { background: var(--kx-stone-card); }
+@media (hover: hover) { #profile-view .profile-view-header .back-btn:hover { background: var(--kx-stone-card); }}
+
+#profile-view .profile-header-username {
+  font-size: var(--kx-fs-lead);
+  font-weight: var(--kx-fw-strong);
+  color: var(--kx-ink);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Identidad: avatar, nombre, seguidores ---------- */
+#profile-view .profile-header-ig {
+  padding: max(24px, calc(env(safe-area-inset-top, 0px) + 16px)) 0 22px;
+}
+
+#profile-view .profile-view-header:not(.hidden) ~ .profile-header-ig { padding-top: 20px; }
+
+#profile-view .settings-btn-ig {
+  top: max(24px, calc(env(safe-area-inset-top, 0px) + 16px));
+  right: 0;
+  z-index: 2;
+  width: var(--kx-touch);
+  height: var(--kx-touch);
+  min-height: 0;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kx-stone-card);
+  color: var(--kx-ink);
+  transform: none;
+  transition: background var(--kx-dur-fast) var(--kx-ease);
+}
+
+#profile-view .settings-btn-ig svg { width: 22px; height: 22px; stroke-width: 1.75; }
+#profile-view .settings-btn-ig:active { background: var(--kx-stone-hover); transform: scale(0.96); }
+@media (hover: hover) { #profile-view .settings-btn-ig:hover { background: var(--kx-stone-hover); color: var(--kx-ink); }}
+
+#profile-view .profile-top-row {
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+/* El nombre deja libre la esquina del botón de ajustes (solo en el perfil propio) */
+#profile-view .profile-view-header.hidden ~ .profile-header-ig .profile-displayname-ig { padding-right: 52px; }
+
+#profile-view .profile-avatar-ig {
+  width: 88px;
+  height: 88px;
+  border: 0;
+  background: var(--kx-sage);
+  box-shadow: 0 0 0 3px var(--kx-bg), 0 0 0 4.5px var(--kx-sage);
+  margin: 4.5px;
+}
+
+#profile-view .profile-avatar-ig[src=""],
+#profile-view .profile-avatar-ig:not([src]) { background: var(--kx-sage); }
+
+#profile-view .profile-displayname-ig {
+  margin: 0;
+  font-size: 1.625rem;
+  font-weight: var(--kx-fw-heavy);
+  line-height: var(--kx-lh-tight);
+  letter-spacing: var(--kx-ls-tight);
+  color: var(--kx-ink);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+#profile-view .profile-handle-ig { margin: 4px 0 0; }
+
+#profile-view .profile-stats-inline {
+  gap: 4px 18px;
+  margin: 6px 0 0;
+}
+
+#profile-view .stat-inline {
+  position: relative;
+  min-height: 32px;
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-text);
+  color: var(--kx-ink-3) !important;
+  white-space: nowrap;
+  transform: none;
+}
+
+/* área táctil de 44 px sin mover el texto */
+#profile-view .stat-inline::after { content: ''; position: absolute; inset: -6px -8px; }
+
+#profile-view .stat-inline strong {
+  margin-right: 3px;
+  font-size: var(--kx-fs-lead);
+  font-weight: var(--kx-fw-heavy);
+  color: var(--kx-ink);
+}
+
+@media (hover: hover) { #profile-view .stat-inline:hover { opacity: 1; color: var(--kx-ink) !important; }}
+
+/* ---------- Bio: etiquetas, texto y ubicación ---------- */
+#profile-view .profile-bio-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+#profile-view .profile-bio-section > :is(.profile-bio-ig, .profile-location-ig) { flex: 1 0 100%; }
+
+/* Categoría, spotter y puntos comparten la forma de .kx-tag */
+#profile-view :is(.profile-category-ig, .spotter-badge, .spotter-points, .become-spotter-btn.become-spotter-btn-small) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  margin: 0;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  font-family: inherit;
+  font-size: var(--kx-fs-caption);
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  white-space: normal;
+}
+
+#profile-view :is(.spotter-badge, .spotter-points, .become-spotter-btn).hidden { display: none; }
+
+#profile-view .profile-category-ig { background: var(--kx-stone-card); color: var(--kx-ink-2); }
+
+#profile-view .spotter-badge { background: var(--kx-forest); color: var(--kx-chalk); }
+#profile-view .spotter-badge svg { width: 13px; height: 13px; fill: currentColor; }
+
+#profile-view .spotter-points { background: var(--kx-stone-card); color: var(--kx-ink); font-variant-numeric: tabular-nums; }
+#profile-view .spotter-points svg { width: 13px; height: 13px; fill: var(--kx-coral-ink); }
+
+#profile-view .become-spotter-btn.become-spotter-btn-small {
+  min-height: 30px;
+  background: var(--kx-sage-soft);
+  color: var(--kx-forest);
+  cursor: pointer;
+  transform: none;
+  transition: background var(--kx-dur-fast) var(--kx-ease);
+}
+
+#profile-view .become-spotter-btn::before { content: none; }
+#profile-view .become-spotter-btn.become-spotter-btn-small svg { width: 13px; height: 13px; stroke: currentColor; transform: none; }
+#profile-view .become-spotter-btn.become-spotter-btn-small:active { background: var(--kx-sage-hover); }
+@media (hover: hover) { #profile-view .become-spotter-btn.become-spotter-btn-small:hover { background: var(--kx-sage-hover); color: var(--kx-forest); border: 0; }}
+
+#profile-view .profile-bio-ig {
+  margin: 6px 0 0;
+  max-width: 60ch;
+  font-size: var(--kx-fs-body);
+  line-height: var(--kx-lh-body);
+  color: var(--kx-ink);
+  overflow-wrap: anywhere;
+}
+
+#profile-view .profile-location-ig {
+  display: flex;
+  gap: 6px;
+  font-size: var(--kx-fs-meta);
+  color: var(--kx-ink-3);
+}
+
+#profile-view .profile-location-ig svg { width: 14px; height: 14px; flex: none; stroke: currentColor; stroke-width: 1.75; }
+
+/* ---------- Acciones: editar · compartir / seguir · mensaje ---------- */
+#profile-view .profile-actions-ig { gap: 8px; }
+#profile-view .profile-actions-ig.hidden { display: none; }
+
+#profile-view .profile-btn-ig {
+  min-height: var(--kx-touch);
+  padding: 10px 16px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-stone-card);
+  color: var(--kx-ink);
+  font-family: inherit;
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-strong);
+  box-shadow: none;
+  transform: none;
+  white-space: normal;
+  transition: background var(--kx-dur-fast) var(--kx-ease), color var(--kx-dur-fast) var(--kx-ease);
+}
+
+#profile-view .profile-btn-ig:active { background: var(--kx-stone-hover); transform: scale(0.98); }
+@media (hover: hover) { #profile-view .profile-btn-ig:hover { background: var(--kx-stone-hover); }}
+
+#profile-view .profile-btn-ig.profile-btn-primary { background: var(--kx-forest) !important; color: var(--kx-chalk) !important; }
+#profile-view .profile-btn-ig.profile-btn-primary:active { background: var(--kx-primary-pressed) !important; }
+@media (hover: hover) { #profile-view .profile-btn-ig.profile-btn-primary:hover { background: var(--kx-primary-hover) !important; }}
+
+/* «Siguiendo»: vuelve al gris piedra para que dejar de seguir no parezca la acción principal */
+#profile-view .profile-btn-ig.following { background: var(--kx-stone-card) !important; color: var(--kx-ink) !important; }
+
+/* ---------- Estadísticas de escalada (mismas piezas que .kx-stat) ---------- */
+#profile-view .profile-card-ig { margin: 0 0 22px; }
+
+#profile-view .profile-card-header-ig {
+  gap: 8px;
+  padding: 0 0 12px;
+  font-size: var(--kx-fs-lead);
+  font-weight: var(--kx-fw-strong);
+  letter-spacing: -0.01em;
+  color: var(--kx-ink);
+}
+
+#profile-view .profile-card-header-ig svg { width: 18px; height: 18px; color: var(--kx-forest); stroke: currentColor; stroke-width: 1.75; }
+
+#profile-view .profile-climbing-grid-ig { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+
+#profile-view .climbing-metric-ig {
+  justify-content: center;
+  gap: 2px;
+  min-height: 96px;
+  padding: 14px 6px 12px;
+  border-radius: 18px;
+  background: var(--kx-stone-card);
+}
+
+#profile-view .climbing-metric-icon-ig { margin-bottom: 4px; color: var(--kx-ink-2); }
+#profile-view .climbing-metric-icon-ig svg { width: 20px; height: 20px; color: inherit; stroke-width: 1.75; }
+
+#profile-view .climbing-metric-value-ig {
+  max-width: 100%;
+  margin: 0;
+  font-size: clamp(1.125rem, 5vw, var(--kx-fs-title));
+  font-weight: var(--kx-fw-heavy);
+  line-height: 1.15;
+  color: var(--kx-ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: break-word;
+}
+
+#profile-view .climbing-metric-label-ig {
+  max-width: 100%;
+  font-size: var(--kx-fs-caption);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--kx-ink-3);
+  line-height: 1.25;
+  overflow-wrap: break-word;
+}
+
+/* ---------- Pestañas: segmentado como Roca / Rocódromo ---------- */
+#profile-view .profile-tabs {
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-stone-card);
+}
+
+/* Cada pestaña ocupa lo que mide su texto: «Mis publicaciones» cabe en una línea; si no cupiera, pasa a dos */
+#profile-view .profile-tab {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 6px 8px;
+  border-radius: var(--kx-radius-pill);
+  color: var(--kx-ink-3);
+  font-family: inherit;
+  font-size: var(--kx-fs-meta);
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
+  transform: none;
+  transition: background var(--kx-dur) var(--kx-ease), color var(--kx-dur) var(--kx-ease);
+}
+
+#profile-view .profile-tab.active { background: var(--kx-forest) !important; color: var(--kx-chalk); font-weight: var(--kx-fw-strong); }
+#profile-view .profile-tab.active::after { content: none; }
+@media (hover: hover) { #profile-view .profile-tab:not(.active):hover { color: var(--kx-ink); }}
+#profile-view .profile-tab:focus-visible { outline: 2px solid var(--kx-forest) !important; outline-offset: 2px; }
+
+/* ---------- Publicaciones: tarjetas del feed ---------- */
+#profile-view .profile-grid { gap: 14px; margin-top: 16px; }
+
+#profile-view .feed-card {
+  padding: 14px 14px 4px;
+  background: var(--kx-surface);
+  border: 1px solid var(--kx-line);
+  border-radius: var(--kx-radius-card);
+  box-shadow: var(--kx-shadow-card);
+}
+
+#profile-view .loading-spinner { padding: 32px 0; text-align: center; color: var(--kx-ink-3); font-size: var(--kx-fs-meta); }
+
+/* Vacíos: el JS pinta estilos en línea en gris frío; aquí pasan a la tinta de la marca */
+#profile-view .empty-state { padding: 0; color: var(--kx-ink-3); }
+#profile-view .empty-state .empty-message { padding: 36px 20px 28px !important; }
+#profile-view .empty-state .empty-message svg { width: 36px; height: 36px; margin-bottom: 12px !important; opacity: 1 !important; color: var(--kx-ink-3); stroke-width: 1.75; }
+#profile-view .empty-state .empty-message p,
+#profile-view .empty-state-text { color: var(--kx-ink-3) !important; font-size: var(--kx-fs-meta); }
+#profile-view .empty-state-icon { display: none; }
+
+/* ---------- Menú de ajustes ---------- */
+#profile-view .settings-dropdown {
+  top: calc(max(24px, calc(env(safe-area-inset-top, 0px) + 16px)) + 52px);
+  right: 0;
+  width: min(248px, calc(100vw - 40px));
+  padding: 6px;
+  border: 1px solid var(--kx-line);
+  border-radius: var(--kx-radius-md);
+  background: var(--kx-surface);
+  box-shadow: var(--kx-shadow-pop);
+  animation: kxProfileMenuIn var(--kx-dur) var(--kx-ease);
+}
+
+@keyframes kxProfileMenuIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+#profile-view .settings-menu-item {
+  gap: 12px;
+  min-height: 46px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--kx-radius-sm);
+  background: transparent;
+  color: var(--kx-ink);
+  font-size: var(--kx-fs-meta);
+  font-weight: 600;
+}
+
+#profile-view .settings-menu-item svg { width: 18px; height: 18px; color: var(--kx-ink-2); stroke-width: 1.75; }
+#profile-view .settings-menu-item:active { background: var(--kx-stone-card); }
+@media (hover: hover) { #profile-view .settings-menu-item:hover { background: var(--kx-stone-card); }}
+
+#profile-view .settings-menu-item.admin-only { background: var(--kx-sage-soft); color: var(--kx-forest); }
+#profile-view .settings-menu-item.admin-only.hidden { display: none; }
+#profile-view .settings-menu-item.admin-only svg { color: var(--kx-forest); }
+#profile-view .settings-menu-item.donate svg { color: var(--kx-coral-ink); }
+#profile-view .settings-menu-item.donate { color: var(--kx-ink); }
+#profile-view .settings-menu-item:is(.danger, .logout),
+#profile-view .settings-menu-item:is(.danger, .logout) svg { color: var(--kx-danger-ink); }
+#profile-view .settings-menu-item:is(.danger, .logout):active { background: var(--kx-danger-soft); }
+@media (hover: hover) { #profile-view .settings-menu-item:is(.danger, .logout):hover { background: var(--kx-danger-soft); }}
+#profile-view .settings-menu-divider { margin: 6px 6px; background: var(--kx-line); }
+
+@media (prefers-reduced-motion: reduce) {
+  #profile-view .settings-dropdown { animation: none; }
+  #profile-view :is(.profile-tab, .profile-btn-ig, .settings-btn-ig) { transition: none; }
 }
