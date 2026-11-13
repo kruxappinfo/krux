@@ -421,6 +421,19 @@
   border: 1.5px dashed var(--rd-line-strong);
 }
 
+/* Dibujada en otra foto del sector: mismo número, contorno discontinuo */
+.rd-status-elsewhere {
+  border: 1.5px dashed var(--rd-line-strong);
+  color: var(--rd-ink-2);
+}
+
+.rd-elsewhere-note {
+  margin-left: 0.5rem;
+  color: var(--rd-ink-2);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .rd-route-info {
   display: flex;
   align-items: center;

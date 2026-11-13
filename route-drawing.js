@@ -1381,6 +1381,37 @@ function rdFindDrawing(route) {
 }
 
 /**
+ * ¿Pertenece el trazado a esta foto? (sin imageId = primera foto, legacy_0)
+ */
+function rdInImage(drawing, imageId) {
+  return drawing.imageId ? drawing.imageId === imageId : imageId === 'legacy_0';
+}
+
+/**
+ * ¿Es el mismo trazado (vía + variante) en la misma foto? Una vía puede estar
+ * dibujada en varias fotos del sector: guardar o borrar en una no toca las demás.
+ */
+function rdSameDrawing(d, ref) {
+  const sameRoute = (d.routeId !== undefined && ref.routeId !== undefined)
+    ? d.routeId === ref.routeId && (d.variantIndex || 0) === (ref.variantIndex || 0)
+    : d.routeId === undefined && ref.routeId === undefined && d.routeName === ref.routeName;
+  if (!sameRoute) return false;
+  const refImage = ref.imageId || (rdCurrentSector && rdCurrentSector.imageId) || 'legacy_0';
+  return (d.imageId || 'legacy_0') === refImage;
+}
+
+/**
+ * Trazado de la vía (y variante) en otra foto del sector, si lo hay
+ */
+function rdFindDrawingElsewhere(route) {
+  const vi = route.variantIndex || 0;
+  return rdOtherDrawings.find(d => {
+    const idMatch = d.routeId === route.routeId || (!d.routeId && d.routeName === route.nombre);
+    return idMatch && (d.variantIndex || 0) === vi;
+  });
+}
+
+/**
  * Números de croquis de todo el sector: la foto abierta más las demás fotos.
  * Mientras se edita un trazado (quitado un momento de la lista) sigue contando.
  */
@@ -1402,7 +1433,8 @@ function rdComputeTopoNumbers() {
 function rdProgressText() {
   const total = rdRoutesList.length;
   if (total === 0) return 'Sin vías';
-  const drawn = rdRoutesList.filter(route => rdFindDrawing(route)).length;
+  // Una vía cuenta una vez aunque esté dibujada en varias fotos
+  const drawn = rdRoutesList.filter(route => rdFindDrawing(route) || rdFindDrawingElsewhere(route)).length;
   return `${drawn} de ${total} dibujadas`;
 }
 
@@ -1423,6 +1455,7 @@ function renderRoutesList() {
   return rdRoutesList.map(route => {
     const vi = route.variantIndex || 0;
     const hasDrawing = rdFindDrawing(route);
+    const elsewhere = !hasDrawing && rdFindDrawingElsewhere(route);
     const gradeColor = kxGradeColorSafe(route.grado);
     const name = kxEsc(route.nombre || 'Sin nombre');
     const displayName = vi > 0 ? `${name} <em class="rd-variant-label">variante ${vi}</em>` : name;
@@ -1433,10 +1466,13 @@ function renderRoutesList() {
         <div class="rd-route-status">
           ${hasDrawing
             ? `<span class="rd-status-icon rd-status-drawn" title="Dibujada: número ${topoNumbers.get(kxDrawingKey(hasDrawing))} en la foto">${topoNumbers.get(kxDrawingKey(hasDrawing))}</span>`
-            : `<span class="rd-status-icon rd-status-pending" title="Sin dibujar"></span>`}
+            : elsewhere
+              ? `<span class="rd-status-icon rd-status-elsewhere" title="Dibujada en otra foto (número ${topoNumbers.get(kxDrawingKey(elsewhere))}). Toca para dibujarla también en esta">${topoNumbers.get(kxDrawingKey(elsewhere))}</span>`
+              : `<span class="rd-status-icon rd-status-pending" title="Sin dibujar"></span>`}
         </div>
         <div class="rd-route-info">
           <span class="rd-route-name">${displayName}</span>
+          ${elsewhere ? `<span class="rd-elsewhere-note">en otra foto</span>` : ''}
           ${branchCount > 0 ? `<span class="rd-branch-badge" title="${branchCount} ramal(es)">${branchCount}R</span>` : ''}
           <span class="rd-route-grade" style="background-color: ${gradeColor}; color: ${kxGradeInk(gradeColor)}">${kxEsc(route.grado)}</span>
         </div>
@@ -2817,14 +2853,7 @@ async function saveBranch(anchorType) {
     if (doc.exists) {
       allDrawings = doc.data().drawings || [];
       // Reemplazar el drawing actualizado
-      allDrawings = allDrawings.map(d => {
-        const sameVariant = (d.variantIndex || 0) === (rdBifurcatingDrawing.variantIndex || 0);
-        if ((d.routeId !== undefined && d.routeId === rdBifurcatingDrawing.routeId && sameVariant) ||
-            (d.routeId === undefined && d.routeName === rdBifurcatingDrawing.routeName)) {
-          return rdBifurcatingDrawing;
-        }
-        return d;
-      });
+      allDrawings = allDrawings.map(d => rdSameDrawing(d, rdBifurcatingDrawing) ? rdBifurcatingDrawing : d);
     }
 
     await kxBackupRouteDrawings(docRef, 'guardar-ramal', { snapshot: doc });
@@ -2837,13 +2866,7 @@ async function saveBranch(anchorType) {
     }, { merge: true });
 
     // Actualizar array local
-    rdRouteDrawings = rdRouteDrawings.map(d => {
-      if ((d.routeId !== undefined && d.routeId === rdBifurcatingDrawing.routeId) ||
-          (d.routeId === undefined && d.routeName === rdBifurcatingDrawing.routeName)) {
-        return rdBifurcatingDrawing;
-      }
-      return d;
-    });
+    rdRouteDrawings = rdRouteDrawings.map(d => rdSameDrawing(d, rdBifurcatingDrawing) ? rdBifurcatingDrawing : d);
 
     showRDToast(`Ramal ${rdCurrentBranchId} guardado correctamente`, 'success');
 
@@ -3184,13 +3207,7 @@ async function deleteBranch(routeId, branchId) {
 
     if (doc.exists) {
       let allDrawings = doc.data().drawings || [];
-      allDrawings = allDrawings.map(d => {
-        if ((d.routeId !== undefined && d.routeId === drawing.routeId) ||
-            (d.routeId === undefined && d.routeName === drawing.routeName)) {
-          return drawing;
-        }
-        return d;
-      });
+      allDrawings = allDrawings.map(d => rdSameDrawing(d, drawing) ? drawing : d);
 
       await kxBackupRouteDrawings(docRef, 'borrar-ramal', { snapshot: doc, required: true });
       await docRef.set({
@@ -3563,20 +3580,15 @@ async function saveRouteDrawing(drawing, isEditing = false) {
 
       if (isEditing) {
         // MODO EDICIÓN: Eliminar el dibujo original y añadir el editado
-        const dvi = drawing.variantIndex || 0;
-        allDrawings = allDrawings.filter(d => {
-          if (d.routeId !== undefined && drawing.routeId !== undefined) {
-            return !(d.routeId === drawing.routeId && (d.variantIndex || 0) === dvi);
-          }
-          return d.routeName !== drawing.routeName;
-        });
+        // (solo el de esta foto: la misma vía puede estar dibujada en otras)
+        allDrawings = allDrawings.filter(d => !rdSameDrawing(d, drawing));
         // Añadir el dibujo editado
         allDrawings.push(drawing);
       } else {
         // MODO NUEVO: Si hay imageId, reemplazar solo los dibujos de esta imagen
         if (rdCurrentSector.imageId) {
           // Mantener dibujos de otras imágenes
-          allDrawings = allDrawings.filter(d => d.imageId !== rdCurrentSector.imageId);
+          allDrawings = allDrawings.filter(d => !rdInImage(d, rdCurrentSector.imageId));
           // Añadir los dibujos actuales de esta imagen
           allDrawings = allDrawings.concat(rdRouteDrawings);
         } else {
@@ -5115,7 +5127,7 @@ async function saveAllRouteDrawings() {
 
     // Filtrar dibujos de esta imagen y reemplazar con los actuales
     if (rdCurrentSector.imageId) {
-      allDrawings = allDrawings.filter(d => d.imageId !== rdCurrentSector.imageId);
+      allDrawings = allDrawings.filter(d => !rdInImage(d, rdCurrentSector.imageId));
       const withImageId = rdRouteDrawings.map(d => ({ ...d, imageId: rdCurrentSector.imageId }));
       allDrawings = allDrawings.concat(withImageId);
     } else {
