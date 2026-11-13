@@ -1231,6 +1231,8 @@ async function loadRouteDrawings(schoolId, sectorName, imageId = null) {
     rdDrawingsLoadFailed = true;
     showRDToast('No se pudieron cargar los dibujos. Cierra y vuelve a abrir el editor antes de guardar.', 'error');
   }
+
+  await rdLoadPreparedDrawings(schoolId, sectorName);
 }
 
 // ============================================
@@ -3774,6 +3776,15 @@ function showAuxContextMenu(clientX, clientY) {
       <span>Cadena</span>
     </button>
     <div class="rd-aux-menu-separator" style="border-top: 1px solid rgba(255,255,255,0.1); margin: 4px 0;"></div>
+    ${rdPendingPrepared().length ? `
+    <button class="rd-aux-menu-item" onclick="closeAuxContextMenu(); rdApplyPreparedDrawings()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v12"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <path d="M5 21h14"/>
+      </svg>
+      <span>Cargar trazados preparados (${rdPendingPrepared().length})</span>
+    </button>` : ''}
     <button class="rd-aux-menu-item" onclick="closeAuxContextMenu(); showSharedAnchorsModal()">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 21V12a7 7 0 0 1 7-7"/>
@@ -4396,6 +4407,98 @@ function rdConfirm(title, message, confirmText) {
 }
 
 // ============================================
+// TRAZADOS PREPARADOS: CARGAR UN SECTOR YA DIBUJADO
+// ============================================
+// Un sector puede traer sus trazados en Cartografia/<Escuela>/Trazados/<sector>.json
+// ({ source, drawings: [{ routeId, routeName, imageId, anchorType, points }] }, puntos en píxeles de la foto).
+// Desde el menú «+» se cargan en la foto abierta con la sesión de admin o spotter, con copia de seguridad previa.
+
+let rdPreparedDrawings = null;
+
+/**
+ * Busca el archivo de trazados preparados del sector (sin archivo, no pasa nada)
+ */
+async function rdLoadPreparedDrawings(schoolId, sectorName) {
+  rdPreparedDrawings = null;
+  try {
+    const school = MAPLIBRE_SCHOOLS[schoolId];
+    const viasPath = school && school.geojson && school.geojson.vias;
+    if (!viasPath) return;
+    const base = viasPath.replace(/[^/]*$/, '');
+    const response = await fetch(`${base}Trazados/${normalizeSectorName(sectorName)}.json`, { cache: 'no-cache' });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (data && Array.isArray(data.drawings)) rdPreparedDrawings = data;
+  } catch (error) {
+    rdPreparedDrawings = null;
+  }
+}
+
+/**
+ * Trazados preparados para la foto abierta que todavía no están dibujados en ella
+ */
+function rdPendingPrepared() {
+  if (!rdPreparedDrawings || !rdCurrentSector || !rdCurrentSector.imageId) return [];
+  return rdPreparedDrawings.drawings.filter(p =>
+    p.imageId === rdCurrentSector.imageId &&
+    Array.isArray(p.points) && p.points.length >= 2 &&
+    !rdRouteDrawings.some(d => d.routeId === p.routeId && !(d.variantIndex > 0))
+  );
+}
+
+/**
+ * Añade a la foto abierta los trazados preparados que faltan
+ */
+async function rdApplyPreparedDrawings() {
+  const pending = rdPendingPrepared();
+  if (pending.length === 0) return;
+  if (rdDrawingsLoadFailed) {
+    showRDToast('No se puede guardar: los dibujos no se cargaron. Vuelve a abrir el editor.', 'error');
+    return;
+  }
+
+  const names = pending.map(p => kxEsc(p.routeName || String(p.routeId))).join(', ');
+  const credit = rdPreparedDrawings.source ? `<br>${kxEsc(rdPreparedDrawings.source)}.` : '';
+  if (!await rdConfirm('¿Cargar trazados preparados?', `Se añadirán ${pending.length} trazados a esta foto: ${names}. Los que ya están dibujados no se tocan y antes se guarda una copia de seguridad.${credit}`, 'Cargar')) return;
+
+  const now = new Date().toISOString();
+  const uid = auth.currentUser?.uid;
+  const added = pending.map(p => ({
+    routeId: p.routeId,
+    routeName: p.routeName,
+    points: p.points.map(pt => ({ x: pt.x, y: pt.y })),
+    anchorType: p.anchorType,
+    imageId: rdCurrentSector.imageId,
+    createdAt: now,
+    createdBy: uid
+  }));
+
+  try {
+    const docRef = rdDrawingsDocRef();
+    const doc = await docRef.get();
+    const existing = doc.exists ? doc.data().drawings || [] : [];
+    const allDrawings = existing.concat(added.filter(a => !existing.some(d => rdSameDrawing(d, a))));
+
+    await kxBackupRouteDrawings(docRef, 'cargar-trazados', { snapshot: doc, required: true });
+    await docRef.set({
+      schoolId: rdCurrentSector.schoolId,
+      sectorName: rdCurrentSector.sectorName,
+      drawings: allDrawings,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: uid
+    }, { merge: true });
+
+    rdRouteDrawings = rdRouteDrawings.concat(added);
+    document.getElementById('rd-route-list').innerHTML = renderRoutesList();
+    redrawCanvas();
+    updateInstructions(`${added.length} trazados cargados.`);
+  } catch (error) {
+    console.error('[RouteDrawing] Error cargando trazados preparados:', error);
+    showRDToast('No se pudieron cargar los trazados: ' + error.message, 'error');
+  }
+}
+
+// ============================================
 // REUNIONES COMPARTIDAS: UNIR FINALES CERCANOS
 // ============================================
 
@@ -4593,6 +4696,7 @@ const RD_BACKUP_REASONS = {
   'guardar-elementos': 'Antes de guardar elementos',
   'borrador': 'Antes de usar el borrador',
   'unir-reuniones': 'Antes de unir reuniones',
+  'cargar-trazados': 'Antes de cargar trazados preparados',
   'borrar-imagen': 'Antes de borrar una foto',
   'admin-borrar-via': 'Antes de borrar una vía (admin)',
   'admin-limpiar-huerfanos': 'Antes de limpiar huérfanos (admin)',
@@ -5178,6 +5282,7 @@ window.rdPrevImage = rdPrevImage;
 window.rdNextImage = rdNextImage;
 // Funciones para selección de tipo de reunión
 window.showAnchorTypeModal = showAnchorTypeModal;
+window.rdApplyPreparedDrawings = rdApplyPreparedDrawings;
 window.showSharedAnchorsModal = showSharedAnchorsModal;
 window.closeSharedAnchorsModal = closeSharedAnchorsModal;
 window.joinSharedAnchors = joinSharedAnchors;
