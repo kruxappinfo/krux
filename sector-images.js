@@ -214,11 +214,14 @@ function normalizeSectorName(name) {
 async function openSectorImageViewer(schoolId, sectorName, startIndex = 0) {
   currentSectorForImage = { schoolId, sectorName };
 
-  // Obtener todas las imágenes del sector
-  sectorGalleryImages = await getSectorGalleryImages(schoolId, sectorName);
+  // Vías y trazados se piden ya, en paralelo con las fotos: cuando la foto termina de bajar, las líneas están listas
+  svLoadSectorData(schoolId, sectorName);
+
+  // Imágenes del sector y rol, a la vez
+  const [images, isAdmin] = await Promise.all([getSectorGalleryImages(schoolId, sectorName), isSectorImageAdmin()]);
+  sectorGalleryImages = images;
   currentGalleryIndex = Math.min(startIndex, Math.max(0, sectorGalleryImages.length - 1));
 
-  const isAdmin = await isSectorImageAdmin();
   const hasImages = sectorGalleryImages.length > 0;
 
   // Crear el visor
@@ -273,7 +276,7 @@ async function openSectorImageViewer(schoolId, sectorName, startIndex = 0) {
           ${sectorGalleryImages.map((img, idx) => `
             <div class="gallery-slide ${idx === currentGalleryIndex ? 'active' : ''}" data-index="${idx}">
               <div class="sector-viewer-image-container" id="sector-viewer-container-${idx}">
-                <img src="${img.url}" alt="${sectorName} - Foto ${idx + 1}" class="sector-viewer-image" id="sector-full-image-${idx}" data-image-id="${img.id}">
+                <img ${idx === currentGalleryIndex ? `src="${img.url}" fetchpriority="high"` : `data-src="${img.url}"`} decoding="async" alt="${sectorName} - Foto ${idx + 1}" class="sector-viewer-image" id="sector-full-image-${idx}" data-image-id="${img.id}">
                 <canvas id="sector-viewer-canvas-${idx}" class="sector-viewer-canvas" style="display: none;"></canvas>
               </div>
             </div>
@@ -519,6 +522,8 @@ function galleryGoTo(index) {
   // Actualizar botones de navegación
   updateGalleryNavButtons();
 
+  svEnsureSlideImage(index);
+
   // Configurar canvas para la nueva imagen
   if (currentSectorForImage) {
     setupSectorViewerCanvasForGallery(
@@ -606,6 +611,7 @@ function closeSectorImageViewer() {
   svPendingHighlightRoute = null;
   svTopoNumbers = new Map();
   svAllDrawings = [];
+  svSectorData = null;
 
   // Resetear zoom
   resetZoomState();
@@ -2052,9 +2058,15 @@ async function setupSectorViewerCanvasForGallery(schoolId, sectorName, imageInde
   // Guardar ID de imagen actual
   svCurrentImageId = imageData.id;
 
-  // Cargar vías del sector (para obtener grados) y dibujos
-  await loadViewerSectorRoutes(schoolId, sectorName);
-  await loadViewerRouteDrawingsForImage(schoolId, sectorName, imageData.id);
+  // Vías del sector (para los grados) y trazados: en paralelo y una sola vez por sector
+  svEnsureSlideImage(imageIndex);
+  const data = svLoadSectorData(schoolId, sectorName);
+  const [routes, drawingsData] = await Promise.all([data.routes, data.drawings]);
+  // Mientras se esperaba, se cerró el visor o se pasó a otra foto
+  if (!sectorImageViewerOpen || svSectorData !== data || currentGalleryIndex !== imageIndex) return;
+  svRoutesList = routes;
+  svApplyDrawingsForImage(drawingsData, imageData.id);
+  svPreloadNeighbourImages(imageIndex);
 
   svTopoNumbers = kxTopoNumbers(svAllDrawings, sectorGalleryImages.map(img => img.id));
   renderViewerLegend();
@@ -2262,72 +2274,88 @@ function initCanvasOverlayForGallery(img, container, imageIndex) {
   setupCanvasInteraction();
 }
 
+// ============================================
+// DATOS DEL VISOR: VÍAS Y TRAZADOS DEL SECTOR
+// ============================================
+
+// Vías y trazados del sector abierto: { key, routes: Promise<[]>, drawings: Promise<data|null> }. Se piden una vez al
+// abrir el visor y se reutilizan al pasar de foto; al cerrarlo se descartan, así tras editar se vuelven a leer.
+let svSectorData = null;
+
+function svLoadSectorData(schoolId, sectorName) {
+  const key = `${schoolId}_${normalizeSectorName(sectorName)}`;
+  if (!svSectorData || svSectorData.key !== key) {
+    const data = { key, routes: svFetchSectorRoutes(schoolId, sectorName), drawings: null };
+    data.drawings = svFetchSectorDrawings(key).catch(error => {
+      console.error('[SectorViewer] Error cargando dibujos:', error);
+      if (svSectorData === data) svSectorData = null;   // la siguiente foto lo reintenta
+      return null;
+    });
+    svSectorData = data;
+  }
+  return svSectorData;
+}
+
+// Documento de trazados del sector (solo lectura); null si no hay
+async function svFetchSectorDrawings(docId) {
+  if (typeof db === 'undefined' || !db) {
+    console.warn('[SectorViewer] Firestore no está disponible aún');
+    return null;
+  }
+  const doc = await db.collection('sector_route_drawings').doc(docId).get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  // Normalizar routeId de los dibujos a Number para evitar problemas de tipo (string vs number)
+  // Esto es crítico en WebViews móviles (Capacitor) donde Firestore puede devolver tipos distintos
+  (data.drawings || []).forEach(d => {
+    if (d.routeId !== undefined) d.routeId = Number(d.routeId);
+  });
+  return data;
+}
+
+// Reparte los trazados, rápeles y auxiliares del sector entre los de la foto indicada
+function svApplyDrawingsForImage(data, imageId) {
+  svDrawings = [];
+  svAllDrawings = [];
+  svRapelPoints = [];
+  svAuxElements = [];
+  if (!data) return;
+
+  const allDrawings = data.drawings || [];
+  svAllDrawings = allDrawings;
+
+  // Si el dibujo no tiene imageId, pertenece a la imagen legacy (primera imagen)
+  svDrawings = allDrawings.filter(d => {
+    if (d.imageId) return d.imageId === imageId;
+    return imageId === 'legacy_0' || !imageId;
+  });
+
+  // Puntos de rápel y elementos auxiliares
+  const ofImage = el => (el.imageId ? el.imageId === imageId : imageId === 'legacy_0');
+  svRapelPoints = imageId ? (data.rapelPoints || []).filter(ofImage) : (data.rapelPoints || []);
+  svAuxElements = imageId ? (data.auxElements || []).filter(ofImage) : (data.auxElements || []);
+}
+
+// Pone a descargar la foto de una diapositiva (las que no son la abierta nacen sin src)
+function svEnsureSlideImage(index) {
+  const img = document.getElementById(`sector-full-image-${index}`);
+  if (img && !img.getAttribute('src') && img.dataset.src) img.src = img.dataset.src;
+}
+
+// Con la foto abierta ya descargada, adelanta las vecinas para que pasar de foto sea inmediato
+function svPreloadNeighbourImages(index) {
+  const img = document.getElementById(`sector-full-image-${index}`);
+  if (!img) return;
+  const preload = () => { svEnsureSlideImage(index + 1); svEnsureSlideImage(index - 1); };
+  if (img.complete) preload();
+  else img.addEventListener('load', preload, { once: true });
+}
+
 /**
  * Carga los dibujos de vías para una imagen específica
  */
 async function loadViewerRouteDrawingsForImage(schoolId, sectorName, imageId) {
-  svDrawings = [];
-  svAllDrawings = [];
-
-  try {
-    if (typeof db === 'undefined' || !db) {
-      console.warn('[SectorViewer] Firestore no está disponible aún');
-      return;
-    }
-
-    const docId = `${schoolId}_${normalizeSectorName(sectorName)}`;
-    const doc = await db.collection('sector_route_drawings').doc(docId).get();
-
-    if (doc.exists) {
-      const data = doc.data();
-      const allDrawings = data.drawings || [];
-
-      // Normalizar routeId de los dibujos a Number para evitar problemas de tipo (string vs number)
-      // Esto es crítico en WebViews móviles (Capacitor) donde Firestore puede devolver tipos distintos
-      allDrawings.forEach(d => {
-        if (d.routeId !== undefined) d.routeId = Number(d.routeId);
-      });
-      svAllDrawings = allDrawings;
-
-      // Filtrar dibujos por imagen
-      // Si el dibujo no tiene imageId, pertenece a la imagen legacy (primera imagen)
-      svDrawings = allDrawings.filter(d => {
-        if (d.imageId) {
-          return d.imageId === imageId;
-        }
-        // Dibujos sin imageId pertenecen a 'legacy_0' (primera imagen)
-        return imageId === 'legacy_0' || (!imageId && allDrawings.indexOf(d) >= 0);
-      });
-
-      console.log('[SectorViewer] Dibujos cargados para imagen', imageId, ':', svDrawings.length);
-
-      // Cargar puntos de rápel
-      const allRapelPoints = data.rapelPoints || [];
-      if (imageId) {
-        svRapelPoints = allRapelPoints.filter(p => {
-          if (p.imageId) return p.imageId === imageId;
-          return imageId === 'legacy_0';
-        });
-      } else {
-        svRapelPoints = allRapelPoints;
-      }
-
-      // Cargar elementos auxiliares
-      const allAuxElements = data.auxElements || [];
-      if (imageId) {
-        svAuxElements = allAuxElements.filter(el => {
-          if (el.imageId) return el.imageId === imageId;
-          return imageId === 'legacy_0';
-        });
-      } else {
-        svAuxElements = allAuxElements;
-      }
-    } else {
-      console.log('[SectorViewer] No hay dibujos guardados para este sector');
-    }
-  } catch (error) {
-    console.error('[SectorViewer] Error cargando dibujos:', error);
-  }
+  svApplyDrawingsForImage(await svLoadSectorData(schoolId, sectorName).drawings, imageId);
 }
 
 // ============================================
@@ -3832,81 +3860,76 @@ function svNavigateToRouteOnMap(routeId) {
  * Incluye vías del GeoJSON estático Y vías aprobadas de pending_routes en Firestore
  */
 async function loadViewerSectorRoutes(schoolId, sectorName) {
-  svRoutesList = [];
+  svRoutesList = await svFetchSectorRoutes(schoolId, sectorName);
+}
 
-  try {
-    // 1. Cargar vías del GeoJSON estático
-    if (typeof MAPLIBRE_SCHOOLS !== 'undefined') {
-      const school = MAPLIBRE_SCHOOLS[schoolId];
-      if (school && school.geojson && school.geojson.vias) {
-        const response = await fetch(school.geojson.vias + '?v=' + Date.now());
-        if (response.ok) {
-          const geojson = await response.json();
-          if (geojson.features) {
-            const expanded = [];
-            // Las vías del sector van primero; después las del resto de la escuela, porque
-            // una foto puede abarcar vías de un sector vecino (p. ej. La Cabeza central/izquierda)
-            const inSector = f => f.properties.sector === sectorName;
-            [...geojson.features.filter(inSector), ...geojson.features.filter(f => !inSector(f))]
-              .forEach(f => {
-                const p = f.properties;
-                expanded.push({ routeId: Number(p.id), nombre: p.nombre, grado: p.grado1 || '?', sector: p.sector, variantIndex: 0 });
-                if (p.variante === 'SI' && !p.union) {
-                  for (let i = 2; i <= 5; i++) {
-                    const grado = p['grado' + i];
-                    if (grado != null && grado !== '') {
-                      expanded.push({ routeId: Number(p.id), nombre: p.nombre, grado, sector: p.sector, variantIndex: i - 1 });
-                    }
-                  }
-                }
-              });
-            svRoutesList = expanded;
+// GeoJSON de vías de la escuela: el que ya tiene en memoria el mapa (kxSchoolRouteFeatures) o, si no, una descarga
+function svSchoolRouteFeatures(schoolId) {
+  if (typeof kxSchoolRouteFeatures === 'function') return kxSchoolRouteFeatures(schoolId);
+  const url = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS[schoolId]?.geojson?.vias : null;
+  if (!url) return Promise.resolve([]);
+  return fetch(url).then(r => (r.ok ? r.json() : {})).then(g => g.features || []);
+}
+
+// Vías del visor: GeoJSON estático y aprobadas de Firestore, pedidas a la vez. Nunca rechaza: devuelve lo que haya.
+async function svFetchSectorRoutes(schoolId, sectorName) {
+  const staticLoad = svSchoolRouteFeatures(schoolId).catch(error => {
+    console.error('[SectorViewer] Error cargando vías:', error);
+    return [];
+  });
+  const approvedLoad = (typeof db !== 'undefined' && db)
+    ? db.collection('pending_routes')
+      .where('status', '==', 'approved')
+      .where('schoolId', '==', schoolId)
+      .where('sector', '==', sectorName)
+      .get()
+      .catch(firestoreError => {
+        console.warn('[SectorViewer] Error cargando vías aprobadas de Firestore:', firestoreError);
+        return null;
+      })
+    : Promise.resolve(null);
+  const [features, approvedSnapshot] = await Promise.all([staticLoad, approvedLoad]);
+
+  const list = [];
+  // Las vías del sector van primero; después las del resto de la escuela, porque
+  // una foto puede abarcar vías de un sector vecino (p. ej. La Cabeza central/izquierda)
+  const inSector = f => f.properties.sector === sectorName;
+  [...features.filter(inSector), ...features.filter(f => !inSector(f))]
+    .forEach(f => {
+      const p = f.properties;
+      list.push({ routeId: Number(p.id), nombre: p.nombre, grado: p.grado1 || '?', sector: p.sector, variantIndex: 0 });
+      if (p.variante === 'SI' && !p.union) {
+        for (let i = 2; i <= 5; i++) {
+          const grado = p['grado' + i];
+          if (grado != null && grado !== '') {
+            list.push({ routeId: Number(p.id), nombre: p.nombre, grado, sector: p.sector, variantIndex: i - 1 });
           }
         }
       }
-    }
+    });
 
-    console.log('[SectorViewer] Vías del GeoJSON cargadas:', svRoutesList.length);
-
-    // 2. Cargar vías aprobadas de pending_routes en Firestore
-    if (typeof db !== 'undefined' && db) {
-      try {
-        const approvedSnapshot = await db.collection('pending_routes')
-          .where('status', '==', 'approved')
-          .where('schoolId', '==', schoolId)
-          .where('sector', '==', sectorName)
-          .get();
-
-        if (!approvedSnapshot.empty) {
-          const approvedRoutes = [];
-          approvedSnapshot.forEach(doc => {
-            const data = doc.data();
-            // Solo añadir si no existe ya en la lista (evitar duplicados)
-            const numRouteId = data.routeId !== undefined ? Number(data.routeId) : undefined;
-            const exists = svRoutesList.some(r => r.routeId === numRouteId || r.nombre === data.nombre);
-            if (!exists) {
-              approvedRoutes.push({
-                routeId: numRouteId || doc.id,
-                nombre: data.nombre,
-                grado: data.grado1 || '?',
-                sector: data.sector,
-                isApproved: true // Marca para identificar que viene de Firestore
-              });
-            }
-          });
-
-          svRoutesList = [...svRoutesList, ...approvedRoutes];
-          console.log('[SectorViewer] Vías aprobadas añadidas:', approvedRoutes.length);
-        }
-      } catch (firestoreError) {
-        console.warn('[SectorViewer] Error cargando vías aprobadas de Firestore:', firestoreError);
+  if (approvedSnapshot && !approvedSnapshot.empty) {
+    const approvedRoutes = [];
+    approvedSnapshot.forEach(doc => {
+      const data = doc.data();
+      // Solo añadir si no existe ya en la lista (evitar duplicados)
+      const numRouteId = data.routeId !== undefined ? Number(data.routeId) : undefined;
+      const exists = list.some(r => r.routeId === numRouteId || r.nombre === data.nombre);
+      if (!exists) {
+        approvedRoutes.push({
+          routeId: numRouteId || doc.id,
+          nombre: data.nombre,
+          grado: data.grado1 || '?',
+          sector: data.sector,
+          isApproved: true // Marca para identificar que viene de Firestore
+        });
       }
-    }
-
-    console.log('[SectorViewer] Total vías del sector:', svRoutesList.length);
-  } catch (error) {
-    console.error('[SectorViewer] Error cargando vías:', error);
+    });
+    list.push(...approvedRoutes);
   }
+
+  console.log('[SectorViewer] Total vías del sector:', list.length);
+  return list;
 }
 
 /**
@@ -4035,13 +4058,9 @@ async function openSectorImageViewerWithHighlight(schoolId, sectorName, routeId,
   // Buscar en qué imagen está dibujada la vía
   let startIndex = 0;
   try {
-    const normalizedName = normalizeSectorName(sectorName);
-    const docId = `${schoolId}_${normalizedName}`;
-
-    // Obtener los dibujos para encontrar el imageId de la vía
-    const drawingsDoc = await db.collection('sector_route_drawings').doc(docId).get();
-    if (drawingsDoc.exists) {
-      const data = drawingsDoc.data();
+    // Trazados (la misma lectura que usará el visor) e imágenes, a la vez
+    const [data] = await Promise.all([svLoadSectorData(schoolId, sectorName).drawings, getSectorGalleryImages(schoolId, sectorName)]);
+    if (data) {
       const drawings = data.drawings || [];
       const routeDrawing = drawings.find(d => Number(d.routeId) === routeId && (d.variantIndex || 0) === variantIndex)
         || drawings.find(d => Number(d.routeId) === routeId);
