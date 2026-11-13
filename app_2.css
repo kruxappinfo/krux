@@ -34074,3 +34074,24 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   #profile-view .settings-dropdown { animation: none; }
   #profile-view :is(.profile-tab, .profile-btn-ig, .settings-btn-ig) { transition: none; }
 }
+
+/* ---------- Editar perfil: por encima de la barra inferior y ajustado a la pantalla ---------- */
+#edit-profile-modal.modal-overlay {
+  z-index: 10030;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+  background: var(--kx-scrim);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+#edit-profile-modal .edit-profile-modal-content {
+  width: min(440px, 100%);
+  max-height: 100%;
+  border-radius: var(--kx-radius-sheet);
+  background: var(--kx-chalk);
+  box-shadow: var(--kx-shadow-pop);
+  overscroll-behavior: contain;
+}
+
+#edit-profile-modal .edit-profile-header { position: sticky; top: 0; z-index: 1; background: var(--kx-chalk); }
+#edit-profile-modal .edit-profile-form { padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
