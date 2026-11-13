@@ -4439,11 +4439,21 @@ async function rdLoadPreparedDrawings(schoolId, sectorName) {
  */
 function rdPendingPrepared() {
   if (!rdPreparedDrawings || !rdCurrentSector || !rdCurrentSector.imageId) return [];
-  return rdPreparedDrawings.drawings.filter(p =>
-    p.imageId === rdCurrentSector.imageId &&
-    Array.isArray(p.points) && p.points.length >= 2 &&
-    !rdRouteDrawings.some(d => d.routeId === p.routeId && !(d.variantIndex > 0))
-  );
+  return rdPreparedDrawings.drawings.filter(p => {
+    if (p.imageId !== rdCurrentSector.imageId || !Array.isArray(p.points) || p.points.length < 2) return false;
+    const existing = rdRouteDrawings.find(d => d.routeId === p.routeId && !(d.variantIndex > 0));
+    return !existing || rdPreparedOutdated(existing, p);
+  });
+}
+
+/**
+ * ¿El trazado guardado es una versión anterior de este trazado preparado, sin retocar?
+ * (p.supersedes: primer punto de cada versión anterior del archivo)
+ */
+function rdPreparedOutdated(existing, p) {
+  const first = existing.points && existing.points[0];
+  if (!first || !Array.isArray(p.supersedes)) return false;
+  return p.supersedes.some(o => Math.abs(o.x - first.x) < 0.5 && Math.abs(o.y - first.y) < 0.5);
 }
 
 /**
@@ -4458,8 +4468,9 @@ async function rdApplyPreparedDrawings() {
   }
 
   const names = pending.map(p => kxEsc(p.routeName || String(p.routeId))).join(', ');
+  const replaced = pending.filter(p => rdRouteDrawings.some(d => d.routeId === p.routeId && !(d.variantIndex > 0))).length;
   const credit = rdPreparedDrawings.source ? `<br>${kxEsc(rdPreparedDrawings.source)}.` : '';
-  if (!await rdConfirm('¿Cargar trazados preparados?', `Se añadirán ${pending.length} trazados a esta foto: ${names}. Los que ya están dibujados no se tocan y antes se guarda una copia de seguridad.${credit}`, 'Cargar')) return;
+  if (!await rdConfirm('¿Cargar trazados preparados?', `Se añadirán ${pending.length} trazados a esta foto: ${names}.${replaced ? ` ${replaced} sustituyen a una versión anterior cargada del mismo archivo.` : ''} Los dibujos hechos a mano no se tocan y antes se guarda una copia de seguridad.${credit}`, 'Cargar')) return;
 
   const now = new Date().toISOString();
   const uid = auth.currentUser?.uid;
@@ -4477,7 +4488,8 @@ async function rdApplyPreparedDrawings() {
     const docRef = rdDrawingsDocRef();
     const doc = await docRef.get();
     const existing = doc.exists ? doc.data().drawings || [] : [];
-    const allDrawings = existing.concat(added.filter(a => !existing.some(d => rdSameDrawing(d, a))));
+    // Las versiones anteriores sin retocar se sustituyen; el resto no se toca
+    const allDrawings = existing.filter(d => !added.some(a => rdSameDrawing(d, a))).concat(added);
 
     await kxBackupRouteDrawings(docRef, 'cargar-trazados', { snapshot: doc, required: true });
     await docRef.set({
@@ -4488,7 +4500,7 @@ async function rdApplyPreparedDrawings() {
       updatedBy: uid
     }, { merge: true });
 
-    rdRouteDrawings = rdRouteDrawings.concat(added);
+    rdRouteDrawings = rdRouteDrawings.filter(d => !added.some(a => rdSameDrawing(d, a))).concat(added);
     document.getElementById('rd-route-list').innerHTML = renderRoutesList();
     redrawCanvas();
     updateInstructions(`${added.length} trazados cargados.`);
