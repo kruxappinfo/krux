@@ -3977,7 +3977,7 @@ async function showRoutePopup(props, coords) {
         <span class="ml-route-grade" style="background-color: ${gradeColor}">${grade}</span>
       </div>
 
-      ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1 })}
+      ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, routeName, suffix: props._isTrinomialGroup ? props._trinomialIndex : 1 })}
       ${kxRouteDescriptionHTML(props.descripcion)}
 
       <div id="ml-variant-grade-${routeId}"></div>
@@ -4179,7 +4179,7 @@ async function mlBuildVariantSlideHTML(variantData, isTrinomial) {
       <span class="ml-route-name">${routeName}${getVariantLabel(props)}</span>
     </div>
 
-    ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp, long: longM, contribute: false })}
+    ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp, long: longM, routeName, suffix: isTrinomial ? props._trinomialIndex : 1 })}
     ${kxRouteDescriptionHTML(props.descripcion)}
 
     <div id="ml-variant-grade-${routeId}"></div>
@@ -4395,7 +4395,7 @@ async function mlVariantGoToBottomSheet(index) {
  * Modifica directamente los elementos DOM existentes del bottom sheet.
  */
 function mlUpdateBottomSheetContent(props, isTrinomial) {
-  kxFillRouteSheet(props, { isTrinomial, contribute: false });
+  kxFillRouteSheet(props, { isTrinomial });
 }
 
 /**
@@ -4437,7 +4437,7 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   if (!props.descripcion && props.descripcio) props.descripcion = props.descripcio;
   const chipsEl = document.getElementById('rbs-info-items');
   if (chipsEl) {
-    chipsEl.innerHTML = kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, contribute });
+    chipsEl.innerHTML = kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, exp: props.exp1, long: props.long1, contribute, routeName, suffix: props._isTrinomialGroup ? props._trinomialIndex : 1 });
   }
   const descEl = document.getElementById('rbs-desc-container');
   if (descEl) descEl.innerHTML = kxRouteDescriptionHTML(props.descripcion);
@@ -4588,16 +4588,17 @@ function kxRouteSplitDescription(text) {
 
 /**
  * Cápsulas técnicas: estilo, expreses y longitud. Un dato que falta se ofrece para contribuir.
- * opts.contribute = false oculta las cápsulas vacías (variantes de un grupo).
+ * opts.contribute = false oculta las cápsulas vacías.
+ * opts.suffix: número de variante de un trinomio (exp2/long2…); routeName: vía a la que se atribuye el dato.
  */
-function kxRouteChipsHTML({ routeId, schoolId, descripcion, exp, long, contribute = true }) {
+function kxRouteChipsHTML({ routeId, schoolId, descripcion, exp, long, contribute = true, routeName = '', suffix = 1 }) {
   const has = v => v != null && String(v).trim() !== '';
   const chip = (icon, alt, value, field, ask, strong = false, cls = '') => {
     if (has(value)) {
       return `<div class="kx-rchip${strong ? ' is-strong' : ''}${cls}"><img src="icons/${icon}" alt="${alt}" width="28" height="28"><span class="kx-rchip-text">${kxEscHTML(value)}</span></div>`;
     }
     if (!contribute) return '';
-    return `<button type="button" class="kx-rchip is-missing${cls}" onclick="mlContributeField(${routeId}, '${schoolId}', '${field}')"><img src="icons/${icon}" alt="" width="28" height="28"><span class="kx-rchip-text">${ask}</span></button>`;
+    return `<button type="button" class="kx-rchip is-missing${cls}" onclick="mlContributeField(${routeId}, '${schoolId}', '${field}', ${Number(suffix) || 1}, '${encodeURIComponent(routeName || '').replace(/'/g, '%27')}')"><img src="icons/${icon}" alt="" width="28" height="28"><span class="kx-rchip-text">${ask}</span></button>`;
   };
   const expNum = has(exp) ? Number(exp) : null;
   const expText = has(exp) ? `${exp} ${expNum === 1 ? 'exprés' : 'expreses'}` : null;
@@ -5561,8 +5562,12 @@ function generateSectorEstadoHTML(avgVote, ratedCount, totalCount) {
 /**
  * Abre modal para que el usuario contribuya datos faltantes de una vía
  */
-function mlContributeField(routeId, schoolId, field) {
-  const routeName = mlCurrentRouteName || 'Sin nombre';
+// Vía y campo a los que se atribuye la contribución abierta (una variante usa exp2/long2…)
+let mlContributeTarget = { routeName: null, suffix: 1 };
+
+function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '') {
+  const routeName = (encodedName && decodeURIComponent(encodedName)) || mlCurrentRouteName || 'Sin nombre';
+  mlContributeTarget = { routeName, suffix: Number(suffix) || 1 };
 
   // Cerrar popup / bottom sheet
   if (mlRoutePopup) mlRoutePopup.remove();
@@ -5639,7 +5644,8 @@ function mlContributeField(routeId, schoolId, field) {
  * Envía la contribución de datos de vía a Firestore
  */
 async function mlSubmitContribution(routeId, schoolId) {
-  const routeName = mlCurrentRouteName || 'Sin nombre';
+  const routeName = mlContributeTarget.routeName || mlCurrentRouteName || 'Sin nombre';
+  const suffix = mlContributeTarget.suffix;
   const tipo = document.getElementById('ml-contribute-tipo')?.value;
   const exp = document.getElementById('ml-contribute-exp')?.value;
   const long = document.getElementById('ml-contribute-long')?.value;
@@ -5665,8 +5671,8 @@ async function mlSubmitContribution(routeId, schoolId) {
     data: {}
   };
   if (tipo) contribution.data.descripcion = tipo;
-  if (exp) contribution.data.exp1 = parseInt(exp);
-  if (long) contribution.data.long1 = parseInt(long);
+  if (exp) contribution.data['exp' + suffix] = parseInt(exp);
+  if (long) contribution.data['long' + suffix] = parseInt(long);
 
   try {
     await db.collection('routeSuggestions').add(contribution);
