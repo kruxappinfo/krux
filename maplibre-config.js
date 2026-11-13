@@ -377,6 +377,17 @@ const SCHOOL_MARKERS = [
 ];
 
 // ============================================
+// RELIEVE 3D PROPIO (MDT05 del IGN)
+// ============================================
+// Teselas raster-dem (Mapbox Terrain-RGB, 512 px) generadas con scripts/generate-dem-tiles.py a partir del MDT
+// de 5 m del IGN (CC-BY 4.0). Dentro de estos rangos de teselas el modo 3D usa este relieve; fuera, el de MapTiler
+// (30 m por píxel). zooms: { z: [xMin, xMax, yMin, yMax] }, tal como los imprime el script.
+const KX_LOCAL_DEM = [
+  { path: 'tiles/pedriza/dem', zooms: { 13: [4006, 4008, 3077, 3079], 14: [8012, 8017, 6154, 6159] } },
+];
+const KX_LOCAL_DEM_ATTRIBUTION = 'MDT05 © <a href="https://www.ign.es/">IGN</a> (CC-BY 4.0)';
+
+// ============================================
 // CONFIGURACIÓN DEL MAPA
 // ============================================
 const MAP_DEFAULTS = {
