@@ -2200,9 +2200,9 @@ async function openCommentsModal(schoolId, routeId, routeName) {
     const modalTitle = document.getElementById('comments-modal-title');
 
     // Set modal title (display routeName for user)
-    if (modalTitle) {
-        modalTitle.textContent = `Comentarios: ${routeName}`;
-    }
+    if (modalTitle) modalTitle.textContent = 'Comentarios';
+    const modalSub = document.getElementById('comments-modal-subtitle');
+    if (modalSub) modalSub.textContent = routeName ? `Vía ${routeName}` : '';
 
     // Set current user photo if available
     if (currentUser && currentUser.photoURL) {
@@ -2213,7 +2213,11 @@ async function openCommentsModal(schoolId, routeId, routeName) {
     }
 
     modal.classList.remove('hidden');
-    listContainer.innerHTML = '<div class="loading-spinner">Cargando comentarios...</div>';
+    listContainer.innerHTML = '<div class="kx-cm-state" role="status">Cargando comentarios…</div>';
+    const input = document.getElementById('comment-input');
+    if (input) input.value = '';
+    const sendBtn = document.getElementById('send-comment-btn');
+    if (sendBtn) sendBtn.disabled = true;
 
     // Store context in form
     form.dataset.schoolId = schoolId;
@@ -2236,7 +2240,11 @@ async function loadComments(routeId) {
         const snapshot = await commentsRef.get();
 
         if (snapshot.empty) {
-            listContainer.innerHTML = '<div class="empty-comments">Sé el primero en comentar 👇</div>';
+            listContainer.innerHTML = `<div class="kx-cm-empty">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 20.5l1.5-4.6A8.4 8.4 0 1 1 21 11.5z"/></svg>
+                <p class="kx-cm-empty-title">Aún no hay comentarios</p>
+                <p class="kx-cm-empty-text">Comparte la beta, el estado de la roca o cualquier aviso útil para quien venga detrás.</p>
+            </div>`;
             return;
         }
 
@@ -2259,7 +2267,7 @@ async function loadComments(routeId) {
 
     } catch (error) {
         console.error('Error loading comments:', error);
-        listContainer.innerHTML = '<div class="error-message">Error al cargar comentarios</div>';
+        listContainer.innerHTML = '<div class="kx-cm-state is-error" role="alert">No se han podido cargar los comentarios</div>';
     }
 }
 
@@ -2269,20 +2277,24 @@ function renderComments(comments) {
 
     const html = comments.map(comment => {
         const isOwn = currentUser && comment.userId === currentUser.uid;
-        const date = comment.createdAt ? new Date(comment.createdAt.toDate()).toLocaleDateString() : '';
-        const photoUrl = comment.userPhoto || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=32';
+        const date = comment.createdAt
+            ? comment.createdAt.toDate().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+            : 'Ahora';
+        const photoUrl = escapeHtml(comment.userPhoto || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=32').replace(/"/g, '&quot;');
+        const userName = escapeHtml(comment.userName || 'Usuario');
 
         const deleteBtn = isOwn
-            ? `<button class="delete-comment-btn" data-id="${comment.id}">🗑️</button>`
+            ? `<button type="button" class="delete-comment-btn" data-id="${escapeHtml(comment.id)}" aria-label="Eliminar comentario"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></button>`
             : '';
 
         return `
             <div class="comment-item ${isOwn ? 'own-comment' : ''}">
-                <img src="${photoUrl}" alt="${comment.userName}" class="comment-avatar">
+                <img src="${photoUrl}" alt="" class="comment-avatar" loading="lazy">
                 <div class="comment-content">
                     <div class="comment-header">
-                        <span class="comment-author">${comment.userName}</span>
-                        <span class="comment-date">${date} ${deleteBtn}</span>
+                        <span class="comment-author">${isOwn ? 'Tú' : userName}</span>
+                        <span class="comment-date">${date}</span>
+                        ${deleteBtn}
                     </div>
                     <div class="comment-text">${typeof renderTextWithMentions === 'function' ? renderTextWithMentions(comment.text, comment.mentions) : escapeHtml(comment.text)}</div>
                 </div>
@@ -2293,7 +2305,7 @@ function renderComments(comments) {
     listContainer.innerHTML = html;
 
     // Attach delete listeners
-    document.querySelectorAll('.delete-comment-btn').forEach(btn => {
+    listContainer.querySelectorAll('.delete-comment-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const confirmed = await showConfirm('¿Estás seguro de que quieres eliminar este comentario?', 'Eliminar Comentario');
             if (confirmed) {
@@ -2315,8 +2327,12 @@ async function postComment(text) {
     }
 
     const form = document.getElementById('comment-form');
+    if (form.dataset.posting === 'true') return; // Enter repetido o doble toque: un solo comentario
     const schoolId = form.dataset.schoolId;
     const routeId = `${schoolId}_${form.dataset.routeId}`;
+    const sendBtn = document.getElementById('send-comment-btn');
+    form.dataset.posting = 'true';
+    if (sendBtn) sendBtn.disabled = true;
 
     try {
         // Extract mentions from autocomplete
@@ -2355,6 +2371,10 @@ async function postComment(text) {
     } catch (error) {
         console.error('Error posting comment:', error);
         showToast('Error al publicar comentario', 'error');
+    } finally {
+        delete form.dataset.posting;
+        const input = document.getElementById('comment-input');
+        if (sendBtn) sendBtn.disabled = !(input && input.value.trim());
     }
 }
 
