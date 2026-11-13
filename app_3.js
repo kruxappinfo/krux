@@ -15279,6 +15279,10 @@ function openNewGymAscent() {
     document.getElementById(id)?.classList.remove('hidden');
   });
 
+  // Tipo por defecto: vía indoor (el botón activo no lo restablece form.reset())
+  document.querySelectorAll('#gm-type-seg .gm-type-btn').forEach(b => b.classList.toggle('active', b.dataset.gtype === 'via'));
+  if (typeof kxAscentVotes !== 'undefined') kxAscentVotes.reset();
+
   // Populate grade select (default: via)
   _populateGymGradeSelect('via');
 
@@ -15289,7 +15293,7 @@ function openNewGymAscent() {
   // Pre-fill today's date
   const dateInput = document.getElementById('ascent-date');
   if (dateInput) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = typeof kxLocalISODate === 'function' ? kxLocalISODate() : new Date().toISOString().split('T')[0];
     dateInput.max = today;
     dateInput.value = today;
   }
@@ -15301,7 +15305,7 @@ function openNewGymAscent() {
   });
   const styleToggle = document.getElementById('style-dropdown-toggle');
   if (styleToggle) {
-    styleToggle.querySelector('.style-icon').textContent = '🔴';
+    styleToggle.querySelector('.style-icon').dataset.style = 'redpoint';
     styleToggle.querySelector('.style-dropdown-label').innerHTML = '<strong>Redpoint</strong> — Encadenada tras haberla probado antes';
   }
 
@@ -15343,9 +15347,12 @@ function openGymPickerSheet() {
     closeBtn._wired = true;
     closeBtn.addEventListener('click', closeGymPickerSheet);
   }
-  sheet.addEventListener('click', e => {
-    if (e.target === sheet) closeGymPickerSheet();
-  }, { once: false });
+  if (!sheet._backdropWired) {
+    sheet._backdropWired = true;
+    sheet.addEventListener('click', e => {
+      if (e.target === sheet) closeGymPickerSheet();
+    });
+  }
 
   // Wire GPS button (once)
   const gpsBtn = document.getElementById('gym-picker-gps');

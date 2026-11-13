@@ -848,6 +848,13 @@ const kxAscentVotes = {
     }
 };
 
+// Fecha de hoy en hora local (YYYY-MM-DD). toISOString() usa UTC: entre las 00:00 y las 02:00
+// en España daba el día anterior y no dejaba elegir hoy.
+function kxLocalISODate(d = new Date()) {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 // Open ascent modal
 function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector) {
     if (!currentUser) {
@@ -876,10 +883,10 @@ function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector
 
     // Set display fields
     document.getElementById('display-route-name').textContent = `${routeName} (${grade})`;
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = kxLocalISODate();
     const dateInput = document.getElementById('ascent-date');
     dateInput.max = todayStr;
-    dateInput.valueAsDate = new Date();
+    dateInput.value = todayStr;
 
     kxAscentVotes.open(schoolId, routeId, grade);
     modal.classList.remove('hidden');
@@ -902,7 +909,7 @@ function closeAscentModal() {
     });
     const styleToggle = document.getElementById('style-dropdown-toggle');
     if (styleToggle) {
-        styleToggle.querySelector('.style-icon').textContent = '🔴';
+        styleToggle.querySelector('.style-icon').dataset.style = 'redpoint';
         styleToggle.querySelector('.style-dropdown-label').innerHTML = '<strong>Redpoint</strong> — Encadenada tras haberla probado antes';
     }
     const styleDropdown = document.querySelector('.style-dropdown');
@@ -928,7 +935,7 @@ function closeAscentModal() {
     if (gmLabel) gmLabel.textContent = 'Selecciona un rocódromo';
 
     // Reset title and button text
-    modalTitle.textContent = 'Registrar Ascenso';
+    modalTitle.textContent = 'Registrar ascenso';
     const submitBtn = form.querySelector('.submit-btn');
     submitBtn.textContent = 'Registrar';
 }
@@ -964,7 +971,7 @@ function openEditAscentModal(ascent) {
         : new Date(ascent.date).toISOString().split('T')[0];
 
     const dateInputEdit = document.getElementById('ascent-date');
-    dateInputEdit.max = new Date().toISOString().split('T')[0];
+    dateInputEdit.max = kxLocalISODate();
     dateInputEdit.value = dateStr;
     document.getElementById('ascent-sector').value = ascent.sector || '';
     document.getElementById('ascent-style').value = ascent.style;
@@ -973,7 +980,7 @@ function openEditAscentModal(ascent) {
         if (o.dataset.value === ascent.style) {
             const toggle = document.getElementById('style-dropdown-toggle');
             if (toggle) {
-                toggle.querySelector('.style-icon').textContent = o.querySelector('.style-icon').textContent;
+                toggle.querySelector('.style-icon').dataset.style = o.dataset.value;
                 toggle.querySelector('.style-dropdown-label').innerHTML = o.querySelector('.style-text').innerHTML;
             }
         }
@@ -993,7 +1000,7 @@ function openEditAscentModal(ascent) {
 
     // Change title and button text
     const modalTitle = document.getElementById('ascent-modal-title');
-    modalTitle.textContent = 'Actualizar Ascenso';
+    modalTitle.textContent = 'Actualizar ascenso';
 
     const submitBtn = form.querySelector('.submit-btn');
     submitBtn.textContent = 'Actualizar';
@@ -2435,6 +2442,10 @@ document.addEventListener('DOMContentLoaded', () => {
         styleToggle.addEventListener('click', (e) => {
             e.stopPropagation();
             styleDropdown.classList.toggle('open');
+            // Dentro del modal con scroll: si el menú queda por debajo, se desplaza para verlo entero
+            if (styleDropdown.classList.contains('open') && styleMenu) {
+                requestAnimationFrame(() => styleMenu.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+            }
         });
     }
 
@@ -2447,9 +2458,9 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('ascent-style').value = option.dataset.value;
 
             // Update toggle display
-            const icon = option.querySelector('.style-icon').textContent;
+            const icon = option.dataset.value;
             const text = option.querySelector('.style-text').innerHTML;
-            styleToggle.querySelector('.style-icon').textContent = icon;
+            styleToggle.querySelector('.style-icon').dataset.style = icon;
             styleToggle.querySelector('.style-dropdown-label').innerHTML = text;
 
             // Close dropdown
@@ -2576,7 +2587,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 const selectedDate = document.getElementById('ascent-date').value;
-                if (selectedDate && selectedDate > new Date().toISOString().split('T')[0]) {
+                if (selectedDate && selectedDate > kxLocalISODate()) {
                     showToast('No puedes registrar vías con fecha futura', 'error');
                     submitBtn.disabled = false;
                     submitBtn.textContent = originalText;
@@ -2584,6 +2595,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const isGymMode = form.dataset.gymMode === 'true';
+                if (isGymMode && !document.getElementById('ascent-school-name').value.trim()) {
+                    showToast('Elige un rocódromo', 'warning');
+                    document.getElementById('gm-gym-trigger')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    return;
+                }
                 const gmRouteName = isGymMode ? (document.getElementById('gm-route-input')?.value.trim() || '') : '';
                 const ascentData = {
                     userId: currentUser.uid,
@@ -2603,7 +2619,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     sector: document.getElementById('ascent-sector').value,
                     date: document.getElementById('ascent-date').value,
                     style: document.getElementById('ascent-style').value,
-                    tries: parseInt(document.getElementById('ascent-tries').value),
+                    tries: Math.max(1, parseInt(document.getElementById('ascent-tries').value, 10) || 1),
                     notes: document.getElementById('ascent-notes').value,
                     rating: parseInt(document.querySelector('input[name="rating"]:checked')?.value || 0),
                     timestamp: firebase.firestore.FieldValue.serverTimestamp()
@@ -2615,7 +2631,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (isEditMode && ascentId) {
                     // Update existing ascent
-                    await updateAscent(ascentId, ascentData);
+                    if (!await updateAscent(ascentId, ascentData)) return; // ya avisa del error; el formulario sigue abierto
                     await kxAscentVotes.save();
                     closeAscentModal();
                     showToast('Ascenso actualizado', 'success');
@@ -2623,7 +2639,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     showMyRoutes();
                 } else {
                     // Create new ascent
-                    await logAscent(ascentData);
+                    if (!await logAscent(ascentData)) return; // ya avisa del error; el formulario sigue abierto
                     await kxAscentVotes.save();
                     closeAscentModal();
                     showToast('Ascenso registrado', 'success');
