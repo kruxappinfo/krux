@@ -43,6 +43,7 @@ const kxTerrain3D = (() => {
   const LINE_STEP = 4;                     // m entre puntos al ceñir la línea al relieve
   const LINE_LIFT = 3;                     // m que flota la línea sobre la roca
   const LINE_WIDTH = 4, CASING_WIDTH = 6.5; // px
+  const PATH_WIDTH = 2.6, PATH_CASING_WIDTH = 4.4; // px: caminos de acceso, más finos que los sectores
   const LABEL_MAX_DIST = 3500, LABEL_MAX = 26;
   const TAP_RADIUS = 22;                   // px
 
@@ -554,6 +555,53 @@ const kxTerrain3D = (() => {
     for (const s of S.sectors) if (s.el) s.w = s.el.offsetWidth;
   }
 
+  // Caminos de acceso (GeoJSON de líneas): se ciñen al relieve como los sectores, sin etiqueta ni toque
+  function buildPaths(features, color) {
+    const T = THREE;
+    const A = [], B = [], C = [];
+    const c = new T.Color(color || '#F07A22');
+    const rgb = [c.r, c.g, c.b].map(v => Math.pow(v, 1 / 2.2));
+    for (const f of features || []) {
+      const g = f && f.geometry;
+      const lines = !g ? [] : g.type === 'MultiLineString' ? g.coordinates : g.type === 'LineString' ? [g.coordinates] : [];
+      for (const line of lines) {
+        let prev = null;
+        for (const pt of line) {
+          const [x, z] = lngLatToLocal(pt[0], pt[1]);
+          if (!isFinite(x) || !isFinite(z)) { prev = null; continue; }
+          if (!prev) { prev = [x, heightAt(x, z) + LINE_LIFT, z]; continue; }
+          const d = Math.hypot(x - prev[0], z - prev[2]);
+          const n = Math.max(1, Math.ceil(d / LINE_STEP));
+          for (let k = 1; k <= n; k++) {
+            const px = prev[0] + (x - prev[0]) * k / n, pz = prev[2] + (z - prev[2]) * k / n;
+            const cur = [px, heightAt(px, pz) + LINE_LIFT, pz];
+            A.push(prev[0], prev[1], prev[2]);
+            B.push(cur[0], cur[1], cur[2]);
+            C.push(rgb[0], rgb[1], rgb[2]);
+            prev = cur;
+          }
+        }
+      }
+    }
+    if (!A.length) return;
+    const geo = new T.InstancedBufferGeometry();
+    geo.setAttribute('position', new T.BufferAttribute(new Float32Array([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0]), 3));
+    geo.setIndex([0, 1, 2, 2, 1, 3]);
+    geo.setAttribute('iA', new T.InstancedBufferAttribute(new Float32Array(A), 3));
+    geo.setAttribute('iB', new T.InstancedBufferAttribute(new Float32Array(B), 3));
+    geo.setAttribute('iColor', new T.InstancedBufferAttribute(new Float32Array(C), 3));
+    geo.instanceCount = A.length / 3;
+    // Por debajo de los sectores (renderOrder 1 y 2) y con menos adelanto, para que no los tapen
+    S.pathMats = [lineMaterial(PATH_CASING_WIDTH, 2, true), lineMaterial(PATH_WIDTH, 4, false)];
+    S.pathMats.forEach((mat, k) => {
+      const mesh = new T.Mesh(geo, mat);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 0 + k * 0.1;
+      S.scene.add(mesh);
+    });
+    S.pathGeo = geo;
+  }
+
   // ¿Tapa el relieve la línea recta entre un punto y la cámara?
   function occluded(p) {
     const cam = S.camera.position;
@@ -891,6 +939,8 @@ const kxTerrain3D = (() => {
     S.camera.updateProjectionMatrix();
     for (const m of S.lineMats || []) m.uniforms.uRes.value.set(w * dpr, h * dpr);
     (S.lineMats || []).forEach((m, k) => { m.uniforms.uWidth.value = (k ? LINE_WIDTH : CASING_WIDTH) * dpr; });
+    for (const m of S.pathMats || []) m.uniforms.uRes.value.set(w * dpr, h * dpr);
+    (S.pathMats || []).forEach((m, k) => { m.uniforms.uWidth.value = (k ? PATH_WIDTH : PATH_CASING_WIDTH) * dpr; });
     invalidate();
   }
 
@@ -966,6 +1016,7 @@ const kxTerrain3D = (() => {
       buildSky();
       buildChunks(baseImage);
       buildSectors(opts.sectors);
+      buildPaths(opts.paths, opts.pathColor);
 
       // Arranca donde estaba el mapa: mismo centro, mismo rumbo y una distancia equivalente a su zoom
       const [x, z] = lngLatToLocal(opts.center[0], opts.center[1]);
@@ -1023,6 +1074,8 @@ const kxTerrain3D = (() => {
       if (state.baseTexture) state.baseTexture.dispose();
       if (state.lineGeo) state.lineGeo.dispose();
       for (const m of state.lineMats || []) m.dispose();
+      if (state.pathGeo) state.pathGeo.dispose();
+      for (const m of state.pathMats || []) m.dispose();
       if (state.sky) { state.sky.geometry.dispose(); state.sky.material.dispose(); }
       if (state.renderer) { state.renderer.dispose(); state.renderer.forceContextLoss(); }
     } catch (e) { console.warn('[3D] Error al liberar el visor:', e); }
