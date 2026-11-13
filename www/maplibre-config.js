@@ -399,7 +399,7 @@ const MAP_DEFAULTS = {
   bearing: 0,      // Rotación inicial
   maxPitch: 85,    // Máxima inclinación permitida
   terrain: {
-    exaggeration: 1.5  // Exageración del relieve 3D
+    exaggeration: 1.2  // Exageración del relieve 3D (más alta estira la ortofoto y las líneas en las paredes)
   }
 };
 

@@ -307,15 +307,28 @@ function kxSectorLinePaint() {
   };
 }
 
+// En 3D las líneas van pegadas al relieve y en las paredes se estiran: con el borde blanco ancho de la vista
+// plana se ve deshilachado, así que ahí se deja en un filo fino alrededor de la línea
+function kxSectorCasingWidth() {
+  const stops = is3DMode
+    ? [12, 6, 4, 14, 6.5, 4.5, 16, 7, 5.25, 18, 7.25, 5.5, 20, 7.75, 6]
+    : [12, 7.5, 5.5, 14, 8.5, 6.5, 16, 9, 7.5, 18, 9.5, 8, 20, 10.5, 9];
+  const expr = ['interpolate', ['linear'], ['zoom']];
+  for (let i = 0; i < stops.length; i += 3) expr.push(stops[i], ['case', _kxSel, stops[i + 1], stops[i + 2]]);
+  return expr;
+}
+
+const KX_SECTOR_CASING_LAYERS = ['sectores-casing-layer', 'sectores-usuarios-casing-layer'];
+function kxApplySectorCasing3D() {
+  KX_SECTOR_CASING_LAYERS.forEach(id => {
+    if (mlMap && mlMap.getLayer(id)) mlMap.setPaintProperty(id, 'line-width', kxSectorCasingWidth());
+  });
+}
+
 function kxSectorCasingPaint() {
   return {
     'line-color': '#FFFFFF',
-    'line-width': ['interpolate', ['linear'], ['zoom'],
-      12, ['case', _kxSel, 7.5, 5.5],
-      14, ['case', _kxSel, 8.5, 6.5],
-      16, ['case', _kxSel, 9, 7.5],
-      18, ['case', _kxSel, 9.5, 8],
-      20, ['case', _kxSel, 10.5, 9]],
+    'line-width': kxSectorCasingWidth(),
     'line-opacity': ['interpolate', ['linear'], ['zoom'],
       12, ['case', _kxSel, 0.8, 0.6],
       13, ['case', _kxSel, 1, 0.95]],
@@ -1380,7 +1393,10 @@ const MAP_3D_BUTTON_ENABLED = false;
 const MAP_3D_SCHOOLS = ['pedriza'];
 let is3DMode = false;
 const MIN_ZOOM_FOR_3D = 14;
-const MAX_PITCH_3D = 80; // Inclinación máxima en modo 3D (85%)
+const MIN_ZOOM_IN_3D = 12;   // Ya en 3D se puede alejar más sin que el modo se apague
+const MAX_PITCH_3D = 85;     // Inclinación máxima en modo 3D: el tope de MapLibre 4
+const INITIAL_PITCH_3D = 65; // Inclinación con la que arranca el modo 3D
+const MAX_DPR_3D = 2;        // El relieve se pinta a 2 px por punto: más densidad solo cuesta fluidez
 
 // Zoom mínimo para cargar geometrías automáticamente
 const MIN_ZOOM_FOR_AUTO_LOAD = 12;
@@ -1795,7 +1811,7 @@ async function findNearestSector(schoolId, lng, lat) {
 
 // ¿Está el centro del mapa dentro de una escuela de MAP_3D_SCHOOLS, con zoom suficiente?
 function kxIn3DSchool() {
-  if (!mlMap || mlMap.getZoom() < MIN_ZOOM_FOR_3D) return false;
+  if (!mlMap || mlMap.getZoom() < (is3DMode ? MIN_ZOOM_IN_3D : MIN_ZOOM_FOR_3D)) return false;
   const c = mlMap.getCenter();
   return MAP_3D_SCHOOLS.some(id => {
     const b = MAPLIBRE_SCHOOLS[id] && MAPLIBRE_SCHOOLS[id].bounds;
@@ -1841,17 +1857,19 @@ function toggle3DMode() {
  * Activa el modo 3D con vista inclinada
  * - Deshabilita handlers personalizados de pinch
  * - Habilita handlers nativos de MapLibre para pitch, zoom y rotación
- * - Permite inclinación hasta MAX_PITCH_3D (85%)
+ * - Permite inclinación hasta MAX_PITCH_3D
  */
 function enable3DMode() {
-  if (!isNearSchool()) return;
+  if (!(MAP_3D_BUTTON_ENABLED ? isNearSchool() : kxIn3DSchool())) return;
 
   is3DMode = true;
+  mlMap.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_DPR_3D));
+  kxApplySectorCasing3D();
 
   // 1. DESHABILITAR handlers personalizados (para que no interfieran)
   disableCustomTouchHandlers();
 
-  // 2. Configurar máximo pitch (85%)
+  // 2. Configurar máximo pitch
   mlMap.setMaxPitch(MAX_PITCH_3D);
 
   // 3. HABILITAR handlers nativos de MapLibre para 3D
@@ -1865,7 +1883,7 @@ function enable3DMode() {
 
   // 5. Animar a vista 3D inicial
   mlMap.easeTo({
-    pitch: 50,
+    pitch: INITIAL_PITCH_3D,
     bearing: mlMap.getBearing(),
     duration: 500
   });
@@ -1888,6 +1906,7 @@ function enable3DMode() {
  */
 function disable3DMode() {
   is3DMode = false;
+  kxApplySectorCasing3D();
 
   // 1. Animar vuelta a vista 2D
   mlMap.easeTo({
@@ -1902,6 +1921,7 @@ function disable3DMode() {
       // 3. Bloquear pitch y quitar terreno 3D
       mlMap.setMaxPitch(0);
       remove3DTerrain();
+      mlMap.setPixelRatio(window.devicePixelRatio || 1);
 
       // 4. DESHABILITAR handlers nativos de 3D
       mlMap.touchZoomRotate.disable();
@@ -2168,19 +2188,7 @@ function add3DTerrain() {
       exaggeration: MAP_DEFAULTS.terrain.exaggeration
     });
 
-    // Añadir capa de sombreado (hillshade)
-    if (!mlMap.getLayer('hillshade-layer')) {
-      mlMap.addLayer({
-        id: 'hillshade-layer',
-        type: 'hillshade',
-        source: 'terrain-source',
-        paint: {
-          'hillshade-exaggeration': 0.3,
-          'hillshade-shadow-color': '#000000',
-          'hillshade-highlight-color': '#ffffff'
-        }
-      }, 'pnoa-layer'); // Insertar debajo del PNOA
-    }
+    // Sin capa de sombreado propia: bajo la ortofoto no se veía y el topográfico ya trae la suya (kx-hillshade)
 
     mlIs3DEnabled = true;
     console.log('Terreno 3D activado');

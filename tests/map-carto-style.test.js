@@ -53,6 +53,8 @@ vm.runInContext([
   extractFunction(MAP, 'kxAssignSectorColors'),
   extractFunction(MAP, 'kxSectorColorExpr'),
   extractFunction(MAP, 'kxSectorLinePaint'),
+  'let is3DMode = false;',
+  extractFunction(MAP, 'kxSectorCasingWidth'),
   extractFunction(MAP, 'kxSectorCasingPaint'),
   MAP.match(/const KX_SECTOR_HIT_WIDTH = [^;]+;/)[0],
   extractFunction(MAP, 'kxSectorHitPaint'),
