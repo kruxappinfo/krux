@@ -391,6 +391,7 @@ const KX_LOCAL_DEM_ATTRIBUTION = 'MDT05 © <a href="https://www.ign.es/">IGN</a>
 // Un bloque = una tesela de `zoom`; `seg` tramos de malla por lado. Lo genera scripts/generate-terrain3d.py.
 const KX_TERRAIN_3D = {
   pedriza: { path: 'tiles/pedriza/3d', zoom: 15, x0: 16026, y0: 12310, nx: 10, ny: 8, seg: 192, basePx: 256, minH: 891, maxH: 2315 },
+  patones: { path: 'tiles/patones/3d', zoom: 15, x0: 16068, y0: 12297, nx: 5, ny: 4, seg: 192, basePx: 256, minH: 690, maxH: 1155 },
 };
 
 // ============================================

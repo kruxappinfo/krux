@@ -1390,7 +1390,7 @@ function kxSessionDrawTrack(points) {
 // basta poner esta constante en true para recuperarlo en todas las escuelas
 const MAP_3D_BUTTON_ENABLED = false;
 // Excepción: escuelas con relieve propio del IGN (KX_LOCAL_DEM), donde el botón 3D sí aparece dentro de sus límites
-const MAP_3D_SCHOOLS = ['pedriza'];
+const MAP_3D_SCHOOLS = ['pedriza', 'patones'];
 let is3DMode = false;
 const MIN_ZOOM_FOR_3D = 14;
 const MIN_ZOOM_IN_3D = 12;   // Ya en 3D se puede alejar más sin que el modo se apague
