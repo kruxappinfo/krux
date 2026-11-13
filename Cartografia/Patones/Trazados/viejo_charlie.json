@@ -1,0 +1,187 @@
+{
+ "schoolId": "patones",
+ "sectorName": "Viejo Charlie",
+ "source": "Croquis de la guía de escalada de Patones, reproducido con permiso de su autor",
+ "drawings": [
+  {
+   "routeId": 324,
+   "routeName": "Atentado a Dick Turpin",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 143.5,
+     "y": 1091.1
+    },
+    {
+     "x": 132.2,
+     "y": 999.5
+    },
+    {
+     "x": 138.1,
+     "y": 928.9
+    },
+    {
+     "x": 149.3,
+     "y": 871.0
+    },
+    {
+     "x": 159.5,
+     "y": 818.9
+    }
+   ]
+  },
+  {
+   "routeId": 325,
+   "routeName": "Bulón de biela",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 312.3,
+     "y": 1139.3
+    },
+    {
+     "x": 289.5,
+     "y": 1031.8
+    },
+    {
+     "x": 247.0,
+     "y": 937.4
+    },
+    {
+     "x": 194.6,
+     "y": 871.3
+    },
+    {
+     "x": 159.5,
+     "y": 818.9
+    }
+   ]
+  },
+  {
+   "routeId": 327,
+   "routeName": "Sergi O'Conor",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 543.1,
+     "y": 1174.2
+    },
+    {
+     "x": 499.6,
+     "y": 1057.7
+    },
+    {
+     "x": 431.1,
+     "y": 944.5
+    },
+    {
+     "x": 398.6,
+     "y": 868.5
+    },
+    {
+     "x": 408.5,
+     "y": 820.6
+    }
+   ]
+  },
+  {
+   "routeId": 328,
+   "routeName": "El viejo Charlie robó la manivela",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 817.5,
+     "y": 1198.0
+    },
+    {
+     "x": 786.0,
+     "y": 1105.5
+    },
+    {
+     "x": 738.4,
+     "y": 1016.0
+    },
+    {
+     "x": 699.4,
+     "y": 945.7
+    },
+    {
+     "x": 678.7,
+     "y": 899.8
+    }
+   ]
+  },
+  {
+   "routeId": 331,
+   "routeName": "Siroco",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "sin_terminar",
+   "points": [
+    {
+     "x": 1046.0,
+     "y": 1198.0
+    },
+    {
+     "x": 1015.6,
+     "y": 1145.9
+    },
+    {
+     "x": 968.4,
+     "y": 1097.2
+    },
+    {
+     "x": 928.1,
+     "y": 1060.4
+    },
+    {
+     "x": 916.6,
+     "y": 1029.1
+    }
+   ]
+  },
+  {
+   "routeId": 332,
+   "routeName": "Chancrilla",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 1079.2,
+     "y": 1204.0
+    },
+    {
+     "x": 1043.1,
+     "y": 1115.9
+    },
+    {
+     "x": 961.1,
+     "y": 987.0
+    },
+    {
+     "x": 874.3,
+     "y": 858.4
+    },
+    {
+     "x": 840.1,
+     "y": 783.7
+    },
+    {
+     "x": 809.8,
+     "y": 650.7
+    },
+    {
+     "x": 808.8,
+     "y": 554.6
+    },
+    {
+     "x": 819.4,
+     "y": 509.8
+    }
+   ]
+  }
+ ]
+}
