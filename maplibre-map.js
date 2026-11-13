@@ -1811,12 +1811,17 @@ async function findNearestSector(schoolId, lng, lat) {
 
 // ¿Está el centro del mapa dentro de una escuela de MAP_3D_SCHOOLS, con zoom suficiente?
 function kxIn3DSchool() {
-  if (!mlMap || mlMap.getZoom() < (is3DMode ? MIN_ZOOM_IN_3D : MIN_ZOOM_FOR_3D)) return false;
+  return !!kx3DSchoolId();
+}
+
+// Escuela de MAP_3D_SCHOOLS bajo el centro del mapa (null si no hay o falta zoom)
+function kx3DSchoolId() {
+  if (!mlMap || mlMap.getZoom() < (is3DMode ? MIN_ZOOM_IN_3D : MIN_ZOOM_FOR_3D)) return null;
   const c = mlMap.getCenter();
-  return MAP_3D_SCHOOLS.some(id => {
+  return MAP_3D_SCHOOLS.find(id => {
     const b = MAPLIBRE_SCHOOLS[id] && MAPLIBRE_SCHOOLS[id].bounds;
     return b && c.lng >= b[0][0] && c.lng <= b[1][0] && c.lat >= b[0][1] && c.lat <= b[1][1];
-  });
+  }) || null;
 }
 
 /**
@@ -1848,9 +1853,59 @@ function update3DButtonVisibility() {
 function toggle3DMode() {
   if (is3DMode) {
     disable3DMode();
+    return;
+  }
+  // Donde hay maqueta precargada (KX_TERRAIN_3D) se abre el visor propio; si no, el relieve de MapLibre
+  const schoolId = kx3DSchoolId();
+  if (schoolId && typeof kxTerrain3D !== 'undefined' && kxTerrain3D.available(schoolId)) {
+    kxOpenTerrainViewer(schoolId);
   } else {
     enable3DMode();
   }
+}
+
+/**
+ * Abre el visor 3D propio (terrain-3d.js) sobre el mapa, con los sectores cargados y sus colores.
+ * Si el visor no puede arrancar (sin red para Three.js, sin WebGL...), entra el modo 3D de MapLibre.
+ */
+function kxOpenTerrainViewer(schoolId) {
+  if (kxTerrain3D.isOpen()) return;
+  const sectors = [];
+  ['sectores-source', 'sectores-usuarios-source'].forEach(sourceId => {
+    const src = mlMap.getSource(sourceId);
+    const data = src && src.serialize && src.serialize().data;
+    if (!data || !Array.isArray(data.features)) return;
+    data.features.forEach(f => {
+      const p = f.properties || {};
+      sectors.push({ feature: f, user: sourceId === 'sectores-usuarios-source', name: p.nombre || p.name || '', color: kxSectorColorOf(f) });
+    });
+  });
+  const c = mlMap.getCenter();
+  kxTerrain3D.open(schoolId, {
+    container: document.getElementById('map-view'),
+    name: MAPLIBRE_SCHOOLS[schoolId].name,
+    center: [c.lng, c.lat],
+    zoom: mlMap.getZoom(),
+    bearing: mlMap.getBearing(),
+    sectors,
+    onSector(item, lngLat) {
+      // En escritorio la ficha es un popup del mapa 2D: se vuelve a él antes de abrirla
+      if (!isMobileDevice()) {
+        kxTerrain3D.close();
+        mlMap.jumpTo({ center: lngLat });
+      }
+      const props = item.feature.properties || {};
+      if (item.user) mlOpenUserSector(props, lngLat);
+      else mlOpenStaticSector(props, lngLat);
+    },
+    onClose(center) {
+      // El mapa 2D queda donde se estaba mirando en 3D
+      if (center && mlMap) mlMap.jumpTo({ center });
+    }
+  }).catch(e => {
+    console.warn('[3D] Visor de relieve no disponible, se usa el 3D del mapa:', e);
+    enable3DMode();
+  });
 }
 
 /**
