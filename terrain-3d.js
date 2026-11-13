@@ -46,6 +46,8 @@ const kxTerrain3D = (() => {
   const PATH_WIDTH = 1.6, PATH_CASING_WIDTH = 3; // px: caminos de acceso, más finos que los sectores
   const LABEL_MAX_DIST = 3500, LABEL_MAX = 26;
   const TAP_RADIUS = 22;                   // px
+  const POI_MAX_DIST = 5000, POI_LIFT = 35; // m: hasta dónde se ven los POI y a qué altura flotan sobre el suelo
+  const POI_REF_DIST = 900;                // m: distancia a la que la insignia mide su tamaño normal
 
   const SKY_ZENITH = '#78aee0', SKY_HORIZON = '#dfe8ee';
 
@@ -555,6 +557,59 @@ const kxTerrain3D = (() => {
     for (const s of S.sectors) if (s.el) s.w = s.el.offsetWidth;
   }
 
+  // POI y parkings: insignia redonda HTML (la misma del mapa 2D) que flota sobre su punto del relieve, con un
+  // mástil hasta el suelo. Se coloca cada fotograma y crece o encoge con la distancia, como un objeto del mundo.
+  function buildPois(list) {
+    const T = THREE;
+    S.pois = [];
+    const frag = document.createDocumentFragment();
+    for (const p of list || []) {
+      const [x, z] = lngLatToLocal(p.lng, p.lat);
+      if (!isFinite(x) || !isFinite(z) || Math.abs(x) > S.grid.halfW || Math.abs(z) > S.grid.halfH) continue;
+      const el = document.createElement('div');
+      el.className = 'kx-t3d-poi';
+      if (p.name) el.title = p.name;
+      const stem = document.createElement('i');
+      const img = document.createElement('img');
+      img.alt = '';
+      img.decoding = 'async';
+      img.src = p.icon;
+      el.appendChild(stem);
+      el.appendChild(img);
+      frag.appendChild(el);
+      const ground = heightAt(x, z);
+      S.pois.push({
+        el, stem,
+        base: new T.Vector3(x, ground + 1, z), top: new T.Vector3(x, ground + POI_LIFT, z),
+        shown: false, next: false, sx: 0, sy: 0, sh: 0, k: 1
+      });
+    }
+    S.labelsEl.appendChild(frag);
+  }
+
+  function updatePois() {
+    const v = S.v3, cam = S.camera.position, w = S.cssW, h = S.cssH;
+    for (const p of S.pois || []) {
+      p.next = false;
+      const d = cam.distanceTo(p.top);
+      if (d < POI_MAX_DIST) {
+        v.copy(p.top).project(S.camera);
+        if (v.z > -1 && v.z < 1 && v.x > -1.05 && v.x < 1.05 && v.y > -1.05 && v.y < 1.05 && !occluded(p.top)) {
+          p.sx = (v.x + 1) / 2 * w; p.sy = (1 - v.y) / 2 * h;
+          v.copy(p.base).project(S.camera);
+          p.sh = Math.max(0, (1 - v.y) / 2 * h - p.sy);
+          p.k = Math.max(0.5, Math.min(1.5, POI_REF_DIST / d));
+          p.next = true;
+        }
+      }
+      if (p.next) {
+        p.el.style.transform = `translate3d(${p.sx.toFixed(1)}px, ${p.sy.toFixed(1)}px, 0) scale(${p.k.toFixed(3)})`;
+        p.stem.style.height = (p.sh / p.k).toFixed(1) + 'px';
+      }
+      if (p.next !== p.shown) { p.shown = p.next; p.el.classList.toggle('is-on', p.shown); }
+    }
+  }
+
   // Caminos de acceso (GeoJSON de líneas): se ciñen al relieve como los sectores, sin etiqueta ni toque
   function buildPaths(features, color) {
     const T = THREE;
@@ -923,6 +978,7 @@ const kxTerrain3D = (() => {
     }
     S.renderer.render(S.scene, S.camera);
     updateLabels();
+    updatePois();
     if (!again) S.lastFrame = 0;
     if (again) invalidate();
   }
@@ -1017,6 +1073,7 @@ const kxTerrain3D = (() => {
       buildChunks(baseImage);
       buildSectors(opts.sectors);
       buildPaths(opts.paths, opts.pathColor);
+      buildPois(opts.pois);
 
       // Arranca donde estaba el mapa: mismo centro, mismo rumbo y una distancia equivalente a su zoom
       const [x, z] = lngLatToLocal(opts.center[0], opts.center[1]);

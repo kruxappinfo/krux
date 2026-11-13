@@ -1886,8 +1886,30 @@ function kxOpenTerrainViewer(schoolId) {
   const pathsReady = pathsUrl
     ? fetch(pathsUrl).then(r => (r.ok ? r.json() : null)).then(d => (d && d.features) || []).catch(() => [])
     : Promise.resolve([]);
+  // POI (estáticos y de usuarios) y parkings, con la misma insignia que en el mapa 2D
+  const pois = [];
+  ['puntos-interes-source', 'poi-usuarios-source'].forEach(sourceId => {
+    const src = mlMap.getSource(sourceId);
+    const data = src && src.serialize && src.serialize().data;
+    if (!data || !Array.isArray(data.features)) return;
+    data.features.forEach(f => {
+      const p = f.properties || {};
+      const co = f.geometry && f.geometry.type === 'Point' ? f.geometry.coordinates : null;
+      if (co) pois.push({ lng: co[0], lat: co[1], icon: kxPoiIconSrc(p.descripcio || p.descripcion || p.Descripcion || p.tipo || ''), name: p.nombre || p.name || '' });
+    });
+  });
+  const parkingsReady = g.parkings
+    ? fetch(g.parkings).then(r => (r.ok ? r.json() : null)).then(d => (d && d.features) || []).catch(() => [])
+    : Promise.resolve([]);
   const c = mlMap.getCenter();
-  pathsReady.then(paths => kxTerrain3D.open(schoolId, {
+  Promise.all([pathsReady, parkingsReady]).then(([paths, parkings]) => {
+    parkings.forEach(f => {
+      const geom = f.geometry || {};
+      const pts = geom.type === 'Point' ? [geom.coordinates] : geom.type === 'MultiPoint' ? geom.coordinates : [];
+      pts.forEach(co => pois.push({ lng: co[0], lat: co[1], icon: kxPoiIconSrc('parking'), name: (f.properties && (f.properties.Descripcion || f.properties.nombre)) || 'Parking' }));
+    });
+    return kxTerrain3D.open(schoolId, {
+    pois,
     paths,
     pathColor: KX_MAP.access,
     container: document.getElementById('map-view'),
@@ -1910,7 +1932,8 @@ function kxOpenTerrainViewer(schoolId) {
       // El mapa 2D queda donde se estaba mirando en 3D
       if (center && mlMap) mlMap.jumpTo({ center });
     }
-  })).catch(e => {
+  });
+  }).catch(e => {
     console.warn('[3D] Visor de relieve no disponible, se usa el 3D del mapa:', e);
     enable3DMode();
   });
@@ -2996,6 +3019,13 @@ function createSVGPinImage(poiType) {
 
 // Los POI son insignias circulares: se rasterizan a 32 px CSS (a la densidad real de la pantalla) y se anclan por el centro
 const POI_ICON_CSS_SIZE = 32;
+
+// URL de la insignia de un tipo de POI (para usarla como <img> fuera del mapa 2D)
+function kxPoiIconSrc(poiType) {
+  const desc = (poiType || '').toLowerCase().trim();
+  const file = POI_SVG_FILES[desc];
+  return file ? file + '?v=' + POI_ICONS_VERSION : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(kxPOISVG(desc));
+}
 
 function _createSVGPinImageRaw(poiType) {
   const desc = (poiType || '').toLowerCase().trim();
