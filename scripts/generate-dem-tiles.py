@@ -20,6 +20,7 @@ import numpy as np
 # Zonas: bbox [oeste, sur, este, norte] en grados. Se cubren enteras las teselas de MIN_ZOOM que la tocan.
 ZONES = {
     'pedriza': {'bbox': [-3.9257, 40.7327, -3.8267, 40.7891]},
+    'patones': {'bbox': [-3.462, 40.876, -3.424, 40.898]},  # Pontón de la Oliva y el cañón del Lozoya
 }
 MIN_ZOOM, MAX_ZOOM = 13, 14
 TILE = 512

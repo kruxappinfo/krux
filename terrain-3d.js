@@ -631,7 +631,8 @@ const kxTerrain3D = (() => {
   function clampView() {
     const c = S.cam, g = S.grid;
     c.phi = Math.max(0.02, Math.min(MAX_POLAR, c.phi));
-    c.dist = Math.max(MIN_DIST, Math.min(MAX_DIST, c.dist));
+    // En zonas pequeñas no se aleja tanto que la maqueta quede como una isla en el cielo
+    c.dist = Math.max(MIN_DIST, Math.min(MAX_DIST, 3 * Math.max(g.halfW, g.halfH), c.dist));
     c.x = Math.max(-g.halfW, Math.min(g.halfW, c.x));
     c.z = Math.max(-g.halfH, Math.min(g.halfH, c.z));
   }
