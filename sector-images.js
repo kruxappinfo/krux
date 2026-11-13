@@ -362,6 +362,7 @@ async function openSectorImageViewer(schoolId, sectorName, startIndex = 0) {
   // Configurar carrusel y canvas si hay imágenes
   if (hasImages) {
     setupGalleryCarousel();
+    svWatchSlideImage(currentGalleryIndex);
 
     // Si se abre en una imagen distinta a la primera, posicionar el carrusel
     if (currentGalleryIndex > 0) {
@@ -2339,7 +2340,43 @@ function svApplyDrawingsForImage(data, imageId) {
 // Pone a descargar la foto de una diapositiva (las que no son la abierta nacen sin src)
 function svEnsureSlideImage(index) {
   const img = document.getElementById(`sector-full-image-${index}`);
-  if (img && !img.getAttribute('src') && img.dataset.src) img.src = img.dataset.src;
+  if (img && !img.getAttribute('src') && img.dataset.src) {
+    img.src = img.dataset.src;
+    svWatchSlideImage(index);
+  }
+}
+
+// Estado de descarga de la foto de una diapositiva: indicador mientras baja y aviso con "Reintentar" si falla
+function svWatchSlideImage(index) {
+  const img = document.getElementById(`sector-full-image-${index}`);
+  const container = document.getElementById(`sector-viewer-container-${index}`);
+  if (!img || !container || !img.getAttribute('src')) return;
+  if (!img.dataset.src) img.dataset.src = img.getAttribute('src');   // URL original, para reintentar
+  if (img.complete && img.naturalWidth > 0) return;
+
+  container.classList.remove('is-error');
+  container.classList.add('is-loading');
+  if (!container.querySelector('.sector-viewer-loading')) {
+    container.insertAdjacentHTML('beforeend', '<span class="sector-viewer-loading" role="status" aria-label="Cargando foto"></span>');
+  }
+
+  img.addEventListener('load', () => container.classList.remove('is-loading', 'is-error'), { once: true });
+  img.addEventListener('error', () => {
+    container.classList.remove('is-loading');
+    container.classList.add('is-error');
+    if (container.querySelector('.sector-viewer-failed')) return;
+    container.insertAdjacentHTML('beforeend', `
+      <div class="sector-viewer-failed" role="alert">
+        <p>No se pudo cargar la foto</p>
+        <button type="button">Reintentar</button>
+      </div>`);
+    container.querySelector('.sector-viewer-failed button').addEventListener('click', () => {
+      // El parámetro fuerza una petición nueva; el token de descarga de Firebase no cambia
+      const url = img.dataset.src;
+      img.src = `${url}${url.includes('?') ? '&' : '?'}r=${Date.now()}`;
+      svWatchSlideImage(index);
+    });
+  }, { once: true });
 }
 
 // Con la foto abierta ya descargada, adelanta las vecinas para que pasar de foto sea inmediato
