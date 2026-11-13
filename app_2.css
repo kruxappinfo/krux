@@ -34674,3 +34674,53 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 @media (prefers-reduced-motion: reduce) {
   #comments-modal .modal-content { animation: none; }
 }
+
+/* Visor 3D: POI y parkings como insignias que flotan sobre el relieve, con un mástil hasta el suelo */
+#map-view .kx-t3d-poi {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform-origin: 0 0;
+  will-change: transform;
+  transition: opacity 0.14s linear, visibility 0s linear 0.14s;
+}
+#map-view .kx-t3d-poi.is-on {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.14s linear;
+}
+#map-view .kx-t3d-poi > img {
+  position: absolute;
+  left: -0.875rem;
+  top: -0.875rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  filter: drop-shadow(0 1px 3px rgba(20, 28, 24, 0.4));
+}
+#map-view .kx-t3d-poi > i {
+  position: absolute;
+  left: -1px;
+  top: 0.875rem;
+  width: 2px;
+  height: 0;
+  border-radius: 1px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.45));
+  box-shadow: 0 0 0 0.5px rgba(20, 28, 24, 0.35);
+}
+#map-view .kx-t3d-poi > i::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -3px;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 0 0 1.5px rgba(20, 28, 24, 0.45);
+}
