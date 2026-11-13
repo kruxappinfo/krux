@@ -1895,7 +1895,8 @@ function kxOpenTerrainViewer(schoolId) {
     data.features.forEach(f => {
       const p = f.properties || {};
       const co = f.geometry && f.geometry.type === 'Point' ? f.geometry.coordinates : null;
-      if (co) pois.push({ lng: co[0], lat: co[1], icon: kxPoiIconSrc(p.descripcio || p.descripcion || p.Descripcion || p.tipo || ''), name: p.nombre || p.name || '' });
+      const desc = (p.descripcio || p.descripcion || p.Descripcion || p.tipo || '').trim();
+      if (co) pois.push({ lng: co[0], lat: co[1], icon: kxPoiIconSrc(desc), type: desc.charAt(0).toUpperCase() + desc.slice(1), name: p.nombre || p.Nombre || p.name || '' });
     });
   });
   const parkingsReady = g.parkings
@@ -1906,7 +1907,7 @@ function kxOpenTerrainViewer(schoolId) {
     parkings.forEach(f => {
       const geom = f.geometry || {};
       const pts = geom.type === 'Point' ? [geom.coordinates] : geom.type === 'MultiPoint' ? geom.coordinates : [];
-      pts.forEach(co => pois.push({ lng: co[0], lat: co[1], icon: kxPoiIconSrc('parking'), name: (f.properties && (f.properties.Descripcion || f.properties.nombre)) || 'Parking' }));
+      pts.forEach(co => pois.push({ lng: co[0], lat: co[1], icon: kxPoiIconSrc('parking'), type: 'Parking', name: (f.properties && (f.properties.Descripcion || f.properties.nombre || f.properties.Nombre)) || '' }));
     });
     return kxTerrain3D.open(schoolId, {
     pois,

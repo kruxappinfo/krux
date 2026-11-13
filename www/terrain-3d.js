@@ -579,7 +579,7 @@ const kxTerrain3D = (() => {
       frag.appendChild(el);
       const ground = heightAt(x, z);
       S.pois.push({
-        el, stem,
+        el, stem, data: p,
         base: new T.Vector3(x, ground + 1, z), top: new T.Vector3(x, ground + POI_LIFT, z),
         shown: false, next: false, sx: 0, sy: 0, sh: 0, k: 1
       });
@@ -608,6 +608,65 @@ const kxTerrain3D = (() => {
       }
       if (p.next !== p.shown) { p.shown = p.next; p.el.classList.toggle('is-on', p.shown); }
     }
+  }
+
+  // POI bajo un toque: su insignia (con un mínimo de 22 px de radio) o su mástil
+  function poiAt(x, y) {
+    let best = null, bestD = Infinity;
+    for (const p of S.pois || []) {
+      if (!p.shown) continue;
+      const r = Math.max(22, 16 * p.k);
+      const d = Math.hypot(x - p.sx, y - p.sy);
+      if (d < r && d < bestD) { best = p; bestD = d; }
+    }
+    return best;
+  }
+
+  // Ficha del POI dentro del visor (el popup de MapLibre queda tapado por la maqueta)
+  function hidePoiCard() {
+    if (S && S.poiCard) S.poiCard.classList.remove('is-on');
+  }
+
+  function showPoiCard(p) {
+    const d = p.data;
+    if (!S.poiCard) {
+      const card = document.createElement('div');
+      card.className = 'kx-t3d-poicard';
+      card.setAttribute('role', 'dialog');
+      S.root.appendChild(card);
+      S.poiCard = card;
+    }
+    const card = S.poiCard;
+    card.textContent = '';
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = d.icon;
+    const info = document.createElement('div');
+    info.className = 'kx-t3d-poicard-info';
+    const type = document.createElement('div');
+    type.className = 'kx-t3d-poicard-type';
+    type.textContent = d.type || 'Punto de interés';
+    info.appendChild(type);
+    if (d.name) {
+      const name = document.createElement('div');
+      name.className = 'kx-t3d-poicard-name';
+      name.textContent = d.name;
+      info.appendChild(name);
+    }
+    const go = document.createElement('a');
+    go.className = 'kx-t3d-poicard-go';
+    go.href = `https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}`;
+    go.target = '_blank';
+    go.rel = 'noopener';
+    go.textContent = 'Cómo llegar';
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'kx-t3d-poicard-x';
+    x.setAttribute('aria-label', 'Cerrar');
+    x.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+    x.addEventListener('click', hidePoiCard);
+    card.append(img, info, go, x);
+    card.classList.add('is-on');
   }
 
   // Caminos de acceso (GeoJSON de líneas): se ciñen al relieve como los sectores, sin etiqueta ni toque
@@ -913,6 +972,9 @@ const kxTerrain3D = (() => {
       el.classList.remove('is-dragging');
       if (!moved && e.type === 'pointerup' && now - down.t < 400) {
         const p = pos(e);
+        const poi = poiAt(p.x, p.y);
+        if (poi) { lastTap = null; showPoiCard(poi); return; }
+        hidePoiCard();
         const sector = sectorAt(p.x, p.y);
         if (sector) { lastTap = null; openSector(sector); return; }
         if (lastTap && now - lastTap.t < 320 && Math.hypot(p.x - lastTap.x, p.y - lastTap.y) < 36) {
