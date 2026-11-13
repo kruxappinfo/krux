@@ -2681,6 +2681,9 @@ async function mlLoadSchoolGeoJSON(school) {
     ...firestoreLoads
   ]);
 
+  // Deja en memoria las vías completas de la escuela: la ficha de sector y el visor de fotos las tienen al instante
+  kxSchoolRouteFeatures(school.id).catch(() => {});
+
   // Con sectores y vías ya cargados, cada nombre se coloca al lado de su línea donde no hay vías
   if (mlCurrentSchool === school.id) {
     kxRefreshSectorLabels('sectores-source');
