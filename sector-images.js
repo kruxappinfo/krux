@@ -605,6 +605,7 @@ function closeSectorImageViewer() {
   svLockedVariantIndex = null;
   svPendingHighlightRoute = null;
   svTopoNumbers = new Map();
+  svAllDrawings = [];
 
   // Resetear zoom
   resetZoomState();
@@ -1611,7 +1612,8 @@ let svRapelPoints = []; // Puntos de rápel independientes
 let svAuxElements = []; // Elementos auxiliares (líneas de descenso, grapas, cadenas)
 let svRoutesList = [];  // Lista de vías del sector para obtener grados
 let svCurrentImageId = null; // ID de la imagen actual (para galería)
-let svTopoNumbers = new Map(); // Número de croquis de cada trazado de la foto actual
+let svTopoNumbers = new Map(); // Número de croquis de cada trazado (correlativo en todo el sector)
+let svAllDrawings = [];        // Trazados de todas las fotos del sector (para numerar)
 
 // ============================================
 // CROQUIS: NUMERACIÓN Y COLOR (compartido con route-drawing.js)
@@ -1627,15 +1629,27 @@ function kxDrawingKey(drawing) {
 }
 
 /**
- * Numera los trazados de una foto de izquierda a derecha, como en un croquis en papel
+ * Numera los trazados de un sector como en un croquis en papel: por orden de
+ * fotos y, dentro de cada foto, de izquierda a derecha. Una vía dibujada en
+ * varias fotos conserva el número de la primera.
+ * @param {Array} drawings - trazados de todas las fotos del sector
+ * @param {Array} imageOrder - ids de las fotos en el orden de la galería
  * @returns {Map} clave del trazado → número (empieza en 1)
  */
-function kxTopoNumbers(drawings) {
+function kxTopoNumbers(drawings, imageOrder) {
   const start = d => (d.points && d.points[0]) || d.startPoint || { x: Infinity, y: 0 };
+  const order = imageOrder || [];
+  const imageRank = d => {
+    const i = order.indexOf(d.imageId || 'legacy_0');
+    return i < 0 ? order.length : i;
+  };
   const numbers = new Map();
   [...drawings]
-    .sort((a, b) => (start(a).x - start(b).x) || (start(b).y - start(a).y))
-    .forEach((d, i) => numbers.set(kxDrawingKey(d), i + 1));
+    .sort((a, b) => (imageRank(a) - imageRank(b)) || (start(a).x - start(b).x) || (start(b).y - start(a).y))
+    .forEach(d => {
+      const key = kxDrawingKey(d);
+      if (!numbers.has(key)) numbers.set(key, numbers.size + 1);
+    });
   return numbers;
 }
 
@@ -2042,7 +2056,7 @@ async function setupSectorViewerCanvasForGallery(schoolId, sectorName, imageInde
   await loadViewerSectorRoutes(schoolId, sectorName);
   await loadViewerRouteDrawingsForImage(schoolId, sectorName, imageData.id);
 
-  svTopoNumbers = kxTopoNumbers(svDrawings);
+  svTopoNumbers = kxTopoNumbers(svAllDrawings, sectorGalleryImages.map(img => img.id));
   renderViewerLegend();
 
   // Si no hay dibujos, solo mostrar la imagen normal con zoom
@@ -2253,6 +2267,7 @@ function initCanvasOverlayForGallery(img, container, imageIndex) {
  */
 async function loadViewerRouteDrawingsForImage(schoolId, sectorName, imageId) {
   svDrawings = [];
+  svAllDrawings = [];
 
   try {
     if (typeof db === 'undefined' || !db) {
@@ -2272,6 +2287,7 @@ async function loadViewerRouteDrawingsForImage(schoolId, sectorName, imageId) {
       allDrawings.forEach(d => {
         if (d.routeId !== undefined) d.routeId = Number(d.routeId);
       });
+      svAllDrawings = allDrawings;
 
       // Filtrar dibujos por imagen
       // Si el dibujo no tiene imageId, pertenece a la imagen legacy (primera imagen)

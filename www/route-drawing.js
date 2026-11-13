@@ -24,7 +24,8 @@ let rdDrawingsLoadFailed = false;       // true si falló loadRouteDrawings: se 
 let rdPendingRouteInfo = null;          // Info de vía pendiente {routeName, docId} - para modo obligatorio
 let rdMandatoryDrawingMode = false;     // Modo dibujo obligatorio (no se puede cerrar sin dibujar)
 let rdEditMode = false;                 // Modo edición (editando un dibujo existente)
-let rdTopoNumbers = new Map();          // Número de croquis de cada trazado de la foto abierta
+let rdTopoNumbers = new Map();          // Número de croquis de cada trazado (correlativo en todo el sector)
+let rdOtherDrawings = [];               // Trazados de las demás fotos del sector (solo para numerar)
 let rdLastPointTap = { index: -1, time: 0 }; // Último toque sobre un punto (doble toque = eliminar)
 let rdOriginalDrawing = null;           // Dibujo original siendo editado (para restaurar si se cancela)
 let rdDraggingPointIndex = -1;          // Índice del punto siendo arrastrado (-1 = ninguno)
@@ -72,6 +73,7 @@ let rdEditAuxIsDragging = false;         // Si estamos arrastrando un punto en m
 // Variables para detección de tap en touch (para menú contextual)
 let rdTouchStartPos = null;              // Posición inicial del touch
 let rdTouchStartTime = 0;               // Timestamp del inicio del touch
+let rdPendingTap = null;                // Toque que añade un punto, a confirmar al levantar el dedo
 let rdWasDragging = false;              // Flag: hubo arrastre en el último gesto (para no mostrar menú)
 
 // Constantes para interacción
@@ -1196,6 +1198,7 @@ async function getRouteData(schoolId, routeId) {
  */
 async function loadRouteDrawings(schoolId, sectorName, imageId = null) {
   rdRouteDrawings = [];
+  rdOtherDrawings = [];
   rdDrawingsLoadFailed = false;
 
   try {
@@ -1213,14 +1216,9 @@ async function loadRouteDrawings(schoolId, sectorName, imageId = null) {
 
       // Si hay imageId, filtrar solo los dibujos de esa imagen
       if (imageId) {
-        rdRouteDrawings = allDrawings.filter(d => {
-          // Dibujos con imageId coincidente
-          if (d.imageId) {
-            return d.imageId === imageId;
-          }
-          // Dibujos sin imageId pertenecen a 'legacy_0' (primera imagen)
-          return imageId === 'legacy_0';
-        });
+        const inImage = d => d.imageId ? d.imageId === imageId : imageId === 'legacy_0';
+        rdRouteDrawings = allDrawings.filter(inImage);
+        rdOtherDrawings = allDrawings.filter(d => !inImage(d));
         console.log('[RouteDrawing] Dibujos filtrados para imagen', imageId, ':', rdRouteDrawings.length);
       } else {
         rdRouteDrawings = allDrawings;
@@ -1383,6 +1381,22 @@ function rdFindDrawing(route) {
 }
 
 /**
+ * Números de croquis de todo el sector: la foto abierta más las demás fotos.
+ * Mientras se edita un trazado (quitado un momento de la lista) sigue contando.
+ */
+function rdComputeTopoNumbers() {
+  const drawings = rdOtherDrawings.concat(rdRouteDrawings);
+  if (rdEditMode && rdOriginalDrawing && !rdRouteDrawings.includes(rdOriginalDrawing)) {
+    const editedKey = kxDrawingKey(rdOriginalDrawing);
+    if (!drawings.some(d => kxDrawingKey(d) === editedKey)) drawings.push(rdOriginalDrawing);
+  }
+  const currentId = rdCurrentSector && rdCurrentSector.imageId;
+  // Los trazados de la foto abierta pertenecen a ella aunque no lleven imageId
+  const tagged = drawings.map(d => (currentId && !d.imageId && rdRouteDrawings.includes(d)) ? { ...d, imageId: currentId } : d);
+  return kxTopoNumbers(tagged, rdSectorImages.map(img => img.id));
+}
+
+/**
  * Texto de avance: cuántas vías del sector tienen trazado en esta foto
  */
 function rdProgressText() {
@@ -1404,7 +1418,7 @@ function renderRoutesList() {
   }
 
   // Mismo número que la chapa del inicio de la vía sobre la foto
-  const topoNumbers = kxTopoNumbers(rdRouteDrawings);
+  const topoNumbers = rdComputeTopoNumbers();
 
   return rdRoutesList.map(route => {
     const vi = route.variantIndex || 0;
@@ -1573,7 +1587,7 @@ function redrawCanvas() {
   rdCtx.drawImage(rdImage, 0, 0, displayWidth, displayHeight);
 
   // Numeración de croquis de la foto (izquierda → derecha)
-  rdTopoNumbers = kxTopoNumbers(rdRouteDrawings);
+  rdTopoNumbers = rdComputeTopoNumbers();
 
   // PASO 1: Dibujar TODAS las líneas primero
   rdRouteDrawings.forEach((drawing, index) => {
@@ -2070,8 +2084,9 @@ function handleCanvasMouseUp(e) {
 function handleCanvasTouchStart(e) {
   e.preventDefault();
 
-  // 2 dedos → iniciar pinch-zoom
+  // 2 dedos → iniciar pinch-zoom (el primer dedo no llega a poner ningún punto)
   if (e.touches.length === 2) {
+    rdPendingTap = null;
     rdIsDragging = false;
     rdDraggingPointIndex = -1;
     rdZoomState.isPinching = true;
@@ -2096,17 +2111,18 @@ function handleCanvasTouchStart(e) {
     return;
   }
 
-  // Modo auxiliar: añadir puntos (incluye rápel)
+  // Modo auxiliar: añadir puntos (incluye rápel); arrastrar un punto existente empieza ya
   if (rdAuxMode) {
     const { x, y } = getCanvasCoordinates(e, true);
-    handleAuxMouseDown(x, y);
+    if (findNearestAuxPointIndex(x, y) !== -1) handleAuxMouseDown(x, y);
+    else rdDeferTap(e, () => handleAuxMouseDown(x, y));
     return;
   }
 
   // Modo bifurcación
   if (rdBifurcationMode) {
     const { x, y } = getCanvasCoordinates(e, true);
-    handleBifurcationClick(x, y);
+    rdDeferTap(e, () => handleBifurcationClick(x, y));
     return;
   }
 
@@ -2144,15 +2160,34 @@ function handleCanvasTouchStart(e) {
     updateInstructions(`Arrastrando punto ${pointIndex + 1}. Suelta para posicionar.`);
   } else {
     rdLastPointTap = { index: -1, time: 0 };
-    handleDrawingPoint(x, y);
+    rdDeferTap(e, () => handleDrawingPoint(x, y));
   }
 }
+
+/**
+ * Un toque que añade un punto no se aplica al apoyar el dedo, sino al levantarlo
+ * si fue un toque corto y quieto: así un gesto de zoom con dos dedos (o un
+ * arrastre) no deja puntos sueltos.
+ */
+function rdDeferTap(e, action) {
+  const touch = e.touches[0];
+  rdPendingTap = { action, x: touch.clientX, y: touch.clientY, time: Date.now() };
+}
+
+const RD_TAP_MAX_MOVE = 12;     // px que puede moverse el dedo y seguir siendo un toque
+const RD_TAP_MAX_TIME = 700;    // ms máximos de un toque
 
 /**
  * Maneja movimiento táctil en el canvas
  */
 function handleCanvasTouchMove(e) {
   e.preventDefault();
+
+  if (rdPendingTap) {
+    const moved = e.touches.length !== 1 ||
+      Math.hypot(e.touches[0].clientX - rdPendingTap.x, e.touches[0].clientY - rdPendingTap.y) > RD_TAP_MAX_MOVE;
+    if (moved) rdPendingTap = null;
+  }
 
   // 2 dedos → pinch-zoom
   if (e.touches.length === 2) {
@@ -2225,6 +2260,7 @@ function handleCanvasTouchMove(e) {
     const dy = e.touches[0].clientY - rdTouchStartPos.y;
     if (Math.sqrt(dx * dx + dy * dy) > 15) {
       rdTouchStartPos = null;
+  rdPendingTap = null;
     }
   }
 
@@ -2241,6 +2277,16 @@ function handleCanvasTouchMove(e) {
  * Maneja cuando se termina el toque
  */
 function handleCanvasTouchEnd(e) {
+  // Toque corto y quieto: ahora sí se añade el punto
+  if (rdPendingTap) {
+    const tap = rdPendingTap;
+    rdPendingTap = null;
+    if (e.type === 'touchend' && e.touches.length === 0 && !rdZoomState.isPinching && Date.now() - tap.time < RD_TAP_MAX_TIME) {
+      tap.action();
+    }
+    return;
+  }
+
   // Fin de pinch (se levantó un dedo)
   if (rdZoomState.isPinching && e.touches.length < 2) {
     rdZoomState.isPinching = false;
@@ -4405,7 +4451,7 @@ function showSharedAnchorsModal() {
   closeSharedAnchorsModal();
   if (!rdCurrentSector) return;
 
-  rdTopoNumbers = kxTopoNumbers(rdRouteDrawings);
+  rdTopoNumbers = rdComputeTopoNumbers();
   const groups = rdNearbyAnchorGroups();
   rdSharedAnchorGroups = groups;
 
