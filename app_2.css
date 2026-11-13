@@ -34803,3 +34803,57 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   box-shadow: none;
   color: var(--map-ink-2);
 }
+
+/* Visor de fotos del sector: descarga en curso y error con reintento */
+.sector-viewer-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: -1.125rem 0 0 -1.125rem;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: ml-spin 0.8s linear infinite;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.sector-viewer-image-container.is-loading .sector-viewer-loading {
+  transition-delay: 0.3s;   /* con la foto en caché no llega a verse */
+  opacity: 1;
+}
+.sector-viewer-failed {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+}
+.sector-viewer-image-container.is-error .sector-viewer-failed {
+  display: flex;
+}
+.sector-viewer-failed p {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+.sector-viewer-failed button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 1.5rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sector-viewer-loading { animation-duration: 2.4s; }
+}
