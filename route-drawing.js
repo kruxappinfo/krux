@@ -4448,12 +4448,35 @@ function rdPendingPrepared() {
 
 /**
  * ¿El trazado guardado es una versión anterior de este trazado preparado, sin retocar?
- * (p.supersedes: primer punto de cada versión anterior del archivo)
+ * (p.supersedes: primer punto de cada versión anterior del archivo; un retoque a mano deja updatedAt)
  */
 function rdPreparedOutdated(existing, p) {
   const first = existing.points && existing.points[0];
-  if (!first || !Array.isArray(p.supersedes)) return false;
+  if (!first || !Array.isArray(p.supersedes) || existing.updatedAt) return false;
+  if (rdPreparedShape(existing) === rdPreparedShape(p)) return false;
   return p.supersedes.some(o => Math.abs(o.x - first.x) < 0.5 && Math.abs(o.y - first.y) < 0.5);
+}
+
+/**
+ * Forma comparable de un trazado: tronco, reunión y ramales
+ */
+function rdPreparedShape(d) {
+  const pts = list => (list || []).map(pt => [pt.x, pt.y]);
+  return JSON.stringify([pts(d.points), d.anchorType,
+    (d.branches || []).map(b => [pts([b.forkPoint]), pts(b.points), b.anchorType])]);
+}
+
+/**
+ * Ramales (variantes) de un trazado preparado, con el formato que guarda el editor
+ */
+function rdPreparedBranches(p) {
+  return (p.branches || []).map(b => ({
+    branchId: b.branchId,
+    forkPointIndex: b.forkPointIndex,
+    forkPoint: { x: b.forkPoint.x, y: b.forkPoint.y },
+    points: b.points.map(pt => ({ x: pt.x, y: pt.y })),
+    anchorType: b.anchorType
+  }));
 }
 
 /**
@@ -4479,6 +4502,7 @@ async function rdApplyPreparedDrawings() {
     routeName: p.routeName,
     points: p.points.map(pt => ({ x: pt.x, y: pt.y })),
     anchorType: p.anchorType,
+    ...(Array.isArray(p.branches) && p.branches.length > 0 && { branches: rdPreparedBranches(p) }),
     imageId: rdCurrentSector.imageId,
     createdAt: now,
     createdBy: uid
