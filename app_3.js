@@ -1929,7 +1929,7 @@ window.openPublicProfile = async function (userId) {
     document.getElementById('profile-bio').textContent = userData.bio || 'Sin biografí­a';
     // Mostrar "Administrador" para la cuenta de Krux, "Escalador" para el resto
     const isAdmin = userId === 'akqgKt9WmQRNrpPub9xVKiPKmcn2';
-    document.getElementById('profile-category').textContent = isAdmin ? 'Administrador' : '🧗 Escalador';
+    document.getElementById('profile-category').textContent = isAdmin ? 'Administrador' : 'Escalador';
 
     // FIX #3: Load stats, follow status, posts, and likes in parallel with Promise.all
     const stats = userData.stats || {};
@@ -2042,7 +2042,7 @@ function configureProfileViewForOwnProfile() {
 
   // Update tab labels
   const postsLabel = document.getElementById('profile-tab-posts-label');
-  if (postsLabel) postsLabel.textContent = 'Mis Publicaciones';
+  if (postsLabel) postsLabel.textContent = 'Mis publicaciones';
 
   currentProfileUserId = null;
 
@@ -5539,7 +5539,7 @@ async function initProfile() {
       kxSetProfileHandle(data.username);
 
       const bioEl = document.getElementById('profile-bio');
-      if (bioEl) bioEl.textContent = data.bio || 'Sin biografí­a';
+      if (bioEl) bioEl.textContent = data.bio || 'Sin biografía';
 
       const locationEl = document.getElementById('profile-location');
       if (locationEl) locationEl.textContent = data.location || 'España';

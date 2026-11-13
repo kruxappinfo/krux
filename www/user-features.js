@@ -2045,7 +2045,7 @@ function renderPublicProfileClimbingStats(ascents) {
                         </svg>
                     </div>
                     <div class="climbing-metric-value-ig" style="color: #2d2d2d;">${stats.zonesVisited}</div>
-                    <div class="climbing-metric-label-ig">Escuelas Visitadas</div>
+                    <div class="climbing-metric-label-ig">Escuelas visitadas</div>
                 </div>
             </div>
         </div>
