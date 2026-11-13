@@ -43,7 +43,7 @@ const kxTerrain3D = (() => {
   const LINE_STEP = 4;                     // m entre puntos al ceñir la línea al relieve
   const LINE_LIFT = 3;                     // m que flota la línea sobre la roca
   const LINE_WIDTH = 4, CASING_WIDTH = 6.5; // px
-  const PATH_WIDTH = 2.6, PATH_CASING_WIDTH = 4.4; // px: caminos de acceso, más finos que los sectores
+  const PATH_WIDTH = 1.6, PATH_CASING_WIDTH = 3; // px: caminos de acceso, más finos que los sectores
   const LABEL_MAX_DIST = 3500, LABEL_MAX = 26;
   const TAP_RADIUS = 22;                   // px
 
