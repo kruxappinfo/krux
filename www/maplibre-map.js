@@ -1374,8 +1374,10 @@ function kxSessionDrawTrack(points) {
 
 // Estado del modo 3D
 // El botón 3D está desactivado por decisión de producto: el código del modo 3D se conserva y
-// basta poner esta constante en true para recuperarlo (sin él no hay forma de entrar en 3D)
+// basta poner esta constante en true para recuperarlo en todas las escuelas
 const MAP_3D_BUTTON_ENABLED = false;
+// Excepción: escuelas con relieve propio del IGN (KX_LOCAL_DEM), donde el botón 3D sí aparece dentro de sus límites
+const MAP_3D_SCHOOLS = ['pedriza'];
 let is3DMode = false;
 const MIN_ZOOM_FOR_3D = 14;
 const MAX_PITCH_3D = 80; // Inclinación máxima en modo 3D (85%)
@@ -1505,7 +1507,7 @@ function add3DToggleButton() {
 
   const isNative = window.Capacitor !== undefined;
 
-  if (!MAP_3D_BUTTON_ENABLED) {
+  if (!MAP_3D_BUTTON_ENABLED && MAP_3D_SCHOOLS.length === 0) {
     // Sin botón 3D, pero la carga automática de la escuela al acercarse se mantiene
     mlMap.on('moveend', checkAndLoadSchoolOnZoom);
     mlMap.on('zoomend', checkAndLoadSchoolOnZoom);
@@ -1791,6 +1793,16 @@ async function findNearestSector(schoolId, lng, lat) {
   }
 }
 
+// ¿Está el centro del mapa dentro de una escuela de MAP_3D_SCHOOLS, con zoom suficiente?
+function kxIn3DSchool() {
+  if (!mlMap || mlMap.getZoom() < MIN_ZOOM_FOR_3D) return false;
+  const c = mlMap.getCenter();
+  return MAP_3D_SCHOOLS.some(id => {
+    const b = MAPLIBRE_SCHOOLS[id] && MAPLIBRE_SCHOOLS[id].bounds;
+    return b && c.lng >= b[0][0] && c.lng <= b[1][0] && c.lat >= b[0][1] && c.lat <= b[1][1];
+  });
+}
+
 /**
  * Actualiza visibilidad del botón 3D según proximidad a escuela
  */
@@ -1798,7 +1810,7 @@ function update3DButtonVisibility() {
   const btn = document.getElementById('btn-3d-toggle');
   if (!btn) return;
 
-  const nearSchool = isNearSchool();
+  const nearSchool = MAP_3D_BUTTON_ENABLED ? isNearSchool() : kxIn3DSchool();
 
   if (nearSchool) {
     btn.style.display = 'flex';
