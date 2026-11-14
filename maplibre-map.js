@@ -11821,7 +11821,7 @@ function loadApprovedSchoolsFromFirestore() {
 
     mlApprovedSchoolsUnsub = firebase.firestore().collection('pending_schools')
       .where('status', '==', 'approved')
-      .onSnapshot(async (snapshot) => {
+      .onSnapshot(kxOfflineListen(KXOFF_COMMUNITY_KEY, async (snapshot) => {
         try {
           const isUpdate = !first;
           const seen = new Set();
@@ -11854,7 +11854,7 @@ function loadApprovedSchoolsFromFirestore() {
           console.error('[ApprovedSchools] Error procesando snapshot:', err);
         }
         settle();
-      }, (err) => {
+      }), (err) => {
         // Una escucha que falla no se recupera sola: se reintenta
         console.error('[ApprovedSchools] Error onSnapshot:', err);
         mlApprovedSchoolsUnsub = null;

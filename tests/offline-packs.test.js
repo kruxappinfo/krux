@@ -4,8 +4,8 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const {
-  kxoffTileXY, kxoffTileKeys, kxoff3dTileKeys, kxoffFeaturePoints, kxoffPnoaKey, kxoffGlyphKey, kxoffAncestorKey,
-  kxoffSerialize, kxoffRevive, kxoffFormatBytes
+  kxoffTileXY, kxoffTileKeys, kxoff3dTileKeys, kxoffBoundsOf, kxoffFeaturePoints, kxoffPnoaKey, kxoffGlyphKey, kxoffAncestorKey,
+  kxoffSerialize, kxoffRevive, kxoffFormatBytes, kxoffSnapAction
 } = require('../offline-packs.js');
 const { kxBaseStyle } = require('../map-style.js');
 
@@ -58,6 +58,12 @@ describe('teselas de una escuela', () => {
     expect(keys).toContain('t/17/407/811');
     expect(keys).not.toContain('t/17/408/800');
     expect(kxoff3dTileKeys(undefined)).toEqual([]);
+  });
+
+  it('calcula los límites de una escuela de la comunidad a partir de lo que tiene', () => {
+    expect(kxoffBoundsOf([[-3.7, 40.1], [-3.6, 40.3], [-3.65, 40.0], [NaN, 1]])).toEqual([[-3.7, 40.0], [-3.6, 40.3]]);
+    expect(kxoffBoundsOf([[-3.7, 40.1]])).toEqual([[-3.7, 40.1], [-3.7, 40.1]]);
+    expect(kxoffBoundsOf([])).toBeNull();
   });
 
   it('saca los puntos de puntos, líneas y polígonos', () => {
@@ -124,5 +130,14 @@ describe('mapa base sin conexión', () => {
 
   it('con conexión sigue usando los tiles.json', () => {
     expect(kxBaseStyle('k', 'sat').sources['labels-source'].url).toMatch(/tiles\.json/);
+  });
+});
+
+describe('escuchas con copia guardada', () => {
+  it('no deja que la caché en memoria de Firestore borre la copia al perder la red', () => {
+    expect(kxoffSnapAction(true, true, false)).toBe('ignore');    // sin red
+    expect(kxoffSnapAction(true, false, true)).toBe('ignore');    // vacía de memoria
+    expect(kxoffSnapAction(true, false, false)).toBe('show');     // memoria con datos: se ve, no se guarda
+    expect(kxoffSnapAction(false, false, true)).toBe('save');     // del servidor, aunque esté vacía
   });
 });

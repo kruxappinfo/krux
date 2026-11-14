@@ -32,6 +32,7 @@ const KXOFF_TIMEOUT_MS = 6000;                          // lectura que no respon
 const KXOFF_UNREACHABLE_MS = 60000;                     // tras un fallo de red, la copia se sirve directamente
 const KXOFF_CONCURRENCY = 6;
 const KXOFF_GEOJSON_KEYS = ['vias', 'sectores', 'parkings', 'puntosInteres', 'rutasAcceso'];
+const KXOFF_COMMUNITY_KEY = 'q/pending_schools/approved';   // escuelas de la comunidad (marcadores del mapa sin red)
 
 // ============================================
 // FUNCIONES PURAS (se prueban en Node)
@@ -89,6 +90,16 @@ function kxoff3dTileKeys(grid, zoom = KXOFF_3D_ZOOM) {
     for (let y = grid.y0 * n; y < (grid.y0 + grid.ny) * n; y++) keys.push(`t/${zoom}/${x}/${y}`);
   }
   return keys;
+}
+
+// Límites de una escuela sin configuración propia (comunidad): la caja de todo lo que tiene; null si no hay nada
+function kxoffBoundsOf(points) {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  (points || []).forEach(([lng, lat]) => {
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    w = Math.min(w, lng); e = Math.max(e, lng); s = Math.min(s, lat); n = Math.max(n, lat);
+  });
+  return Number.isFinite(w) ? [[w, s], [e, n]] : null;
 }
 
 // Coordenadas sueltas de una lista de features GeoJSON (puntos, líneas y polígonos)
@@ -158,6 +169,14 @@ function kxoffRevive(v) {
   return out;
 }
 
+// Qué hacer con una respuesta de una escucha cuya consulta tiene copia guardada: 'save' (del servidor:
+// se muestra y se guarda), 'show' (de la memoria de Firestore: se muestra sin guardar) o 'ignore' (sin red
+// o vacía, lo que da Firestore al perder la conexión: se sigue con la copia hasta que responda el servidor)
+function kxoffSnapAction(fromCache, offline, empty) {
+  if (!fromCache) return 'save';
+  return offline || empty ? 'ignore' : 'show';
+}
+
 function kxoffFormatBytes(n) {
   if (!Number.isFinite(n) || n <= 0) return '0 MB';
   if (n < 1e6) return `${Math.max(1, Math.round(n / 1e3))} KB`;
@@ -166,8 +185,8 @@ function kxoffFormatBytes(n) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    kxoffTileXY, kxoffTileKeys, kxoff3dTileKeys, kxoffFeaturePoints, kxoffPnoaKey, kxoffGlyphKey, kxoffAncestorKey,
-    kxoffSerialize, kxoffRevive, kxoffFormatBytes
+    kxoffTileXY, kxoffTileKeys, kxoff3dTileKeys, kxoffBoundsOf, kxoffFeaturePoints, kxoffPnoaKey, kxoffGlyphKey, kxoffAncestorKey,
+    kxoffSerialize, kxoffRevive, kxoffFormatBytes, kxoffSnapAction
   };
 }
 
@@ -433,10 +452,20 @@ const KxOffline = (() => {
 
   // Lo que hay que bajar de una escuela y cuánto ocupa (lee Firestore, no guarda nada)
   async function prepare(schoolId) {
-    const cfg = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS[schoolId] : null;
-    if (!cfg) throw new Error('Esta escuela todavía no se puede descargar');
     if (typeof firebase === 'undefined' || !firebase.firestore) throw new Error('Firebase no está disponible');
     const db = firebase.firestore();
+    // Escuelas de la app (configuración propia) o de la comunidad (solo datos de Firestore)
+    const own = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS[schoolId] : null;
+    const communitySnap = await kxoffTimeout(db.collection('pending_schools').where('status', '==', 'approved').get(), 30000);
+    let cfg = own;
+    let communityCenter = null;
+    if (!cfg) {
+      const doc = communitySnap.docs.find(d => d.id === schoolId);
+      const data = doc && doc.data();
+      if (!data || !Array.isArray(data.coordinates)) throw new Error('Esta escuela todavía no se puede descargar');
+      communityCenter = data.coordinates;
+      cfg = { name: data.nombre || schoolId, geojson: {}, bounds: null };
+    }
     const docId = firebase.firestore.FieldPath.documentId();
     const pfx = `${schoolId}_`;
     const byPrefix = col => db.collection(col).where(docId, '>=', pfx).where(docId, '<', `${pfx}`).get();
@@ -473,6 +502,7 @@ const KxOffline = (() => {
     docs.set(`q/pending_routes/${schoolId}`, kxoffSnapList(routes));
     docs.set(`q/pending_poi/${schoolId}`, kxoffSnapList(pois, ofSchool));
     docs.set(`q/pending_sectors/${schoolId}`, kxoffSnapList(sectors, ofSchool));
+    docs.set(KXOFF_COMMUNITY_KEY, kxoffSnapList(communitySnap));
     const prefixList = ['sector_images', 'sector_route_drawings', 'grade_votes', 'aleje_votes', 'estado_votes']
       .map(c => `${c}/${pfx}`).concat(`q/comments/${pfx}`);
 
@@ -512,6 +542,10 @@ const KxOffline = (() => {
       const v = d.data();
       if (ofSchool(v) && Array.isArray(v.vertices)) v.vertices.forEach(p => { points.push([p.lng, p.lat]); climbPoints.push([p.lng, p.lat]); });
     });
+    if (communityCenter) {
+      points.push(communityCenter);
+      cfg.bounds = kxoffBoundsOf(points);
+    }
     const grid3d = typeof KX_TERRAIN_3D !== 'undefined' ? KX_TERRAIN_3D[schoolId] : null;
     const tileKeys = new Set(kxoffTileKeys(cfg.bounds, points, { finePoints: climbPoints }));
     const keys3d = new Set(kxoff3dTileKeys(grid3d));
@@ -683,6 +717,11 @@ function kxIsOffline() {
   return KxOffline.isOffline();
 }
 
+// Respuesta sacada de la caché en memoria de Firestore (sin red suele venir vacía): no sustituye a la copia guardada
+function kxoffFromCache(snap) {
+  return !!(snap && snap.metadata && snap.metadata.fromCache);
+}
+
 // Igual que ref.get(); si el documento es de una escuela descargada, sin red devuelve la copia guardada
 async function kxGetDoc(ref) {
   const key = ref.path;
@@ -690,6 +729,7 @@ async function kxGetDoc(ref) {
   if (KxOffline.isOffline()) return KxOffline.cachedDoc(key);
   try {
     const snap = await kxoffTimeout(ref.get());
+    if (kxoffFromCache(snap)) return KxOffline.cachedDoc(key);
     KxOffline.saveDoc(key, snap.exists ? snap.data() : null);
     return snap;
   } catch (e) {
@@ -706,6 +746,7 @@ async function kxGetQuery(query, key, pick) {
   if (KxOffline.isOffline()) return KxOffline.cachedQuery(key, pick);
   try {
     const snap = await kxoffTimeout(query.get());
+    if (kxoffFromCache(snap)) return KxOffline.cachedQuery(key, pick);
     if (!pick) KxOffline.saveQuery(key, kxoffSnapList(snap));
     return snap;
   } catch (e) {
@@ -725,8 +766,11 @@ function kxOfflineListen(key, handler, filter) {
     if (!real) handler(snap);
   }, KxOffline.isOffline() ? 0 : KXOFF_TIMEOUT_MS);
   return snapshot => {
+    const covered = KxOffline.covers(key);
+    const action = covered ? kxoffSnapAction(kxoffFromCache(snapshot), KxOffline.isOffline(), snapshot.empty) : 'show';
+    if (action === 'ignore') return;
     real = true;
-    if (KxOffline.covers(key)) KxOffline.saveQuery(key, kxoffSnapList(snapshot, filter));
+    if (action === 'save') KxOffline.saveQuery(key, kxoffSnapList(snapshot, filter));
     handler(snapshot);
   };
 }
@@ -744,7 +788,11 @@ const KxOfflineUI = (() => {
 
   const esc = s => (typeof kxEsc === 'function' ? kxEsc(s) : String(s));
   const icon = (n, size = 20) => (typeof kxIcon === 'function' ? kxIcon(n, { size }) : '');
-  const supported = school => !!(school && typeof MAPLIBRE_SCHOOLS !== 'undefined' && MAPLIBRE_SCHOOLS[school.id]);
+  // Escuelas de la app y las de la comunidad ya aprobadas (las pendientes de revisión no)
+  const supported = school => !!(school && (
+    (typeof MAPLIBRE_SCHOOLS !== 'undefined' && MAPLIBRE_SCHOOLS[school.id]) ||
+    (typeof mlApprovedSchoolsCache !== 'undefined' && mlApprovedSchoolsCache.has(school.id)) ||
+    KxOffline.has(school.id)));
   const pct = p => (p && p.total ? Math.min(100, Math.round(p.done / p.total * 100)) : 0);
 
   function stateOf(id) {
@@ -802,7 +850,7 @@ const KxOfflineUI = (() => {
 
   function open(school) {
     if (!supported(school)) return;
-    current = { id: school.id, nombre: school.nombre || (MAPLIBRE_SCHOOLS[school.id] || {}).name || school.id };
+    current = { id: school.id, nombre: school.nombre || ((typeof MAPLIBRE_SCHOOLS !== 'undefined' && MAPLIBRE_SCHOOLS[school.id]) || {}).name || school.id };
     plan = null;
     planError = null;
     ensureDialog().classList.remove('hidden');
