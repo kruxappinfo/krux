@@ -19,7 +19,10 @@ const KXOFF_AREA_ZOOMS = [10, 15];                      // toda la escuela (con 
 const KXOFF_DETAIL_ZOOMS = [16, 18];                    // alrededor de vías, sectores, parkings y puntos de interés
 const KXOFF_AREA_MARGIN_DEG = 0.01;                     // ~1 km alrededor de los límites de la escuela
 const KXOFF_DETAIL_BUFFER_M = 150;
+const KXOFF_FINE_ZOOM = 19;                             // resolución real del PNOA (25 cm): solo junto a vías y sectores
+const KXOFF_FINE_BUFFER_M = 75;
 const KXOFF_TILE_BYTES = 25000;                         // media medida de una tesela del PNOA (z14–z18)
+const KXOFF_FINE_TILE_BYTES = 12000;                    // las de z19 pesan menos
 const KXOFF_PHOTO_BYTES = 900000;                       // si la foto no informa de su tamaño
 const KXOFF_GLYPH_FONTS = ['Noto Sans Regular', 'Noto Sans Italic', 'Noto Sans Bold'];
 const KXOFF_GLYPH_RANGES = ['0-255', '8192-8447'];      // latino (con tildes y eñes) y puntuación tipográfica
@@ -57,16 +60,21 @@ function kxoffTileKeys(bounds, points, opts = {}) {
     for (let z = area[0]; z <= area[1]; z++) addBox(w - margin, s - margin, e + margin, n + margin, z);
   }
   // Puntos cercanos (~30 m) dan las mismas teselas: se agrupan antes de recorrerlos
-  const seen = new Set();
-  (points || []).forEach(([lng, lat]) => {
-    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
-    const cell = `${Math.round(lng * 3000)}:${Math.round(lat * 3000)}`;
-    if (seen.has(cell)) return;
-    seen.add(cell);
-    const dLat = bufferM / 111320;
-    const dLng = bufferM / (111320 * Math.cos(lat * Math.PI / 180));
-    for (let z = detail[0]; z <= detail[1]; z++) addBox(lng - dLng, lat - dLat, lng + dLng, lat + dLat, z);
-  });
+  const around = (list, meters, z0, z1) => {
+    const seen = new Set();
+    (list || []).forEach(([lng, lat]) => {
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+      const cell = `${Math.round(lng * 3000)}:${Math.round(lat * 3000)}`;
+      if (seen.has(cell)) return;
+      seen.add(cell);
+      const dLat = meters / 111320;
+      const dLng = meters / (111320 * Math.cos(lat * Math.PI / 180));
+      for (let z = z0; z <= z1; z++) addBox(lng - dLng, lat - dLat, lng + dLng, lat + dLat, z);
+    });
+  };
+  around(points, bufferM, detail[0], detail[1]);
+  // Máxima nitidez solo donde se escala (vías y sectores)
+  around(opts.finePoints, opts.fineBufferM ?? KXOFF_FINE_BUFFER_M, KXOFF_FINE_ZOOM, KXOFF_FINE_ZOOM);
   return [...keys];
 }
 
@@ -102,7 +110,7 @@ function kxoffAncestorKey(key, has, minZoom = KXOFF_AREA_ZOOMS[0]) {
   const m = /^t\/(\d+)\/(\d+)\/(\d+)$/.exec(key);
   if (!m) return null;
   const [z, x, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  for (let pz = Math.min(z - 1, KXOFF_DETAIL_ZOOMS[1]); pz >= minZoom; pz--) {
+  for (let pz = Math.min(z - 1, KXOFF_FINE_ZOOM); pz >= minZoom; pz--) {
     const d = z - pz;
     const k = `t/${pz}/${x >> d}/${y >> d}`;
     if (has(k)) return k;
@@ -466,19 +474,27 @@ const KxOffline = (() => {
 
     // Teselas: la escuela entera y el detalle alrededor de todo lo que se dibuja en el mapa
     const points = [];
-    geo.forEach(g => g && points.push(...kxoffFeaturePoints(g.features)));
+    const climbPoints = [];   // vías y sectores: ahí se baja además la máxima resolución
+    geo.forEach((g, i) => {
+      if (!g) return;
+      const pts = kxoffFeaturePoints(g.features);
+      points.push(...pts);
+      if (geoUrls[i] === cfg.geojson.vias || geoUrls[i] === cfg.geojson.sectores) climbPoints.push(...pts);
+    });
     routes.forEach(d => {
       const v = d.data();
       const g = v.geojsonFeature && v.geojsonFeature.geometry;
       const c = Array.isArray(v.coordinates) ? v.coordinates : g && (g.coordinates || (g.lng != null ? [g.lng, g.lat] : null));
-      if (Array.isArray(c) && typeof c[0] === 'number') points.push(c);
+      if (Array.isArray(c) && typeof c[0] === 'number') { points.push(c); climbPoints.push(c); }
     });
     pois.forEach(d => { const v = d.data(); if (ofSchool(v) && Array.isArray(v.coordinates)) points.push(v.coordinates); });
     sectors.forEach(d => {
       const v = d.data();
-      if (ofSchool(v) && Array.isArray(v.vertices)) v.vertices.forEach(p => points.push([p.lng, p.lat]));
+      if (ofSchool(v) && Array.isArray(v.vertices)) v.vertices.forEach(p => { points.push([p.lng, p.lat]); climbPoints.push([p.lng, p.lat]); });
     });
-    const tiles = kxoffTileKeys(cfg.bounds, points).map(key => ({ key, url: tileUrl(key), size: KXOFF_TILE_BYTES }));
+    const tiles = kxoffTileKeys(cfg.bounds, points, { finePoints: climbPoints }).map(key => ({
+      key, url: tileUrl(key), size: key.startsWith(`t/${KXOFF_FINE_ZOOM}/`) ? KXOFF_FINE_TILE_BYTES : KXOFF_TILE_BYTES
+    }));
     const tpl = glyphTemplate();
     const glyphs = [];
     KXOFF_GLYPH_FONTS.forEach(font => KXOFF_GLYPH_RANGES.forEach(range => glyphs.push({
