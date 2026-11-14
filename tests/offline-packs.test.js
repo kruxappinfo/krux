@@ -37,6 +37,20 @@ describe('teselas de una escuela', () => {
     expect(b.sort()).toEqual(a.sort());
   });
 
+  it('baja la máxima resolución solo junto a vías y sectores', () => {
+    const keys = kxoffTileKeys(null, [[-3.73, 39.68], [-3.75, 39.70]], { finePoints: [[-3.73, 39.68]] });
+    const z19 = keys.filter(k => k.startsWith('t/19/'));
+    expect(z19.length).toBeGreaterThan(3);
+    expect(z19.length).toBeLessThan(20);
+    // todas alrededor del punto de escalada, ninguna junto al otro
+    const [x, y] = kxoffTileXY(-3.73, 39.68, 19);
+    z19.forEach(k => {
+      const [, , kx, ky] = k.split('/').map(Number);
+      expect(Math.abs(kx - x) + Math.abs(ky - y)).toBeLessThan(6);
+    });
+    expect(kxoffAncestorKey('t/21/8/8', k => k === 't/19/2/2')).toBe('t/19/2/2');
+  });
+
   it('saca los puntos de puntos, líneas y polígonos', () => {
     const pts = kxoffFeaturePoints([
       { geometry: { type: 'Point', coordinates: [1, 2] } },
