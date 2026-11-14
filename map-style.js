@@ -129,9 +129,10 @@ function kxBaseNormalize(base) {
  * Estilo completo de MapLibre para la vista `base` («sat» o «topo»).
  * Sin `key` de MapTiler devuelve solo la ortofoto.
  */
-function kxBaseStyle(key, base) {
+function kxBaseStyle(key, base, opts = {}) {
   const hasKey = !!key && key !== 'get_your_own_key';
   const view = hasKey ? kxBaseNormalize(base) : 'sat';
+  const offline = !!opts.offline;
   const pnoa = { type: 'raster', tiles: [KXBASE_PNOA], tileSize: 256, maxzoom: 20, attribution: '© <a href="https://www.ign.es">IGN España</a> - PNOA' };
   if (!hasKey) {
     return {
@@ -142,6 +143,11 @@ function kxBaseStyle(key, base) {
   }
 
   const mt = path => `https://api.maptiler.com/${path}?key=${key}`;
+  // Sin conexión no se piden los tiles.json (fallarían y dejarían la fuente rota): se declaran las teselas
+  // directamente con los mismos zooms que publica MapTiler
+  const vector = (tileset, minzoom, maxzoom) => (offline
+    ? { tiles: [mt(`tiles/${tileset}/{z}/{x}/{y}`)], minzoom, maxzoom }
+    : { url: mt(`tiles/${tileset}/tiles.json`) });
   const layers = kxBaseLayerDefs().map(({ only, by, ...layer }) => {
     const paintBy = by ? { sat: by(KXBASE_THEME.sat), topo: by(KXBASE_THEME.topo) } : null;
     return {
@@ -156,10 +162,10 @@ function kxBaseStyle(key, base) {
     version: 8, name: 'KRUX Base', glyphs: mt('fonts/{fontstack}/{range}.pbf'),
     sources: {
       'pnoa-source': pnoa,
-      'labels-source': { type: 'vector', url: mt('tiles/v3/tiles.json'), attribution: KXBASE_MAPTILER_ATTR },
-      'contours-source': { type: 'vector', url: mt('tiles/contours-v2/tiles.json'), attribution: KXBASE_MAPTILER_ATTR },
+      'labels-source': { type: 'vector', ...vector('v3', 0, 15), attribution: KXBASE_MAPTILER_ATTR },
+      'contours-source': { type: 'vector', ...vector('contours-v2', 9, 14), attribution: KXBASE_MAPTILER_ATTR },
       // Fuente propia para el sombreado: la del modo 3D (terrain-source) se crea y destruye con él
-      'relief-source': { type: 'raster-dem', url: mt('tiles/terrain-rgb-v2/tiles.json'), tileSize: 512, attribution: KXBASE_MAPTILER_ATTR }
+      'relief-source': { type: 'raster-dem', ...vector('terrain-rgb-v2', 0, 14), tileSize: 512, attribution: KXBASE_MAPTILER_ATTR }
     },
     layers
   };
@@ -198,12 +204,14 @@ const KxBaseMap = {
     try { return kxBaseNormalize(localStorage.getItem(KXBASE_STORAGE)); } catch (_) { return KXBASE_DEFAULT; }
   },
 
-  // Estilo inicial del mapa, con la vista que el usuario dejó elegida
-  initialStyle(key) {
-    const style = kxBaseStyle(key, this.stored());
+  // Estilo inicial del mapa, con la vista que el usuario dejó elegida.
+  // offline: sin conexión se abre en satélite (lo único descargable), sin cambiar la vista guardada
+  initialStyle(key, { offline = false } = {}) {
+    const view = offline ? 'sat' : this.stored();
+    const style = kxBaseStyle(key, view, { offline });
     // Sin las capas vectoriales (falta la clave de MapTiler) no hay vista topográfica que ofrecer
     this._hasTopo = style.layers.some(l => l.id === 'kx-topo-bg');
-    this.base = this._hasTopo ? this.stored() : KXBASE_DEFAULT;
+    this.base = this._hasTopo ? view : KXBASE_DEFAULT;
     return style;
   },
 

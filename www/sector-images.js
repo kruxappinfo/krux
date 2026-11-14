@@ -75,6 +75,7 @@ async function isSectorImageAdmin() {
     const user = auth.currentUser;
     console.log('[SectorImages] Admin check - user:', user ? user.uid : 'NULL', 'isCapacitor:', window.Capacitor !== undefined);
     if (!user) return false;
+    if (typeof kxIsOffline === 'function' && kxIsOffline()) return false;   // sin conexión: solo consulta
 
     const adminDoc = await db.collection('admins').doc(user.uid).get();
     if (!adminDoc.exists) return false;
@@ -105,7 +106,8 @@ async function getSectorGalleryImages(schoolId, sectorName) {
     const normalizedName = normalizeSectorName(sectorName);
     const docId = `${schoolId}_${normalizedName}`;
 
-    const doc = await db.collection('sector_images').doc(docId).get();
+    // Escuela descargada: sin conexión responde la copia guardada (offline-packs.js)
+    const doc = await kxGetDoc(db.collection('sector_images').doc(docId));
 
     if (doc.exists) {
       const data = doc.data();
@@ -126,7 +128,8 @@ async function getSectorGalleryImages(schoolId, sectorName) {
       }
     }
 
-    // Intentar cargar imagen legacy desde Storage directamente
+    // Intentar cargar imagen legacy desde Storage directamente (sin conexión, Storage reintenta durante minutos)
+    if (typeof kxIsOffline === 'function' && kxIsOffline()) return [];
     const legacyUrl = await getLegacySectorImageUrl(schoolId, sectorName);
     if (legacyUrl) {
       return [{
@@ -219,7 +222,8 @@ async function openSectorImageViewer(schoolId, sectorName, startIndex = 0) {
 
   // Imágenes del sector y rol, a la vez
   const [images, isAdmin] = await Promise.all([getSectorGalleryImages(schoolId, sectorName), isSectorImageAdmin()]);
-  sectorGalleryImages = images;
+  // Fotos de una escuela descargada: se abren desde el dispositivo (al instante y sin conexión)
+  sectorGalleryImages = typeof KxOffline !== 'undefined' ? await KxOffline.localizeImages(images) : images;
   currentGalleryIndex = Math.min(startIndex, Math.max(0, sectorGalleryImages.length - 1));
 
   const hasImages = sectorGalleryImages.length > 0;
@@ -2303,7 +2307,7 @@ async function svFetchSectorDrawings(docId) {
     console.warn('[SectorViewer] Firestore no está disponible aún');
     return null;
   }
-  const doc = await db.collection('sector_route_drawings').doc(docId).get();
+  const doc = await kxGetDoc(db.collection('sector_route_drawings').doc(docId));
   if (!doc.exists) return null;
   const data = doc.data();
   // Normalizar routeId de los dibujos a Number para evitar problemas de tipo (string vs number)
@@ -3915,11 +3919,10 @@ async function svFetchSectorRoutes(schoolId, sectorName) {
     return [];
   });
   const approvedLoad = (typeof db !== 'undefined' && db)
-    ? db.collection('pending_routes')
+    ? kxGetQuery(db.collection('pending_routes')
       .where('status', '==', 'approved')
       .where('schoolId', '==', schoolId)
-      .where('sector', '==', sectorName)
-      .get()
+      .where('sector', '==', sectorName), `q/pending_routes/${schoolId}`, d => d.sector === sectorName)
       .catch(firestoreError => {
         console.warn('[SectorViewer] Error cargando vías aprobadas de Firestore:', firestoreError);
         return null;
@@ -3983,7 +3986,7 @@ async function loadViewerRouteDrawings(schoolId, sectorName) {
     }
 
     const docId = `${schoolId}_${normalizeSectorName(sectorName)}`;
-    const doc = await db.collection('sector_route_drawings').doc(docId).get();
+    const doc = await kxGetDoc(db.collection('sector_route_drawings').doc(docId));
 
     if (doc.exists) {
       const data = doc.data();
@@ -4135,7 +4138,7 @@ async function hasRouteDrawing(schoolId, sectorName, routeId) {
     }
 
     const docId = `${schoolId}_${normalizeSectorName(sectorName)}`;
-    const doc = await db.collection('sector_route_drawings').doc(docId).get();
+    const doc = await kxGetDoc(db.collection('sector_route_drawings').doc(docId));
 
     if (doc.exists) {
       const data = doc.data();

@@ -460,8 +460,11 @@ describe('contrato con el resto de la app', () => {
   it('logAscent solo añade sessionId/loggedAt/companions cuando existen (registro convencional intacto)', () => {
     expect(uf).toMatch(/\.\.\.\(ascentData\.sessionId \? \{ sessionId: ascentData\.sessionId \} : \{\}\)/);
     expect(uf).toMatch(/\.\.\.\(ascentData\.loggedAt \?/);
-    expect(uf).toMatch(/if \(ascentData\.id\)/);
-    expect(uf).toMatch(/await db\.collection\('ascents'\)\.add\(data\)/);          // la ruta sin id sigue siendo add()
+    // Todo ascenso lleva id fijo (la cola sin conexión reintenta sin duplicar); solo se comprueba si ya existe
+    // cuando el id viene de fuera (sesiones), así el registro convencional no hace una lectura de más
+    expect(uf).toMatch(/id: ascentData\.id \|\| db\.collection\('ascents'\)\.doc\(\)\.id/);
+    expect(uf).toMatch(/kxWriteAscent\(payload, !!ascentData\.id\)/);
+    expect(uf).toMatch(/if \(checkExisting && \(await ref\.get\(\)\)\.exists\) return;/);
   });
 
   it('las reglas protegen las sesiones: solo el propietario y sin cambiar nada más', () => {

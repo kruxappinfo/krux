@@ -57,13 +57,14 @@
   <link rel="dns-prefetch" href="https://maps.gstatic.com">
 
   <!-- MapLibre GL JS - CSS crÃ­tico, JS diferido -->
-  <link href="https://unpkg.com/maplibre-gl@4.1.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <!-- Librerías servidas desde la propia app (vendor/): así la app arranca también sin conexión -->
+  <link href="./vendor/maplibre-gl-4.1.0/maplibre-gl.css" rel="stylesheet" />
 
   <!-- Google Fonts - Manrope (principal) e Inter (respaldo), con display swap -->
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=237" />
+  <link rel="stylesheet" href="./app_2.css?v=240" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -75,28 +76,31 @@
 
   <!-- Scripts diferidos - se cargan en paralelo pero se ejecutan en orden despuÃ©s del DOM -->
 
-  <script defer src="https://unpkg.com/maplibre-gl@4.1.0/dist/maplibre-gl.js"></script>
+  <script defer src="./vendor/maplibre-gl-4.1.0/maplibre-gl.js"></script>
 
-  <script defer src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script defer src="./vendor/firebase-9.23.0/firebase-app-compat.js"></script>
 
-  <script defer src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script defer src="./vendor/firebase-9.23.0/firebase-auth-compat.js"></script>
 
-  <script defer src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script defer src="./vendor/firebase-9.23.0/firebase-firestore-compat.js"></script>
 
-  <script defer src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+  <script defer src="./vendor/firebase-9.23.0/firebase-storage-compat.js"></script>
 
   <script defer src="./firebase-config.js?v=2"></script>
 
   <script defer src="./usernames.js?v=2"></script>
   <script defer src="./auth.js?v=7"></script>
 
-  <script defer src="./user-features.js?v=14"></script>
+  <!-- Escuelas descargadas y lecturas sin conexión (antes que quien las usa) -->
+  <script defer src="./offline-packs.js?v=3"></script>
+
+  <script defer src="./user-features.js?v=15"></script>
 
   <script defer src="./route-photos.js?v=2"></script>
 
   <script defer src="./maplibre-config.js?v=14"></script>
 
-  <script defer src="./map-ui.js?v=23"></script>
+  <script defer src="./map-ui.js?v=24"></script>
   <script defer src="./climb-session.js?v=2"></script>
   <script defer src="./climb-session-ui.js?v=5"></script>
   <script defer src="./gym-info.js?v=17"></script>
@@ -104,15 +108,15 @@
   <script defer src="./school-photos.js?v=10"></script>
   <script defer src="./sector-progress.js?v=1"></script>
   <script defer src="./sun-map.js?v=2"></script>
-  <script defer src="./map-style.js?v=1"></script>
-  <script defer src="./maplibre-map.js?v=100"></script>
+  <script defer src="./map-style.js?v=2"></script>
+  <script defer src="./maplibre-map.js?v=102"></script>
   <script defer src="./terrain-3d.js?v=7"></script>
 
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
   <script defer src="./app_3.js?v=113"></script>
-  <script defer src="./activity-ui.js?v=7"></script>
+  <script defer src="./activity-ui.js?v=8"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
   <script defer src="./train-profile.js?v=3"></script>
@@ -130,7 +134,7 @@
   <script defer src="./map-search.js?v=6"></script>
 
   <script defer src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-  <script defer src="./sector-images.js?v=10"></script>
+  <script defer src="./sector-images.js?v=11"></script>
 
   <!-- Route Drawing Module -->
   <link rel="stylesheet" href="./route-drawing.css?v=7">
@@ -3597,9 +3601,8 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
-          const registration = await navigator.serviceWorker.register('/sw.js', {
-            scope: '/'
-          });
+          // Ruta relativa: la web vive en /krux/ (GitHub Pages); con '/sw.js' no se registraba (404)
+          const registration = await navigator.serviceWorker.register('./sw.js');
 
           console.log('[PWA] Service Worker registrado:', registration.scope);
 

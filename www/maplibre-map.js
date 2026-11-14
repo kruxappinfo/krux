@@ -1280,10 +1280,15 @@ function initMapLibre() {
     return;
   }
 
+  // Escuelas descargadas: las teselas y los glifos guardados se sirven desde el dispositivo (offline-packs.js)
+  const offline = typeof KxOffline !== 'undefined' ? KxOffline : null;
+  if (offline) offline.registerProtocol();
+
   // Crear el mapa
   mlMap = new maplibregl.Map({
     container: 'map',
     style: createBaseStyle(),
+    transformRequest: offline ? (url, type) => offline.transformRequest(url, type) : undefined,
     center: MAP_DEFAULTS.center,
     zoom: MAP_DEFAULTS.zoom,
     minZoom: MAP_DEFAULTS.minZoom,
@@ -1327,7 +1332,7 @@ function initMapLibre() {
  * Estilo base del mapa: ortofoto del PNOA o mapa topográfico (map-style.js)
  */
 function createBaseStyle() {
-  return KxBaseMap.initialStyle(MAPLIBRE_CONFIG.MAPTILER_KEY);
+  return KxBaseMap.initialStyle(MAPLIBRE_CONFIG.MAPTILER_KEY, { offline: typeof kxIsOffline === 'function' && kxIsOffline() });
 }
 
 /**
@@ -1673,6 +1678,7 @@ async function checkIsAdmin() {
   }
 
   try {
+    if (typeof kxIsOffline === 'function' && kxIsOffline()) return false;   // sin conexión: sin herramientas de edición
     if (typeof auth === 'undefined' || !auth.currentUser) {
       _cachedIsAdmin = false;
       _cachedAdminCheckTime = now;
@@ -1703,6 +1709,7 @@ async function checkAdminRole() {
     if (typeof auth === 'undefined' || !auth.currentUser) {
       _cachedAdminRole = null; _cachedAdminRoleTime = now; return null;
     }
+    if (typeof kxIsOffline === 'function' && kxIsOffline()) return null;   // sin conexión: sin herramientas de edición
     const doc = await db.collection('admins').doc(auth.currentUser.uid).get();
     _cachedAdminRole = doc.exists ? (doc.data().role || null) : null;
     _cachedAdminRoleTime = now;
@@ -4105,7 +4112,7 @@ async function showRoutePopup(props, coords) {
   try {
     if (typeof db !== 'undefined' && typeof normalizeId === 'function') {
       const commentRouteId = `${schoolId}_${normalizeId(routeName)}`;
-      const commentsSnap = await db.collection('comments').where('routeId', '==', commentRouteId).get();
+      const commentsSnap = await kxGetQuery(db.collection('comments').where('routeId', '==', commentRouteId), `q/comments/${commentRouteId}`);
       commentCount = commentsSnap.size;
     }
   } catch (e) {
@@ -5043,7 +5050,8 @@ const KX_ROUTE_LINK_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill
 async function kxRouteCommentCount(schoolId, routeName) {
   try {
     if (typeof db === 'undefined' || typeof normalizeId !== 'function') return 0;
-    const snap = await db.collection('comments').where('routeId', '==', `${schoolId}_${normalizeId(routeName)}`).get();
+    const commentRouteId = `${schoolId}_${normalizeId(routeName)}`;
+    const snap = await kxGetQuery(db.collection('comments').where('routeId', '==', commentRouteId), `q/comments/${commentRouteId}`);
     return snap.size;
   } catch (e) {
     console.warn('Error fetching comment count:', e);
@@ -5252,7 +5260,7 @@ async function getAlejeVotes(schoolId, routeId) {
 
     const db = firebase.firestore();
     const docId = `${schoolId}_${routeId}`;
-    const doc = await db.collection('aleje_votes').doc(docId).get();
+    const doc = await kxGetDoc(db.collection('aleje_votes').doc(docId));
 
     if (!doc.exists) return { avg: null, userVote: null };
 
@@ -5287,7 +5295,7 @@ async function getGradeVotes(schoolId, routeId) {
       return { voteCount: 0, avgGradeIdx: null, userVoteIdx: null };
     }
     const db = firebase.firestore();
-    const doc = await db.collection('grade_votes').doc(`${schoolId}_${routeId}`).get();
+    const doc = await kxGetDoc(db.collection('grade_votes').doc(`${schoolId}_${routeId}`));
     if (!doc.exists) return { voteCount: 0, avgGradeIdx: null, userVoteIdx: null };
     const votes = doc.data().votes || {};
     const values = Object.values(votes);
@@ -5717,7 +5725,7 @@ async function getEstadoVotes(schoolId, routeId) {
 
     const db = firebase.firestore();
     const docId = `${schoolId}_${routeId}`;
-    const doc = await db.collection('estado_votes').doc(docId).get();
+    const doc = await kxGetDoc(db.collection('estado_votes').doc(docId));
 
     if (!doc.exists) return { avg: null, userVote: null };
 
@@ -5817,7 +5825,7 @@ async function kxComputeSectorEstado(schoolId, sectorName, routeIdsIn) {
 
       // Fetch each doc individually (doc IDs, not field queries)
       const promises = docIds.map(docId =>
-        db.collection('estado_votes').doc(docId).get()
+        kxGetDoc(db.collection('estado_votes').doc(docId))
       );
       const docs = await Promise.all(promises);
 
@@ -8033,6 +8041,7 @@ function buildSchoolPopupHtml(school, chartId, gmapsUrl) {
   return `
     <div class='ml-school-popup-content'>
       <button class='ml-popup-close-btn' id='btn-close-${school.id}'>&times;</button>
+      <div class='kx-off-slot' id='school-offline-${school.id}' hidden></div>
 
       <h3 class='ml-school-title'>${school.nombre}</h3>
 
@@ -8095,6 +8104,9 @@ function setupSchoolPopupEvents(school, gmapsUrl) {
   if (btnClose) {
     btnClose.onclick = () => mlSchoolPopup.remove();
   }
+
+  // Descarga para usar sin conexión (offline-packs.js)
+  if (typeof KxOfflineUI !== 'undefined') KxOfflineUI.mount(document.getElementById(`school-offline-${school.id}`), school);
 
   // Botón direcciones
   if (btnDirections) {
@@ -8507,7 +8519,9 @@ function initBottomSheet() {
   drag.innerHTML = kxSheetDragHTML({
     titleId: 'bs-school-name',
     // Tipo de roca y restricciones juntos bajo el nombre (la etiqueta de restricciones se añade al conocer los datos)
-    metaHTML: kxTagHTML({ icon: 'mountain', textId: 'bs-rock-type', text: 'Caliza' }) + '<span class="bs-tag-slot" id="bs-restriction-slot"></span>'
+    metaHTML: kxTagHTML({ icon: 'mountain', textId: 'bs-rock-type', text: 'Caliza' }) + '<span class="bs-tag-slot" id="bs-restriction-slot"></span>',
+    // Descarga para usar sin conexión (offline-packs.js)
+    asideHTML: '<span class="kx-off-slot" id="bs-offline-slot" hidden></span>'
   });
   // Puntos de página encima de los botones (fijos en las dos páginas)
   foot.innerHTML =
@@ -9034,6 +9048,7 @@ function updateBottomSheetContent(school) {
   const rockEl = document.getElementById('bs-rock-type');
   if (rockEl) rockEl.textContent = school.rockType || (school.isUserSchool ? 'Roca sin indicar' : 'Caliza');
 
+  if (typeof KxOfflineUI !== 'undefined') KxOfflineUI.mount(document.getElementById('bs-offline-slot'), school);
   kxRenderSchoolCards(school);
 }
 
@@ -10137,7 +10152,7 @@ window.hideRouteBottomSheet = hideRouteBottomSheet;
 async function isRoutePopupAdmin() {
   try {
     const user = auth.currentUser;
-    if (!user) return false;
+    if (!user || (typeof kxIsOffline === 'function' && kxIsOffline())) return false;
 
     const adminDoc = await db.collection('admins').doc(user.uid).get();
     return adminDoc.exists && (adminDoc.data().role === 'admin' || adminDoc.data().role === 'spotter');
@@ -10194,7 +10209,7 @@ async function loadApprovedRoutesFromFirestore(schoolId, minZoom = 14) {
     mlApprovedRoutesUnsub = db.collection('pending_routes')
       .where('schoolId', '==', schoolId)
       .where('status', '==', 'approved')
-      .onSnapshot((snapshot) => {
+      .onSnapshot(kxOfflineListen(`q/pending_routes/${schoolId}`, (snapshot) => {
         try {
           // Si el usuario cambió de escuela mientras escuchábamos, cancelar
           if (!mlMap || mlCurrentSchool !== schoolId) {
@@ -10271,7 +10286,7 @@ async function loadApprovedRoutesFromFirestore(schoolId, minZoom = 14) {
           console.error('[ApprovedRoutes] Error procesando snapshot:', err);
         }
         settle();
-      }, (err) => {
+      }), (err) => {
         console.error('[ApprovedRoutes] Error onSnapshot:', err);
         settle();
       });
@@ -10536,7 +10551,7 @@ async function loadApprovedPOIFromFirestore(schoolId) {
 
     mlApprovedPOIUnsub = db.collection('pending_poi')
       .where('status', '==', 'approved')
-      .onSnapshot(async (snapshot) => {
+      .onSnapshot(kxOfflineListen(`q/pending_poi/${schoolId}`, async (snapshot) => {
         try {
           if (!mlMap || mlCurrentSchool !== schoolId) {
             if (mlApprovedPOIUnsub) { try { mlApprovedPOIUnsub(); } catch (e) {} mlApprovedPOIUnsub = null; }
@@ -10623,7 +10638,7 @@ async function loadApprovedPOIFromFirestore(schoolId) {
           console.error('[ApprovedPOI] Error procesando snapshot:', err);
         }
         settle();
-      }, (err) => {
+      }, d => !d.schoolId || d.schoolId === schoolId), (err) => {
         console.error('[ApprovedPOI] Error onSnapshot:', err);
         settle();
       });
@@ -10675,7 +10690,7 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
 
     mlApprovedSectorsUnsub = db.collection('pending_sectors')
       .where('status', '==', 'approved')
-      .onSnapshot((snapshot) => {
+      .onSnapshot(kxOfflineListen(`q/pending_sectors/${schoolId}`, (snapshot) => {
         try {
           if (!mlMap || mlCurrentSchool !== schoolId) {
             if (mlApprovedSectorsUnsub) { try { mlApprovedSectorsUnsub(); } catch (e) {} mlApprovedSectorsUnsub = null; }
@@ -10765,7 +10780,7 @@ async function loadApprovedSectorsFromFirestore(schoolId) {
           console.error('[ApprovedSectors] Error procesando snapshot:', err);
         }
         settle();
-      }, (err) => {
+      }, d => !d.schoolId || d.schoolId === schoolId), (err) => {
         console.error('[ApprovedSectors] Error onSnapshot:', err);
         settle();
       });

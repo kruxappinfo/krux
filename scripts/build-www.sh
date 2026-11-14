@@ -50,6 +50,7 @@ echo "📁 Copiando assets..."
 [ -d "$PROJECT_ROOT/Cartografia" ] && cp -r "$PROJECT_ROOT/Cartografia" "$WWW_DIR/"
 [ -d "$PROJECT_ROOT/tiles" ] && cp -r "$PROJECT_ROOT/tiles" "$WWW_DIR/"
 [ -d "$PROJECT_ROOT/js" ] && cp -r "$PROJECT_ROOT/js" "$WWW_DIR/"
+[ -d "$PROJECT_ROOT/vendor" ] && cp -r "$PROJECT_ROOT/vendor" "$WWW_DIR/"
 
 echo ""
 echo "=================================="
