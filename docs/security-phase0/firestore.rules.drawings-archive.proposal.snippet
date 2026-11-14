@@ -1,0 +1,21 @@
+// ============================================================================================
+// PROPUESTA FASE 0c — NO DESPLEGADA. Añade al bloque sector_route_drawings una subcolección «archived» (un documento por trazado
+// archivado). Sustituye, DENTRO del bloque existente, solo la parte nueva; el resto (read/create/update/delete y backups) no cambia.
+//  - Leer y archivar: admin, spotter y super-admin.
+//  - NO se puede editar un archivado (update: false).
+//  - Borrar un archivado solo es posible si la MISMA escritura (transacción o lote) hace crecer drawings en el documento padre
+//    (es decir, es una restauración), o si es el super-admin. Así nadie puede vaciar el archivo sin devolver el trazado.
+// ============================================================================================
+      match /archived/{archId} {
+        function staff() { return isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin()); }
+        function parent() { return /databases/$(database)/documents/sector_route_drawings/$(drawingId); }
+        allow read: if staff();
+        allow create: if staff()
+          && request.resource.data.keys().hasOnly(['drawing', 'archivedAt', 'archivedBy', 'reason', 'routeName', 'imageId'])
+          && request.resource.data.archivedAt == request.time
+          && request.resource.data.archivedBy == request.auth.uid
+          && request.resource.data.drawing is map;
+        allow update: if false;
+        allow delete: if isAuthenticated() && (isSuperAdmin() ||
+          (staff() && getAfter(parent()).data.get('drawings', []).size() > get(parent()).data.get('drawings', []).size()));
+      }

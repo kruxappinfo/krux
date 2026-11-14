@@ -2678,8 +2678,8 @@ async function deleteGalleryImage(schoolId, encodedSectorName, imageId) {
     images = images.filter(img => img.id !== imageId);
     images = images.map((img, idx) => ({ ...img, order: idx }));
 
-    // También eliminar dibujos asociados a esta imagen
-    await deleteRouteDrawingsForImage(schoolId, sectorName, imageId);
+    // Los trazados de esta imagen NO se borran: se quedan en sector_route_drawings con su imageId.
+    // El visor solo pinta los de imágenes existentes, así que no aparecen, pero se pueden recuperar.
 
     if (images.length > 0) {
       // Actualizar documento
@@ -2716,36 +2716,6 @@ async function deleteGalleryImage(schoolId, encodedSectorName, imageId) {
   } catch (error) {
     console.error('[SectorImages] Error eliminando imagen:', error);
     showSectorToast('Error al eliminar: ' + error.message, 'error');
-  }
-}
-
-/**
- * Elimina los dibujos de vías asociados a una imagen específica
- */
-async function deleteRouteDrawingsForImage(schoolId, sectorName, imageId) {
-  try {
-    const docId = `${schoolId}_${normalizeSectorName(sectorName)}`;
-    const docRef = db.collection('sector_route_drawings').doc(docId);
-    const doc = await docRef.get();
-
-    if (doc.exists) {
-      const data = doc.data();
-      let drawings = data.drawings || [];
-
-      // Filtrar dibujos que NO pertenezcan a la imagen eliminada
-      const filteredDrawings = drawings.filter(d => d.imageId !== imageId);
-
-      if (filteredDrawings.length !== drawings.length) {
-        await kxBackupRouteDrawings(docRef, 'borrar-imagen', { snapshot: doc, required: true });
-        await docRef.update({
-          drawings: filteredDrawings,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        console.log('[SectorImages] Dibujos de imagen eliminados:', drawings.length - filteredDrawings.length);
-      }
-    }
-  } catch (error) {
-    console.error('[SectorImages] Error eliminando dibujos de imagen:', error);
   }
 }
 

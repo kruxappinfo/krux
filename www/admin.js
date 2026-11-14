@@ -421,19 +421,20 @@ async function rejectRoute(routeId) {
     if (!confirm('¿Rechazar y eliminar esta vía permanentemente?')) return;
 
     try {
-        // Obtener datos de la vía antes de eliminarla (para eliminar el dibujo asociado)
+        // Obtener datos de la vía antes de eliminarla (para informar de sus trazados)
         const routeDoc = await db.collection('pending_routes').doc(routeId).get();
         const routeData = routeDoc.exists ? routeDoc.data() : null;
 
         // Eliminar completamente el documento (no dejar residuos)
         await db.collection('pending_routes').doc(routeId).delete();
 
-        // Eliminar el dibujo asociado en sector_route_drawings
+        // Los trazados de la vía NO se borran: solo se informa de cuántos se conservan
+        let keptDrawings = 0;
         if (routeData && routeData.schoolId && routeData.sector && routeData.nombre) {
-            await deleteRouteDrawingFromSector(routeData.schoolId, routeData.sector, routeData.nombre);
+            keptDrawings = await kxCountRouteDrawings(routeData.schoolId, routeData.sector, routeData.nombre);
         }
 
-        showToast('Vía rechazada y eliminada', 'info');
+        showToast(keptDrawings ? `Vía rechazada y eliminada · se conservan ${keptDrawings} trazado(s) del croquis` : 'Vía rechazada y eliminada', 'info');
         await loadRoutes();
         await loadStats();
     } catch (error) {
@@ -446,18 +447,19 @@ async function deleteRoute(routeId) {
     if (!confirm('¿Eliminar esta vía permanentemente?')) return;
 
     try {
-        // Obtener datos de la vía antes de eliminarla (para eliminar el dibujo asociado)
+        // Obtener datos de la vía antes de eliminarla (para informar de sus trazados)
         const routeDoc = await db.collection('pending_routes').doc(routeId).get();
         const routeData = routeDoc.exists ? routeDoc.data() : null;
 
         await db.collection('pending_routes').doc(routeId).delete();
 
-        // Eliminar el dibujo asociado en sector_route_drawings
+        // Los trazados de la vía NO se borran: solo se informa de cuántos se conservan
+        let keptDrawings = 0;
         if (routeData && routeData.schoolId && routeData.sector && routeData.nombre) {
-            await deleteRouteDrawingFromSector(routeData.schoolId, routeData.sector, routeData.nombre);
+            keptDrawings = await kxCountRouteDrawings(routeData.schoolId, routeData.sector, routeData.nombre);
         }
 
-        showToast('Vía eliminada', 'info');
+        showToast(keptDrawings ? `Vía eliminada · se conservan ${keptDrawings} trazado(s) del croquis` : 'Vía eliminada', 'info');
         await loadRoutes();
         await loadStats();
     } catch (error) {
@@ -1777,39 +1779,223 @@ async function saveRouteEdits() {
 }
 
 // ============================================
-// LIMPIEZA DE DIBUJOS HUÉRFANOS
+// INFORME DE TRAZADOS (SOLO LECTURA)
 // ============================================
+// Nada de esta sección escribe en Firestore. El botón «Limpiar Dibujos» genera un
+// informe y borrar o rechazar una vía solo cuenta sus trazados: no se borra ninguno.
+// Un trazado solo se marca «huérfano» si una fuente verificada lo desmiente; ante
+// cualquier duda (red, GeoJSON ausente o inválido, consulta fallida, datos
+// incompletos) queda «indeterminado».
+
+const KX_DRAWING_SOURCES = {
+    'valeria': 'Cartografia/Valeria/Valeria_Vias.geojson',
+    'sanmartin': 'Cartografia/San Martin de ValdeIglesias/SM_Vias.geojson',
+    'mora': 'Cartografia/Mora/Mora_Vias.geojson'
+};
 
 /**
- * Elimina el dibujo de una vía específica de sector_route_drawings
+ * Normaliza un nombre para compararlo (sin acentos, mayúsculas ni signos)
  */
-async function deleteRouteDrawingFromSector(schoolId, sectorName, routeName) {
+function kxNormDrawingName(value) {
+    return String(value == null ? '' : value)
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Carga el GeoJSON de vías de una escuela. Nunca lanza.
+ * status: 'ok' | 'sin-fuente' | 'no-cargada'
+ */
+async function kxLoadDrawingSource(schoolId) {
+    const path = KX_DRAWING_SOURCES[schoolId];
+    if (!path) return { status: 'sin-fuente' };
     try {
-        const normalizedSector = normalizeSectorNameForDrawing(sectorName);
-        const docId = `${schoolId}_${normalizedSector}`;
-
-        const docRef = db.collection('sector_route_drawings').doc(docId);
-        const doc = await docRef.get();
-
-        if (doc.exists) {
-            const data = doc.data();
-            const drawings = data.drawings || [];
-
-            // Filtrar para eliminar el dibujo de la vía específica
-            const updatedDrawings = drawings.filter(d => d.routeName !== routeName);
-
-            if (updatedDrawings.length !== drawings.length) {
-                // Se encontró el dibujo: copia de seguridad antes de quitarlo
-                await kxBackupRouteDrawings(docRef, 'admin-borrar-via', { snapshot: doc, required: true });
-                await docRef.update({
-                    drawings: updatedDrawings,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                console.log(`[Admin] Dibujo de "${routeName}" eliminado de sector_route_drawings`);
-            }
+        const response = await fetch(path + '?v=' + Date.now());
+        if (!response || !response.ok) return { status: 'no-cargada', reason: 'HTTP ' + (response && response.status) };
+        const geojson = await response.json();
+        if (!geojson || !Array.isArray(geojson.features) || geojson.features.length === 0) {
+            return { status: 'no-cargada', reason: 'sin vías' };
         }
+        const bySector = Object.create(null);   // sector -> { nombre: true }
+        const anySector = Object.create(null);  // nombre -> { sector: true }
+        for (const feature of geojson.features) {
+            const props = feature && feature.properties;
+            if (!props || !props.sector || !props.nombre) continue;
+            const sector = kxNormDrawingName(props.sector);
+            const name = kxNormDrawingName(props.nombre);
+            (bySector[sector] = bySector[sector] || Object.create(null))[name] = true;
+            (anySector[name] = anySector[name] || Object.create(null))[sector] = true;
+        }
+        if (Object.keys(bySector).length === 0) return { status: 'no-cargada', reason: 'sin vías con sector y nombre' };
+        return { status: 'ok', bySector, anySector };
     } catch (error) {
-        console.error('[Admin] Error eliminando dibujo de vía:', error);
+        return { status: 'no-cargada', reason: String((error && error.message) || error) };
+    }
+}
+
+/**
+ * Vías aprobadas o pendientes (escuela|sector|nombre). null si no se pudieron leer.
+ */
+async function kxLoadKnownRoutes() {
+    try {
+        const keys = Object.create(null);
+        for (const status of ['approved', 'pending']) {
+            const snapshot = await db.collection('pending_routes').where('status', '==', status).get();
+            snapshot.forEach(doc => {
+                const d = doc.data();
+                keys[kxNormDrawingName(d.schoolId) + '|' + kxNormDrawingName(d.sector) + '|' + kxNormDrawingName(d.nombre)] = true;
+            });
+        }
+        return keys;
+    } catch (error) {
+        console.warn('[Trazados] No se pudieron leer las vías aprobadas/pendientes:', error);
+        return null;
+    }
+}
+
+/**
+ * Clasifica un trazado: { clase: 'seguro' | 'huerfano' | 'indeterminado', motivo }
+ * La foto (imageId) no interviene: un trazado sin foto no es huérfano por eso.
+ */
+function kxClassifyDrawing(drawing, schoolId, sectorName, known, source) {
+    const name = kxNormDrawingName(drawing && drawing.routeName);
+    if (!name) return { clase: 'indeterminado', motivo: 'trazado-sin-nombre' };
+    if (known === null) return { clase: 'indeterminado', motivo: 'vias-aprobadas-no-cargadas' };
+    const sector = kxNormDrawingName(sectorName);
+    if (!sector) return { clase: 'indeterminado', motivo: 'documento-sin-sector' };
+    if (known[kxNormDrawingName(schoolId) + '|' + sector + '|' + name]) return { clase: 'seguro', motivo: 'vía-aprobada-o-pendiente' };
+    if (!source || source.status === 'sin-fuente') return { clase: 'indeterminado', motivo: 'escuela-sin-fuente' };
+    if (source.status !== 'ok') return { clase: 'indeterminado', motivo: 'fuente-no-cargada' };
+    const inSector = source.bySector[sector];
+    if (!inSector) return { clase: 'indeterminado', motivo: 'sector-ausente-en-la-fuente' };
+    if (inSector[name]) return { clase: 'seguro', motivo: 'geojson' };
+    if (source.anySector[name]) return { clase: 'indeterminado', motivo: 'vía-presente-en-otro-sector' };
+    return { clase: 'huerfano', motivo: 'no-está-en-aprobadas-ni-en-geojson' };
+}
+
+/**
+ * Construye el informe de trazados. Solo lee.
+ */
+async function kxBuildOrphanReport() {
+    const known = await kxLoadKnownRoutes();
+    const snapshot = await db.collection('sector_route_drawings').get();
+    const sources = {};
+    const items = [];
+    for (const doc of snapshot.docs) {
+        const data = doc.data() || {};
+        const schoolId = data.schoolId || String(doc.id).split('_')[0];
+        if (!(schoolId in sources)) sources[schoolId] = await kxLoadDrawingSource(schoolId);
+        for (const drawing of (data.drawings || [])) {
+            const result = kxClassifyDrawing(drawing, schoolId, data.sectorName, known, sources[schoolId]);
+            items.push({
+                docId: doc.id,
+                schoolId,
+                sectorName: data.sectorName || null,
+                routeName: (drawing && drawing.routeName) || null,
+                imageId: (drawing && drawing.imageId) || null,
+                clase: result.clase,
+                motivo: result.motivo
+            });
+        }
+    }
+    const totals = { seguro: 0, huerfano: 0, indeterminado: 0 };
+    items.forEach(item => { totals[item.clase]++; });
+    const fuentes = {};
+    Object.keys(sources).forEach(s => {
+        fuentes[s] = sources[s].status + (sources[s].reason ? ' (' + sources[s].reason + ')' : '');
+    });
+    return { generatedAt: new Date().toISOString(), total: items.length, totals, fuentes, vias: known === null ? 'no-cargadas' : 'ok', items };
+}
+
+/**
+ * Botón «Limpiar Dibujos»: ahora genera un informe y NO borra nada.
+ */
+async function cleanOrphanedDrawings() {
+    showToast('Analizando trazados (solo lectura)...', 'info');
+    try {
+        const report = await kxBuildOrphanReport();
+        console.log('[Trazados] Informe (solo lectura):', report);
+        kxShowDrawingsReport(report);
+        return report;
+    } catch (error) {
+        console.error('[Trazados] Error generando el informe:', error);
+        showToast('No se pudo generar el informe de trazados. No se ha borrado nada.', 'error');
+        return null;
+    }
+}
+
+/**
+ * Muestra el informe en un modal propio (estilos en línea: sirve en admin.html y admin-routes.html)
+ */
+function kxShowDrawingsReport(report) {
+    document.getElementById('kx-drawings-report')?.remove();
+    const t = report.totals;
+    const motivos = {};
+    report.items.forEach(item => {
+        const key = item.clase + '|' + item.motivo;
+        motivos[key] = (motivos[key] || 0) + 1;
+    });
+    const rows = (clase) => report.items.filter(i => i.clase === clase).map(i => `
+        <tr><td>${escapeHtml(i.schoolId)}</td><td>${escapeHtml(i.sectorName || i.docId)}</td>
+        <td>${escapeHtml(i.routeName || '(sin nombre)')}</td><td>${escapeHtml(i.motivo)}</td></tr>`).join('');
+    const table = (clase) => `
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;overflow-wrap:normal;white-space:nowrap">
+        <thead><tr style="text-align:left;color:#6b7280"><th>Escuela</th><th>Sector</th><th>Vía</th><th>Motivo</th></tr></thead>
+        <tbody>${rows(clase)}</tbody></table></div>`;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'kx-drawings-report';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px';
+    overlay.innerHTML = `
+        <div role="dialog" aria-label="Informe de trazados" style="background:#fff;color:#111827;border-radius:14px;width:100%;min-width:0;max-width:760px;max-height:90vh;overflow-y:auto;box-sizing:border-box;overflow-wrap:anywhere;padding:20px 18px;box-shadow:0 25px 50px rgba(0,0,0,0.25)">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h3 style="margin:0;font-size:18px">Informe de trazados</h3>
+                <button type="button" data-kx-close style="border:none;background:#f3f4f6;border-radius:8px;min-width:44px;min-height:44px;font-size:20px;cursor:pointer" aria-label="Cerrar">×</button>
+            </div>
+            <p style="margin:10px 0;padding:10px 12px;background:#ecfdf5;color:#065f46;border-radius:8px;font-size:13px">
+                Solo lectura: no se ha borrado ni modificado ningún trazado.</p>
+            <p style="margin:6px 0;font-size:14px"><strong>${report.total}</strong> trazados ·
+                <strong>${t.seguro}</strong> seguros · <strong>${t.huerfano}</strong> posibles huérfanos ·
+                <strong>${t.indeterminado}</strong> indeterminados</p>
+            <p style="margin:6px 0;font-size:12px;color:#6b7280">Fuentes GeoJSON: ${escapeHtml(Object.entries(report.fuentes).map(([k, v]) => k + ': ' + v).join(' · ') || 'ninguna')}
+                · Vías aprobadas/pendientes: ${escapeHtml(report.vias)}</p>
+            <p style="margin:6px 0;font-size:12px;color:#6b7280">${escapeHtml(Object.entries(motivos).map(([k, v]) => k.replace('|', ': ') + ' (' + v + ')').join(' · '))}</p>
+            ${t.huerfano ? `<h4 style="margin:18px 0 8px;font-size:14px">Posibles huérfanos (revisar a mano) (${t.huerfano})</h4>${table('huerfano')}` : ''}
+            ${t.indeterminado ? `<details style="margin-top:18px"><summary style="cursor:pointer;font-weight:600;font-size:14px;min-height:44px;display:flex;align-items:center">Indeterminados: no se pueden comprobar (${t.indeterminado})</summary>${table('indeterminado')}</details>` : ''}
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+                <button type="button" data-kx-copy style="border:1px solid #d1d5db;background:#fff;border-radius:8px;min-height:44px;padding:0 14px;cursor:pointer">Copiar informe (JSON)</button>
+                <button type="button" data-kx-close style="border:none;background:#111827;color:#fff;border-radius:8px;min-height:44px;padding:0 16px;cursor:pointer">Cerrar</button>
+            </div>
+        </div>`;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay || e.target.closest('[data-kx-close]')) overlay.remove();
+        if (e.target.closest('[data-kx-copy]')) {
+            Promise.resolve()
+                .then(() => navigator.clipboard.writeText(JSON.stringify(report, null, 2)))
+                .then(() => showToast('Informe copiado', 'success'))
+                .catch(() => showToast('No se pudo copiar el informe', 'error'));
+        }
+    });
+    document.body.appendChild(overlay);
+}
+
+/**
+ * Trazados de una vía que se rechaza o elimina. Solo informa: no borra ni modifica nada.
+ * Cuenta por nombre exacto dentro del documento de ese sector. Devuelve null si no se pudo leer.
+ */
+async function kxCountRouteDrawings(schoolId, sectorName, routeName) {
+    try {
+        const docId = `${schoolId}_${normalizeSectorNameForDrawing(sectorName)}`;
+        const doc = await db.collection('sector_route_drawings').doc(docId).get();
+        if (!doc.exists) return 0;
+        const count = (doc.data().drawings || []).filter(d => d.routeName === routeName).length;
+        if (count) console.log(`[Trazados] "${routeName}" tiene ${count} trazado(s) en ${docId}. Se conservan.`);
+        return count;
+    } catch (error) {
+        console.warn('[Trazados] No se pudieron contar los trazados de la vía:', error);
+        return null;
     }
 }
 
@@ -1820,125 +2006,16 @@ function normalizeSectorNameForDrawing(name) {
     return name
         .toLowerCase()
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '') // Quitar acentos
+        .replace(/[̀-ͯ]/g, '') // Quitar acentos
         .replace(/[^a-z0-9]/g, '_')      // Reemplazar caracteres especiales
         .replace(/_+/g, '_')              // Evitar guiones múltiples
         .replace(/^_|_$/g, '');           // Quitar guiones al inicio/final
 }
 
-/**
- * Busca y elimina dibujos de vías que ya no existen
- */
-async function cleanOrphanedDrawings() {
-    if (!confirm('¿Buscar y eliminar dibujos de vías que ya no existen? Esto limpiará las líneas huérfanas de los sectores.')) return;
-
-    showToast('Buscando dibujos huérfanos...', 'info');
-
-    try {
-        // 1. Obtener todas las vías aprobadas de pending_routes
-        const approvedSnapshot = await db.collection('pending_routes')
-            .where('status', '==', 'approved')
-            .get();
-
-        const approvedRouteNames = new Set();
-
-        approvedSnapshot.forEach(doc => {
-            const data = doc.data();
-            const key = `${data.schoolId}_${data.sector}_${data.nombre}`;
-            approvedRouteNames.add(key);
-        });
-
-        // 2. Obtener todos los documentos de dibujos
-        const drawingsSnapshot = await db.collection('sector_route_drawings').get();
-
-        let totalCleaned = 0;
-
-        for (const drawingDoc of drawingsSnapshot.docs) {
-            const data = drawingDoc.data();
-            const drawings = data.drawings || [];
-            const schoolId = data.schoolId;
-            const sectorName = data.sectorName;
-
-            if (drawings.length === 0) continue;
-
-            // Cargar vías del GeoJSON para esta escuela/sector
-            const geojsonRoutes = await loadGeoJSONRoutesForSector(schoolId, sectorName);
-
-            // Filtrar dibujos que no tienen vía correspondiente
-            const validDrawings = [];
-            const orphanedDrawings = [];
-
-            for (const drawing of drawings) {
-                const routeName = drawing.routeName;
-                const key = `${schoolId}_${sectorName}_${routeName}`;
-
-                // Verificar si existe en pending_routes aprobadas O en GeoJSON
-                const existsInApproved = approvedRouteNames.has(key);
-                const existsInGeoJSON = geojsonRoutes.includes(routeName);
-
-                if (existsInApproved || existsInGeoJSON) {
-                    validDrawings.push(drawing);
-                } else {
-                    orphanedDrawings.push(drawing);
-                }
-            }
-
-            // Si hay dibujos huérfanos, actualizar el documento
-            if (orphanedDrawings.length > 0) {
-                console.log(`[CleanOrphaned] Sector "${sectorName}": eliminando ${orphanedDrawings.length} dibujos huérfanos:`,
-                    orphanedDrawings.map(d => d.routeName));
-
-                await kxBackupRouteDrawings(drawingDoc.ref, 'admin-limpiar-huerfanos', { snapshot: drawingDoc, required: true });
-                await db.collection('sector_route_drawings').doc(drawingDoc.id).update({
-                    drawings: validDrawings,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-
-                totalCleaned += orphanedDrawings.length;
-            }
-        }
-
-        if (totalCleaned > 0) {
-            showToast(`Limpiados ${totalCleaned} dibujos huérfanos`, 'success');
-        } else {
-            showToast('No se encontraron dibujos huérfanos', 'info');
-        }
-
-    } catch (error) {
-        console.error('[CleanOrphaned] Error:', error);
-        showToast('Error al limpiar dibujos huérfanos', 'error');
-    }
-}
-
-/**
- * Carga los nombres de las vías del GeoJSON para un sector específico
- */
-async function loadGeoJSONRoutesForSector(schoolId, sectorName) {
-    try {
-        const geojsonPaths = {
-            'valeria': 'Cartografia/Valeria/Valeria_Vias.geojson',
-            'sanmartin': 'Cartografia/San Martin de ValdeIglesias/SM_Vias.geojson',
-            'mora': 'Cartografia/Mora/Mora_Vias.geojson'
-        };
-
-        const path = geojsonPaths[schoolId];
-        if (!path) return [];
-
-        const response = await fetch(path + '?v=' + Date.now());
-        if (!response.ok) return [];
-
-        const geojson = await response.json();
-        if (!geojson.features) return [];
-
-        return geojson.features
-            .filter(f => f.properties.sector === sectorName)
-            .map(f => f.properties.nombre);
-
-    } catch (error) {
-        console.warn(`[CleanOrphaned] Error cargando GeoJSON para ${schoolId}:`, error);
-        return [];
-    }
-}
+// El botón conserva su texto; el tooltip ya no promete un borrado
+document.querySelectorAll('[onclick="cleanOrphanedDrawings()"]').forEach(btn => {
+    btn.title = 'Informe de trazados huérfanos (solo lectura, no borra nada)';
+});
 
 // ============================================
 // SPOTTER MANAGEMENT

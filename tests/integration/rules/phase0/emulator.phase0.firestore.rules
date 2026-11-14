@@ -1,0 +1,10 @@
+// Reglas INICIALES del emulador de la Fase 0 (solo para que arranque): deniegan todo. Cada prueba carga después las suyas
+// (loadFirestoreRules en _lib.cjs) con la API del emulador. No es ninguna propuesta ni se despliega.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

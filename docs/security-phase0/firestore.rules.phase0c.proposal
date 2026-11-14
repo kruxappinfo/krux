@@ -1,0 +1,827 @@
+// FASE 0c — copia COMPLETA de firestore.rules.phase0b.proposal con UN solo bloque cambiado: la regla de borrado de route-photos
+// (referencia temporal única = instante del id). NO DESPLEGADA.
+// ============================================================================================
+// PROPUESTA FASE 0b — NO DESPLEGADA (sustituye a firestore.rules.phase0.proposal). Copia completa de firestore.rules con tres bloques sustituidos:
+//   1) users/{uid}/notifications   2) route-photos   3) grade_votes, aleje_votes y estado_votes
+// El resto es idéntico al firestore.rules de producción (md5 de origen 311a726e31a1da22962d8ada891bd08f).
+// sector_images NO se ha tocado. Se usa solo con el emulador local (tests/integration/rules/phase0).
+// ============================================================================================
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isString(field, maxLen) {
+      return field is string && field.size() <= maxLen;
+    }
+
+    function isNumber(field) {
+      return field is number;
+    }
+
+    // Users collection
+    // Formato de un nombre de usuario (usernames.js: kxValidateUsername)
+    function validUsername(name) {
+      return name is string && name.matches('^[a-z0-9._]{3,30}$')
+        && !name.matches('^[.].*') && !name.matches('.*[.]$') && !name.matches('.*[.][.].*');
+    }
+
+    // Nombres de usuario únicos: usernames/{nombre} → { uid }. Se crea y se libera en la misma transacción
+    // que cambia users/{uid}.username, así nadie reserva nombres que no usa ni libera el que tiene puesto.
+    match /usernames/{name} {
+      allow read: if true;
+      allow create: if isAuthenticated() && validUsername(name)
+        && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == name;
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('username', '') != name;
+      allow update: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && usernameKept();
+      // Allow owner full write, OR allow any authenticated user to update stats or savedPosts
+      allow update: if (isOwner(userId) && usernameKept()) ||
+                      (isAuthenticated() && 
+                       (onlyStatsChanged() || onlySavedPostsChanged()));
+
+      // El nombre de usuario solo cambia a uno reservado para esta cuenta en usernames/ (y no se puede quitar)
+      function usernameKept() {
+        let before = resource == null ? null : resource.data.get('username', null);
+        let after = request.resource.data.get('username', null);
+        return after == before || (validUsername(after)
+          && getAfter(/databases/$(database)/documents/usernames/$(after)).data.uid == userId);
+      }
+      allow delete: if isOwner(userId);
+      
+      // Helper to check if only stats fields are being modified
+      function onlyStatsChanged() {
+        let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+        return changedKeys.hasOnly(['stats']) || 
+               changedKeys.hasOnly(['stats.followersCount']) ||
+               changedKeys.hasOnly(['stats.followingCount']) ||
+               changedKeys.hasOnly(['stats.followersCount', 'stats.followingCount']);
+      }
+      
+      // Helper to check if only savedPosts field is being modified (for bookmarks)
+      function onlySavedPostsChanged() {
+        let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+        return changedKeys.hasOnly(['savedPosts']);
+      }
+
+      match /favorites/{favoriteId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      match /projects/{projectId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /ascents/{ascentId} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner(userId);
+      }
+
+      // Sesiones de escalada en roca (climb-session.js). Privadas: incluyen el track GPS.
+      match /climb_sessions/{sessionId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && request.resource.data.userId == userId
+          && request.resource.data.type == 'rock'
+          && request.resource.data.status in ['active', 'paused', 'finished'];
+      }
+
+      match /following/{followedUserId} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner(userId);
+      }
+      
+      match /followers/{followerUserId} {
+        allow read: if isAuthenticated();
+        allow create, delete: if isAuthenticated() && request.auth.uid == followerUserId;
+      }
+      
+      // ───────── FASE 0 (PROPUESTA): notificaciones ─────────
+      // PROTECCIÓN PROVISIONAL, NO DEFINITIVA. Mientras el cliente cree las notificaciones, cualquier usuario
+      // autenticado puede escribir en bandejas ajenas; aquí solo se acota QUÉ puede escribir:
+      //  - solo los 5 tipos que usa la app (createNotification: follow, like, comment, reply, mention);
+      //  - campos cerrados, texto de 1..200 caracteres, read=false y createdAt de servidor;
+      //  - fromUserId = quien escribe, y nunca en la propia bandeja;
+      //  - id = {tipo}_{uidEmisor}_{recurso} (la clave de idempotencia que ya genera el cliente), así que el
+      //    emisor no puede suplantar ni pisar la notificación de otro emisor, y hay una por emisor/tipo/recurso.
+      // Límites que las reglas NO pueden resolver: fromUserName y fromUserPhoto los escribe el emisor (no son
+      // fiables; la interfaz debería leerlos de users/{fromUserId}), no se puede comprobar que el post exista
+      // sin lecturas extra, y un emisor puede seguir creando una notificación por cada recurso inventado.
+      // La solución definitiva es crearlas con Cloud Functions (Admin SDK) y poner create: if false.
+      match /notifications/{notificationId} {
+        function validNotif() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['type', 'text', 'fromUserId', 'fromUserName', 'fromUserPhoto', 'read',
+                                   'createdAt', 'postId', 'commentId', 'replyId'])
+            && d.keys().hasAll(['type', 'text', 'fromUserId', 'read', 'createdAt'])
+            && d.type in ['follow', 'like', 'comment', 'reply', 'mention']
+            && d.fromUserId == request.auth.uid && userId != request.auth.uid
+            && d.text is string && d.text.size() > 0 && d.text.size() <= 200
+            && (!('fromUserName' in d) || (d.fromUserName is string && d.fromUserName.size() <= 80))
+            && (!('fromUserPhoto' in d) || (d.fromUserPhoto is string && d.fromUserPhoto.size() <= 1000
+                                            && d.fromUserPhoto.matches('https://.*')))
+            && (!('postId' in d) || (d.postId is string && d.postId.size() <= 100))
+            && (!('commentId' in d) || (d.commentId is string && d.commentId.size() <= 100))
+            && (!('replyId' in d) || (d.replyId is string && d.replyId.size() <= 100))
+            && d.read == false
+            && d.createdAt == request.time
+            && notificationId.matches(d.type + '_' + request.auth.uid + '_.*');
+        }
+
+        // Lectura: igual que hoy. Se mantiene «resource == null» porque createNotification hace un get() del
+        // documento de destino ANTES de crearlo (app_3.js:4070); sin esa excepción ese get() falla y el cliente
+        // actual dejaría de crear notificaciones sin avisar. Coste: un usuario puede comprobar si existe un id
+        // concreto en una bandeja ajena (el id lleva su propio uid, así que solo sondea sus propios avisos).
+        allow read: if isOwner(userId) ||
+                      (isAuthenticated() &&
+                       (resource == null || resource.data.fromUserId == request.auth.uid));
+        // El dueño solo puede marcar como leída (markNotificationRead / marcar todas hacen update({read:true})).
+        // El emisor puede volver a notificar (createNotification hace set() sobre una notificación de más de una
+        // hora: es un update y hoy se rechaza en silencio); se exige la misma hora que aplica el cliente.
+        allow update: if (isOwner(userId)
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']))
+                      || (isAuthenticated() && resource.data.fromUserId == request.auth.uid && validNotif()
+                          && request.time > resource.data.createdAt + duration.value(1, 'h'));
+        allow delete: if isOwner(userId) ||
+                        (isAuthenticated() && resource.data.fromUserId == request.auth.uid);
+        allow create: if isAuthenticated() && validNotif();
+      }
+
+      // ───────── Entrena: plan activo (un único documento 'active') ─────────
+      match /training_plan/{planId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && planId == 'active'
+          && isString(request.resource.data.name, 80)
+          && request.resource.data.weeks is int
+          && request.resource.data.weeks >= 1 && request.resource.data.weeks <= 16
+          && request.resource.data.activeDays is list
+          && request.resource.data.activeDays.size() == 7
+          && request.resource.data.sessions is list
+          && request.resource.data.sessions.size() <= 7;
+      }
+
+      // ───────── Entrena: planes (varios por usuario) ─────────
+      // El plan activo no es un campo del plan: lo marca training_state/current.activePlanId.
+      match /training_plans/{planId} {
+        function statePath() { return /databases/$(database)/documents/users/$(userId)/training_state/current; }
+
+        function validPlan(d) {
+          return d.keys().hasOnly(['schemaVersion', 'name', 'status', 'weeks', 'activeDays', 'sessions', 'goal', 'level',
+                                   'equipment', 'minutes', 'revision', 'sourcePlanId', 'migratedFrom', 'createdAt',
+                                   'updatedAt', 'archivedAt', 'trashedAt', 'trashedFrom', 'startDate'])
+            && d.keys().hasAll(['schemaVersion', 'name', 'status', 'weeks', 'activeDays', 'sessions', 'revision', 'createdAt', 'updatedAt'])
+            && d.schemaVersion == 2
+            && isString(d.name, 80) && d.name.size() > 0
+            && d.weeks is int && d.weeks >= 1 && d.weeks <= 16
+            && d.activeDays is list && d.activeDays.size() == 7
+            && d.sessions is list && d.sessions.size() <= 7
+            && d.status in ['ready', 'archived', 'trashed']
+            && d.revision is int && d.revision >= 1
+            && d.get('equipment', []) is list && d.get('equipment', []).size() <= 10
+            && (!('level' in d) || (d.level is int && d.level >= 1 && d.level <= 3))
+            // Inicio programado: «AAAA-MM-DD» o null (mes y día posibles; el 29 de febrero de un año no bisiesto lo descarta el cliente)
+            && (!('startDate' in d) || d.startDate == null
+                || (d.startDate is string && d.startDate.size() == 10 && d.startDate.matches('^[0-9]{4}-((0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|(0[469]|11)-(0[1-9]|[12][0-9]|30)|02-(0[1-9]|1[0-9]|2[0-9]))$')));
+        }
+
+        // Un plan que deja de estar «ready» no puede seguir siendo el activo tras la escritura (se
+        // comprueba con el estado POSTERIOR: el puntero se vacía en el mismo lote)
+        function notActiveAfter() {
+          return !existsAfter(statePath()) || getAfter(statePath()).data.get('activePlanId', null) != planId;
+        }
+
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+          && validPlan(request.resource.data)
+          && request.resource.data.status == 'ready'
+          && request.resource.data.revision == 1
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+
+        // Cada guardado sube la revisión exactamente 1: una edición con una revisión antigua se rechaza
+        allow update: if isOwner(userId)
+          && validPlan(request.resource.data)
+          && request.resource.data.revision == resource.data.revision + 1
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.get('sourcePlanId', null) == resource.data.get('sourcePlanId', null)
+          && request.resource.data.get('migratedFrom', null) == resource.data.get('migratedFrom', null)
+          && (request.resource.data.status == 'ready' || notActiveAfter());
+
+        // Borrado definitivo: solo desde la papelera
+        allow delete: if isOwner(userId)
+          && resource.data.status == 'trashed'
+          && notActiveAfter();
+      }
+
+      // ───────── Entrena: perfil del escalador y evaluación mental (datos personales: solo el propietario) ─────────
+      // Nunca son legibles por otros usuarios ni por seguidores. El perfil puede estar a medias mientras se rellena.
+      match /training_profile/{docId} {
+        function sportGradeOk(g) { return g is string && (g == 'unknown' || g.matches('^[4-9][abc]\\+?$')); }
+        function boulderGradeOk(g) { return g is string && (g == 'unknown' || g.matches('^[3-9]([ABC]\\+?|\\+)?$')); }
+        function scaleOk(s, boulder) {
+          return s is map && s.keys().hasOnly(['usualFrom', 'usualTo', 'max', 'target'])
+            && (!('usualFrom' in s) || (boulder ? boulderGradeOk(s.usualFrom) : sportGradeOk(s.usualFrom)))
+            && (!('usualTo' in s) || (boulder ? boulderGradeOk(s.usualTo) : sportGradeOk(s.usualTo)))
+            && (!('max' in s) || (boulder ? boulderGradeOk(s.max) : sportGradeOk(s.max)))
+            && (!('target' in s) || (boulder ? boulderGradeOk(s.target) : sportGradeOk(s.target)));
+        }
+        function validProfile(d) {
+          return d.keys().hasOnly(['schemaVersion', 'status', 'step', 'goalPrimary', 'goalsSecondary', 'experience', 'daysPerWeek',
+                                   'minutesPerSession', 'modality', 'environment', 'rockFrequency', 'rockPriority', 'equipment',
+                                   'equipmentOther', 'grades', 'updatedAt', 'completedAt'])
+            && d.keys().hasAll(['schemaVersion', 'status', 'updatedAt'])
+            && d.schemaVersion == 1
+            && d.status in ['in_progress', 'completed', 'skipped']
+            && d.updatedAt == request.time
+            && (!('completedAt' in d) || d.completedAt is timestamp)
+            && (!('step' in d) || (d.step is int && d.step >= 1 && d.step <= 6))
+            && (!('goalPrimary' in d) || d.goalPrimary in ['grado', 'fuerza', 'resistencia', 'tecnica', 'competicion', 'forma'])
+            && (!('goalsSecondary' in d) || (d.goalsSecondary is list && d.goalsSecondary.size() <= 2
+                  && d.goalsSecondary.hasOnly(['grado', 'fuerza', 'resistencia', 'tecnica', 'competicion', 'forma'])
+                  && d.goalsSecondary.toSet().size() == d.goalsSecondary.size()            // sin repetidos
+                  && (!('goalPrimary' in d) || !(d.goalPrimary in d.goalsSecondary))))      // distinto del principal
+            && (!('experience' in d) || d.experience in ['lt1', '1-2', '2-4', 'gt4'])
+            && (!('daysPerWeek' in d) || (d.daysPerWeek is int && d.daysPerWeek >= 1 && d.daysPerWeek <= 7))
+            && (!('minutesPerSession' in d) || (d.minutesPerSession is int && d.minutesPerSession >= 20 && d.minutesPerSession <= 240))
+            && (!('modality' in d) || d.modality in ['deportiva', 'bloque', 'ambas'])
+            && (!('environment' in d) || d.environment in ['rocodromo', 'roca', 'ambos'])
+            // La frecuencia en roca y la prioridad solo existen si escala en ambos entornos
+            && (!('rockFrequency' in d) || (d.get('environment', null) == 'ambos' && d.rockFrequency is int && d.rockFrequency >= 1 && d.rockFrequency <= 7))
+            && (!('rockPriority' in d) || (d.get('environment', null) == 'ambos' && d.rockPriority in ['roca', 'rocodromo', 'ninguna']))
+            && (!('equipment' in d) || (d.equipment is list && d.equipment.size() <= 6
+                  && d.equipment.hasOnly(['ninguno', 'multipresa', 'gimnasio', 'bandas', 'pesas', 'otro'])
+                  && d.equipment.toSet().size() == d.equipment.size()                      // sin repetidos
+                  && (!('ninguno' in d.equipment) || d.equipment.size() == 1)))            // «Ninguno» es excluyente
+            && (!('equipmentOther' in d) || (isString(d.equipmentOther, 60) && 'equipment' in d && 'otro' in d.equipment))
+            && (!('grades' in d) || (d.grades is map && d.grades.keys().hasOnly(['sport', 'boulder'])
+                  && (!('sport' in d.grades) || scaleOk(d.grades.sport, false))
+                  && (!('boulder' in d.grades) || scaleOk(d.grades.boulder, true))))
+            // Un perfil «completed» trae todo lo imprescindible («No lo sé» cuenta como respuesta en los grados)
+            && (d.status != 'completed' || (
+                  d.keys().hasAll(['goalPrimary', 'experience', 'daysPerWeek', 'minutesPerSession', 'modality', 'environment', 'equipment', 'completedAt', 'grades'])
+                  && d.equipment.size() >= 1
+                  && (d.environment != 'ambos' || 'rockFrequency' in d)
+                  && (d.modality == 'bloque' || ('sport' in d.grades && d.grades.sport.keys().hasAll(['usualFrom', 'max', 'target'])))
+                  && (d.modality == 'deportiva' || ('boulder' in d.grades && d.grades.boulder.keys().hasAll(['usualFrom', 'max', 'target'])))));
+        }
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && docId == 'current' && validProfile(request.resource.data);
+      }
+
+      match /mental_profile/{docId} {
+        function answerOk(a, k) { return !(k in a) || a[k] in [1, 2, 3, 4, 5, 'unknown', 'skip']; }
+        function validMental(d) {
+          return d.keys().hasOnly(['schemaVersion', 'answers', 'updatedAt'])
+            && d.keys().hasAll(['schemaVersion', 'answers', 'updatedAt'])
+            && d.schemaVersion == 1
+            && d.updatedAt == request.time
+            && d.answers is map
+            && d.answers.keys().hasOnly(['fear', 'confidence', 'focus', 'frustration', 'pressure'])
+            && answerOk(d.answers, 'fear') && answerOk(d.answers, 'confidence') && answerOk(d.answers, 'focus')
+            && answerOk(d.answers, 'frustration') && answerOk(d.answers, 'pressure');
+        }
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && docId == 'current' && validMental(request.resource.data);
+      }
+
+      match /training_state/{docId} {
+        allow read: if isOwner(userId);
+        // El puntero solo puede apuntar (tras la escritura) a un plan existente y «ready»
+        allow create, update: if isOwner(userId)
+          && docId == 'current'
+          && request.resource.data.keys().hasOnly(['activePlanId', 'migratedAt', 'migratedFrom', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time
+          && (request.resource.data.get('activePlanId', null) == null
+              || (request.resource.data.activePlanId is string
+                  && existsAfter(/databases/$(database)/documents/users/$(userId)/training_plans/$(request.resource.data.activePlanId))
+                  && getAfter(/databases/$(database)/documents/users/$(userId)/training_plans/$(request.resource.data.activePlanId)).data.status == 'ready'));
+        allow delete: if false;
+      }
+
+      // ───────── Entrena: sesiones realizadas ─────────
+      match /training_sessions/{sessionId} {
+        allow read, delete: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isString(request.resource.data.dateKey, 10)
+          && isString(request.resource.data.sessionName, 80)
+          && isNumber(request.resource.data.durationSec)
+          && request.resource.data.exercises is list
+          && request.resource.data.exercises.size() <= 30;
+        // Tras crearla solo se añade el registro final (sensaciones, RPE, notas, etiquetas)
+        allow update: if isOwner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feel', 'rpe', 'notes', 'tags'])
+          && isString(request.resource.data.get('notes', ''), 1000)
+          && request.resource.data.get('tags', []) is list
+          && request.resource.data.get('tags', []).size() <= 10;
+      }
+
+      // ───────── Entrena: ejercicios favoritos (solo la referencia, nunca la ficha) ─────────
+      match /exercise_favorites/{exerciseId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && exerciseId.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
+          && request.resource.data.exerciseId == exerciseId;
+      }
+
+      // ───────── Test Definitions ─────────
+      match /test_definitions/{testId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+          && isString(request.resource.data.name, 100)
+          && isString(request.resource.data.templateKey, 50)
+          && request.resource.data.unit in ['kg', 'mm', 'seconds', 'reps', 'percent_bw', 'grade', 'custom']
+          && request.resource.data.progressDirection in ['higher_is_better', 'lower_is_better']
+          && request.resource.data.pinned is bool
+          && isNumber(request.resource.data.order)
+          && request.resource.data.requiredContext is list;
+
+        allow update: if isOwner(userId)
+          && (!('enabledAt' in request.resource.data.diff(resource.data).affectedKeys()));
+
+        allow delete: if isOwner(userId);
+      }
+
+      // ───────── Test Measurements ─────────
+      match /test_measurements/{measurementId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+          && isString(request.resource.data.testId, 100)
+          && isNumber(request.resource.data.value)
+          && request.resource.data.measuredAt is timestamp
+          && request.resource.data.measuredAt <= request.time;
+
+        allow update: if isOwner(userId)
+          && isNumber(request.resource.data.value)
+          && request.resource.data.testId == resource.data.testId;
+
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /ascents/{ascentId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /comments/{commentId} {
+      allow read: if true; // Anyone can read comments
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid; // Users can create their own comments
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid; // Users can update their own comments
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid; // Users can delete their own comments
+    }
+
+    // ───────── FASE 0b (PROPUESTA): fotos de vía, con documento ↔ archivo vinculados ─────────
+    // Política aprobada: cualquier usuario autenticado sube; el autor borra solo durante las primeras 12 horas; admin y
+    // super-admin siempre; el spotter NO tiene permiso especial (isAdmin() es solo role == 'admin').
+    //
+    // Vinculación (Firestore no puede leer Storage, así que se ata TODO a una ruta que contiene el uid del autor):
+    //  - id del documento = {schoolId}_{routeId}_{ms}_{aleatorio6}; «ms» debe estar a ±10 min de la hora del servidor.
+    //    Un id solo se puede crear alrededor de su propio instante: tras borrar el documento NO se puede recrear más tarde
+    //    con el mismo id (y por tanto con el mismo archivo) para reiniciar el plazo de 12 h. Sin esta condición, «borrar y
+    //    recrear» el documento daba al autor un plazo nuevo indefinidamente (comprobado en el emulador).
+    //  - filename = {id}.{jpg|png|webp}, storagePath = route-photos/{schoolId}/{uid}/{filename}: el archivo solo tiene
+    //    un documento posible y cada documento un único archivo posible, dentro de la carpeta de su autor.
+    //  - photoUrl (sin la parte ?token=…) debe ser exactamente la URL de descarga de ESE storagePath en el bucket del
+    //    proyecto: el documento no puede apuntar a la foto de otro usuario ni a una URL externa.
+    // Lo que las reglas NO pueden garantizar: que el archivo exista (Firestore no consulta Storage). Un documento sin
+    // archivo es visible y borrable (por el autor 12 h, por admin siempre); un archivo sin documento no se puede subir
+    // (la regla de Storage exige el documento primero). Ver storage.rules.phase0b.proposal.
+    // uploadedAt es inmutable (update: if false) y en la creación debe ser request.time (hora del servidor).
+    // Un documento antiguo sin uploadedAt no da permiso de borrado al autor (solo a admin/super-admin).
+    // «<» estricto: justo a las 12 h exactas el autor ya NO puede borrar.
+    match /route-photos/{photoId} {
+      function validRoutePhoto() {
+        let d = request.resource.data;
+        let parts = photoId.split('_');
+        let n = parts.size();
+        let stamp = parts[n - 2];
+        let rand = parts[n - 1];
+        let base = 'https://firebasestorage.googleapis.com/v0/b/';
+        let encoded = d.storagePath.replace('/', '%2F');
+        return d.keys().hasOnly(['photoUrl', 'uploadedBy', 'uploadedByName', 'uploadedAt', 'routeId', 'routeName',
+                                 'schoolId', 'filename', 'storagePath'])
+          && d.keys().hasAll(['photoUrl', 'uploadedBy', 'uploadedAt', 'routeId', 'schoolId', 'filename', 'storagePath'])
+          && d.uploadedBy == request.auth.uid
+          && d.uploadedAt == request.time
+          && n >= 4 && photoId.matches('[A-Za-z0-9_-]{12,200}')
+          && stamp.matches('[0-9]{13}') && rand.matches('[a-z0-9]{6}')
+          && request.time.toMillis() - int(stamp) < 600000 && int(stamp) - request.time.toMillis() < 600000
+          && d.schoolId is string && d.schoolId.matches('[A-Za-z0-9_-]{1,60}')
+          && d.routeId is int
+          && photoId == d.schoolId + '_' + string(d.routeId) + '_' + stamp + '_' + rand
+          && (!('routeName' in d) || isString(d.routeName, 200))
+          && (!('uploadedByName' in d) || isString(d.uploadedByName, 100))
+          && d.filename is string && d.filename.matches(photoId + '[.](jpg|png|webp)')
+          && d.storagePath == 'route-photos/' + d.schoolId + '/' + request.auth.uid + '/' + d.filename
+          && d.photoUrl is string && d.photoUrl.size() <= 1500
+          && d.photoUrl.split('[?]')[0] in [base + 'climbmaps-80cae.firebasestorage.app/o/' + encoded,
+                                            base + 'climbmaps-80cae.appspot.com/o/' + encoded];
+      }
+
+      allow read: if true;
+      allow create: if isAuthenticated() && validRoutePhoto();
+      allow update: if false;
+      // FASE 0c — ÚNICA REFERENCIA TEMPORAL: el instante «ms» que va dentro del id (inmutable, validado en la creación a ±10 min
+      // de la hora del servidor). Storage usa EXACTAMENTE la misma expresión sobre el nombre del archivo ({id}.jpg), así que
+      // ambas reglas coinciden aunque el archivo se suba después del documento y aunque el documento se borre y se recree.
+      // 43200000 ms = 12 h. «<» estricto. Los documentos antiguos (id sin instante de 13 cifras) no dan permiso al autor.
+      function photoStamp() { return photoId.split('_')[photoId.split('_').size() - 2]; }
+      allow delete: if isAuthenticated() && (
+        isAdmin() || isSuperAdmin() ||
+        (resource.data.uploadedBy == request.auth.uid
+          && photoId.split('_').size() >= 4
+          && photoStamp().matches('[0-9]{13}')
+          && request.time.toMillis() - int(photoStamp()) < 43200000));
+    }
+
+    // Posts collection - allows authenticated users to create posts and update likes/commentsCount
+    match /posts/{postId} {
+      allow read: if true; // Anyone can read posts
+      allow create: if isAuthenticated(); // Any authenticated user can create posts
+      // Allow owner to update/delete, OR allow any authenticated user to update likes/commentsCount
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || // Owner can update anything
+        onlyLikesOrCommentsChanged() // Anyone can update likes/commentsCount
+      );
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Helper to check if only likes or commentsCount fields are being modified
+      function onlyLikesOrCommentsChanged() {
+        let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+        return changedKeys.hasOnly(['likes']) || 
+               changedKeys.hasOnly(['commentsCount']) ||
+               changedKeys.hasOnly(['likes', 'commentsCount']);
+     }
+// Comments subcollection - allow comment author to edit, comment/post author to delete
+      match /comments/{commentId} {
+        allow read: if true; // Anyone can read comments
+        allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+        // Allow update if: comment author (full edit) OR any authenticated user (likes/repliesCount)
+        allow update: if isAuthenticated() && (
+          resource.data.userId == request.auth.uid || // Author can update anything
+          onlyCommentInteractionChanged() // Anyone can update likes or repliesCount
+        );
+        // Allow delete if user is comment author OR post author
+        allow delete: if isAuthenticated() &&
+                       (resource.data.userId == request.auth.uid ||
+                        get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid);
+
+        // Helper to check if only likes or repliesCount fields are being modified
+        function onlyCommentInteractionChanged() {
+          let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+          return changedKeys.hasOnly(['likes']) ||
+                 changedKeys.hasOnly(['repliesCount']) ||
+                 changedKeys.hasOnly(['likes', 'repliesCount']);
+        }
+
+        // Replies subcollection - nested comments
+        match /replies/{replyId} {
+          allow read: if true; // Anyone can read replies
+          allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+          // Allow update if: reply author (full edit) OR any authenticated user (only likes)
+          allow update: if isAuthenticated() && (
+            resource.data.userId == request.auth.uid ||
+            onlyReplyLikesChanged()
+          );
+          // Allow delete if: reply author, parent comment author, or post author
+          allow delete: if isAuthenticated() && (
+            resource.data.userId == request.auth.uid ||
+            get(/databases/$(database)/documents/posts/$(postId)/comments/$(commentId)).data.userId == request.auth.uid ||
+            get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid
+          );
+
+          function onlyReplyLikesChanged() {
+            let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+            return changedKeys.hasOnly(['likes']);
+          }
+        }
+      }
+    }
+
+    
+
+    match /admins/{userId} {
+      // Permitir leer su propio documento, o cualquiera si es super admin o admin
+      // (un admin lo necesita para bonificar al spotter cuya propuesta aprueba)
+      allow read: if request.auth.uid == userId ||
+                    (isAuthenticated() && (request.auth.token.email == 'krux.app.info@gmail.com' || isAdmin()));
+      // Permitir escribir solo al super admin
+      allow write: if isAuthenticated() && request.auth.token.email == 'krux.app.info@gmail.com';
+      // Un admin solo puede sumar a otro los puntos de una propuesta aprobada (5, 10 o 15), nunca a sí mismo
+      allow update: if isAuthenticated() && isAdmin() && request.auth.uid != userId &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points']) &&
+                      (request.resource.data.points - resource.data.get('points', 0)) in [5, 10, 15];
+    }
+
+    // ───────── Entrena: catálogo global de ejercicios ─────────
+    // Cualquier usuario con sesión lee las fichas publicadas; solo admin y super-admin las crean,
+    // editan o publican. Las colecciones de categorías y material son de solo lectura para usuarios.
+    match /exercises/{exerciseId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.status == 'published' || isAdmin() || isSuperAdmin());
+      allow create, update: if isAuthenticated() && (isAdmin() || isSuperAdmin())
+        && exerciseId.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
+        && request.resource.data.id == exerciseId
+        && isString(request.resource.data.name, 100)
+        && request.resource.data.status in ['draft', 'published', 'archived']
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.contentVersion is int
+        && request.resource.data.contentVersion >= 1
+        && isString(request.resource.data.primaryCategoryId, 40)
+        && request.resource.data.review.status in ['pending', 'reviewed']
+        && request.resource.data.instructions.executionSteps is list
+        && request.resource.data.prescriptionSchema is list;
+      allow delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    match /exercise_categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    match /equipment/{equipmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    // Spotter requests collection
+    match /spotter_requests/{requestId} {
+      // Super admin can read ALL requests (needed for listing/querying)
+      // Users can only read their own request
+      allow read: if isSuperAdmin() ||
+        (isAuthenticated() && request.auth.uid == requestId);
+      // Users can create their own request (requestId must be their uid)
+      allow create: if isAuthenticated() &&
+        request.auth.uid == requestId &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      // Super admin can update (approve/reject), OR owner can resubmit (set back to pending)
+      allow update: if isSuperAdmin() ||
+        (isAuthenticated() &&
+         request.auth.uid == requestId &&
+         request.resource.data.userId == request.auth.uid &&
+         request.resource.data.status == 'pending');
+      // No deletions allowed
+      allow delete: if false;
+    }
+
+    // Sector images metadata
+    match /sector_images/{imageId} {
+      allow read: if true; // Anyone can read sector images metadata
+      // Admins y spotters suben fotos (el editor Spotter las pide al crear un sector); el super-admin también
+      allow write: if isAuthenticated() && (isSuperAdmin() || isAdminOrSpotter());
+    }
+
+    // Route drawings on sector images
+    match /sector_route_drawings/{drawingId} {
+      allow read: if true; // Anyone can see route drawings
+      allow create, update: if isAuthenticated() && isAdminOrSpotter(); // Admins and Spotters can draw routes
+      // El documento entero no se borra desde la app (solo el super admin)
+      allow delete: if isAuthenticated() && isSuperAdmin();
+
+      // Copias de seguridad de los trazados: solo se pueden añadir, nunca editar ni borrar
+      match /backups/{backupId} {
+        allow read, create: if isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin());
+        allow update, delete: if false;
+      }
+    }
+
+    // Pending routes (vías pendientes de aprobación)
+    match /pending_routes/{routeId} {
+      // Permitir leer vías aprobadas a TODOS (incluso sin autenticación)
+      // Permitir leer vías pendientes solo a admins/spotters
+      allow read: if resource.data.status == 'approved' ||
+        (isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin()));
+      // Admins y Spotters pueden crear vías pendientes
+      allow create: if isAuthenticated() && isAdminOrSpotter();
+      // Solo admins y super admin pueden aprobar/rechazar/eliminar
+      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    // Pending POI (puntos de interés pendientes de aprobación)
+    match /pending_poi/{poiId} {
+      allow read: if resource.data.status == 'approved' ||
+        (isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin()));
+      allow create: if isAuthenticated() && isAdminOrSpotter();
+      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    // Pending sectors (sectores pendientes de aprobación)
+    match /pending_sectors/{sectorId} {
+      allow read: if resource.data.status == 'approved' ||
+        (isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin()));
+      allow create: if isAuthenticated() && isAdminOrSpotter();
+      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    // Pending schools (escuelas pendientes de aprobación)
+    match /pending_schools/{schoolId} {
+      allow read: if resource.data.status == 'approved' ||
+        (isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin()));
+      allow create: if isAuthenticated() && isAdminOrSpotter();
+      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    // Aleje votes (votaciones de aleje por ruta)
+    // Información de rocódromos aportada por la comunidad (gym-info.js).
+    // Se publica al instante; cualquiera puede denunciarla (gym_reports) y el admin decide: editar, borrar o descartar.
+    // Una vez publicada, solo un admin puede modificarla o borrarla (el resto la denuncia).
+    match /gym_info/{infoId} {
+      function validNew() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['gymId', 'kind', 'text', 'value', 'network', 'url', 'photoUrl', 'storagePath', 'authorId', 'authorName', 'createdAt'])
+          && isString(d.gymId, 60) && d.kind in ['photo', 'hours', 'price', 'contact', 'facility', 'link']
+          && d.authorId == request.auth.uid && isString(d.authorName, 80)
+          && d.createdAt == request.time
+          && (d.kind != 'photo' || (isString(d.photoUrl, 1000) && isString(d.storagePath, 300) && d.storagePath.matches('gym-photos/' + request.auth.uid + '/.*')))
+          && (d.kind != 'facility' || (isString(d.value, 30) && infoId == d.gymId + '__facility__' + d.value))
+          && (d.kind != 'link' || (d.network in ['instagram', 'facebook', 'tiktok', 'youtube', 'x', 'web'] && isString(d.url, 300) && d.url.matches('https://[^ ]+')))
+          && (!(d.kind in ['hours', 'price', 'contact']) || (isString(d.text, 500) && d.text.size() > 0));
+      }
+
+      allow read: if true;
+      allow create: if isAuthenticated() && validNew();
+      allow update: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    // Denuncias de esa información: una por persona y aportación (id = infoId__uid). Privadas: solo las ve el admin
+    // y quien la envió. El admin las resuelve (status) o las borra.
+    match /gym_reports/{reportId} {
+      function validReport() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['infoId', 'gymId', 'kind', 'reason', 'proposal', 'reporterId', 'reporterName', 'createdAt', 'status'])
+          && isString(d.infoId, 200) && isString(d.gymId, 60) && d.kind in ['photo', 'hours', 'price', 'contact', 'facility', 'link']
+          && d.reason in ['incorrect', 'outdated', 'inappropriate'] && isString(d.proposal, 500)
+          && d.reporterId == request.auth.uid && isString(d.reporterName, 80)
+          && d.createdAt == request.time && d.status == 'open'
+          && reportId == d.infoId + '__' + request.auth.uid
+          && exists(/databases/$(database)/documents/gym_info/$(d.infoId));
+      }
+
+      allow read: if isAuthenticated() && (resource.data.reporterId == request.auth.uid || isAdmin() || isSuperAdmin());
+      allow create: if isAuthenticated() && validReport();
+      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    // ───────── FASE 0 (PROPUESTA): votos de grado, aleje y estado ─────────
+    // Se conserva la estructura actual: un documento {schoolId}_{routeId} con votes: { <uid>: <valor> }.
+    //  - Un usuario solo puede añadir, cambiar o borrar SU clave del mapa (diff del mapa == [su uid]).
+    //    Un set() sin merge o un mapa reescrito con datos viejos elimina o cambia claves ajenas y se rechaza.
+    //  - El valor propio es un entero dentro del rango de cada colección (grado 0..35, aleje y estado 1..5).
+    //  - Al crear: mapa con una única clave (la propia), nunca vacío, y solo schoolId, routeId, votes, updatedAt.
+    //  - schoolId y routeId no se pueden cambiar (solo añadir si faltaban en un documento antiguo, y siempre
+    //    coherentes con el id del documento). updatedAt debe ser la hora del servidor.
+    //  - Borrar el documento entero: solo super-admin. Retirar el voto propio es un update con FieldValue.delete().
+    // No se valida el documento completo con hasOnly para no bloquear documentos antiguos con campos que no
+    // conocemos; solo se limitan las claves que cambia esta escritura.
+    function voteOwnValueOk(minV, maxV) {
+      let votes = request.resource.data.votes;
+      return !(request.auth.uid in votes)
+        || (votes[request.auth.uid] is int && votes[request.auth.uid] >= minV && votes[request.auth.uid] <= maxV);
+    }
+    function voteMetaOk(docId) {
+      let d = request.resource.data;
+      return (!('schoolId' in d) || (d.schoolId is string && d.schoolId.size() <= 60))
+        && (!('routeId' in d) || d.routeId is int || (d.routeId is string && d.routeId.size() <= 80))
+        && (!('schoolId' in d && 'routeId' in d) || docId == d.schoolId + '_' + string(d.routeId));
+    }
+    function voteCreateOk(docId, minV, maxV) {
+      let d = request.resource.data;
+      return isAuthenticated()
+        && d.keys().hasOnly(['schoolId', 'routeId', 'votes', 'updatedAt'])
+        && d.keys().hasAll(['schoolId', 'routeId', 'votes', 'updatedAt'])
+        && d.votes is map && d.votes.size() == 1 && request.auth.uid in d.votes
+        && voteOwnValueOk(minV, maxV)
+        && d.updatedAt == request.time
+        && voteMetaOk(docId);
+    }
+    function voteUpdateOk(docId, minV, maxV) {
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
+      return isAuthenticated()
+        && changed.hasOnly(['votes', 'updatedAt', 'schoolId', 'routeId'])
+        && (!('schoolId' in changed) || !('schoolId' in resource.data))
+        // routeId no cambia de valor. Se tolera el cambio de TIPO (3 vs "3"): mlCancelGradeVote, en las versiones antiguas, lo envía como
+        // cadena (en producción 2 de 11 documentos de grade_votes ya lo tienen así). Rechazarlo rompería a esos clientes sin ningún beneficio.
+        && (!('routeId' in changed) || !('routeId' in resource.data) || string(d.routeId) == string(resource.data.routeId))
+        && d.votes is map
+        && d.votes.diff(resource.data.get('votes', {})).affectedKeys().hasOnly([request.auth.uid])
+        && voteOwnValueOk(minV, maxV)
+        && d.updatedAt == request.time
+        && voteMetaOk(docId);
+    }
+
+    match /aleje_votes/{docId} {
+      allow read: if true;
+      allow create: if voteCreateOk(docId, 1, 5);
+      allow update: if voteUpdateOk(docId, 1, 5);
+      allow delete: if isAuthenticated() && isSuperAdmin();
+    }
+
+    // Estado votes (votaciones de estado de la vía por ruta)
+    match /estado_votes/{docId} {
+      allow read: if true;
+      allow create: if voteCreateOk(docId, 1, 5);
+      allow update: if voteUpdateOk(docId, 1, 5);
+      allow delete: if isAuthenticated() && isSuperAdmin();
+    }
+
+    // Grade votes (votaciones de grado por ruta)
+    match /grade_votes/{docId} {
+      allow read: if true;
+      allow create: if voteCreateOk(docId, 0, 35);
+      allow update: if voteUpdateOk(docId, 0, 35);
+      allow delete: if isAuthenticated() && isSuperAdmin();
+    }
+
+    // Route suggestions (sugerencias de usuarios para información faltante de vías)
+    // Incidencias de vía (como en Waze): un documento por usuario, vía y tipo de problema.
+    // Id: {routeKey}_{type}_{uid}. Lectura pública; cada usuario solo escribe o borra su propio voto.
+    match /route_incident_votes/{voteId} {
+      allow read: if true;
+      allow create, update: if isAuthenticated() &&
+        request.resource.data.uid == request.auth.uid &&
+        voteId == request.resource.data.routeKey + '_' + request.resource.data.type + '_' + request.auth.uid &&
+        request.resource.data.vote in ['report', 'confirm', 'deny'] &&
+        request.resource.data.type in ['seguridad', 'grado', 'nombre', 'datos', 'ubicacion', 'otro'] &&
+        request.resource.data.keys().hasOnly(['routeKey', 'schoolId', 'routeId', 'routeName', 'sector', 'type', 'uid', 'vote', 'at']);
+      allow delete: if isAuthenticated() &&
+        (resource.data.uid == request.auth.uid || isAdmin() || isSuperAdmin());
+    }
+
+    match /routeSuggestions/{suggestionId} {
+      // Admins pueden leer todas las sugerencias
+      allow read: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+      // Cualquier usuario autenticado puede crear sugerencias
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      // Solo admins pueden aprobar/rechazar
+      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    // Helper function to check if user is super admin
+    function isSuperAdmin() {
+      return request.auth.token.email == 'krux.app.info@gmail.com';
+    }
+
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Helper function to check if user is spotter
+    function isSpotter() {
+      return exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'spotter';
+    }
+
+    // Helper function to check if user is admin OR spotter
+    function isAdminOrSpotter() {
+      return exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+             (get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'admin' ||
+              get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'spotter');
+    }
+
+    match /conversations/{conversationId} {
+      function isParticipant() {
+        return isAuthenticated() && request.auth.uid in resource.data.participants;
+      }
+      
+      function willBeParticipant() {
+        return isAuthenticated() && request.auth.uid in request.resource.data.participants;
+      }
+
+      allow read: if isParticipant();
+      allow create: if willBeParticipant();
+      allow update, delete: if isParticipant();
+
+      match /messages/{messageId} {
+        allow read, delete: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants && request.resource.data.senderId == request.auth.uid;
+      }
+    }
+  }
+}

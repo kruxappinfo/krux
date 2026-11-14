@@ -1,0 +1,20 @@
+// ============================================================================================
+// PROPUESTA OPCIONAL — NO DESPLEGADA. Sustituiría el bloque sector_route_drawings de firestore.rules. Red de seguridad en reglas:
+// ninguna escritura de admin/spotter puede REDUCIR el total de trazados (drawings + archivedDrawings) de un documento. Archivar
+// (mover de drawings a archivedDrawings) y restaurar mantienen el total; solo el super-admin puede reducirlo.
+// ADVERTENCIA DE COMPATIBILIDAD: los clientes actuales que borran trazados (route-drawing.js: borrar trazado, ramal, borrador;
+// admin: borrar vía y limpiar huérfanos) escriben un array más corto y serían DENEGADOS. Solo puede desplegarse cuando el cliente
+// nuevo (que archiva en vez de borrar) esté en todos los dispositivos, y siempre DESPUÉS de él. No cubre rapelPoints ni auxElements.
+// ============================================================================================
+    match /sector_route_drawings/{drawingId} {
+      function drawingTotal(d) { return d.get('drawings', []).size() + d.get('archivedDrawings', []).size(); }
+      allow read: if true;
+      allow create: if isAuthenticated() && isAdminOrSpotter();
+      allow update: if isAuthenticated() && isAdminOrSpotter()
+        && (isSuperAdmin() || drawingTotal(request.resource.data) >= drawingTotal(resource.data));
+      allow delete: if isAuthenticated() && isSuperAdmin();
+      match /backups/{backupId} {
+        allow read, create: if isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin());
+        allow update, delete: if false;
+      }
+    }

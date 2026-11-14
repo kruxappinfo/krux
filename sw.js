@@ -4,7 +4,7 @@
  * PWA completa con soporte offline
  */
 
-const CACHE_VERSION = 'v305';
+const CACHE_VERSION = 'v306';
 const CACHE_NAME = `krux-cache-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `krux-data-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
@@ -113,8 +113,9 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME)
       .then((cache) => {
         console.log('[SW] Cacheando assets estáticos');
-        // Cachear assets locales
-        return cache.addAll(STATIC_ASSETS)
+        // Cachear assets locales. cache:'reload' salta la caché HTTP del navegador (max-age de GitHub Pages/Hosting):
+        // así la caché nueva nunca se llena con una copia vieja de un JS recién publicado.
+        return cache.addAll(STATIC_ASSETS.map((url) => new Request(url, { cache: 'reload' })))
           .then(() => {
             // Intentar cachear recursos externos (no falla si no se pueden)
             return Promise.allSettled(
@@ -245,7 +246,9 @@ async function cacheFirstThenNetwork(request, cacheName) {
     return cachedResponse;
   }
 
-  return fetchAndCache(request, cache);
+  // Sin copia en esta versión de la caché (p. ej. justo tras subir CACHE_VERSION): para lo propio se salta la caché HTTP
+  // y se descarga de la red, para no guardar ni ejecutar una versión vieja de un JS que acaba de cambiar (admin.js, admin-routes.js...)
+  return fetchAndCache(request, cache, new URL(request.url).origin === self.location.origin);
 }
 
 /**
@@ -324,9 +327,9 @@ async function networkFirstThenCache(request) {
 /**
  * Fetch y guardar en cache
  */
-async function fetchAndCache(request, cache) {
+async function fetchAndCache(request, cache, fresh = false) {
   try {
-    const networkResponse = await fetch(request);
+    const networkResponse = await fetch(request, fresh ? { cache: 'reload' } : undefined);
 
     if (networkResponse.ok && networkResponse.status !== 206) {
       cache.put(request, networkResponse.clone());
