@@ -215,7 +215,12 @@
     const k = `${schoolId}|${sector}`;
     if (!S.thumbs.has(k)) {
       S.thumbs.set(k, getSectorGalleryImages(schoolId, sector)
-        .then(imgs => (imgs && imgs[0] && imgs[0].url) || null)
+        .then(async imgs => {
+          const url = (imgs && imgs[0] && imgs[0].url) || null;
+          // Escuela descargada: la miniatura sale del dispositivo
+          const local = url && typeof KxOffline !== 'undefined' ? await KxOffline.photoUrl(url) : null;
+          return local || url;
+        })
         .catch(() => null));
     }
     return S.thumbs.get(k);

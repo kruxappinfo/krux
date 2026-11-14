@@ -4,7 +4,7 @@
  * PWA completa con soporte offline
  */
 
-const CACHE_VERSION = 'v301';
+const CACHE_VERSION = 'v302';
 const CACHE_NAME = `krux-cache-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `krux-data-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
@@ -42,6 +42,15 @@ const STATIC_ASSETS = [
   './sector-progress.js',
   './sun-map.js',
   './map-style.js',
+  './offline-packs.js',
+  './activity-ui.js',
+  './sector-images.js',
+  './vendor/maplibre-gl-4.1.0/maplibre-gl.js',
+  './vendor/maplibre-gl-4.1.0/maplibre-gl.css',
+  './vendor/firebase-9.23.0/firebase-app-compat.js',
+  './vendor/firebase-9.23.0/firebase-auth-compat.js',
+  './vendor/firebase-9.23.0/firebase-firestore-compat.js',
+  './vendor/firebase-9.23.0/firebase-storage-compat.js',
   './assets/schools/generic/caliza.svg',
   './assets/schools/generic/granito.svg',
   './assets/schools/generic/roca.svg',
@@ -88,10 +97,12 @@ const STATIC_ASSETS = [
 
 // Recursos externos que intentaremos cachear
 const EXTERNAL_RESOURCES = [
-  'https://unpkg.com/maplibre-gl@4.1.0/dist/maplibre-gl.css',
-  'https://unpkg.com/maplibre-gl@4.1.0/dist/maplibre-gl.js',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'
+  'https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap'
 ];
+
+// Teselas de mapa: no pasan por el service worker (son miles y llenarían la caché). Las de las escuelas
+// descargadas las sirve offline-packs.js desde IndexedDB.
+const TILE_HOSTS = ['www.ign.es', 'tms-pnoa-ma.idee.es', 'api.maptiler.com', 'demotiles.maplibre.org'];
 
 // Instalación: cachear assets estáticos
 self.addEventListener('install', (event) => {
@@ -178,6 +189,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  if (TILE_HOSTS.includes(url.hostname)) {
+    return;
+  }
+
   // Estrategia para archivos GeoJSON: Network First para reflejar actualizaciones
   if (url.pathname.includes('/Cartografia/') ||
       url.pathname.endsWith('.geojson')) {
@@ -225,11 +240,24 @@ async function cacheFirstThenNetwork(request, cacheName) {
 
   if (cachedResponse) {
     // Actualizar cache en background (stale-while-revalidate)
-    fetchAndCache(request, cache);
+    fetchAndCache(request, cache).catch(() => {});
     return cachedResponse;
   }
 
   return fetchAndCache(request, cache);
+}
+
+/**
+ * Respuesta guardada para una petición sin red: en cualquier caché (también la de escuelas descargadas,
+ * kxoff-geojson) y, para lo propio, ignorando el ?v= de versión (la copia puede ser de otra versión)
+ */
+async function matchAnyCache(request) {
+  const exact = await caches.match(request);
+  if (exact) return exact;
+  if (new URL(request.url).origin === self.location.origin) {
+    return caches.match(request, { ignoreSearch: true });
+  }
+  return undefined;
 }
 
 /**
@@ -249,7 +277,7 @@ async function networkFirstWithOfflineFallback(request) {
     return networkResponse;
   } catch (error) {
     // Intentar servir desde cache
-    const cachedResponse = await cache.match(request);
+    const cachedResponse = await matchAnyCache(request);
 
     if (cachedResponse) {
       return cachedResponse;
@@ -282,7 +310,7 @@ async function networkFirstThenCache(request) {
 
     return networkResponse;
   } catch (error) {
-    const cachedResponse = await cache.match(request);
+    const cachedResponse = await matchAnyCache(request);
 
     if (cachedResponse) {
       return cachedResponse;
@@ -306,7 +334,7 @@ async function fetchAndCache(request, cache) {
     return networkResponse;
   } catch (error) {
     // Intentar devolver del cache si falla la red
-    const cachedResponse = await cache.match(request);
+    const cachedResponse = await matchAnyCache(request);
     if (cachedResponse) {
       return cachedResponse;
     }

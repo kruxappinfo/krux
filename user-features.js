@@ -266,6 +266,51 @@ function hasUserSentRoute(schoolId, routeId) {
     return !!(info && info.sent);
 }
 
+// Copia local de la caché de ascensos: sin conexión se siguen viendo las vías hechas (ticks del mapa, progreso)
+const KX_ASCENTS_SNAPSHOT_PREFIX = 'krux_asc_snap_';
+
+function saveAscentsSnapshot() {
+    if (!currentUser) return;
+    try {
+        const entries = [...userAscentsCache.entries()].map(([k, v]) => [k, { ...v, date: v.date ? new Date(v.date).getTime() : null }]);
+        localStorage.setItem(KX_ASCENTS_SNAPSHOT_PREFIX + currentUser.uid, JSON.stringify(entries));
+    } catch (_) { /* sin almacenamiento: solo se pierde la copia sin conexión */ }
+}
+
+function restoreAscentsSnapshot() {
+    if (!currentUser) return false;
+    try {
+        const entries = JSON.parse(localStorage.getItem(KX_ASCENTS_SNAPSHOT_PREFIX + currentUser.uid) || 'null');
+        if (!Array.isArray(entries)) return false;
+        userAscentsCache.clear();
+        entries.forEach(([k, v]) => userAscentsCache.set(k, { ...v, date: v.date ? new Date(v.date) : null }));
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+// Ascensos de la cola sin conexión: cuentan ya como hechos aunque aún no estén en Firestore
+function addQueuedAscentsToCache() {
+    kxOutbox.list().filter(i => i.kind === 'ascent').forEach(({ data }) => {
+        const key = `${data.schoolId}:${data.routeId}`;
+        const prev = userAscentsCache.get(key);
+        userAscentsCache.set(key, {
+            date: prev ? prev.date : new Date(data.date),
+            style: prev ? prev.style : data.style,
+            grade: prev ? prev.grade : data.grade,
+            sent: !!(prev && prev.sent) || isSendAscentStyle(data.style)
+        });
+    });
+}
+
+function finishAscentsCacheLoad() {
+    addQueuedAscentsToCache();
+    userAscentsCacheState = 'ready';
+    notifyAscentsChanged();
+    if (typeof updateAscentTicksLayer === 'function') updateAscentTicksLayer();
+}
+
 // Load user ascents into cache
 async function loadUserAscentsCache() {
     if (!currentUser) {
@@ -276,8 +321,12 @@ async function loadUserAscentsCache() {
     }
 
     userAscentsCacheState = 'loading';
+    if (kxIsOffline() && restoreAscentsSnapshot()) {
+        finishAscentsCacheLoad();
+        return;
+    }
     try {
-        const ascents = await getUserAscents(500); // Cargar hasta 500 ascensos
+        const ascents = await getUserAscentsByUserId(currentUser.uid, 500, true); // Cargar hasta 500 ascensos
         userAscentsCache.clear();
 
         ascents.forEach(ascent => {
@@ -297,17 +346,14 @@ async function loadUserAscentsCache() {
                 userAscentsCache.get(key).sent = true;
             }
         });
-        userAscentsCacheState = 'ready';
-        notifyAscentsChanged();
-
+        saveAscentsSnapshot();
         console.log(`Ascents cache loaded: ${userAscentsCache.size} routes`);
-
-        // Actualizar ticks en el mapa si está disponible
-        if (typeof updateAscentTicksLayer === 'function') {
-            updateAscentTicksLayer();
-        }
+        finishAscentsCacheLoad();
+        kxOutbox.flush();
     } catch (error) {
         console.error('Error loading ascents cache:', error);
+        // Sin red: la última copia guardada
+        if (restoreAscentsSnapshot()) { finishAscentsCacheLoad(); return; }
         userAscentsCacheState = 'error';
         notifyAscentsChanged();
     }
@@ -347,6 +393,7 @@ function addAscentToCache(schoolId, routeId, ascentData) {
         grade: ascentData.grade,
         sent: !!(prev && prev.sent) || isSendAscentStyle(ascentData.style)
     });
+    saveAscentsSnapshot();
     notifyAscentsChanged();
 
     // Actualizar ticks en el mapa inmediatamente
@@ -486,61 +533,165 @@ async function getUserFavorites() {
     return getFavorites();
 }
 
-// Log an ascent
+// ==================== ASCENSOS SIN CONEXIÓN ====================
+// Cola persistente (localStorage, por usuario) de lo registrado sin cobertura: ascensos con id fijo y votos
+// de la vía. Se sube sola al volver la red; reintentar es seguro (un ascenso con id ya existente no se repite
+// y los votos se guardan por usuario con merge). Las sesiones de escalada tienen su propia cola (climb-session.js).
+const KX_OUTBOX_PREFIX = 'krux_outbox_';
+const KX_WRITE_TIMEOUT_MS = 8000;
+const KX_OUTBOX_MAX_TRIES = 5;
+
+// Sin conexión, Firestore deja las escrituras esperando sin fallar: se corta a los pocos segundos
+function kxWithTimeout(promise, ms = KX_WRITE_TIMEOUT_MS) {
+    let t;
+    const timer = new Promise((_, reject) => {
+        t = setTimeout(() => reject(Object.assign(new Error('Sin respuesta de la red'), { code: 'kx/timeout' })), ms);
+    });
+    return Promise.race([promise, timer]).finally(() => clearTimeout(t));
+}
+
+function kxIsNetworkError(err) {
+    const code = String((err && err.code) || '');
+    return code === 'kx/timeout' || code === 'unavailable' || code === 'deadline-exceeded' ||
+        /offline|network|failed to fetch/i.test(String((err && err.message) || '')) || kxIsOffline();
+}
+
+const kxOutbox = {
+    _busy: false,
+    key() { return currentUser ? KX_OUTBOX_PREFIX + currentUser.uid : null; },
+    list() {
+        const key = this.key();
+        if (!key) return [];
+        try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (_) { return []; }
+    },
+    save(items) {
+        const key = this.key();
+        if (!key) return;
+        try { localStorage.setItem(key, JSON.stringify(items)); } catch (e) { console.error('[Outbox] No se pudo guardar la cola:', e); }
+    },
+    push(item) {
+        const items = this.list();
+        const prev = items.find(i => i.id === item.id);
+        // Votos repetidos de la misma vía: se suben los últimos, comparados con los que había antes del primero
+        if (prev && item.kind === 'votes') item.initial = prev.initial;
+        this.save([...items.filter(i => i.id !== item.id), item]);
+    },
+    remove(id) { this.save(this.list().filter(i => i.id !== id)); },
+    count(kind) { return this.list().filter(i => !kind || i.kind === kind).length; },
+
+    async flush() {
+        if (this._busy || !currentUser || kxIsOffline() || !this.count()) return;
+        this._busy = true;
+        let sent = 0;
+        try {
+            for (const item of this.list()) {
+                try {
+                    if (item.kind === 'ascent') await kxWithTimeout(kxWriteAscent(item.data, true));
+                    else if (item.kind === 'votes' && typeof kxSaveRouteVotes === 'function') {
+                        await kxWithTimeout(kxSaveRouteVotes(item.schoolId, item.routeId, item.votes, item.initial));
+                    }
+                    this.remove(item.id);
+                    if (item.kind === 'ascent') sent++;
+                } catch (e) {
+                    if (kxIsNetworkError(e)) break;   // se reintenta al volver la red
+                    // Otro error (permisos, datos): se reintenta unas pocas veces y después se descarta
+                    console.error('[Outbox] Error subiendo', item.kind, e);
+                    item.tries = (item.tries || 0) + 1;
+                    if (item.tries >= KX_OUTBOX_MAX_TRIES) this.remove(item.id);
+                    else this.save(this.list().map(i => (i.id === item.id ? item : i)));
+                }
+            }
+        } finally {
+            this._busy = false;
+        }
+        if (sent) {
+            showToast(sent === 1 ? 'Se ha subido el ascenso que tenías pendiente' : `Se han subido ${sent} ascensos que tenías pendientes`, 'success');
+            notifyAscentsChanged();
+            if (typeof loadActivityData === 'function') loadActivityData();
+        }
+    }
+};
+
+window.addEventListener('online', () => setTimeout(() => kxOutbox.flush(), 1500));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') kxOutbox.flush(); });
+setInterval(() => kxOutbox.flush(), 60000);
+
+// Datos del ascenso tal como se guardan en Firestore
+function kxAscentDoc(ascentData) {
+    return {
+        userId: currentUser.uid,
+        userName: currentUser.displayName,
+        schoolId: ascentData.schoolId,
+        schoolName: ascentData.schoolName,
+        routeId: ascentData.routeId,
+        routeName: ascentData.routeName,
+        grade: ascentData.grade,
+        sector: ascentData.sector || '',
+        style: ascentData.style,
+        date: new Date(ascentData.date),
+        tries: ascentData.tries || 1,
+        rating: ascentData.rating || 0,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        notes: ascentData.notes || '',
+        ...(ascentData.schoolCity ? { schoolCity: ascentData.schoolCity } : {}),
+        ...(ascentData.climbType ? { climbType: ascentData.climbType } : {}),
+        // Solo los ascensos registrados dentro de una sesión de escalada (climb-session.js)
+        ...(ascentData.sessionId ? { sessionId: ascentData.sessionId } : {}),
+        ...(ascentData.loggedAt ? { loggedAt: new Date(ascentData.loggedAt) } : {}),
+        ...(Array.isArray(ascentData.companions) && ascentData.companions.length ? { companions: ascentData.companions.slice(0, 10) } : {}),
+    };
+}
+
+// Escribe el ascenso con su id. checkExisting: si ya existe no se vuelve a crear ni a contar (reintentos)
+async function kxWriteAscent(ascentData, checkExisting) {
+    const ref = db.collection('ascents').doc(ascentData.id);
+    if (checkExisting && (await ref.get()).exists) return;
+    await ref.set(kxAscentDoc(ascentData));
+    // El contador del perfil no bloquea el registro: si no responde, Firestore lo sube al volver la red
+    try {
+        await kxWithTimeout(db.collection('users').doc(currentUser.uid).update({
+            'stats.totalAscents': firebase.firestore.FieldValue.increment(1)
+        }), 5000);
+    } catch (e) {
+        console.warn('[Ascensos] Contador del perfil pendiente:', e);
+    }
+}
+
+// Log an ascent. Devuelve true si se guardó, 'queued' si quedó en el móvil para subirse al volver la conexión
+// y false si falló (ya avisa). Los de una sesión (sessionId) no se encolan aquí: la sesión gestiona sus reintentos.
 async function logAscent(ascentData) {
     if (!currentUser) {
         showToast('Debes iniciar sesión para registrar ascensiones', 'info');
         return false;
     }
 
+    // Id fijo desde el principio: así un reintento nunca duplica el ascenso
+    const payload = { ...ascentData, id: ascentData.id || db.collection('ascents').doc().id };
+    delete payload.timestamp;   // FieldValue: no se puede guardar en la cola (kxAscentDoc no lo usa)
+    const fromSession = !!ascentData.sessionId;
+    const markDone = () => addAscentToCache(payload.schoolId, payload.routeId, {
+        date: new Date(payload.date),
+        style: payload.style,
+        grade: payload.grade
+    });
+    const queue = () => {
+        kxOutbox.push({ id: payload.id, kind: 'ascent', data: payload, at: Date.now() });
+        markDone();
+        return 'queued';
+    };
+
+    if (!fromSession && kxIsOffline()) return queue();
     try {
-        const data = {
-            userId: currentUser.uid,
-            userName: currentUser.displayName,
-            schoolId: ascentData.schoolId,
-            schoolName: ascentData.schoolName,
-            routeId: ascentData.routeId,
-            routeName: ascentData.routeName,
-            grade: ascentData.grade,
-            sector: ascentData.sector || '',
-            style: ascentData.style,
-            date: new Date(ascentData.date),
-            tries: ascentData.tries || 1,
-            rating: ascentData.rating || 0,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            notes: ascentData.notes || '',
-            ...(ascentData.schoolCity ? { schoolCity: ascentData.schoolCity } : {}),
-            ...(ascentData.climbType ? { climbType: ascentData.climbType } : {}),
-            // Solo los ascensos registrados dentro de una sesión de escalada (climb-session.js)
-            ...(ascentData.sessionId ? { sessionId: ascentData.sessionId } : {}),
-            ...(ascentData.loggedAt ? { loggedAt: new Date(ascentData.loggedAt) } : {}),
-            ...(Array.isArray(ascentData.companions) && ascentData.companions.length ? { companions: ascentData.companions.slice(0, 10) } : {}),
-        };
-
-        if (ascentData.id) {
-            // Id fijo (sesiones, con reintentos sin conexión): si ya existe no se vuelve a crear ni a contar
-            const ref = db.collection('ascents').doc(ascentData.id);
-            if ((await ref.get()).exists) return true;
-            await ref.set(data);
-        } else {
-            // Add to ascents collection
-            await db.collection('ascents').add(data);
-        }
-
-        // Update user stats
-        await db.collection('users').doc(currentUser.uid).update({
-            'stats.totalAscents': firebase.firestore.FieldValue.increment(1)
-        });
-
+        await kxWithTimeout(kxWriteAscent(payload, !!ascentData.id));
         // Actualizar caché de ascensos para mostrar check inmediatamente
-        addAscentToCache(ascentData.schoolId, ascentData.routeId, {
-            date: data.date,
-            style: data.style,
-            grade: data.grade
-        });
-
+        markDone();
         return true;
     } catch (error) {
+        if (kxIsNetworkError(error)) {
+            if (!fromSession) return queue();
+            console.warn('[Ascensos] Sin red, la sesión lo reintentará:', error);
+            return false;
+        }
         console.error('Error logging ascent:', error);
         showToast('Error al registrar ascensión', 'error', { detail: kxFriendlyError(error) });
         return false;
@@ -640,7 +791,8 @@ async function getUserAscents(limit = 50) {
 }
 
 // Helper function to get ascents for any user (for public profiles)
-async function getUserAscentsByUserId(userId, limit = 100) {
+// strict: propaga el error en vez de devolver [] (la caché de ascensos distingue «sin red» de «sin ascensos»)
+async function getUserAscentsByUserId(userId, limit = 100, strict = false) {
     if (!userId) return [];
 
     try {
@@ -667,6 +819,7 @@ async function getUserAscentsByUserId(userId, limit = 100) {
         return ascents;
     } catch (error) {
         console.error('Error getting ascents:', error);
+        if (strict) throw error;
         if (error.code === 'permission-denied') {
             console.warn('Error de permisos al leer datos de ascents');
         }
@@ -677,6 +830,10 @@ async function getUserAscentsByUserId(userId, limit = 100) {
 // Delete an ascent
 async function deleteAscent(ascentId, schoolId, routeId) {
     if (!currentUser) return false;
+    if (kxIsOffline()) {
+        showToast('Necesitas conexión para eliminar el ascenso', 'info');
+        return false;
+    }
 
     try {
         await db.collection('ascents').doc(ascentId).delete();
@@ -839,9 +996,15 @@ const kxAscentVotes = {
         const ctx = this.ctx;
         const form = document.getElementById('ascent-form');
         if (!ctx || (form && form.dataset.gymMode === 'true')) return;
+        // Sin conexión los votos esperan en la cola junto al ascenso
+        const job = { id: `votes_${ctx.schoolId}_${ctx.routeId}`, kind: 'votes', schoolId: ctx.schoolId, routeId: ctx.routeId, votes: { ...ctx.current }, initial: { ...ctx.initial } };
+        const changed = ['gradeIdx', 'aleje', 'estado'].some(k => (job.votes[k] ?? null) !== (job.initial[k] ?? null));
+        if (!changed) return;
+        if (kxIsOffline()) { kxOutbox.push(job); return; }
         try {
-            await kxSaveRouteVotes(ctx.schoolId, ctx.routeId, ctx.current, ctx.initial);
+            await kxWithTimeout(kxSaveRouteVotes(ctx.schoolId, ctx.routeId, ctx.current, ctx.initial));
         } catch (err) {
+            if (kxIsNetworkError(err)) { kxOutbox.push(job); return; }
             console.error('[AscentVotes] Error guardando votos:', err);
             showToast('No se han podido guardar tus votos de la vía', 'error');
         }
@@ -2237,7 +2400,8 @@ async function loadComments(routeId) {
         const commentsRef = db.collection('comments')
             .where('routeId', '==', routeId);
 
-        const snapshot = await commentsRef.get();
+        // Escuela descargada: sin conexión se leen los comentarios guardados
+        const snapshot = await kxGetQuery(commentsRef, `q/comments/${routeId}`);
 
         if (snapshot.empty) {
             listContainer.innerHTML = `<div class="kx-cm-empty">
@@ -2659,10 +2823,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     showMyRoutes();
                 } else {
                     // Create new ascent
-                    if (!await logAscent(ascentData)) return; // ya avisa del error; el formulario sigue abierto
+                    const saved = await logAscent(ascentData);
+                    if (!saved) return; // ya avisa del error; el formulario sigue abierto
                     await kxAscentVotes.save();
                     closeAscentModal();
-                    showToast('Ascenso registrado', 'success');
+                    if (saved === 'queued') showToast('Ascenso guardado en el móvil', 'success', { detail: 'Se subirá solo cuando vuelvas a tener cobertura.' });
+                    else showToast('Ascenso registrado', 'success');
                     if (typeof loadActivityData === 'function') loadActivityData();
                 }
 
