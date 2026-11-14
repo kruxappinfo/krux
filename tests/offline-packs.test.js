@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const {
-  kxoffTileXY, kxoffTileKeys, kxoffFeaturePoints, kxoffPnoaKey, kxoffGlyphKey, kxoffAncestorKey,
+  kxoffTileXY, kxoffTileKeys, kxoff3dTileKeys, kxoffFeaturePoints, kxoffPnoaKey, kxoffGlyphKey, kxoffAncestorKey,
   kxoffSerialize, kxoffRevive, kxoffFormatBytes
 } = require('../offline-packs.js');
 const { kxBaseStyle } = require('../map-style.js');
@@ -49,6 +49,15 @@ describe('teselas de una escuela', () => {
       expect(Math.abs(kx - x) + Math.abs(ky - y)).toBeLessThan(6);
     });
     expect(kxoffAncestorKey('t/21/8/8', k => k === 't/19/2/2')).toBe('t/19/2/2');
+  });
+
+  it('cubre con teselas de z17 toda la maqueta del visor 3D', () => {
+    const keys = kxoff3dTileKeys({ zoom: 15, x0: 100, y0: 200, nx: 2, ny: 3 });
+    expect(keys.length).toBe(2 * 3 * 16);
+    expect(keys).toContain('t/17/400/800');
+    expect(keys).toContain('t/17/407/811');
+    expect(keys).not.toContain('t/17/408/800');
+    expect(kxoff3dTileKeys(undefined)).toEqual([]);
   });
 
   it('saca los puntos de puntos, líneas y polígonos', () => {

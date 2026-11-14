@@ -4,7 +4,7 @@
  * PWA completa con soporte offline
  */
 
-const CACHE_VERSION = 'v303';
+const CACHE_VERSION = 'v304';
 const CACHE_NAME = `krux-cache-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `krux-data-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
@@ -47,6 +47,7 @@ const STATIC_ASSETS = [
   './sector-images.js',
   './vendor/maplibre-gl-4.1.0/maplibre-gl.js',
   './vendor/maplibre-gl-4.1.0/maplibre-gl.css',
+  './vendor/three-0.160.1/three.min.js',
   './vendor/firebase-9.23.0/firebase-app-compat.js',
   './vendor/firebase-9.23.0/firebase-auth-compat.js',
   './vendor/firebase-9.23.0/firebase-firestore-compat.js',

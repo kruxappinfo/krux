@@ -23,6 +23,8 @@ const KXOFF_FINE_ZOOM = 19;                             // resolución real del 
 const KXOFF_FINE_BUFFER_M = 75;
 const KXOFF_TILE_BYTES = 25000;                         // media medida de una tesela del PNOA (z14–z18)
 const KXOFF_FINE_TILE_BYTES = 12000;                    // las de z19 pesan menos
+const KXOFF_3D_ZOOM = 17;                               // textura de detalle del visor 3D (terrain-3d.js)
+const KXOFF_3D_TILE_BYTES = 18000;
 const KXOFF_PHOTO_BYTES = 900000;                       // si la foto no informa de su tamaño
 const KXOFF_GLYPH_FONTS = ['Noto Sans Regular', 'Noto Sans Italic', 'Noto Sans Bold'];
 const KXOFF_GLYPH_RANGES = ['0-255', '8192-8447'];      // latino (con tildes y eñes) y puntuación tipográfica
@@ -76,6 +78,17 @@ function kxoffTileKeys(bounds, points, opts = {}) {
   // Máxima nitidez solo donde se escala (vías y sectores)
   around(opts.finePoints, opts.fineBufferM ?? KXOFF_FINE_BUFFER_M, KXOFF_FINE_ZOOM, KXOFF_FINE_ZOOM);
   return [...keys];
+}
+
+// Teselas del zoom de detalle del visor 3D que cubren toda su maqueta (grid de KX_TERRAIN_3D)
+function kxoff3dTileKeys(grid, zoom = KXOFF_3D_ZOOM) {
+  if (!grid) return [];
+  const n = 1 << (zoom - grid.zoom);
+  const keys = [];
+  for (let x = grid.x0 * n; x < (grid.x0 + grid.nx) * n; x++) {
+    for (let y = grid.y0 * n; y < (grid.y0 + grid.ny) * n; y++) keys.push(`t/${zoom}/${x}/${y}`);
+  }
+  return keys;
 }
 
 // Coordenadas sueltas de una lista de features GeoJSON (puntos, líneas y polígonos)
@@ -153,7 +166,7 @@ function kxoffFormatBytes(n) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    kxoffTileXY, kxoffTileKeys, kxoffFeaturePoints, kxoffPnoaKey, kxoffGlyphKey, kxoffAncestorKey,
+    kxoffTileXY, kxoffTileKeys, kxoff3dTileKeys, kxoffFeaturePoints, kxoffPnoaKey, kxoffGlyphKey, kxoffAncestorKey,
     kxoffSerialize, kxoffRevive, kxoffFormatBytes
   };
 }
@@ -365,6 +378,13 @@ const KxOffline = (() => {
     return obj;
   }
 
+  // Tesela guardada como URL temporal (quien la pide debe liberarla con URL.revokeObjectURL); null si no está
+  async function tileBlobUrl(key) {
+    if (!blobSet.has(key)) return null;
+    const rec = await kxoffGet('blobs', key).catch(() => null);
+    return rec ? URL.createObjectURL(new Blob([rec.buf], { type: rec.type || 'image/jpeg' })) : null;
+  }
+
   // Galería de un sector con las fotos guardadas en local (más rápidas y disponibles sin conexión)
   async function localizeImages(images) {
     if (!blobSet.size || !Array.isArray(images)) return images;
@@ -492,9 +512,21 @@ const KxOffline = (() => {
       const v = d.data();
       if (ofSchool(v) && Array.isArray(v.vertices)) v.vertices.forEach(p => { points.push([p.lng, p.lat]); climbPoints.push([p.lng, p.lat]); });
     });
-    const tiles = kxoffTileKeys(cfg.bounds, points, { finePoints: climbPoints }).map(key => ({
-      key, url: tileUrl(key), size: key.startsWith(`t/${KXOFF_FINE_ZOOM}/`) ? KXOFF_FINE_TILE_BYTES : KXOFF_TILE_BYTES
+    const grid3d = typeof KX_TERRAIN_3D !== 'undefined' ? KX_TERRAIN_3D[schoolId] : null;
+    const tileKeys = new Set(kxoffTileKeys(cfg.bounds, points, { finePoints: climbPoints }));
+    const keys3d = new Set(kxoff3dTileKeys(grid3d));
+    keys3d.forEach(k => tileKeys.add(k));
+    const tiles = [...tileKeys].map(key => ({
+      key, url: tileUrl(key),
+      size: keys3d.has(key) ? KXOFF_3D_TILE_BYTES : key.startsWith(`t/${KXOFF_FINE_ZOOM}/`) ? KXOFF_FINE_TILE_BYTES : KXOFF_TILE_BYTES
     }));
+    // Maqueta del visor 3D (relieve + ortofoto base): ficheros de la app que la web guarda para uso sin conexión
+    const assetUrls = grid3d ? [`${grid3d.path}/height.webp`, `${grid3d.path}/base.webp`] : [];
+    let assetBytes = 0;
+    const savedAssets = new Set((index.packs[schoolId] || {}).geojson || []);   // ya guardados: no cuentan otra vez
+    await Promise.all(assetUrls.filter(u => !savedAssets.has(u)).map(u => kxoffTimeout(fetch(u, { method: 'HEAD' }), 8000)
+      .then(r => { assetBytes += Number(r.headers.get('content-length')) || 1000000; })
+      .catch(() => { assetBytes += 1000000; })));
     const tpl = glyphTemplate();
     const glyphs = [];
     KXOFF_GLYPH_FONTS.forEach(font => KXOFF_GLYPH_RANGES.forEach(range => glyphs.push({
@@ -510,14 +542,17 @@ const KxOffline = (() => {
       schoolId,
       name: cfg.name || schoolId,
       geoUrls,
+      assetUrls,
+      assetBytes,
+      has3d: !!grid3d,
       docs,
       prefixes: prefixList,
       blobs,
       pending,
       photoCount: photos.length,
       tileCount: tiles.length,
-      bytes: pending.reduce((s, b) => s + b.size, 0) + docsBytes,
-      totalBytes: blobs.reduce((s, b) => s + b.size, 0) + docsBytes
+      bytes: pending.reduce((s, b) => s + b.size, 0) + docsBytes + assetBytes,
+      totalBytes: blobs.reduce((s, b) => s + b.size, 0) + docsBytes + assetBytes
     };
   }
 
@@ -554,9 +589,11 @@ const KxOffline = (() => {
 
         await kxoffPutMany('docs', [...plan.docs.entries()]);
         // Web: los GeoJSON quedan en una caché que el service worker consulta sin red (en la app ya van dentro)
-        if (typeof caches !== 'undefined' && plan.geoUrls.length) {
-          await caches.open(KXOFF_GEOJSON_CACHE).then(c => c.addAll(plan.geoUrls)).catch(() => {});
+        const cached = [...plan.geoUrls, ...plan.assetUrls];
+        if (typeof caches !== 'undefined' && cached.length) {
+          await caches.open(KXOFF_GEOJSON_CACHE).then(c => c.addAll(cached)).catch(() => {});
         }
+        job.progress.bytes += plan.assetBytes;
 
         const failedSet = new Set(failed);
         const previous = index.packs[schoolId];
@@ -569,7 +606,7 @@ const KxOffline = (() => {
           blobs: plan.blobs.map(b => b.key).filter(k => !failedSet.has(k)),
           docs: [...plan.docs.keys()],
           prefixes: plan.prefixes,
-          geojson: plan.geoUrls
+          geojson: [...plan.geoUrls, ...plan.assetUrls]
         };
         saveIndex();
         if (previous) await purge(previous);   // lo que la versión anterior tenía y ya no hace falta
@@ -634,7 +671,7 @@ const KxOffline = (() => {
 
   return {
     isOffline, markUnreachable, has, pack, covers, progress, cachedDoc, cachedQuery, saveDoc, saveQuery,
-    transformRequest, registerProtocol, photoUrl, localizeImages, prepare, download, cancel, remove,
+    transformRequest, registerProtocol, photoUrl, tileBlobUrl, localizeImages, prepare, download, cancel, remove,
     packs: () => ({ ...index.packs })
   };
 })();
@@ -873,7 +910,7 @@ const KxOfflineUI = (() => {
     } else {
       const size = planError
         ? `<p class="kx-off-warn">${icon('wifiOff', 18)}<span>${esc(planError)}</span></p>`
-        : `<p class="kx-off-meta" aria-live="polite">${plan ? `Unos ${esc(kxoffFormatBytes(plan.bytes))}${plan.photoCount ? ` · ${plan.photoCount} ${plan.photoCount === 1 ? 'foto' : 'fotos'} de croquis` : ''}` : 'Calculando el tamaño…'}</p>`;
+        : `<p class="kx-off-meta" aria-live="polite">${plan ? `Unos ${esc(kxoffFormatBytes(plan.bytes))}${plan.photoCount ? ` · ${plan.photoCount} ${plan.photoCount === 1 ? 'foto' : 'fotos'} de croquis` : ''}${plan.has3d ? ' · incluye el 3D' : ''}` : 'Calculando el tamaño…'}</p>`;
       body = `${size}${includes}
         <p class="kx-off-note">Mejor con wifi. Los rótulos y las curvas de nivel del mapa necesitan conexión.</p>`;
       actions = btn('Descargar', 'download', 'primary', 'download') + btn('Ahora no', 'close', 'tertiary');

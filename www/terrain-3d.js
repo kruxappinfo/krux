@@ -12,7 +12,7 @@ const kxTerrain3D = (() => {
   // ============================================
   // CONFIGURACIÓN
   // ============================================
-  const THREE_URL = 'https://unpkg.com/three@0.160.1/build/three.min.js';
+  const THREE_URL = './vendor/three-0.160.1/three.min.js';   // propio: así el 3D abre también sin conexión
   // PNOA en TMS (la fila cuenta desde el sur). CC-BY 4.0 scne.es
   const pnoaUrl = (z, x, y) => `https://tms-pnoa-ma.idee.es/1.0.0/pnoa-ma/${z}/${x}/${(1 << z) - 1 - y}.jpeg`;
   const EARTH = 40075016.686;
@@ -71,7 +71,6 @@ const kxTerrain3D = (() => {
       threeLoading = new Promise((resolve, reject) => {
         const s = document.createElement('script');
         s.src = THREE_URL;
-        s.crossOrigin = 'anonymous';   // respuesta CORS: el service worker puede guardarla para uso sin conexión
         s.onload = () => (window.THREE ? resolve() : reject(new Error('Three.js no se inicializó')));
         s.onerror = () => { threeLoading = null; s.remove(); reject(new Error('No se pudo descargar Three.js')); };
         document.head.appendChild(s);
@@ -378,7 +377,11 @@ const kxTerrain3D = (() => {
       while (tiles.length && ok && wanted()) {
         const [tx, ty] = tiles.pop();
         try {
-          const img = await loadImage(pnoaUrl(z, (g.x0 + chunk.i) * n + tx, (g.y0 + chunk.j) * n + ty), true);
+          const x = (g.x0 + chunk.i) * n + tx, y = (g.y0 + chunk.j) * n + ty;
+          // Teselas guardadas con la descarga de la escuela (sin conexión, o más rápidas)
+          const local = typeof KxOffline !== 'undefined' ? await KxOffline.tileBlobUrl(`t/${z}/${x}/${y}`) : null;
+          let img;
+          try { img = await loadImage(local || pnoaUrl(z, x, y), !local); } finally { if (local) URL.revokeObjectURL(local); }
           ctx.drawImage(img, tx * 256, ty * 256, 256, 256);
         } catch (e) { ok = false; }
       }
