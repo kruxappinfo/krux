@@ -34984,3 +34984,190 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   .kx-off-btn.is-preparing .kx-off-ring { animation: none; }
   .kx-off-progress span { transition: none; }
 }
+
+/* ============================================
+   SEGUIDORES / SIGUIENDO — misma estética que el perfil y los comentarios
+   Solo estilo: la lista la sigue pintando openSocialListForUser (app_3.js) con las mismas clases.
+   Los iconos de lista vacía (emoji en el JS) se sustituyen aquí por un icono de línea.
+   ============================================ */
+#social-list-modal.modal {
+  z-index: 10030;  /* por encima de la barra de navegación */
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  background: var(--kx-scrim);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-family: var(--kx-font);
+}
+#social-list-modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 100%);
+  max-width: none;
+  max-height: min(600px, 100%);
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--kx-radius-sheet);
+  background: var(--kx-chalk);
+  box-shadow: var(--kx-shadow-pop);
+  color: var(--kx-ink);
+  animation: kxAscentIn var(--kx-dur-slow) var(--kx-ease);
+}
+
+#social-list-modal .modal-header {
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 12px 12px 20px;
+  border-bottom: 1px solid var(--kx-line);
+}
+#social-list-modal .modal-header h3 {
+  margin: 0;
+  font-family: var(--kx-font);
+  font-size: var(--kx-fs-title);
+  font-weight: var(--kx-fw-heavy);
+  letter-spacing: var(--kx-ls-tight);
+  line-height: var(--kx-lh-tight);
+  color: var(--kx-ink);
+}
+#social-list-modal .close-btn {
+  width: 44px; height: 44px;
+  min-width: 44px; min-height: 44px;
+  max-width: 44px; max-height: 44px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kx-stone-card);
+  color: var(--kx-ink-2);
+  box-shadow: none;
+  transform: none;
+  position: relative;
+  font-size: 0;      /* oculta la «x» de texto del HTML: el aspa se dibuja abajo */
+}
+#social-list-modal .close-btn::before {
+  content: "";
+  position: absolute;
+  inset: 13px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+#social-list-modal .close-btn:hover { background: var(--kx-stone-hover); color: var(--kx-ink); transform: none; }
+#social-list-modal .close-btn:active { transform: scale(0.94); }
+
+/* Lista */
+#social-list-modal .social-list-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  padding: 8px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+#social-list-modal .social-list-item {
+  position: relative;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 16px 10px 20px;
+  border-bottom: 0;
+  transition: background var(--kx-dur-fast) var(--kx-ease);
+}
+/* Divisoria que empieza tras el avatar */
+#social-list-modal .social-list-item + .social-list-item::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 76px; right: 16px;
+  height: 1px;
+  background: var(--kx-line);
+}
+#social-list-modal .social-list-item:hover { background: transparent; }
+@media (hover: hover) { #social-list-modal .social-list-item:hover { background: var(--kx-stone-card); }}
+#social-list-modal .social-list-avatar {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  background: var(--kx-sage);
+}
+#social-list-modal .social-list-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;  /* los nombres largos pasan a una segunda línea antes de recortarse */
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--kx-fs-body);
+  font-weight: var(--kx-fw-strong);
+  line-height: var(--kx-lh-tight);
+  color: var(--kx-ink);
+}
+#social-list-modal .social-list-bio {
+  margin-top: 2px;
+  font-size: var(--kx-fs-meta);
+  color: var(--kx-ink-3);
+}
+
+/* Seguir / Siguiendo: misma píldora que los botones del perfil (área táctil de 44 px) */
+#social-list-modal .social-list-btn {
+  position: relative;
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--kx-radius-pill);
+  font-family: inherit;
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-strong);
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  transition: background var(--kx-dur-fast) var(--kx-ease), color var(--kx-dur-fast) var(--kx-ease);
+}
+#social-list-modal .social-list-btn::after { content: ""; position: absolute; inset: -4px 0; }
+#social-list-modal .social-list-btn.follow { background: var(--kx-forest); color: var(--kx-chalk); }
+#social-list-modal .social-list-btn.following { background: var(--kx-stone-card); color: var(--kx-ink-2); border: 0; }
+@media (hover: hover) {
+  #social-list-modal .social-list-btn.follow:hover { background: var(--kx-primary-hover); }
+  #social-list-modal .social-list-btn.following:hover { background: var(--kx-stone-hover); color: var(--kx-ink); }
+}
+#social-list-modal .social-list-btn:active { transform: scale(0.97); }
+#social-list-modal .social-list-btn:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+
+/* Cargando, vacío y error */
+#social-list-modal .loading-spinner {
+  color: var(--kx-ink-3);
+  font-size: var(--kx-fs-meta);
+}
+#social-list-modal .social-list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 24px 44px;
+  color: var(--kx-ink-3);
+  font-size: var(--kx-fs-meta);
+}
+#social-list-modal .social-list-empty p { margin: 0; }
+#social-list-modal .social-list-empty-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0;
+  border-radius: 50%;
+  background: var(--kx-sage-soft);
+  font-size: 0;      /* oculta el emoji que escribe el JS */
+  opacity: 1;
+  position: relative;
+}
+#social-list-modal .social-list-empty-icon::before {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  background: var(--kx-forest);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #social-list-modal .modal-content { animation: none; }
+  #social-list-modal :is(.social-list-btn, .social-list-item) { transition: none; }
+}
