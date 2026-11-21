@@ -263,6 +263,66 @@ const MAPLIBRE_SCHOOLS = {
       parkings: 15
     }
   },
+  // Sin teselas vectoriales (USE_VECTOR_TILES = false): se cargan los GeoJSON
+  torrelodones: {
+    id: 'torrelodones',
+    name: 'Torrelodones',
+    center: [-3.9308, 40.5845],
+    zoom: 15,
+    bounds: [[-3.9420, 40.5777], [-3.9195, 40.5913]],
+    geojson: {
+      vias: 'Cartografia/Torrelodones/Torrelodones_Vias.geojson',
+      sectores: 'Cartografia/Torrelodones/Torrelodones_Sectores.geojson',
+      parkings: 'Cartografia/Torrelodones/Torrelodones_Parkings.geojson',
+      puntosInteres: 'Cartografia/Torrelodones/Torrelodones_Puntos_interes.geojson',
+      rutasAcceso: 'Cartografia/Torrelodones/Torrelodones_Rutas_acceso.geojson'
+    },
+    zoomLevels: {
+      sectores: 12,
+      sectorNames: 17,
+      vias: 17,
+      parkings: 15
+    }
+  },
+  penabermeja: {
+    id: 'penabermeja',
+    name: 'Peña Bermeja',
+    center: [-3.2623, 40.2549],  // la pared; el parking queda 1,7 km al este
+    zoom: 17,
+    bounds: [[-3.2646, 40.2525], [-3.2414, 40.2572]],
+    geojson: {
+      vias: 'Cartografia/Pena Bermeja/PB_Vias.geojson',
+      sectores: 'Cartografia/Pena Bermeja/PB_Sectores.geojson',
+      parkings: 'Cartografia/Pena Bermeja/PB_Parkings.geojson',
+      rutasAcceso: 'Cartografia/Pena Bermeja/PB_Rutas_acceso.geojson'
+    },
+    zoomLevels: {
+      sectores: 12,
+      sectorNames: 17,
+      vias: 17,
+      parkings: 15
+    }
+  },
+  elvellon: {
+    id: 'elvellon',
+    name: 'El Vellón',
+    center: [-3.6281, 40.7783],  // los sectores; el parking queda 450 m al este
+    zoom: 17,
+    bounds: [[-3.6321, 40.7757], [-3.6208, 40.7817]],
+    geojson: {
+      vias: 'Cartografia/El Vellon/EV_Vias.geojson',
+      sectores: 'Cartografia/El Vellon/EV_Sectores.geojson',
+      parkings: 'Cartografia/El Vellon/EV_Parkings.geojson',
+      puntosInteres: 'Cartografia/El Vellon/EV_Puntos_interes.geojson',
+      rutasAcceso: 'Cartografia/El Vellon/EV_Rutas_acceso.geojson'
+    },
+    zoomLevels: {
+      sectores: 12,
+      sectorNames: 17,
+      vias: 17,
+      parkings: 15
+    }
+  },
   pedriza: {
     id: 'pedriza',
     name: 'La Pedriza',
@@ -317,6 +377,30 @@ const SCHOOL_MARKERS = [
     zoom: 16,
     isOpen: true,
     rockType: 'Caliza'
+  },
+  {
+    id: 'torrelodones',
+    nombre: 'Torrelodones',
+    coords: [-3.9308, 40.5845],
+    zoom: 15,
+    isOpen: true,
+    rockType: 'Granito'
+  },
+  {
+    id: 'penabermeja',
+    nombre: 'Peña Bermeja',
+    coords: [-3.2623, 40.2549],
+    zoom: 17,
+    isOpen: true,
+    rockType: 'Caliza'  // calizas del páramo
+  },
+  {
+    id: 'elvellon',
+    nombre: 'El Vellón',
+    coords: [-3.6281, 40.7783],
+    zoom: 17,
+    isOpen: true,
+    rockType: 'Calcarenita'  // sin ajuste propio en climb-conditions.js: usa el de roca genérica
   },
   {
     id: 'valeria',

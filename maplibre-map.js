@@ -6813,9 +6813,9 @@ function isCurrentlyRestricted(fechaInicio, fechaFin) {
   const now = new Date();
   const currentYear = now.getFullYear();
 
-  // Parsear fechas (formato DD-MM)
-  const [diaInicio, mesInicio] = fechaInicio.split('-').map(Number);
-  const [diaFin, mesFin] = fechaFin.split('-').map(Number);
+  // Parsear fechas (formato DD-MM o DD/MM)
+  const [diaInicio, mesInicio] = String(fechaInicio).split(/[-/]/).map(Number);
+  const [diaFin, mesFin] = String(fechaFin).split(/[-/]/).map(Number);
 
   const inicio = new Date(currentYear, mesInicio - 1, diaInicio);
   const fin = new Date(currentYear, mesFin - 1, diaFin);
@@ -6969,7 +6969,7 @@ function showSectorPopup(props, coords, extraHTML = '') {
   const sectorName = props.nombre || 'Sector sin nombre';
   const restr = (props.restr || '').toUpperCase();
   const hasRestriction = restr === 'SI' || restr === 'SÍ';
-  const fechaInicio = props.Fecha_inicio;
+  const fechaInicio = props.Fecha_inicio || props.Fecha_inic;  // QGIS recorta el nombre a Fecha_inic
   const fechaFin = props.Fecha_fin;
   const exposicion = props.exposicion || '';
 
@@ -8682,7 +8682,7 @@ function showSectorBottomSheet(props, coords, extraHTML = '') {
   const sectorName = props.nombre || 'Sector sin nombre';
   const restr = (props.restr || '').toUpperCase();
   const hasRestriction = restr === 'SI' || restr === 'SÍ';
-  const fechaInicio = props.Fecha_inicio;
+  const fechaInicio = props.Fecha_inicio || props.Fecha_inic;  // QGIS recorta el nombre a Fecha_inic
   const fechaFin = props.Fecha_fin;
   const exposicion = props.exposicion || '';
   const isRestricted = hasRestriction && isCurrentlyRestricted(fechaInicio, fechaFin);

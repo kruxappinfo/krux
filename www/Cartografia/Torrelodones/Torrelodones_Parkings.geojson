@@ -1,0 +1,10 @@
+{
+"type": "FeatureCollection",
+"name": "Torrelodones_Parkings",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "fid": 1, "id": null, "Descripcio": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.93085295679868, 40.58297156962643 ] ] } },
+{ "type": "Feature", "properties": { "fid": 2, "id": null, "Descripcio": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.933663678735331, 40.584952814006705 ] ] } },
+{ "type": "Feature", "properties": { "fid": 3, "id": null, "Descripcio": null }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -3.93778346006642, 40.579684475904287 ] ] } }
+]
+}
