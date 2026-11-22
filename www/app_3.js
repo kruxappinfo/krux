@@ -6563,6 +6563,12 @@ function initAdminPanelContent() {
         </svg>
         POI
       </button>
+      <button class="admin-tab" data-section="cartografia">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        </svg>
+        Cartografía
+      </button>
       <button class="admin-tab" data-section="users">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
@@ -6842,6 +6848,13 @@ function initAdminPanelContent() {
         </div>
       </div>
     </section>
+
+    <!-- Seccion Cartografía: geojson de cada escuela con los puntos movidos (geo-edits.js) -->
+    <section class="admin-section" id="admin-section-cartografia">
+      <h1 class="admin-page-title">Cartografía</h1>
+      <p class="admin-page-desc">Geojson de cada escuela, con los puntos que hayas movido en el mapa ya aplicados</p>
+      <div id="admin-geo-list"></div>
+    </section>
   `;
 
   // Inicializar event listeners
@@ -6892,6 +6905,16 @@ function switchAdminSection(section) {
   if (section === 'schools') loadAdminPendingSchools();
   if (section === 'sectors') loadAdminPendingSectors();
   if (section === 'poi') loadAdminPendingPOI();
+  if (section === 'cartografia') renderAdminCartografia();
+}
+
+// La sección la pinta geo-edits.js, que se descarga solo para el superadmin (maplibre-map.js)
+function renderAdminCartografia() {
+  const list = document.getElementById('admin-geo-list');
+  if (typeof kxGeoRenderAdmin === 'function') return kxGeoRenderAdmin(list);
+  if (typeof kxLoadGeoEditor === 'function') kxLoadGeoEditor();
+  const script = document.getElementById('kx-geo-edits-script');
+  if (script) script.addEventListener('load', () => kxGeoRenderAdmin(list), { once: true });
 }
 
 async function loadAdminStats() {
