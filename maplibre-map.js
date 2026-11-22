@@ -872,7 +872,7 @@ function kxBindSectorEvents(layerId, { cursor = true } = {}) {
     mlMap.on('mouseleave', layerId, () => { mlMap.getCanvas().style.cursor = ''; });
   }
   mlMap.on('click', layerId, (e) => {
-    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    if (mlMap.getCanvas().style.cursor === 'crosshair' || kxPointEditBlocks()) return;
     if (!e.features || e.features.length === 0) return;
     kxHandleSectorTap(e);
   });
@@ -3097,12 +3097,8 @@ async function mlLoadPuntosInteres(url) {
   const sourceId = 'puntos-interes-source';
   const layerId = 'puntos-interes-layer';
 
-  const urlWithCache = url;
-
   try {
-    const response = await fetch(urlWithCache);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const geojson = await response.json();
+    const geojson = await kxGeoFetchJSON(url);
 
     // Verificar que hay features
     if (!geojson.features || geojson.features.length === 0) {
@@ -3181,6 +3177,7 @@ async function mlLoadPuntosInteres(url) {
     mlMap.on('zoomend', checkPoiPopupDistance);
 
     mlMap.on('click', layerId, (e) => {
+      if (kxPointEditBlocks()) return;
       if (!e.features || e.features.length === 0) return;
       const props = e.features[0].properties;
       const coords = e.features[0].geometry.coordinates.slice();
@@ -3249,6 +3246,102 @@ async function mlLoadPuntosInteres(url) {
   }
 }
 
+// ============================================
+// PUNTOS MOVIDOS POR EL SUPERADMIN (geojson_ediciones)
+// ============================================
+// Los geojson de Cartografia/ son archivos estáticos de la app y el cliente no puede reescribirlos.
+// Cuando el superadmin mueve un punto (geo-edits.js), la posición nueva se guarda en
+// geojson_ediciones/{escuela} — un documento por escuela con el mapa edits: «capa|clave» → { coordinates, original, … } —
+// y se aplica encima del archivo cada vez que se carga. Los rocódromos usan geojson_ediciones/rocodromos.
+const KX_GEO_EDITS_COLLECTION = 'geojson_ediciones';
+const KX_GYMS_GEOJSON = 'Cartografia/Rocodromos/rocodromos.geojson';
+const KX_GEO_EDITABLE_LAYERS = ['vias', 'parkings', 'puntosInteres'];
+const KX_GEO_EDITS_WAIT_MS = 2500;   // sin respuesta a tiempo, el archivo se pinta tal cual
+const kxGeoEditsCache = new Map();   // documento → Promise<edits>
+
+// geo-edits.js lo activa mientras el superadmin mueve puntos: los toques seleccionan el punto en vez de abrir fichas
+let kxPointEditMode = false;
+function kxPointEditBlocks() { return kxPointEditMode; }
+
+// El editor (botón del mapa y sección «Cartografía» del panel) solo se descarga para el superadmin
+function kxLoadGeoEditor() {
+  if (document.getElementById('kx-geo-edits-script')) return;
+  const s = document.createElement('script');
+  s.id = 'kx-geo-edits-script';
+  s.src = './geo-edits.js?v=1';
+  document.head.appendChild(s);
+}
+if (typeof firebase !== 'undefined' && firebase.auth) {
+  firebase.auth().onAuthStateChanged(user => {
+    if (user && user.email === 'krux.app.info@gmail.com') kxLoadGeoEditor();
+  });
+}
+
+// Clave estable de un punto dentro de su archivo: fid (QGIS) o, si no tiene, id (rocódromos)
+function kxGeoFeatureKey(props) {
+  if (!props) return null;
+  if (props.fid != null && props.fid !== '') return 'fid:' + props.fid;
+  if (props.id != null && props.id !== '') return 'id:' + props.id;
+  return null;
+}
+
+// Archivo → { docId, layer } cuando admite puntos movidos (null en el resto)
+function kxGeoFileMeta(url) {
+  if (url === KX_GYMS_GEOJSON) return { docId: 'rocodromos', layer: 'rocodromos' };
+  if (typeof MAPLIBRE_SCHOOLS === 'undefined') return null;
+  for (const [id, school] of Object.entries(MAPLIBRE_SCHOOLS)) {
+    const files = school.geojson || {};
+    const layer = KX_GEO_EDITABLE_LAYERS.find(l => files[l] === url);
+    if (layer) return { docId: id, layer };
+  }
+  return null;
+}
+
+function kxGeoEditsFor(docId, { fresh = false } = {}) {
+  if (fresh) kxGeoEditsCache.delete(docId);
+  if (!kxGeoEditsCache.has(docId)) {
+    const p = firebase.firestore().collection(KX_GEO_EDITS_COLLECTION).doc(docId).get()
+      .then(snap => (snap.exists && snap.data().edits) || {})
+      .catch(e => {
+        // Sin regla, sin red o sin Firebase: el mapa sigue con los archivos; se reintenta en la próxima carga
+        kxGeoEditsCache.delete(docId);
+        console.debug('[Cartografía] Sin puntos movidos para', docId, e && e.code);
+        return {};
+      });
+    kxGeoEditsCache.set(docId, p);
+  }
+  return kxGeoEditsCache.get(docId);
+}
+
+// Pone cada punto movido en su sitio. Solo toca Point y MultiPoint de un único punto (lo que exporta QGIS)
+function kxApplyGeoEdits(geojson, layer, edits) {
+  if (!geojson || !Array.isArray(geojson.features) || !edits) return 0;
+  let moved = 0;
+  for (const f of geojson.features) {
+    const edit = edits[layer + '|' + kxGeoFeatureKey(f.properties)];
+    if (!edit || !Array.isArray(edit.coordinates) || !f.geometry) continue;
+    const c = [edit.coordinates[0], edit.coordinates[1]];
+    if (f.geometry.type === 'Point') f.geometry.coordinates = c;
+    else if (f.geometry.type === 'MultiPoint' && f.geometry.coordinates.length === 1) f.geometry.coordinates = [c];
+    else continue;
+    moved++;
+  }
+  return moved;
+}
+
+// fetch + json de un geojson de Cartografia/ con los puntos movidos ya aplicados
+async function kxGeoFetchJSON(url) {
+  const meta = kxGeoFileMeta(url);
+  const editsP = meta && typeof firebase !== 'undefined'
+    ? Promise.race([kxGeoEditsFor(meta.docId), new Promise(r => setTimeout(() => r(null), KX_GEO_EDITS_WAIT_MS))])
+    : null;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const geojson = await response.json();
+  if (editsP) kxApplyGeoEdits(geojson, meta.layer, await editsP);
+  return geojson;
+}
+
 /**
  * Carga una capa GeoJSON
  */
@@ -3257,10 +3350,8 @@ async function mlLoadGeoJSONLayer(layerId, url, type, paint, minzoom = 0, layout
   const fullLayerId = `${layerId}-layer`;
 
   try {
-    // Cargar GeoJSON
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const geojson = await response.json();
+    // Cargar GeoJSON (con los puntos que haya movido el superadmin)
+    const geojson = await kxGeoFetchJSON(url);
 
     // Pre-procesar GeoJSON si se proporciona callback (ej. variantes)
     if (typeof preprocessFn === 'function') {
@@ -3880,6 +3971,11 @@ function mlCreateVariantMarkers() {
     // Click handler → abre carrusel de variantes
     el.addEventListener('click', (e) => {
       e.stopPropagation();
+      // Moviendo puntos: el grupo entero se mueve junto (geo-edits.js)
+      if (kxPointEditBlocks()) {
+        if (typeof kxGeoPickVariantGroup === 'function') kxGeoPickVariantGroup(group, centroid);
+        return;
+      }
       const coords = { lng: centroid[0], lat: centroid[1] };
 
       if (isMobileDevice()) {
@@ -3979,7 +4075,7 @@ function mlProcessVariantsForGeoJSON(geojson) {
 function setupViasInteraction() {
   // Clic en vía
   mlMap.on('click', 'vias-layer', (e) => {
-    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    if (mlMap.getCanvas().style.cursor === 'crosshair' || kxPointEditBlocks()) return;
     if (!e.features || e.features.length === 0) return;
 
     const feature = e.features[0];
@@ -6578,14 +6674,11 @@ async function mlFindRouteCoords(routeId) {
   const school = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS[schoolId] : null;
   if (school && school.geojson && school.geojson.vias) {
     try {
-      const resp = await fetch(school.geojson.vias);
-      if (resp.ok) {
-        const geojson = await resp.json();
-        for (const f of (geojson.features || [])) {
-          if (f.properties && Number(f.properties.id) === Number(routeId)) {
-            if (f.geometry.type === 'Point') return f.geometry.coordinates;
-            if (f.geometry.type === 'MultiPoint') return f.geometry.coordinates[0];
-          }
+      const geojson = await kxGeoFetchJSON(school.geojson.vias);
+      for (const f of (geojson.features || [])) {
+        if (f.properties && Number(f.properties.id) === Number(routeId)) {
+          if (f.geometry.type === 'Point') return f.geometry.coordinates;
+          if (f.geometry.type === 'MultiPoint') return f.geometry.coordinates[0];
         }
       }
     } catch (e) { /* fetch failed */ }
@@ -6864,8 +6957,7 @@ function kxSchoolRouteFeatures(schoolId) {
   const url = MAPLIBRE_SCHOOLS[schoolId]?.geojson?.vias;
   if (!url) return Promise.resolve([]);
   if (!kxRoutesGeojsonCache.has(url)) {
-    kxRoutesGeojsonCache.set(url, fetch(url)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    kxRoutesGeojsonCache.set(url, kxGeoFetchJSON(url)
       .then(g => g.features || [])
       .catch(e => { kxRoutesGeojsonCache.delete(url); throw e; }));
   }
@@ -7133,7 +7225,7 @@ function setupParkingsInteraction() {
 
   // Click en parking
   mlMap.on('click', 'parkings-layer', (e) => {
-    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    if (mlMap.getCanvas().style.cursor === 'crosshair' || kxPointEditBlocks()) return;
     if (!e.features || e.features.length === 0) return;
 
     const feature = e.features[0];
@@ -7224,8 +7316,7 @@ let mlGymPopup = null;
 
 function loadGymMarkers() {
   if (!mlMap || mlMap.getSource('gyms-source')) return;
-  fetch('Cartografia/Rocodromos/rocodromos.geojson')
-    .then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+  kxGeoFetchJSON(KX_GYMS_GEOJSON)
     .then(async geojson => {
       if (mlMap.getSource('gyms-source')) return;
       mlMap.addSource('gyms-source', { type: 'geojson', data: geojson, cluster: true, clusterMaxZoom: 11, clusterRadius: 44 });
@@ -7300,7 +7391,7 @@ function setupGymLayerInteraction() {
     } catch (_) { mlMap.easeTo({ center: f.geometry.coordinates, zoom: mlMap.getZoom() + 2 }); }
   });
   mlMap.on('click', 'gym-markers-layer', (e) => {
-    if (mlMap.getCanvas().style.cursor === 'crosshair') return;
+    if (mlMap.getCanvas().style.cursor === 'crosshair' || kxPointEditBlocks()) return;
     const f = e.features && e.features[0];
     if (!f) return;
     // Un toque abre la ficha completa (hoja en móvil, modal en escritorio); el popup queda como alternativa
