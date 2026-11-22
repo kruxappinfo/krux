@@ -35171,3 +35171,235 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   #social-list-modal .modal-content { animation: none; }
   #social-list-modal :is(.social-list-btn, .social-list-item) { transition: none; }
 }
+
+/* ========================================
+   MAPA — MOVER PUNTOS (geo-edits.js, solo superadmin)
+   Botón de la columna de controles, marcador arrastrable, barra del modo
+   y sección «Cartografía» del panel de administración.
+   ======================================== */
+
+/* Encabeza la columna de controles; bosque mientras el modo está activo */
+#map-view .kx-ctrl-geo { order: -4; }
+
+#map-view #btn-geo-edit.is-active {
+  background: var(--kx-forest);
+  border-color: var(--kx-forest) !important;
+  color: var(--kx-chalk);
+}
+
+@media (hover: hover) {
+  #map-view #btn-geo-edit.is-active:hover { background: var(--kx-forest); }
+}
+
+/* Marcador del punto seleccionado: aro tiza sobre bosque, con 44 px de zona táctil */
+.kx-geo-handle {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  touch-action: none;
+}
+
+.kx-geo-handle::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--kx-forest);
+  border: 3px solid var(--kx-chalk);
+  box-shadow: 0 0 0 6px rgba(21, 62, 53, 0.22), 0 4px 12px rgba(20, 28, 24, 0.35);
+  transition: transform var(--kx-dur-fast) var(--kx-ease);
+}
+
+.kx-geo-handle.is-dragging { cursor: grabbing; }
+.kx-geo-handle.is-dragging::before { transform: scale(1.18); }
+
+/* Barra del modo: tarjeta tiza bajo el buscador, sin tapar la columna de controles ni la navegación */
+.kx-geo-bar {
+  position: absolute;
+  left: 50%;
+  top: var(--map-panel-top);
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: min(420px, calc(100% - 2 * var(--map-gap)));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 14px 14px 16px;
+  background: var(--map-solid);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid var(--map-edge);
+  border-radius: var(--kx-radius-card);
+  box-shadow: var(--map-shadow);
+  color: var(--kx-ink);
+  font-family: var(--kx-font);
+}
+
+.kx-geo-bar-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.kx-geo-bar-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kx-geo-bar-kicker {
+  font-size: var(--kx-fs-micro);
+  font-weight: var(--kx-fw-strong);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--kx-forest);
+}
+
+.kx-geo-bar-title {
+  font-size: var(--kx-fs-body);
+  font-weight: var(--kx-fw-strong);
+  line-height: var(--kx-lh-tight);
+  overflow-wrap: anywhere;
+}
+
+.kx-geo-bar-hint {
+  font-size: var(--kx-fs-caption);
+  color: var(--kx-ink-2);
+}
+
+.kx-geo-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Los botones no heredan el relieve del <button> global */
+.kx-geo-bar button,
+.kx-geo-file-dl {
+  box-shadow: none;
+  white-space: normal;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kx-geo-iconbtn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -8px -6px -8px 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--kx-ink-2);
+  cursor: pointer;
+}
+
+.kx-geo-iconbtn svg { width: 20px; height: 20px; }
+
+.kx-geo-btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--kx-line);
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-chalk);
+  color: var(--kx-ink);
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-strong);
+  cursor: pointer;
+}
+
+.kx-geo-btn.is-primary {
+  background: var(--kx-forest);
+  border-color: var(--kx-forest);
+  color: var(--kx-chalk);
+}
+
+.kx-geo-btn:disabled { opacity: 0.45; cursor: default; }
+
+.kx-geo-link {
+  margin-right: auto;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--kx-forest);
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Panel de administración: un archivo por fila */
+.kx-geo-school + .kx-geo-school { margin-top: 12px; }
+
+.kx-geo-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 0;
+}
+
+.kx-geo-file + .kx-geo-file { border-top: 1px solid var(--kx-line); }
+
+.kx-geo-file-text {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kx-geo-file-label {
+  font-weight: var(--kx-fw-strong);
+  color: var(--kx-ink);
+}
+
+.kx-geo-file-name {
+  font-size: var(--kx-fs-caption);
+  color: var(--kx-ink-3);
+  overflow-wrap: anywhere;
+}
+
+.kx-geo-file-badge {
+  padding: 4px 10px;
+  border-radius: var(--kx-radius-pill);
+  background: var(--kx-sage-soft);
+  color: var(--kx-forest);
+  font-size: var(--kx-fs-caption);
+  font-weight: var(--kx-fw-strong);
+}
+
+.kx-geo-file-dl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--kx-forest);
+  border-radius: var(--kx-radius-pill);
+  background: transparent;
+  color: var(--kx-forest);
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-strong);
+  cursor: pointer;
+}
+
+.kx-geo-file-dl svg { width: 18px; height: 18px; }
+.kx-geo-file-dl:disabled { opacity: 0.5; cursor: default; }
+
+.kx-geo-empty { color: var(--kx-ink-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .kx-geo-handle::before { transition: none; }
+}
