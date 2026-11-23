@@ -1172,6 +1172,26 @@ async function handleSectorFiles(files) {
   renderSectorPreviews();
 }
 
+/**
+ * Conversor HEIC (1,6 MB): se descarga solo la primera vez que alguien elige una foto HEIC, no al abrir la app
+ */
+const HEIC2ANY_URL = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js';
+let heicConverterPromise = null;
+
+function loadHeicConverter() {
+  if (typeof heic2any !== 'undefined') return Promise.resolve(true);
+  if (!heicConverterPromise) {
+    heicConverterPromise = new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = HEIC2ANY_URL;
+      script.onload = () => resolve(typeof heic2any !== 'undefined');
+      script.onerror = () => { heicConverterPromise = null; script.remove(); resolve(false); }; // sin red: se puede reintentar
+      document.head.appendChild(script);
+    });
+  }
+  return heicConverterPromise;
+}
+
 async function processSectorFile(file) {
   const isHeic = file.type === 'image/heic' || file.type === 'image/heif' ||
     /\.heic$/i.test(file.name) || /\.heif$/i.test(file.name);
@@ -1187,7 +1207,7 @@ async function processSectorFile(file) {
   }
 
   if (isHeic) {
-    if (typeof heic2any === 'undefined') {
+    if (!(await loadHeicConverter())) {
       showSectorToast('No se pudo cargar el conversor HEIC. Intenta con JPG o PNG.', 'error');
       return null;
     }

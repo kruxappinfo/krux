@@ -7823,18 +7823,18 @@ function getGradeColor(grade) {
  * @returns {string} Ruta al icono
  */
 function getWeatherIcon(code) {
-  if (code === 0) return 'icons/weather/sunny.png';                    // Sol despejado
-  if ([1, 2].includes(code)) return 'icons/weather/partly-cloudy.png'; // Parcialmente nublado
-  if (code === 3) return 'icons/weather/cloudy.png';                   // Nublado
-  if ([45, 48].includes(code)) return 'icons/weather/fog.png';         // Niebla
-  if ([51, 53, 55].includes(code)) return 'icons/weather/light-rain.png'; // Llovizna
-  if ([61, 63, 65].includes(code)) return 'icons/weather/rain.png';    // Lluvia
-  if ([66, 67].includes(code)) return 'icons/weather/rain.png';        // Lluvia helada
-  if ([71, 73, 75, 77].includes(code)) return 'icons/weather/snow.png'; // Nieve
-  if ([80, 81, 82].includes(code)) return 'icons/weather/rain.png';    // Chubascos
-  if ([85, 86].includes(code)) return 'icons/weather/snow.png';        // Nieve
-  if ([95, 96, 99].includes(code)) return 'icons/weather/storm.png';   // Tormenta
-  return 'icons/weather/partly-cloudy.png'; // Por defecto
+  if (code === 0) return 'icons/weather/sunny.png?v=2';                    // Sol despejado
+  if ([1, 2].includes(code)) return 'icons/weather/partly-cloudy.png?v=2'; // Parcialmente nublado
+  if (code === 3) return 'icons/weather/cloudy.png?v=2';                   // Nublado
+  if ([45, 48].includes(code)) return 'icons/weather/fog.png?v=2';         // Niebla
+  if ([51, 53, 55].includes(code)) return 'icons/weather/light-rain.png?v=2'; // Llovizna
+  if ([61, 63, 65].includes(code)) return 'icons/weather/rain.png?v=2';    // Lluvia
+  if ([66, 67].includes(code)) return 'icons/weather/rain.png?v=2';        // Lluvia helada
+  if ([71, 73, 75, 77].includes(code)) return 'icons/weather/snow.png?v=2'; // Nieve
+  if ([80, 81, 82].includes(code)) return 'icons/weather/rain.png?v=2';    // Chubascos
+  if ([85, 86].includes(code)) return 'icons/weather/snow.png?v=2';        // Nieve
+  if ([95, 96, 99].includes(code)) return 'icons/weather/storm.png?v=2';   // Tormenta
+  return 'icons/weather/partly-cloudy.png?v=2'; // Por defecto
 }
 
 /**
@@ -7956,7 +7956,7 @@ function renderWeatherForecast(schoolId, dailyData) {
           </div>
           <img class='ml-forecast-icon' src='${weatherIcon}' alt='Clima'>
           <div class='ml-forecast-details'>
-            <span class='ml-forecast-precip'><img src='icons/weather/Gota.png' alt='' class='ml-precip-icon'> ${precipProb}% | ${precipSum.toFixed(1)} mm</span>
+            <span class='ml-forecast-precip'><img src='icons/weather/Gota.png?v=2' alt='' class='ml-precip-icon'> ${precipProb}% | ${precipSum.toFixed(1)} mm</span>
             <span class='ml-forecast-wind'>${windDir} ${windSpeed} km/h</span>
           </div>
         </div>
@@ -8147,7 +8147,7 @@ function buildSchoolPopupHtml(school, chartId, gmapsUrl) {
 
       <div class='ml-weather-section' id='${weatherId}'>
         <div class='ml-weather-current'>
-          <img class='ml-weather-icon' src='icons/weather/partly-cloudy.png' alt='Clima'>
+          <img class='ml-weather-icon' src='icons/weather/partly-cloudy.png?v=2' alt='Clima'>
           <div class='ml-weather-temp-container'>
             <span class='ml-weather-temp'>--°C</span>
             <button class='ml-weather-toggle-btn' id='weather-toggle-${school.id}'>
@@ -8157,7 +8157,7 @@ function buildSchoolPopupHtml(school, chartId, gmapsUrl) {
             </button>
           </div>
           <div class='ml-weather-details'>
-            <div>Precipitaciones: <img src='icons/weather/Gota.png' alt='' class='ml-precip-icon'> <span class='ml-weather-precip'>--%</span></div>
+            <div>Precipitaciones: <img src='icons/weather/Gota.png?v=2' alt='' class='ml-precip-icon'> <span class='ml-weather-precip'>--%</span></div>
             <div>Humedad: <span class='ml-weather-humidity'>--%</span></div>
             <div>Viento: <span class='ml-weather-wind'>-- km/h</span></div>
           </div>
@@ -9949,7 +9949,7 @@ async function loadBottomSheetWeather(school) {
       if (iconEl && iconPath) {
         iconEl.src = iconPath;
         iconEl.onerror = () => {
-          iconEl.src = 'icons/weather/partly-cloudy.png';
+          iconEl.src = 'icons/weather/partly-cloudy.png?v=2';
         };
       }
     }
@@ -10002,7 +10002,7 @@ function renderBottomSheetForecast(dailyData) {
           <div class="bs-forecast-day-date">${dateStr}</div>
         </div>
         <div class="bs-forecast-icon-wrap">
-          <img src="${getWeatherIcon(weatherCode)}" alt="${getWeatherDescription(weatherCode)}" onerror="this.onerror=null;this.src='icons/weather/partly-cloudy.png'">
+          <img src="${getWeatherIcon(weatherCode)}" alt="${getWeatherDescription(weatherCode)}" onerror="this.onerror=null;this.src='icons/weather/partly-cloudy.png?v=2'">
         </div>
         <div class="bs-forecast-temps">
           <span class="bs-forecast-temp-max">${maxTemp}°</span>
@@ -10028,7 +10028,7 @@ function renderBottomSheetForecastNow() {
   const n = bsWeatherNow;
   if (!el || !n) return;
   el.innerHTML = `
-    <img class="bs-weather-icon" src="${getWeatherIcon(n.code)}" alt="" onerror="this.onerror=null;this.src='icons/weather/partly-cloudy.png'">
+    <img class="bs-weather-icon" src="${getWeatherIcon(n.code)}" alt="" onerror="this.onerror=null;this.src='icons/weather/partly-cloudy.png?v=2'">
     <span class="bs-weather-sep" aria-hidden="true"></span>
     <div class="bs-weather-temp-wrap"><span class="bs-weather-temp">${n.temp}°C</span><span class="bs-weather-desc">${getWeatherDescription(n.code)}</span></div>
     <span class="bs-weather-sep" aria-hidden="true"></span>
