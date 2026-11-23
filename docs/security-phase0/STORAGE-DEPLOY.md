@@ -1,8 +1,17 @@
 # Storage (Fase 0c): despliegue, verificación y recuperación
 
-**Estado: preparado para revisión. NADA está desplegado.** El bucket `climbmaps-80cae.firebasestorage.app` sigue con el ruleset
-`16df6449-48f8-473b-82ba-8325bf7d0093` (2025-12-29), que termina en el comodín `match /{allPaths=**} { allow read, write: if request.auth != null }`.
-Firestore sigue con el ruleset `d2908fdf-91b5-4819-bd7b-b823f2e98eed` (2026-11-12, md5 `311a726e31a1da22962d8ada891bd08f` = `firestore.rules`).
+**Estado (2026-11-23): DESPLEGADO y revisado.** El resto del documento describe el procedimiento tal como se preparó; se conserva como registro y para la recuperación (§6).
+
+| Qué | Cuándo | Ruleset activo | Ruleset anterior (para recuperar) |
+|---|---|---|---|
+| Storage (`storage.rules`, sin comodín) | 2026-11-21 00:09:30 | `2e2163b4-c68e-4ad6-a214-a3fd56f4271b` | `16df6449-48f8-473b-82ba-8325bf7d0093` |
+| Firestore (propuesta `route-photos-only`) | 2026-11-21 00:13:02 | `36f61287-0ab8-4409-865d-09b108586521` | `d2908fdf-91b5-4819-bd7b-b823f2e98eed` |
+| Firestore (+ bloque `geojson_ediciones`) | 2026-11-23 | `3ddfc2e4-43f4-4d1a-a777-42b4e5fab2b8` | `36f61287…` (copia en `~/krux-backups/geojson-ediciones-2026-11-23/`) |
+
+- **`firestore.rules` y `storage.rules` de la raíz son ya lo desplegado** (se comprobó byte a byte contra la API de Reglas). Los `.previous` conservan los rulesets anteriores a la fase 0c. Se puede desplegar con `--only firestore:rules` o `--only storage` desde la raíz sin quitar las reglas nuevas; `firebase deploy` **sin** `--only` sigue sin usarse nunca.
+- `firestore.rules` = `firestore.rules.route-photos-only.proposal` + el bloque `geojson_ediciones` (lectura pública, escritura solo del super-admin; lo usa el editor «Mover puntos» del mapa). La propuesta no lleva ese bloque a propósito: sigue siendo la 0c tal como se probó.
+- Las cabeceras de `storage.rules` y de las propuestas dicen «NO DESPLEGADA»: se dejan así porque `storage.rules` debe coincidir byte a byte con el ruleset activo. Valen las fechas de esta tabla.
+- **Revisión de 48 h (2026-11-23):** la comprobación automática terminó en `SIN FALLOS` (reglas activas, 0 objetos del canario, ningún objeto previo desaparecido, `route-photos` y marcas de `route-photo-tombstones` intactas, 3 administradores) y el informe de huérfanos de fotos de vía dio 0. Probado en la app con cuenta real: cambiar la foto de perfil, publicar con foto y borrarla, subir una foto de sector y subir una foto de rocódromo. Las métricas de reglas de Storage no muestran rechazos desde el despliegue. **No se comprobaron**, por decisión del propietario: las 5 fotos de Valeria (el script sí confirmó que sus documentos y archivos existen) y las métricas de reglas de Firestore.
 
 ## 1. Qué se entrega
 

@@ -121,8 +121,23 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
     expect(require('node:crypto').createHash('md5').update(fs.readFileSync(path.join(ROOT, 'firestore.rules.previous'))).digest('hex')).toBe('311a726e31a1da22962d8ada891bd08f');
     expect(fs.statSync(path.join(ROOT, 'firestore.rules.previous')).size).toBe(36519);
   });
-  it('firestore.rules sigue siendo el ruleset desplegado (o, tras desplegar, la propuesta): nunca otra cosa', () => {
-    expect([manifest['firestore.rules.previous'], manifest['docs/security-phase0/firestore.rules.route-photos-only.proposal']]).toContain(sha('firestore.rules'));
+  it('firestore.rules es el ruleset anterior, la propuesta o la propuesta + el bloque geojson_ediciones (desplegado el 2026-11-23): nunca otra cosa', () => {
+    const GEOJSON_BLOCK = `
+    // Puntos del geojson movidos por el superadmin desde el mapa (un documento por escuela y uno para rocódromos).
+    // Lectura pública: todos los mapas aplican estas ediciones al cargar. Solo escribe la cuenta de Krux.
+    match /geojson_ediciones/{docId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && isSuperAdmin();
+    }
+`;
+    const ANCHOR = "      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());\n    }\n";   // cierre de match /pending_poi
+    const rules = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
+    if ([manifest['firestore.rules.previous'], manifest['docs/security-phase0/firestore.rules.route-photos-only.proposal']].includes(sha('firestore.rules'))) return;
+    const proposal = fs.readFileSync(path.join(ROOT, 'docs/security-phase0/firestore.rules.route-photos-only.proposal'), 'utf8');
+    const at = proposal.indexOf('    match /pending_poi/{poiId} {');
+    const end = proposal.indexOf(ANCHOR, at) + ANCHOR.length;
+    expect(at).toBeGreaterThan(0);
+    expect(rules.trimEnd()).toBe((proposal.slice(0, end) + GEOJSON_BLOCK + proposal.slice(end)).trimEnd());
   });
   it('storage.rules es copia idéntica de la propuesta 0c y no contiene el comodín global', () => {
     expect(sha('storage.rules')).toBe(sha('docs/security-phase0/storage.rules.phase0c.proposal'));

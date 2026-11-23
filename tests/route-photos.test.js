@@ -350,13 +350,14 @@ describe('route-photos.js: contrato con los archivos de reglas', () => {
   });
 
   it('firestore.rules.route-photos-only.proposal = firestore.rules desplegado + SOLO el bloque de route-photos (idéntico al de la propuesta 0c)', () => {
-    const prod = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
+    // La base es firestore.rules.previous (el ruleset anterior a la fase 0c, fijado por md5 en rules-rollback-rehearsal.test.js): firestore.rules ya es el desplegado
+    const prod = fs.readFileSync(path.join(ROOT, 'firestore.rules.previous'), 'utf8');
     const only = fs.readFileSync(path.join(ROOT, 'docs/security-phase0/firestore.rules.route-photos-only.proposal'), 'utf8').split('\n');
     const body = only.slice(only.findIndex(l => l.startsWith('// ====')) + 1).join('\n');
     const a = FS_RULES.indexOf('    // ───────── FASE 0c (PROPUESTA, revisión final): fotos de vía');
     const b = FS_RULES.indexOf('    // Posts collection - allows authenticated users to create posts');
     const old = "    match /route-photos/{photoId} {\n      allow read: if true;\n      allow create: if isAuthenticated();\n      allow delete: if isAuthenticated();\n    }\n\n";
-    expect(prod.split(old).length).toBe(2);   // si falla: firestore.rules cambió; regenerar la propuesta
+    expect(prod.split(old).length).toBe(2);   // si falla: firestore.rules.previous cambió; regenerar la propuesta
     expect(body).toBe(prod.replace(old, FS_RULES.slice(a, b)));
   });
 
