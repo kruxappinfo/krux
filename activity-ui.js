@@ -1171,7 +1171,7 @@
     // Al finalizar una sesión de escalada, su tarjeta aparece sin recargar la pestaña
     if (window.KruxSession) {
       let was = KruxSession.isActive();
-      KruxSession.on(() => { const now = KruxSession.isActive(); if (was && !now) loadClimbSessions(); was = now; });
+      KruxSession.on((type) => { const now = KruxSession.isActive(); if ((was && !now) || type === 'deleted') loadClimbSessions(); was = now; });
     }
   }
 

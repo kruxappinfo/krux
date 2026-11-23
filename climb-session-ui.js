@@ -24,6 +24,16 @@ function kxsFormatDistance(m) {
   return m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`;
 }
 
+// Aviso del GPS al iniciar: en la app nativa sigue grabando con el móvil bloqueado; en la web, solo con la app abierta
+function kxsGpsNoteText() {
+  const cap = window.Capacitor;
+  const native = !!(cap && cap.isNativePlatform && cap.isNativePlatform() && cap.Plugins && cap.Plugins.BackgroundGeolocation);
+  const android = native && cap.getPlatform && cap.getPlatform() === 'android';
+  return native
+    ? `Al iniciar, KRUX te pedirá permiso de ubicación. Sigue registrando el recorrido con el móvil bloqueado hasta que pauses o finalices la sesión${android ? ' (verás una notificación mientras graba)' : ''}. Si lo deniegas, la sesión sigue igual con cronómetro y vías.`
+    : 'Al iniciar, KRUX te pedirá permiso de ubicación. En el navegador solo registra con la app abierta: con la pantalla bloqueada el recorrido sale en línea recta. Si lo deniegas, la sesión sigue igual con cronómetro y vías.';
+}
+
 // Valoración de 1 a 5 estrellas (mismo aspecto que el estado de la vía en «Tu opinión sobre la vía»)
 function kxsStarsHTML(value) {
   let html = '';
@@ -55,7 +65,7 @@ function kxsSummaryBodyHTML(session, entries) {
   // Desglose guardado al cerrar la sesión; las sesiones anteriores a este cálculo se estiman con lo que haya
   const kc = st.kcal && st.kcal.total != null
     ? st.kcal
-    : kxsEstimateKcal({ entries, activeMs: session.activeMs || kxsActiveMs(session), track: session.track || [] });
+    : kxsEstimateKcal({ entries, activeMs: session.activeMs || kxsActiveMs(session), track: session.track || [], kg: window.KruxWeight && KruxWeight.get() });
   const kcal = kc.total;
   const hasDist = gps.enabled && gps.distanceM > 0;
   const tiles = [
@@ -70,7 +80,9 @@ function kxsSummaryBodyHTML(session, entries) {
   if (kcal > 0) {
     const part = (kcalPart, ms, label) => (kcalPart > 0 ? `${label} ${kcalPart} kcal (${kxsFormatDuration(ms)})` : '');
     const parts = [part(kc.climb, kc.climbMs, 'escalando'), part(kc.walk, kc.walkMs, 'andando'), part(kc.rest, kc.restMs, 'parado o asegurando')].filter(Boolean);
-    notes.push(`Calorías estimadas (referencia de 70 kg; no es un dato medido): ${parts.join(' · ')}. Cada vía cuenta el tiempo que se tarda en escalarla según sus metros y su grado, el recorrido a pie sale del GPS y el resto del tiempo cuenta como descanso.`);
+    const kg = kc.kg || KXS_KCAL.kg;
+    const who = kc.ownKg ? `con tu peso (${String(kg).replace('.', ',')} kg)` : `con un peso de referencia de ${kg} kg; indica el tuyo en Editar perfil`;
+    notes.push(`Calorías estimadas ${who}, no es un dato medido: ${parts.join(' · ')}. Cada vía cuenta el tiempo que se tarda en escalarla según sus metros y su grado, el recorrido a pie sale del GPS y el resto del tiempo cuenta como descanso.`);
   }
   if (st.meters > 0) notes.push('Los metros suman la longitud de las vías encadenadas (también a vista, flash y top rope); los intentos no cuentan.');
   if (st.meters > 0 && st.metersUnknown > 0) notes.push(`${kxsPlural(st.metersUnknown, 'vía encadenada no tiene', 'vías encadenadas no tienen')} longitud registrada y no suma metros.`);
@@ -156,7 +168,7 @@ const KruxSessionUI = (() => {
             <span class="kxs-type-text"><strong id="kxs-gps-label">Seguimiento GPS</strong><small>Opcional. Guarda tu recorrido y calcula la distancia.</small></span>
             <button type="button" class="kxs-switch" role="switch" aria-checked="${gps}" aria-labelledby="kxs-gps-label" data-kxs="gps"><span></span></button>
           </div>
-          <p class="kxs-note" id="kxs-gps-note"${gps ? '' : ' hidden'}>Al iniciar, KRUX te pedirá permiso de ubicación. Funciona solo con la app abierta; si lo deniegas, la sesión sigue igual con cronómetro y vías.</p>`,
+          <p class="kxs-note" id="kxs-gps-note"${gps ? '' : ' hidden'}>${kxsGpsNoteText()}</p>`,
         foot: kxButtonHTML({ icon: 'play', label: 'Iniciar sesión', size: 'lg', attrs: { 'data-kxs': 'start' } })
       };
     },
@@ -257,7 +269,12 @@ const KruxSessionUI = (() => {
           <h2 class="kxs-sumhead-title" id="kx-sess-title">Sesión de roca</h2><span aria-hidden="true"></span></header>`,
         body: `<div class="kxs-hero"><h3 class="kxs-hero-title">${kxEsc(history ? (s.schoolName || 'Sesión de escalada') : 'Sesión completada')}</h3>
           <p class="kxs-hero-meta">${kxEsc([history ? '' : s.schoolName, kxsDate(s.startedAt)].filter(Boolean).join(' · '))}</p></div>
-          ${kxsSummaryBodyHTML(s, item.entries)}`,
+          ${window.KruxSessionShare ? `<div class="kxs-share-row">
+            ${kxButtonHTML({ icon: 'instagram', label: 'Historia', variant: 'secondary', attrs: { 'data-kxs': 'story' } })}
+            ${kxButtonHTML({ icon: s.postId ? 'check' : 'send', label: s.postId ? 'En el feed' : 'Publicar', variant: 'secondary', attrs: { 'data-kxs': 'publish' } })}
+          </div>` : ''}
+          ${kxsSummaryBodyHTML(s, item.entries)}
+          <button type="button" class="kxs-delete-link" data-kxs="delete">Borrar sesión</button>`,
         foot: history
           ? kxButtonHTML({ label: 'Cerrar', variant: 'secondary', size: 'lg', attrs: { 'data-kx-close': true } })
           : kxButtonHTML({ icon: 'chartBar', label: 'Ver en Actividad', size: 'lg', attrs: { 'data-kxs': 'to-activity' } })
@@ -270,6 +287,65 @@ const KruxSessionUI = (() => {
       };
     }
   };
+
+  // Vistas que salen del resumen de una sesión finalizada (vuelven a él con «Volver»)
+  const itemTrack = (item) => item.track || item.session.track || [];
+  const withTrack = (item) => ({ ...item.session, track: itemTrack(item) });
+
+  Object.assign(VIEWS, {
+    story({ item, transparent = false }) {
+      return {
+        title: 'Compartir en historias',
+        body: `<img class="kxs-story-preview${transparent ? ' is-transparent' : ''}" id="kxs-story-img" alt="Vista previa de la imagen de la sesión">
+          ${kxSegmentedHTML({ items: [{ value: 'solid', label: 'Con fondo' }, { value: 'clear', label: 'Transparente' }], value: transparent ? 'clear' : 'solid', label: 'Fondo de la imagen', attrs: { id: 'kxs-story-bg' } })}
+          <p class="kxs-note">Pulsa «Compartir» y elige Instagram › Historia. La versión transparente se coloca encima de una foto tuya, como en Strava.</p>`,
+        foot: kxButtonHTML({ icon: 'share', label: 'Compartir', size: 'lg', attrs: { 'data-kxs': 'story-share' } })
+          + kxButtonHTML({ label: 'Volver', variant: 'secondary', size: 'lg', attrs: { 'data-kxs': 'to-summary' } }),
+        after(root) {
+          kxBindSegmented(root.querySelector('#kxs-story-bg'), (v) => { ctx.transparent = v === 'clear'; renderStory(); });
+          renderStory();
+        }
+      };
+    },
+
+    publish({ item }) {
+      const posted = !!item.session.postId;
+      const data = window.KruxSessionShare ? KruxSessionShare.postData(item.session, item.entries, itemTrack(item)) : null;
+      return {
+        title: posted ? 'Ya está en el feed' : 'Publicar en el feed',
+        body: `${posted ? '<p class="kxs-note">Esta sesión ya está publicada en tu feed. Si la vuelves a publicar aparecerá dos veces.</p>' : ''}
+          <div class="kxs-field">${kxFieldHTML({ id: 'kxs-post-text', label: 'Texto', type: 'textarea', optional: true, placeholder: '¿Qué tal la jornada?', attrs: { maxlength: '2000', rows: '3' } })}</div>
+          <h3 class="kxs-label">Así se verá</h3>
+          ${data ? KruxSessionShare.feedCardHTML(data) : ''}`,
+        foot: kxButtonHTML({ icon: 'send', label: posted ? 'Publicar otra vez' : 'Publicar', size: 'lg', attrs: { 'data-kxs': 'publish-send' } })
+          + kxButtonHTML({ label: 'Volver', variant: 'secondary', size: 'lg', attrs: { 'data-kxs': 'to-summary' } })
+      };
+    },
+
+    delete({ item }) {
+      const n = item.entries.length;
+      return {
+        title: '¿Borrar esta sesión?',
+        body: `<p class="kxs-lead">Se borrará la sesión de ${kxEsc(item.session.schoolName || 'escalada')} del ${kxEsc(kxsDate(item.session.startedAt))}: su duración, recorrido y calorías. No se puede deshacer.</p>
+          <p class="kxs-note">${n ? `Tus ${kxsPlural(n, 'vía registrada se conserva', 'vías registradas se conservan')} en tu historial de ascensos y en Actividad.` : 'No tenía vías registradas.'}</p>
+          ${item.session.postId ? '<label class="kxs-check"><input type="checkbox" id="kxs-del-post" checked> Borrar también la publicación del feed</label>' : ''}`,
+        foot: kxButtonHTML({ icon: 'trash', label: 'Borrar sesión', variant: 'danger', size: 'lg', attrs: { 'data-kxs': 'delete-confirm' } })
+          + kxButtonHTML({ label: 'Cancelar', variant: 'secondary', size: 'lg', attrs: { 'data-kxs': 'to-summary' } })
+      };
+    }
+  });
+
+  async function renderStory() {
+    const img = el && el.querySelector('#kxs-story-img');
+    if (!img || !ctx.item) return;
+    img.classList.toggle('is-transparent', !!ctx.transparent);
+    try {
+      const canvas = await KruxSessionShare.storyCanvas(withTrack(ctx.item), ctx.item.entries, { transparent: !!ctx.transparent });
+      ctx.canvas = canvas;
+      img.src = canvas.toDataURL('image/png');
+      sheet.refresh();
+    } catch (e) { console.warn('[sesión] imagen:', e); }
+  }
 
   // ---------- Acciones ----------
   const ACTIONS = {
@@ -360,6 +436,58 @@ const KruxSessionUI = (() => {
       toast('Ascenso registrado en la sesión', 'success');
       // Los votos se guardan aparte, como en el formulario (sin conexión esperan en la cola); un fallo no anula el ascenso
       if (typeof kxAscentVotes !== 'undefined') { try { await kxAscentVotes.save(); } finally { kxAscentVotes.reset(); } }
+    },
+
+    story() { setView('story', { item: ctx.item, history: ctx.history, transparent: false }); },
+    publish() { setView('publish', { item: ctx.item, history: ctx.history }); },
+    delete() { setView('delete', { item: ctx.item, history: ctx.history }); },
+    'to-summary'() { setView('summary', { item: ctx.item, history: ctx.history }); },
+
+    async 'story-share'(btn) {
+      if (!ctx.canvas || btn.getAttribute('aria-busy') === 'true') return;
+      btn.setAttribute('aria-busy', 'true');
+      try {
+        const name = `krux-sesion-${kxsDate(ctx.item.session.startedAt).replace(/\s+/g, '-')}${ctx.transparent ? '-transparente' : ''}.png`;
+        const r = await KruxSessionShare.shareImage(ctx.canvas, { filename: name });
+        if (r === 'saved') toast('Imagen guardada. Súbela a tu historia de Instagram desde la galería.', 'success');
+      } catch (e) { toast('No se pudo preparar la imagen', 'error'); }
+      btn.removeAttribute('aria-busy');
+    },
+
+    async 'publish-send'(btn) {
+      if (btn.getAttribute('aria-busy') === 'true') return;
+      btn.setAttribute('aria-busy', 'true');
+      const item = ctx.item;
+      try {
+        const text = el.querySelector('#kxs-post-text') ? el.querySelector('#kxs-post-text').value : '';
+        const postId = await KruxSessionShare.publish(item.session, item.entries, itemTrack(item), text);
+        item.session.postId = postId;
+        S().setPost(item.session.id, postId).catch(() => {});   // solo para recordarlo: la publicación ya existe
+        toast('Sesión publicada en tu feed', 'success');
+        if (typeof loadFeed === 'function') setTimeout(() => loadFeed({ silent: true }).catch(() => {}), 600);
+        setView('summary', { item, history: ctx.history });
+      } catch (e) {
+        btn.removeAttribute('aria-busy');
+        toast(navigator.onLine === false ? 'Sin conexión: publícala cuando vuelvas a tener cobertura' : 'No se pudo publicar la sesión', 'error');
+      }
+    },
+
+    async 'delete-confirm'(btn) {
+      if (btn.getAttribute('aria-busy') === 'true') return;
+      btn.setAttribute('aria-busy', 'true');
+      const item = ctx.item;
+      const alsoPost = !!(el.querySelector('#kxs-del-post') && el.querySelector('#kxs-del-post').checked && item.session.postId);
+      try {
+        await S().remove(item.session.id);
+        if (alsoPost) {
+          try { await db.collection('posts').doc(item.session.postId).delete(); } catch (e) { toast('La sesión se ha borrado, pero no la publicación del feed. Bórrala desde el feed.', 'info'); }
+        }
+        close();
+        toast('Sesión borrada', 'success');
+      } catch (e) {
+        btn.removeAttribute('aria-busy');
+        toast(e && e.code === 'offline' ? 'Sin conexión: bórrala cuando vuelvas a tener cobertura' : 'No se pudo borrar la sesión', 'error');
+      }
     },
 
     'to-list'() {
