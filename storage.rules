@@ -1,0 +1,119 @@
+// KRUX — REGLAS DE FIREBASE STORAGE (bucket climbmaps-80cae.firebasestorage.app). Fase 0c, revisión final. NO DESPLEGADAS.
+// Sustituyen a las desplegadas desde 2025-12-29 (ruleset 16df6449-48f8-473b-82ba-8325bf7d0093, copia exacta en storage.rules.previous).
+// Procedimiento de despliegue y recuperación: docs/security-phase0/STORAGE-DEPLOY.md. Inventario por carpeta: STORAGE-INVENTORY-0c.md.
+//
+// PROBLEMA QUE CORRIGEN: las reglas desplegadas terminan con  match /{allPaths=**} { allow read, write: if request.auth != null; }
+// En Storage las reglas se SUMAN (basta que UNA permita), así que ese comodín deja a cualquier usuario con sesión leer, subir, sobrescribir
+// y BORRAR cualquier archivo del bucket. Aquí NO hay comodín: lo no declarado queda denegado.
+//
+// Los permisos de `read` solo afectan al SDK (getDownloadURL, getMetadata, descargas sin token). Las URL con ?token=… se sirven sin
+// consultar estas reglas, por eso mantener `read` como hoy no cambia lo que la app muestra.
+// El rol se lee de Firestore (admins/{uid}) con firestore.get(): el agente de servicio de Storage ya tiene
+// roles/firebaserules.firestoreServiceAgent en climbmaps-80cae (comprobado 2026-11-14). Límite de la plataforma: 2 documentos de Firestore por evaluación;
+// cada regla de este archivo consulta como máximo 2 documentos distintos.
+//
+// POLÍTICA DE FOTOS DE VÍA (la única carpeta con lógica temporal)
+//   · Sube cualquier usuario con sesión, a su propia carpeta y SOLO si ya existe su documento de Firestore route-photos/{id} (ver firestore.rules.phase0c.proposal).
+//   · El autor dispone de COMO MÁXIMO 12 h para borrar su foto; pasadas, solo admin y super-admin. El spotter no tiene privilegios por rol.
+//   · EL CONTADOR EMPIEZA CUANDO EL SERVIDOR ACEPTA EL DOCUMENTO (uploadedAt == request.time, inmutable porque update: false), no cuando llega el archivo:
+//     el retraso entre aceptar el documento y subir el archivo se DESCUENTA del plazo. Ningún instante lo escribe el cliente.
+//   · El archivo solo se admite durante los 5 min siguientes a uploadedAt (el cliente reduce la imagen ANTES de crear el documento, así que normalmente pasan segundos; la ventana cubre también la transferencia en redes lentas).
+//     Esa ventana SOLO limita cuándo puede llegar el archivo: NO cambia el plazo de borrado, que sigue siendo uploadedAt + 12 h sin excepciones (el retraso se descuenta del plazo, nunca lo amplía).
+//   · El autor borra el archivo solo mientras su documento exista y se cumpla  request.time < uploadedAt + 12 h  Y  request.time < resource.timeCreated + 12 h.
+//     Como timeCreated ≥ uploadedAt, la primera condición manda siempre: NINGÚN borrado del autor, en Firestore o en Storage, ocurre a partir de uploadedAt + 12 h.
+//     La segunda solo importa si el documento se recreó SIN marca por una vía privilegiada (consola o credenciales de servicio): el archivo conserva su timeCreated.
+//     Sin documento, el autor no borra el archivo (solo administración): el cliente borra siempre el archivo ANTES que el documento.
+//   · NO SE PUEDE AMPLIAR EL PLAZO:
+//       - borrar el archivo y subirlo de nuevo, o sobrescribirlo: el documento (inmutable) conserva su uploadedAt y manda; además la subida solo se admite en esos 5 min y no mueve el plazo;
+//       - subir a la vez el mismo archivo dos veces: igual, manda el documento;
+//       - borrar el documento y recrearlo con el mismo id: cada borrado de documento deja una marca permanente en route-photo-tombstones (Firestore, mismo lote) y un id
+//         con marca no se puede volver a crear;
+//       - sobrescribir el archivo: subir sobre un archivo existente se evalúa como `create` (según la documentación `update` solo cubre metadatos), por eso create exige resource == null; update es false.
+//   · El archivo solo puede tener un documento (su id es el nombre del archivo) y el documento solo puede apuntar a un archivo de la carpeta de su autor.
+// ============================================================================================
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() { return request.auth != null; }
+    function isSuperAdmin() { return signedIn() && request.auth.token.email == 'krux.app.info@gmail.com'; }
+    function adminDoc() { return /databases/(default)/documents/admins/$(request.auth.uid); }
+    function isAdmin() { return signedIn() && firestore.exists(adminDoc()) && firestore.get(adminDoc()).data.role == 'admin'; }
+    function isAdminOrSpotter() {
+      return signedIn() && firestore.exists(adminDoc())
+        && (firestore.get(adminDoc()).data.role == 'admin' || firestore.get(adminDoc()).data.role == 'spotter');
+    }
+    // Igual que la regla de sector_images en Firestore y que isSectorImageAdmin() del cliente: admin, spotter o super-admin.
+    function canEditSectorImages() { return isSuperAdmin() || isAdminOrSpotter(); }
+    function isImage() { return request.resource.contentType.matches('image/(jpeg|jpg|png|webp)'); }
+
+    // 1. Fotos de perfil: solo el dueño escribe. Sin límite de tamaño ni de tipo (igual que hoy: las apps antiguas suben el original sin reducir).
+    match /profile-photos/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() && request.auth.uid == userId;
+    }
+    // (profile-banners/ existía en las reglas desplegadas pero ningún código lo usa y el bucket no tiene objetos: queda denegado.)
+
+    // 2. Publicaciones (fotos, vídeos de hasta 300 MB y portadas): solo el dueño escribe y borra; deletePost solo lo ejecuta el autor.
+    match /posts/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // 3. Imágenes de sector (topos): la app solo deja subir y borrar a admin y spotter; hoy cualquiera con sesión podía.
+    //    15 MB: el cliente comprime todo lo que supera 2 MB (máx. 2000 px), así que nunca sube nada parecido.
+    match /sector-images/{allPaths=**} {
+      allow read: if true;
+      allow create: if canEditSectorImages() && request.resource.size < 15 * 1024 * 1024 && isImage();
+      allow update: if canEditSectorImages() && request.resource.size < 15 * 1024 * 1024 && isImage();
+      allow delete: if canEditSectorImages();
+    }
+
+    // 4. Fotos de vía. Ruta: route-photos/{schoolId}/{uid}/{id}.{jpg|png|webp}  (id = {schoolId}_{routeId}_{16 caracteres [a-z0-9]})
+    match /route-photos/{schoolId}/{uid}/{file} {
+      function photoId() { return file.split('[.]')[0]; }
+      function photoDoc() { return /databases/(default)/documents/route-photos/$(photoId()); }
+      function extension() { return file.split('[.]')[1]; }
+      // La extensión debe corresponder al tipo declarado (el cliente la deriva del tipo MIME).
+      function typeMatchesExtension() {
+        return (extension() == 'jpg' && request.resource.contentType.matches('image/(jpeg|jpg)'))
+          || (extension() == 'png' && request.resource.contentType == 'image/png')
+          || (extension() == 'webp' && request.resource.contentType == 'image/webp');
+      }
+      allow read: if true;
+      allow create: if signedIn() && request.auth.uid == uid && resource == null
+        && request.resource.size < 5 * 1024 * 1024 && isImage()
+        && file.matches('[A-Za-z0-9_-]{12,200}[.](jpg|png|webp)') && typeMatchesExtension()
+        && firestore.exists(photoDoc())
+        && firestore.get(photoDoc()).data.uploadedBy == uid
+        && firestore.get(photoDoc()).data.storagePath == 'route-photos/' + schoolId + '/' + uid + '/' + file
+        && request.time < firestore.get(photoDoc()).data.uploadedAt + duration.value(5, 'm');
+      allow update: if false;
+      // Borrado. Admin y super-admin siempre. El autor, solo con su documento existente y dentro de las 12 h desde uploadedAt (y desde timeCreated). «<» estricto.
+      // Con el documento ausente el autor no borra: no se puede demostrar el instante de aceptación y un archivo sin documento es un caso de administración.
+      allow delete: if signedIn() && (isAdmin() || isSuperAdmin() ||
+        (request.auth.uid == uid
+          && firestore.exists(photoDoc())
+          && request.time < firestore.get(photoDoc()).data.uploadedAt + duration.value(12, 'h')
+          && request.time < resource.timeCreated + duration.value(12, 'h')));
+    }
+    // Fotos antiguas (ruta sin uid): no se puede demostrar la autoría. Se siguen leyendo; solo borran admin y super-admin.
+    match /route-photos/{schoolId}/{file} {
+      allow read: if true;
+      allow create, update: if false;
+      allow delete: if isAdmin() || isSuperAdmin();
+    }
+
+    // 5. Fotos de rocódromos: el dueño sube a su carpeta; solo un admin las borra (igual que gym_info en Firestore). Lectura solo con sesión.
+    match /gym-photos/{uid}/{file} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == uid && resource == null
+        && request.resource.size < 15 * 1024 * 1024 && isImage();
+      allow update: if false;
+      allow delete: if isAdmin() || isSuperAdmin();
+    }
+
+    // 6. Todo lo demás, denegado (sin comodín). Medios de Entrena: no hay objetos en el bucket; si algún día se suben, se subirán
+    //    con gcloud (no pasa por estas reglas) y habrá que añadir aquí su ruta de lectura.
+  }
+}

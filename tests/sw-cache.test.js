@@ -12,6 +12,13 @@ const versionOf = (src) => (src.match(/const CACHE_VERSION = '([^']+)'/) || [])[
 let COMMITTED = null;
 try { COMMITTED = execFileSync('git', ['show', 'HEAD:sw.js'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch (_) { /* sin git */ }
 
+// Regla de la subida de versión: si sw.js es IDÉNTICO al confirmado en git no hay nada que subir; si DIFIERE, CACHE_VERSION debe ser nueva
+// (los .js se sirven «primero caché»: sin subir la versión los usuarios seguirían con el código anterior). Devuelve el problema o null.
+function versionBumpProblem(src, committed) {
+  if (committed == null || src === committed) return null;
+  return versionOf(src) === versionOf(committed) ? `sw.js cambió pero CACHE_VERSION sigue siendo ${versionOf(src)}: hay que subirla` : null;
+}
+
 // Entorno mínimo de un Service Worker: caches, fetch, Request y los listeners registrados
 function boot(src = SRC) {
   const log = { fetches: [], skipWaiting: 0, claimed: 0, put: [], deleted: [] };
@@ -49,10 +56,24 @@ function boot(src = SRC) {
 }
 
 describe('Service Worker: versión de caché y descarga de los JS protegidos', () => {
-  it('CACHE_VERSION es nueva respecto a la última versión confirmada en git', () => {
+  it('CACHE_VERSION es nueva respecto a la última versión confirmada en git (si sw.js es idéntico a HEAD no hay nada que subir)', () => {
     expect(versionOf(SRC)).toMatch(/^v\d+$/);
-    if (COMMITTED && !versionOf(COMMITTED)?.startsWith('v306')) expect(versionOf(SRC)).not.toBe(versionOf(COMMITTED));
-    else expect(Number(versionOf(SRC).slice(1))).toBeGreaterThan(305);
+    expect(Number(versionOf(SRC).slice(1))).toBeGreaterThan(305);   // nunca por debajo de la última versión publicada antes de este control
+    expect(versionBumpProblem(SRC, COMMITTED)).toBeNull();
+  });
+
+  it('regla de la subida de versión (casos sintéticos): idéntico a HEAD → no se exige incremento; distinto → la versión debe ser nueva', () => {
+    const sw = (v, extra = '') => `const CACHE_VERSION = '${v}';\n${extra}`;
+    // sin git: no hay con qué comparar
+    expect(versionBumpProblem(sw('v307'), null)).toBeNull();
+    // idéntico a HEAD: no se exige incremento (copia limpia tras publicar)
+    expect(versionBumpProblem(sw('v307'), sw('v307'))).toBeNull();
+    // distinto de HEAD con la versión nueva: correcto (preparar una publicación)
+    expect(versionBumpProblem(sw('v307'), sw('v306'))).toBeNull();
+    expect(versionBumpProblem(sw('v307', 'const x = 1;'), sw('v306'))).toBeNull();
+    // distinto de HEAD pero con la MISMA versión: es el error que el control debe seguir detectando
+    expect(versionBumpProblem(sw('v306', 'const x = 1;'), sw('v306'))).toMatch(/CACHE_VERSION/);
+    expect(versionBumpProblem(sw('v306', 'const x = 1;'), sw('v306', 'const x = 2;'))).toMatch(/CACHE_VERSION/);
   });
 
   it('la instalación precachea con cache:"reload" (no usa copias de la caché HTTP) e incluye sector-images.js', async () => {
@@ -116,12 +137,20 @@ describe('Service Worker: versión de caché y descarga de los JS protegidos', (
     if (!COMMITTED || versionOf(COMMITTED) === versionOf(SRC)) return;
     const strip = (s) => s.replace(/\/\/.*$/gm, '').replace(/\s+/g, ' ');
     const a = strip(COMMITTED), b = strip(SRC);
-    const normalized = b
-      .replace(`'${versionOf(SRC)}'`, `'${versionOf(COMMITTED)}'`)
-      .replace('cache.addAll(STATIC_ASSETS.map((url) => new Request(url, { cache: \'reload\' })))', 'cache.addAll(STATIC_ASSETS)')
-      .replace('return fetchAndCache(request, cache, new URL(request.url).origin === self.location.origin);', 'return fetchAndCache(request, cache);')
-      .replace('async function fetchAndCache(request, cache, fresh = false)', 'async function fetchAndCache(request, cache)')
-      .replace("await fetch(request, fresh ? { cache: 'reload' } : undefined)", 'await fetch(request)');
+    // El precacheo con reload y la descarga fresca son SIEMPRE obligatorios en el sw.js actual (también cuando ya están confirmados en git)
+    expect(SRC).toContain("new Request(url, { cache: 'reload' })");
+    expect(SRC).toContain("await fetch(request, fresh ? { cache: 'reload' } : undefined)");
+    let normalized = b.replace(`'${versionOf(SRC)}'`, `'${versionOf(COMMITTED)}'`);
+    // Transición v305→v306: el git anterior aún NO tenía el reload, así que se deshace en la copia de trabajo para comparar.
+    // Transiciones posteriores (p. ej. v306→v307): git ya lo tiene, y entonces el ÚNICO cambio admitido es la versión.
+    const gitAlreadyHasReload = COMMITTED.includes("new Request(url, { cache: 'reload' })");
+    if (!gitAlreadyHasReload) {
+      normalized = normalized
+        .replace('cache.addAll(STATIC_ASSETS.map((url) => new Request(url, { cache: \'reload\' })))', 'cache.addAll(STATIC_ASSETS)')
+        .replace('return fetchAndCache(request, cache, new URL(request.url).origin === self.location.origin);', 'return fetchAndCache(request, cache);')
+        .replace('async function fetchAndCache(request, cache, fresh = false)', 'async function fetchAndCache(request, cache)')
+        .replace("await fetch(request, fresh ? { cache: 'reload' } : undefined)", 'await fetch(request)');
+    }
     expect(normalized).toBe(a);
   });
 });

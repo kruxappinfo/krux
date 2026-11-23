@@ -1,0 +1,101 @@
+// ============================================================================================
+// PROPUESTA FASE 0b — REGLAS DE STORAGE COMPLETAS. NO DESPLEGADAS. Sustituirían a las desplegadas desde 2025-12-29
+// (snapshot en storage.rules.DEPLOYED-snapshot).
+//
+// PROBLEMA DE LAS REGLAS DESPLEGADAS: terminan con  match /{allPaths=**} { allow read, write: if request.auth != null; }
+// En Storage las reglas se suman (basta que UNA permita), así que ese comodín deja a CUALQUIER usuario con sesión leer, subir,
+// sobrescribir y BORRAR cualquier archivo del bucket: fotos de perfil y publicaciones de otras personas, imágenes de sector,
+// fotos de vía y de rocódromos. Las reglas específicas de arriba no protegen nada mientras exista el comodín.
+//
+// QUÉ HAY EN EL BUCKET (listado de solo lectura, 2026-11-14): gym-photos/ (4), posts/ (25), profile-photos/ (7),
+// route-photos/ (6, 5 objetos reales), sector-images/ (199). No hay profile-banners/ ni medios de Entrena (el cliente no sube
+// ninguno; train-library.js solo lee storagePath si algún día existe). Este archivo cubre exactamente esas rutas y niega el resto.
+//
+// Los permisos de `read` solo afectan al SDK (getDownloadURL, getMetadata). Las URL de descarga con ?token=… se sirven sin
+// consultar estas reglas, por eso mantener `read` como hoy no cambia lo que la app muestra.
+// El rol se lee de Firestore (admins/{uid}) con firestore.get(): en producción la cuenta de servicio de Storage necesita permiso
+// de lectura en Firestore (se concede al desplegar reglas que usan firestore.*; no verificado en el proyecto real).
+// ============================================================================================
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() { return request.auth != null; }
+    function isSuperAdmin() { return signedIn() && request.auth.token.email == 'krux.app.info@gmail.com'; }
+    function adminDoc() { return /databases/(default)/documents/admins/$(request.auth.uid); }
+    function isAdmin() { return signedIn() && firestore.exists(adminDoc()) && firestore.get(adminDoc()).data.role == 'admin'; }
+    function isAdminOrSpotter() {
+      return signedIn() && firestore.exists(adminDoc())
+        && (firestore.get(adminDoc()).data.role == 'admin' || firestore.get(adminDoc()).data.role == 'spotter');
+    }
+    // Igual que la regla de sector_images en Firestore: admin, spotter o super-admin.
+    function canEditSectorImages() { return isSuperAdmin() || isAdminOrSpotter(); }
+    function isImage() { return request.resource.contentType.matches('image/(jpeg|png|webp)'); }
+
+    // 1. Fotos de perfil y banners: igual que hoy (solo el dueño escribe).
+    match /profile-photos/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() && request.auth.uid == userId;
+    }
+    match /profile-banners/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // 2. Publicaciones: igual que hoy (solo el dueño escribe y borra; deletePost solo lo ejecuta el autor).
+    match /posts/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // 3. Imágenes de sector (topos): la app solo deja subir y borrar a admin y spotter (isSectorImageAdmin); hoy cualquiera podía.
+    //    Se mantiene la libertad entre admin y spotter (la limitación de que un spotter pueda tocar fotos de otro es de diseño).
+    match /sector-images/{allPaths=**} {
+      allow read: if true;
+      allow create: if canEditSectorImages() && request.resource.size < 15 * 1024 * 1024 && isImage();
+      allow update: if canEditSectorImages() && request.resource.size < 15 * 1024 * 1024 && isImage();
+      allow delete: if canEditSectorImages();
+    }
+
+    // 4. Fotos de vía. Política: sube cualquiera con sesión; el autor borra 12 h; admin y super-admin siempre; spotter sin privilegios.
+    //    Ruta nueva: route-photos/{schoolId}/{uid}/{id}.{jpg|png|webp}. Solo se puede subir si ya existe el documento de Firestore
+    //    route-photos/{id} del mismo autor con ese storagePath y creado hace menos de 15 min (así todo archivo tiene un documento
+    //    visible para moderación, y el documento no puede apuntar a un archivo de otro).
+    match /route-photos/{schoolId}/{uid}/{file} {
+      function photoDoc() { return /databases/(default)/documents/route-photos/$(file.split('[.]')[0]); }
+      allow read: if true;
+      allow create: if signedIn() && request.auth.uid == uid && resource == null
+        && request.resource.size < 5 * 1024 * 1024 && isImage()
+        && firestore.exists(photoDoc())
+        && firestore.get(photoDoc()).data.uploadedBy == uid
+        && firestore.get(photoDoc()).data.storagePath == 'route-photos/' + schoolId + '/' + uid + '/' + file
+        && request.time < firestore.get(photoDoc()).data.uploadedAt + duration.value(15, 'm');
+      allow update: if false;
+      // Autor: el plazo se cuenta desde el documento (uploadedAt) y también desde la creación real del archivo (timeCreated);
+      // basta que cualquiera de los dos haya vencido para perder el permiso. Si el documento ya no existe, solo cuenta timeCreated.
+      allow delete: if signedIn() && (isAdmin() || isSuperAdmin() ||
+        (request.auth.uid == uid
+          && request.time < resource.timeCreated + duration.value(12, 'h')
+          && (!firestore.exists(photoDoc()) || request.time < firestore.get(photoDoc()).data.uploadedAt + duration.value(12, 'h'))));
+    }
+    // Fotos antiguas (ruta sin uid): no se puede demostrar la autoría. Se siguen leyendo; solo borran admin y super-admin.
+    match /route-photos/{schoolId}/{file} {
+      allow read: if true;
+      allow create, update: if false;
+      allow delete: if isAdmin() || isSuperAdmin();
+    }
+
+    // 5. Fotos de rocódromos: hoy las cubría el comodín. El dueño sube a su carpeta; solo un admin las borra (igual que la regla
+    //    de gym_info en Firestore: nadie más que un admin puede borrar la aportación).
+    match /gym-photos/{uid}/{file} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == uid && resource == null
+        && request.resource.size < 15 * 1024 * 1024 && isImage();
+      allow update: if false;
+      allow delete: if isAdmin() || isSuperAdmin();
+    }
+
+    // 6. Todo lo demás, denegado (sin comodín). Medios de Entrena: no hay objetos en el bucket; si algún día se suben, se subirán
+    //    con gcloud (no pasa por estas reglas) y habrá que añadir aquí su ruta de lectura.
+  }
+}

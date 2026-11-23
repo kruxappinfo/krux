@@ -1,5 +1,6 @@
-// FASE 0c — copia COMPLETA de firestore.rules.phase0b.proposal con UN solo bloque cambiado: la regla de borrado de route-photos
-// (referencia temporal única = instante del id). NO DESPLEGADA.
+// FASE 0c (revisión final) — copia COMPLETA de firestore.rules.phase0b.proposal con el bloque de route-photos reescrito y la colección
+// route-photo-tombstones añadida: el plazo de 12 h lo fija el SERVIDOR (uploadedAt) y no se puede ampliar borrando y recreando. NO DESPLEGADA.
+// El firestore.rules desplegado NO se ha tocado (md5 311a726e31a1da22962d8ada891bd08f).
 // ============================================================================================
 // PROPUESTA FASE 0b — NO DESPLEGADA (sustituye a firestore.rules.phase0.proposal). Copia completa de firestore.rules con tres bloques sustituidos:
 //   1) users/{uid}/notifications   2) route-photos   3) grade_votes, aleje_votes y estado_votes
@@ -390,31 +391,37 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid; // Users can delete their own comments
     }
 
-    // ───────── FASE 0b (PROPUESTA): fotos de vía, con documento ↔ archivo vinculados ─────────
-    // Política aprobada: cualquier usuario autenticado sube; el autor borra solo durante las primeras 12 horas; admin y
-    // super-admin siempre; el spotter NO tiene permiso especial (isAdmin() es solo role == 'admin').
+    // ───────── FASE 0c (PROPUESTA, revisión final): fotos de vía, con documento ↔ archivo vinculados y plazo fijado por el SERVIDOR ─────────
+    // Política aprobada: cualquier usuario autenticado sube; el autor dispone de COMO MÁXIMO 12 horas para borrar su foto, contadas desde que el
+    // SERVIDOR acepta el documento (uploadedAt); el retraso hasta que llega el archivo (como mucho 5 min) se descuenta del plazo. Admin y super-admin
+    // siempre; el spotter NO tiene permiso especial (isAdmin() es solo role == 'admin').
+    //
+    // REFERENCIA TEMPORAL (sin ningún valor controlado por el cliente): uploadedAt == request.time en la creación (hora del servidor) y
+    // update: false, así que es inmutable. Storage usa ese mismo uploadedAt (firestore.get) y además resource.timeCreated del archivo.
+    // Antes (0b) el plazo salía de un instante de 13 cifras escrito por el cliente en el id, validado solo a ±10 min: el autor podía
+    // quedarse con entre 11 h 35 min y 12 h 10 min reales. Ese instante ya no existe: el id es {schoolId}_{routeId}_{16 caracteres [a-z0-9]}.
+    //
+    // NO SE PUEDE AMPLIAR EL PLAZO BORRANDO Y VOLVIENDO A SUBIR:
+    //  - borrar el archivo y subirlo otra vez, o sobrescribirlo: el documento conserva su uploadedAt (Storage exige uploadedAt + 12 h y timeCreated + 12 h) y la
+    //    subida solo se admite durante los 5 min posteriores a uploadedAt (y no mueve el plazo de borrado);
+    //  - borrar el documento y recrearlo con el mismo id (y por tanto con el mismo archivo): cada borrado del documento exige crear, en el
+    //    MISMO lote, una marca permanente route-photo-tombstones/{id} (existsAfter) y un id con marca no se puede volver a crear;
+    //  - si el documento se recreara SIN marca por una vía privilegiada (consola o credenciales de servicio), el archivo conserva su timeCreated (Storage).
     //
     // Vinculación (Firestore no puede leer Storage, así que se ata TODO a una ruta que contiene el uid del autor):
-    //  - id del documento = {schoolId}_{routeId}_{ms}_{aleatorio6}; «ms» debe estar a ±10 min de la hora del servidor.
-    //    Un id solo se puede crear alrededor de su propio instante: tras borrar el documento NO se puede recrear más tarde
-    //    con el mismo id (y por tanto con el mismo archivo) para reiniciar el plazo de 12 h. Sin esta condición, «borrar y
-    //    recrear» el documento daba al autor un plazo nuevo indefinidamente (comprobado en el emulador).
-    //  - filename = {id}.{jpg|png|webp}, storagePath = route-photos/{schoolId}/{uid}/{filename}: el archivo solo tiene
-    //    un documento posible y cada documento un único archivo posible, dentro de la carpeta de su autor.
-    //  - photoUrl (sin la parte ?token=…) debe ser exactamente la URL de descarga de ESE storagePath en el bucket del
-    //    proyecto: el documento no puede apuntar a la foto de otro usuario ni a una URL externa.
-    // Lo que las reglas NO pueden garantizar: que el archivo exista (Firestore no consulta Storage). Un documento sin
-    // archivo es visible y borrable (por el autor 12 h, por admin siempre); un archivo sin documento no se puede subir
-    // (la regla de Storage exige el documento primero). Ver storage.rules.phase0b.proposal.
-    // uploadedAt es inmutable (update: if false) y en la creación debe ser request.time (hora del servidor).
-    // Un documento antiguo sin uploadedAt no da permiso de borrado al autor (solo a admin/super-admin).
-    // «<» estricto: justo a las 12 h exactas el autor ya NO puede borrar.
+    //  - filename = {id}.{jpg|png|webp}, storagePath = route-photos/{schoolId}/{uid}/{filename}: el archivo solo tiene un documento posible
+    //    y cada documento un único archivo posible, dentro de la carpeta de su autor.
+    //  - photoUrl (sin la parte ?token=…) debe ser exactamente la URL de descarga de ESE storagePath en el bucket del proyecto. El token no se
+    //    conoce hasta que se sube el archivo y el documento ya no se puede actualizar: el cliente guarda la URL sin token (?alt=media), que
+    //    funciona porque la lectura de route-photos es pública.
+    // Lo que las reglas NO pueden garantizar: que el archivo exista (Firestore no consulta Storage). Un documento sin archivo es visible y borrable
+    // (por el autor 12 h, por admin siempre); un archivo sin documento no se puede subir (la regla de Storage exige el documento primero).
+    // «<» estricto: justo a las 12 h exactas el autor ya NO puede borrar. Los documentos antiguos (sin uploadedAt reciente) no dan permiso al autor.
     match /route-photos/{photoId} {
       function validRoutePhoto() {
         let d = request.resource.data;
         let parts = photoId.split('_');
         let n = parts.size();
-        let stamp = parts[n - 2];
         let rand = parts[n - 1];
         let base = 'https://firebasestorage.googleapis.com/v0/b/';
         let encoded = d.storagePath.replace('/', '%2F');
@@ -423,12 +430,10 @@ service cloud.firestore {
           && d.keys().hasAll(['photoUrl', 'uploadedBy', 'uploadedAt', 'routeId', 'schoolId', 'filename', 'storagePath'])
           && d.uploadedBy == request.auth.uid
           && d.uploadedAt == request.time
-          && n >= 4 && photoId.matches('[A-Za-z0-9_-]{12,200}')
-          && stamp.matches('[0-9]{13}') && rand.matches('[a-z0-9]{6}')
-          && request.time.toMillis() - int(stamp) < 600000 && int(stamp) - request.time.toMillis() < 600000
+          && n >= 3 && photoId.matches('[A-Za-z0-9_-]{12,200}') && rand.matches('[a-z0-9]{16}')
           && d.schoolId is string && d.schoolId.matches('[A-Za-z0-9_-]{1,60}')
           && d.routeId is int
-          && photoId == d.schoolId + '_' + string(d.routeId) + '_' + stamp + '_' + rand
+          && photoId == d.schoolId + '_' + string(d.routeId) + '_' + rand
           && (!('routeName' in d) || isString(d.routeName, 200))
           && (!('uploadedByName' in d) || isString(d.uploadedByName, 100))
           && d.filename is string && d.filename.matches(photoId + '[.](jpg|png|webp)')
@@ -437,21 +442,31 @@ service cloud.firestore {
           && d.photoUrl.split('[?]')[0] in [base + 'climbmaps-80cae.firebasestorage.app/o/' + encoded,
                                             base + 'climbmaps-80cae.appspot.com/o/' + encoded];
       }
+      function tombstonePath() { return /databases/$(database)/documents/route-photo-tombstones/$(photoId); }
 
       allow read: if true;
-      allow create: if isAuthenticated() && validRoutePhoto();
+      allow create: if isAuthenticated() && validRoutePhoto() && !exists(tombstonePath());
       allow update: if false;
-      // FASE 0c — ÚNICA REFERENCIA TEMPORAL: el instante «ms» que va dentro del id (inmutable, validado en la creación a ±10 min
-      // de la hora del servidor). Storage usa EXACTAMENTE la misma expresión sobre el nombre del archivo ({id}.jpg), así que
-      // ambas reglas coinciden aunque el archivo se suba después del documento y aunque el documento se borre y se recree.
-      // 43200000 ms = 12 h. «<» estricto. Los documentos antiguos (id sin instante de 13 cifras) no dan permiso al autor.
-      function photoStamp() { return photoId.split('_')[photoId.split('_').size() - 2]; }
-      allow delete: if isAuthenticated() && (
+      // Borrar exige la marca en el mismo lote. Autor: uploadedAt + 12 h (hora del servidor). Admin y super-admin siempre.
+      allow delete: if isAuthenticated() && existsAfter(tombstonePath()) && (
         isAdmin() || isSuperAdmin() ||
         (resource.data.uploadedBy == request.auth.uid
-          && photoId.split('_').size() >= 4
-          && photoStamp().matches('[0-9]{13}')
-          && request.time.toMillis() - int(photoStamp()) < 43200000));
+          && resource.data.get('uploadedAt', null) is timestamp
+          && request.time < resource.data.uploadedAt + duration.value(12, 'h')));
+    }
+
+    // Marca permanente «este id de foto existió y se borró». Solo nace en el mismo lote que borra el documento de la foto (el documento existe
+    // antes y no existe después); no se modifica; solo el super-admin puede retirarla (corrección de errores). Se lee solo por administración.
+    match /route-photo-tombstones/{photoId} {
+      allow read: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+      allow create: if isAuthenticated()
+        && exists(/databases/$(database)/documents/route-photos/$(photoId))
+        && !existsAfter(/databases/$(database)/documents/route-photos/$(photoId))
+        && request.resource.data.keys().hasOnly(['deletedBy', 'deletedAt'])
+        && request.resource.data.deletedBy == request.auth.uid
+        && request.resource.data.deletedAt == request.time;
+      allow update: if false;
+      allow delete: if isAuthenticated() && isSuperAdmin();
     }
 
     // Posts collection - allows authenticated users to create posts and update likes/commentsCount

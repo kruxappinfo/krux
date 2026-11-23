@@ -1,0 +1,14 @@
+# APLICADA en la Implementación 1 (se quitó la llamada y también la función deleteRouteDrawingsForImage, que no tenía otros usos).
+# Texto original de la propuesta: Cambio mínimo en deleteGalleryImage (sector-images.js ~2681). Generado por tests/integration/rules/phase0/sector-images-drawings.cjs
+--- sector-images.js (actual)
++++ sector-images.js (propuesta)
+@@ deleteGalleryImage @@
+     const sectorName = ...
+     ...
+     images = images.map((img, idx) => ({ ...img, order: idx }));
+-
+-    // También eliminar dibujos asociados a esta imagen
+-    await deleteRouteDrawingsForImage(schoolId, sectorName, imageId);
+
+# deleteRouteDrawingsForImage queda sin uso (se puede eliminar o dejar). Los dibujos conservan su imageId; el visor filtra por imageId
+# y no pinta los de una foto inexistente (svApplyDrawingsForImage, comprobado en la prueba).

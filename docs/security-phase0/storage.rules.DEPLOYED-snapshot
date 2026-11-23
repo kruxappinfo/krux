@@ -1,0 +1,45 @@
+// SNAPSHOT DE SOLO LECTURA de las reglas de Storage DESPLEGADAS en climbmaps-80cae (ruleset 16df6449-48f8-473b-82ba-8325bf7d0093, publicado 2025-12-29T12:24Z).
+// Obtenido con la API de Firebase Rules (GET) usando la sesión de gcloud el 2026-11-14. NO es una propuesta ni se despliega: sirve de línea base para las pruebas del emulador.
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // 1. Fotos de Perfil
+    match /profile-photos/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // 2. Banners de Perfil
+    match /profile-banners/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // 3. Fotos de Rutas (Públicas lectura, Escritura usuarios auth)
+    match /route-photos/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // 4. NUEVA REGLA: Imágenes de Sectores (Para los topos)
+    match /sector-images/{allPaths=**} {
+      allow read: if true;
+      // Nota: Actualmente esto permite a CUALQUIER usuario logueado subir fotos de sectores.
+      // Si quieres solo admins reales, necesitarías Custom Claims o una lista de UIDs.
+      allow write: if request.auth != null; 
+    }
+
+    // 5. Posts de usuarios
+    match /posts/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // 6. Regla por defecto (con prioridad baja por estar al final o ser genérica)
+    // Es recomendable tener cuidado con esta regla si ya tienes las específicas arriba.
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

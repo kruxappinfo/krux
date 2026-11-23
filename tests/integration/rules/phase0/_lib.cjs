@@ -35,14 +35,14 @@ async function loadFirestoreRules(mode = MODE) {
 
 // ---- Usuarios de prueba (Auth emulator) ----
 const mk = async (name, email) => {
-  const app = firebase.initializeApp({ apiKey: 'fake', projectId: PROJECT, authDomain: 'x' }, name);
+  const app = firebase.initializeApp({ apiKey: 'fake', projectId: PROJECT, authDomain: 'x', storageBucket: `${PROJECT}.appspot.com` }, name);
   app.auth().useEmulator(`http://127.0.0.1:${AUTH_PORT}`, { disableWarnings: true });
   const db = app.firestore();
   db.settings({ host: `${FS_HOST}:${FS_PORT}`, ssl: false, experimentalForceLongPolling: false });
   let cred;
   try { cred = await app.auth().createUserWithEmailAndPassword(email, 'password123'); }
   catch (e) { cred = await app.auth().signInWithEmailAndPassword(email, 'password123'); }
-  return { db, uid: cred.user.uid, email, FV: firebase.firestore.FieldValue, TS: firebase.firestore.Timestamp,
+  return { app, db, uid: cred.user.uid, email, FV: firebase.firestore.FieldValue, TS: firebase.firestore.Timestamp,
     token: () => cred.user.getIdToken(true) };
 };
 // Cliente SIN sesión
@@ -94,15 +94,27 @@ const ownerData = async (docPath) => { const d = await ownerGet(docPath); return
 // ---- Registro de resultados ----
 const results = [];
 // shouldPass = lo que EXIGE la política (modo proposal) o lo que debería ocurrir con la política (modo current)
+const RUN_T0 = Date.now();
+// Rastro opcional (KX_TRACE=1): una línea por comprobación en stderr y un aviso si pasan 30 s sin ninguna. Sirve para saber DÓNDE se queda una suite cuando el emulador deja de responder.
+let lastProgress = Date.now();
+// Las suites que acumulan resultados en memoria (escenarios con reintentos) avisan de su avance con progress() para que el aviso de «sin progreso» no sea una falsa alarma
+const progress = (label) => { lastProgress = Date.now(); if (process.env.KX_TRACE) process.stderr.write(`[+${((Date.now() - RUN_T0) / 1000).toFixed(1)}s]    · ${label}\n`); };
+const traceResult = (r) => {
+  lastProgress = Date.now();
+  if (process.env.KX_TRACE) process.stderr.write(`[+${((Date.now() - RUN_T0) / 1000).toFixed(1)}s] ${r.pass ? 'ok ' : 'FALLO'} ${r.label}\n`);
+};
+if (process.env.KX_TRACE) setInterval(() => { const q = Math.round((Date.now() - lastProgress) / 1000); if (q >= 30) process.stderr.write(`[+${((Date.now() - RUN_T0) / 1000).toFixed(1)}s] SIN PROGRESO desde hace ${q} s tras: ${results.length ? results[results.length - 1].label : '(nada)'}\n`); }, 10000).unref();
 const expect = async (label, promise, shouldPass, note) => {
   let ok, err = '';
   try { await promise; ok = true; } catch (e) { ok = false; err = String(e.code || '') + ' ' + String(e.message || '').slice(0, 90); }
   const unexpected = !ok && !/permission|PERMISSION|unauthorized|403|denied/i.test(err);
-  results.push({ label, policy: shouldPass ? 'permitido' : 'denegado', got: ok ? 'permitido' : 'denegado',
-    pass: ok === shouldPass && !unexpected, ...(unexpected ? { errorInesperado: err } : {}), ...(note ? { nota: note } : {}) });
+  // `atMs` = instante en que TERMINÓ la operación (ms desde el arranque de la suite). Sirve para diagnosticar fallos de las pruebas con tiempo real (ver tests de ventana escalada).
+  const r = ({ label, policy: shouldPass ? 'permitido' : 'denegado', got: ok ? 'permitido' : 'denegado',
+    pass: ok === shouldPass && !unexpected, atMs: Date.now() - RUN_T0, ...(err ? { error: err } : {}), ...(unexpected ? { errorInesperado: err } : {}), ...(note ? { nota: note } : {}) });
+  results.push(r); traceResult(r);
 };
 // Comprobaciones lógicas (no son una operación de Firestore)
-const check = (label, cond, note) => results.push({ label, policy: 'verdadero', got: cond ? 'verdadero' : 'falso', pass: !!cond, ...(note ? { nota: note } : {}) });
+const check = (label, cond, note) => { const r = ({ label, policy: 'verdadero', got: cond ? 'verdadero' : 'falso', pass: !!cond, ...(note ? { nota: note } : {}) }); results.push(r); traceResult(r); };
 
 // Defecto YA EXISTENTE en código de producción que esta fase no corrige: se registra que sigue ocurriendo (no es un fallo de la prueba).
 // reproducido=true significa que el defecto se ha vuelto a observar.
@@ -111,6 +123,8 @@ const knownDefect = (label, reproducido, note) => results.push({ label, policy: 
 
 function finish(titulo) {
   const fallos = results.filter(r => !r.pass);
+  const infra = results.filter(r => /EMULATOR_(TIMEOUT|WEDGED|NETWORK)/.test(r.error || ''));
+  if (infra.length) console.error(`EMULATOR_TIMEOUT: ${infra.length} comprobación(es) fallaron porque el emulador de Storage dejó de responder (fallo de INFRAESTRUCTURA, no de las reglas); primera: ${infra[0].label}`);
   const conocidos = results.filter(r => r.conocido);
   const out = { archivo: titulo, modo: MODE, resumen: `${results.length - fallos.length - conocidos.length}/${results.length - conocidos.length} cumplen la política`, fallos };
   if (conocidos.length) out.defectosConocidos = conocidos.map(c => `${c.reproducido ? 'REPRODUCIDO' : 'no reproducido'}: ${c.label}${c.nota ? ' — ' + c.nota : ''}`);
@@ -120,5 +134,5 @@ function finish(titulo) {
   process.exitCode = MODE === 'proposal' && fallos.length ? 1 : 0;
 }
 
-module.exports = { firebase, PROJECT, FS_HOST, FS_PORT, AUTH_PORT, ST_PORT, MODE, SUPER_EMAIL, mk, mkAnon, seed, ownerGet, ownerData,
+module.exports = { progress, firebase, PROJECT, FS_HOST, FS_PORT, AUTH_PORT, ST_PORT, MODE, SUPER_EMAIL, mk, mkAnon, seed, ownerGet, ownerData,
   ownerDelete, exists, loadFirestoreRules, expect, check, knownDefect, results, finish, ROOT };

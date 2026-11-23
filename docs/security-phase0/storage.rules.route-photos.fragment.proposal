@@ -1,0 +1,60 @@
+// ============================================================================================
+// PROPUESTA FASE 0 — FRAGMENTO DE REGLAS DE STORAGE. NO DESPLEGADA Y NO ES UN ARCHIVO COMPLETO.
+//
+// Por qué es un fragmento: en el repositorio no hay storage.rules y firebase.json no declara Storage, así que
+// NO se sabe qué reglas están desplegadas para el resto de rutas (sector-images/, profile-photos/{uid}/,
+// posts/{uid}/, gym-photos/{uid}/, medios de Entrena). Un archivo de reglas desplegado REEMPLAZA al anterior:
+// publicar solo este bloque dejaría todas las demás rutas denegadas. Antes de desplegar hay que leer las reglas
+// vigentes (consola de Firebase > Storage > Reglas, o `firebase storage:rules:get`) e integrar este bloque.
+//
+// Capacidades de Firebase en las que se apoya (verificadas con el emulador de Storage, ver informe):
+//   - resource.timeCreated: marca de tiempo que pone el servidor de Storage al crear el objeto. El cliente no
+//     puede fijarla ni cambiarla. Es la referencia del plazo de 12 horas en Storage.
+//   - request.auth.uid y la ruta: el uid va en la carpeta, así que «autor» se demuestra por la ruta.
+//   - firestore.exists()/firestore.get(): lectura del rol en admins/{uid}. En PRODUCCIÓN requiere que la cuenta
+//     de servicio de Storage tenga permiso de lectura sobre Firestore (rol «Firebase Rules Firestore Service
+//     Agent», se concede al primer despliegue de reglas con estas llamadas). Pendiente de verificar en el proyecto real.
+// Límites: Storage no puede leer el documento route-photos de Firestore del mismo modo que Firestore no puede
+// leer Storage; cada servicio aplica su propia copia de la política. timeCreated (Storage) es unos segundos
+// anterior a uploadedAt (Firestore): borrar primero el archivo y después el documento es siempre coherente.
+//
+// Ruta nueva (obligatoria para fotos nuevas): route-photos/{schoolId}/{uid}/{archivo}
+// Ruta antigua (fotos ya subidas): route-photos/{schoolId}/{archivo} — el autor no se puede demostrar, así que
+// solo admin y super-admin pueden borrarlas, y no se admiten subidas nuevas (los clientes antiguos que suban
+// ahí dejarán de poder hacerlo; hoy solo admin y photo_uploader suben desde el cliente).
+// ============================================================================================
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSuperAdmin() {
+      return request.auth != null && request.auth.token.email == 'krux.app.info@gmail.com';
+    }
+    // Solo role == 'admin'. El spotter no obtiene ningún permiso de borrado sobre fotos ajenas.
+    function isAdmin() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    match /route-photos/{schoolId}/{uid}/{file} {
+      allow read: if true;
+      // «resource == null»: solo se crea un objeto nuevo. El emulador trata la subida sobre un archivo existente
+      // como una creación, así que sin esta condición el autor podría reemplazar su foto (y su fecha) indefinidamente.
+      allow create: if request.auth != null && request.auth.uid == uid
+        && resource == null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow update: if false;
+      allow delete: if request.auth != null && (
+        isAdmin() || isSuperAdmin() ||
+        (request.auth.uid == uid && request.time < resource.timeCreated + duration.value(12, 'h')));
+    }
+
+    match /route-photos/{schoolId}/{file} {
+      allow read: if true;
+      allow create, update: if false;
+      allow delete: if request.auth != null && (isAdmin() || isSuperAdmin());
+    }
+  }
+}
