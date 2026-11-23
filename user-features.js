@@ -909,14 +909,22 @@ const KX_AVOTE_ALEJE = ['Muy pequeño', 'Pequeño', 'Normal', 'Expuesto', 'Muy e
 
 const kxAscentVotes = {
     ctx: null, // { schoolId, routeId, gradeOptions, initial, current, touched }
+    root: null, // contenedor con [data-avote]: la hoja de la sesión de escalada; null = formulario de ascenso
+
+    // Elementos del bloque: en el formulario por id; en otro contenedor por data-avote (sin ids repetidos)
+    el(name) {
+        if (this.root) return this.root.querySelector(`[data-avote="${name}"]`);
+        return document.getElementById(name === 'box' ? 'ascent-votes' : `avote-${name}`);
+    },
 
     available(routeId) {
         return Number.isFinite(Number(routeId)) && typeof kxSaveRouteVotes === 'function' &&
             typeof getGradeVotes === 'function' && typeof ALL_GRADES_ORDERED !== 'undefined';
     },
 
-    async open(schoolId, routeId, grade) {
+    async open(schoolId, routeId, grade, root = null) {
         this.reset();
+        this.root = root;
         if (!this.available(routeId) || !schoolId) return;
         const rid = Number(routeId);
         const officialIdx = ALL_GRADES_ORDERED.indexOf(grade);
@@ -926,7 +934,7 @@ const kxAscentVotes = {
         }
         const empty = { gradeIdx: null, aleje: null, estado: null };
         this.ctx = { schoolId, routeId: rid, gradeOptions, initial: { ...empty }, current: { ...empty }, touched: {} };
-        document.getElementById('ascent-votes')?.classList.remove('hidden');
+        this.el('box')?.classList.remove('hidden');
         this.render();
 
         // Votos que ya tenía el usuario
@@ -946,11 +954,12 @@ const kxAscentVotes = {
 
     reset() {
         this.ctx = null;
-        document.getElementById('ascent-votes')?.classList.add('hidden');
-        ['avote-grade', 'avote-aleje', 'avote-estado'].forEach(id => {
-            const el = document.getElementById(id);
+        this.el('box')?.classList.add('hidden');
+        ['grade', 'aleje', 'estado'].forEach(name => {
+            const el = this.el(name);
             if (el) el.innerHTML = '';
         });
+        this.root = null;
     },
 
     pick(key, value) {
@@ -968,19 +977,19 @@ const kxAscentVotes = {
             return `<button type="button" role="radio" aria-checked="${on}" class="kx-avote-opt${on ? ' is-on' : ''}${extra}" onclick="kxAscentVotes.pick('${key}', ${value})">${label}</button>`;
         };
 
-        const gradeEl = document.getElementById('avote-grade');
+        const gradeEl = this.el('grade');
         if (gradeEl) {
             gradeEl.closest('.kx-avote-row').hidden = ctx.gradeOptions.length === 0;
             gradeEl.innerHTML = ctx.gradeOptions.map(i => opt('gradeIdx', i, ALL_GRADES_ORDERED[i])).join('');
         }
 
-        const alejeEl = document.getElementById('avote-aleje');
+        const alejeEl = this.el('aleje');
         if (alejeEl) {
             alejeEl.innerHTML = KX_AVOTE_ALEJE.map((name, i) =>
                 opt('aleje', i + 1, `<span class="kx-avote-dot is-l${i + 1}" aria-hidden="true"></span>${name}`)).join('');
         }
 
-        const estadoEl = document.getElementById('avote-estado');
+        const estadoEl = this.el('estado');
         if (estadoEl) {
             const v = ctx.current.estado || 0;
             let html = '';
@@ -995,7 +1004,7 @@ const kxAscentVotes = {
     async save() {
         const ctx = this.ctx;
         const form = document.getElementById('ascent-form');
-        if (!ctx || (form && form.dataset.gymMode === 'true')) return;
+        if (!ctx || (!this.root && form && form.dataset.gymMode === 'true')) return;
         // Sin conexión los votos esperan en la cola junto al ascenso
         const job = { id: `votes_${ctx.schoolId}_${ctx.routeId}`, kind: 'votes', schoolId: ctx.schoolId, routeId: ctx.routeId, votes: { ...ctx.current }, initial: { ...ctx.initial } };
         const changed = ['gradeIdx', 'aleje', 'estado'].some(k => (job.votes[k] ?? null) !== (job.initial[k] ?? null));

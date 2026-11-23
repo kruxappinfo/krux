@@ -24,6 +24,15 @@ function kxsFormatDistance(m) {
   return m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`;
 }
 
+// Valoración de 1 a 5 estrellas (mismo aspecto que el estado de la vía en «Tu opinión sobre la vía»)
+function kxsStarsHTML(value) {
+  let html = '';
+  for (let i = 1; i <= 5; i++) {
+    html += `<button type="button" role="radio" aria-checked="${value === i}" aria-label="${i} de 5" class="kx-avote-star${i <= value ? ' is-on' : ''}" data-kxs="rate" data-v="${i}"><svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 6 6.5.8-4.8 4.5 1.2 6.5L12 17.3l-5.8 3.1 1.2-6.5L2.6 9.4l6.5-.8z"/></svg></button>`;
+  }
+  return html;
+}
+
 // Fila de una vía registrada (panel y resumen): grado, nombre, sector · hora y resultado
 function kxsEntryRowHTML(e, { index = -1, action = false } = {}) {
   const send = e.style !== 'project';
@@ -43,7 +52,11 @@ function kxsSummaryBodyHTML(session, entries) {
   const empty = (tile) => tile.replace('class="kx-stat"', 'class="kx-stat kxs-stat-empty"');
   const tile = (icon, value, label) => (value ? kxStatTileHTML({ icon, value, label }) : empty(kxStatTileHTML({ icon, value: 'Sin datos', label })));
   const gps = session.gps || {};
-  const kcal = kxsEstimateKcal(session.activeMs || kxsActiveMs(session));
+  // Desglose guardado al cerrar la sesión; las sesiones anteriores a este cálculo se estiman con lo que haya
+  const kc = st.kcal && st.kcal.total != null
+    ? st.kcal
+    : kxsEstimateKcal({ entries, activeMs: session.activeMs || kxsActiveMs(session), track: session.track || [] });
+  const kcal = kc.total;
   const hasDist = gps.enabled && gps.distanceM > 0;
   const tiles = [
     kxStatTileHTML({ icon: 'clock', value: kxsFormatDuration(session.activeMs || kxsActiveMs(session)), label: 'Duración' }),
@@ -54,7 +67,11 @@ function kxsSummaryBodyHTML(session, entries) {
     tile('route', hasDist ? kxsFormatDistance(gps.distanceM) : '', gps.enabled ? 'Recorrido (GPS)' : 'GPS no utilizado')
   ];
   const notes = [];
-  if (kcal > 0) notes.push('Las calorías son una estimación a partir del tiempo activo (referencia de 70 kg); no son un dato medido.');
+  if (kcal > 0) {
+    const part = (kcalPart, ms, label) => (kcalPart > 0 ? `${label} ${kcalPart} kcal (${kxsFormatDuration(ms)})` : '');
+    const parts = [part(kc.climb, kc.climbMs, 'escalando'), part(kc.walk, kc.walkMs, 'andando'), part(kc.rest, kc.restMs, 'parado o asegurando')].filter(Boolean);
+    notes.push(`Calorías estimadas (referencia de 70 kg; no es un dato medido): ${parts.join(' · ')}. Cada vía cuenta el tiempo que se tarda en escalarla según sus metros y su grado, el recorrido a pie sale del GPS y el resto del tiempo cuenta como descanso.`);
+  }
   if (st.meters > 0) notes.push('Los metros suman la longitud de las vías encadenadas (también a vista, flash y top rope); los intentos no cuentan.');
   if (st.meters > 0 && st.metersUnknown > 0) notes.push(`${kxsPlural(st.metersUnknown, 'vía encadenada no tiene', 'vías encadenadas no tienen')} longitud registrada y no suma metros.`);
   const note = notes.map(n => `<p class="kxs-note">${kxEsc(n)}</p>`).join('');
@@ -189,7 +206,9 @@ const KruxSessionUI = (() => {
       };
     },
 
-    register({ info, result = 'send', style = 'redpoint', companions = [] }) {
+    // Mismos datos que el formulario de ascenso fuera de sesión (intentos, valoración, notas y opinión sobre la vía)
+    // más el resultado y los compañeros de la sesión
+    register({ info, result = 'send', style = 'redpoint', companions = [], rating = 0 }) {
       const grade = info.grade && info.grade !== '?' ? info.grade : '';
       const peerLabel = companions.length ? kxsPlural(companions.length, 'compañero', 'compañeros') : 'Añadir compañeros';
       return {
@@ -200,9 +219,22 @@ const KruxSessionUI = (() => {
             ${kxSegmentedHTML({ items: [{ value: 'send', label: 'Encadenada' }, { value: 'project', label: 'Proyecto' }], value: result, label: 'Resultado', attrs: { id: 'kxs-result' } })}</div>
           <div class="kxs-field" id="kxs-style-field"${result === 'project' ? ' hidden' : ''}><h3 class="kxs-label">Estilo</h3>
             ${kxSegmentedHTML({ items: ['redpoint', 'onsight', 'flash', 'toprope'].map(v => ({ value: v, label: KXS_STYLE_LABEL[v] })), value: style, label: 'Estilo', attrs: { id: 'kxs-style' } })}</div>
+          <div class="kxs-field">${kxFieldHTML({ id: 'kxs-tries', label: 'Intentos', type: 'number', value: '1', attrs: { min: '1', max: '999', inputmode: 'numeric' } })}</div>
           <div class="kxs-field"><h3 class="kxs-label">Compañeros</h3>
             ${kxInfoRowHTML({ icon: 'users', label: peerLabel, action: true, attrs: { 'data-kxs': 'peers', 'aria-expanded': 'false' } })}
-            <div class="kxs-peers" id="kxs-peers" hidden></div></div>`,
+            <div class="kxs-peers" id="kxs-peers" hidden></div></div>
+          <div class="kxs-field"><h3 class="kxs-label" id="kxs-rating-label">Valoración <span class="kx-label-optional">(opcional)</span></h3>
+            <div class="kx-avote-stars" role="radiogroup" aria-labelledby="kxs-rating-label" data-kxs-rating>${kxsStarsHTML(rating)}</div></div>
+          <div class="kxs-field">${kxFieldHTML({ id: 'kxs-notes', label: 'Notas', type: 'textarea', optional: true, placeholder: 'Cómo fue, pasos clave, condiciones…', attrs: { maxlength: '1000', rows: '3' } })}</div>
+          <fieldset class="kx-avote hidden" data-avote="box">
+            <legend class="kx-avote-legend">Tu opinión sobre la vía <span>Opcional</span></legend>
+            <div class="kx-avote-row"><span class="kx-avote-label" id="kxs-avote-grade-label">Grado</span>
+              <div class="kx-avote-opts" data-avote="grade" role="radiogroup" aria-labelledby="kxs-avote-grade-label"></div></div>
+            <div class="kx-avote-row"><span class="kx-avote-label" id="kxs-avote-aleje-label">Aleje</span>
+              <div class="kx-avote-opts kx-avote-opts--aleje" data-avote="aleje" role="radiogroup" aria-labelledby="kxs-avote-aleje-label"></div></div>
+            <div class="kx-avote-row"><span class="kx-avote-label" id="kxs-avote-estado-label">Estado de la vía <small>Seguros y roca</small></span>
+              <div class="kx-avote-stars" data-avote="estado" role="radiogroup" aria-labelledby="kxs-avote-estado-label"></div></div>
+          </fieldset>`,
         foot: kxButtonHTML({ icon: 'check', label: 'Registrar ascenso', size: 'lg', attrs: { 'data-kxs': 'register' } }),
         after(root) {
           kxBindSegmented(root.querySelector('#kxs-result'), (v) => {
@@ -211,6 +243,8 @@ const KruxSessionUI = (() => {
             sheet.refresh();
           });
           kxBindSegmented(root.querySelector('#kxs-style'), (v) => { ctx.style = v; });
+          // Votos de grado, aleje y estado: el mismo componente que el formulario de ascenso, dentro de esta hoja
+          if (typeof kxAscentVotes !== 'undefined') kxAscentVotes.open(info.schoolId, info.routeId, info.grade, root).then(() => sheet.refresh());
         }
       };
     },
@@ -307,14 +341,25 @@ const KruxSessionUI = (() => {
       sheet.refresh();
     },
 
+    rate(btn) {
+      const v = Number(btn.dataset.v);
+      ctx.rating = ctx.rating === v ? 0 : v;   // pulsar la misma estrella la quita
+      const box = el.querySelector('[data-kxs-rating]');
+      if (box) box.innerHTML = kxsStarsHTML(ctx.rating);
+    },
+
     async register(btn) {
       if (btn.getAttribute('aria-busy') === 'true') return;
       btn.setAttribute('aria-busy', 'true');
       const style = ctx.result === 'project' ? 'project' : (ctx.style || 'redpoint');
-      const entry = await S().addAscent({ ...ctx.info, style, companions: ctx.companions });
+      const tries = el.querySelector('#kxs-tries') ? el.querySelector('#kxs-tries').value : 1;
+      const notes = el.querySelector('#kxs-notes') ? el.querySelector('#kxs-notes').value.trim() : '';
+      const entry = await S().addAscent({ ...ctx.info, style, companions: ctx.companions, tries, notes, rating: ctx.rating || 0 });
       close();
-      if (!entry) { toast('La sesión ya no está activa. El ascenso no se ha registrado.', 'error'); return; }
+      if (!entry) { kxAscentVotes.reset(); toast('La sesión ya no está activa. El ascenso no se ha registrado.', 'error'); return; }
       toast('Ascenso registrado en la sesión', 'success');
+      // Los votos se guardan aparte, como en el formulario (sin conexión esperan en la cola); un fallo no anula el ascenso
+      if (typeof kxAscentVotes !== 'undefined') { try { await kxAscentVotes.save(); } finally { kxAscentVotes.reset(); } }
     },
 
     'to-list'() {
@@ -366,7 +411,7 @@ const KruxSessionUI = (() => {
 
   // Desde las fichas de vía: con sesión activa, «Registrar ascenso» abre esta hoja en lugar del formulario
   function openRegister(info) {
-    setView('register', { info, result: 'send', style: 'redpoint', companions: [] });
+    setView('register', { info, result: 'send', style: 'redpoint', companions: [], rating: 0 });
   }
 
   function openSummary(item, { history = false } = {}) {

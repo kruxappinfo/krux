@@ -261,6 +261,29 @@ describe('sesión completa', () => {
     expect(done.session.gps.distanceM).toBe(0);
   });
 
+  it('el registro en sesión guarda intentos, valoración y notas como el formulario normal', async () => {
+    const w = world(); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    await K.start();
+    await K.addAscent(info({ tries: '3', rating: 4, notes: 'Paso clave en el techo' }));
+    await K.addAscent(info({ routeId: 2, tries: 'x', rating: 9, notes: '' }));
+    await K.flush();
+    const [a, b] = [...w.ascents.values()];
+    expect([a.tries, a.rating, a.notes]).toEqual([3, 4, 'Paso clave en el techo']);
+    expect([b.tries, b.rating, b.notes]).toEqual([1, 0, '']);   // valores no válidos → por defecto
+  });
+
+  it('al finalizar guarda el desglose de calorías en las estadísticas', async () => {
+    const w = world(); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    await K.start();
+    await K.addAscent(info());
+    const done = await K.finish();
+    expect(done.session.stats.kcal).toBeDefined();
+    const k = done.session.stats.kcal;
+    expect(k.total).toBe(k.climb + k.walk + k.rest);
+  });
+
   it('registrar varias vías: cada ascenso usa logAscent con sessionId y hora real, sin duplicados', async () => {
     const w = world(); const K = w.get('KruxSession');
     await K.init({ uid: 'u1' });
@@ -481,11 +504,59 @@ describe('contrato con el resto de la app', () => {
 });
 
 describe('calorías estimadas', () => {
-  const kcal = world().get('kxsEstimateKcal');
-  it('escala con el tiempo activo y es 0 sin tiempo', () => {
-    expect(kcal(0)).toBe(0);
-    expect(kcal(-5)).toBe(0);
-    expect(kcal(3600000)).toBe(406);          // 5,8 MET × 70 kg × 1 h
-    expect(kcal(7200000)).toBe(812);
+  const w = world();
+  const kcal = w.get('kxsEstimateKcal'), walk = w.get('kxsWalkMs');
+  const H = 3600000;
+  // Track recto hacia el norte: n puntos separados `step` metros y `dt` segundos
+  const line = (n, step, dt) => Array.from({ length: n }, (_, i) => ({ lat: 40 + (i * step) / 111195, lng: -3.7, t: i * dt * 1000 }));
+
+  it('sin tiempo, vías ni recorrido es 0', () => {
+    expect(kcal({}).total).toBe(0);
+    expect(kcal({ activeMs: -5 }).total).toBe(0);
+  });
+
+  it('el tiempo parado cuenta como descanso (1,8 MET), no como escalada', () => {
+    const r = kcal({ activeMs: 3 * H });
+    expect(r.climb).toBe(0); expect(r.walk).toBe(0);
+    expect(r.rest).toBe(378);                                 // 1,8 MET × 70 kg × 3 h
+    expect(r.total).toBe(378);
+  });
+
+  it('cada vía cuenta su tiempo de escalada según sus metros y el MET de su grado', () => {
+    // 25 m a 2,5 m/min = 10 min. 6a: 5,8 MET → 67,7 kcal; 7a (desde 6c): 7,5 MET → 87,5 kcal
+    const easy = kcal({ activeMs: H, entries: [{ grade: '6a', meters: 25, style: 'redpoint' }] });
+    const hard = kcal({ activeMs: H, entries: [{ grade: '7a', meters: 25, style: 'redpoint' }] });
+    expect(easy.climbMs).toBe(10 * 60000);
+    expect(easy.climb).toBe(68);
+    expect(hard.climb).toBe(88);
+    expect(easy.restMs).toBe(50 * 60000);                     // el resto de la hora, parado
+    // sin longitud: 20 m (8 min); los intentos también cuentan
+    expect(kcal({ activeMs: H, entries: [{ grade: '6a', meters: null, style: 'project' }] }).climbMs).toBe(8 * 60000);
+  });
+
+  it('3 h de sesión con 4 vías gastan mucho menos que 3 h escalando sin parar', () => {
+    const entries = [25, 30, 20, 25].map(m => ({ grade: '6b', meters: m, style: 'redpoint' }));
+    const r = kcal({ activeMs: 3 * H, entries });
+    expect(r.climbMs).toBe(40 * 60000);
+    expect(r.total).toBeLessThan(Math.round(5.8 * 70 * 3));   // el cálculo anterior daba 1218 kcal
+    expect(r.total).toBe(r.climb + r.walk + r.rest);
+  });
+
+  it('el recorrido a pie sale del GPS; un hueco largo sin puntos no cuenta entero como marcha', () => {
+    expect(walk(line(11, 10, 10))).toBe(100000);              // 100 m a 1 m/s → 100 s andando
+    // 700 m en un solo tramo de 20 min (pantalla bloqueada): se cuenta a 0,7 m/s → 1000 s, no 1200 s
+    expect(walk([{ lat: 40, lng: -3.7, t: 0 }, { lat: 40 + 700 / 111195, lng: -3.7, t: 1200000 }])).toBeCloseTo(1000000, -3);
+    // parado con ruido del GPS (5 m en 60 s): no es andar
+    expect(walk(line(2, 5, 60))).toBe(0);
+    const r = kcal({ activeMs: H, track: line(11, 10, 10) });
+    expect(r.walk).toBeGreaterThan(0);
+    expect(r.walkMs + r.restMs).toBe(H);
+  });
+
+  it('nunca cuenta más tiempo del que duró la sesión', () => {
+    const entries = Array.from({ length: 10 }, () => ({ grade: '6a', meters: 30, style: 'redpoint' }));   // 120 min de vías
+    const r = kcal({ activeMs: H, entries });
+    expect(r.climbMs + r.walkMs + r.restMs).toBe(H);
+    expect(r.restMs).toBe(0);
   });
 });
