@@ -1384,8 +1384,8 @@ function kxSessionDrawTrack(points) {
     if (src) { src.setData(data); return; }
     if (!points.length) return;
     mlMap.addSource('kx-session-track', { type: 'geojson', data });
-    mlMap.addLayer({ id: 'kx-session-track-casing', type: 'line', source: 'kx-session-track', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#FFFFFF', 'line-width': 7, 'line-opacity': 0.9 } });
-    mlMap.addLayer({ id: 'kx-session-track-line', type: 'line', source: 'kx-session-track', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2F7D62', 'line-width': 3.5 } });
+    // Discontinua y semitransparente, sin borde: marca el recorrido sin taparlo ni competir con las vías y sectores
+    mlMap.addLayer({ id: 'kx-session-track-line', type: 'line', source: 'kx-session-track', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2F7D62', 'line-width': 3, 'line-opacity': 0.6, 'line-dasharray': [1.2, 2] } });
   };
   if (mlMap.isStyleLoaded()) apply(); else mlMap.once('idle', apply);
 }

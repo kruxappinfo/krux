@@ -75,12 +75,66 @@ function kxsFinish(s, now, { stats = null, distanceM = 0, schoolId, schoolName }
   return done;
 }
 
-// Gasto energético estimado (kcal): MET de escalada de dificultad baja-moderada (5,8, Compendium of Physical
-// Activities) × peso de referencia × horas activas. KRUX no guarda el peso del usuario: es una estimación, no una medida.
-const KXS_MET = 5.8, KXS_REF_KG = 70;
-function kxsEstimateKcal(activeMs) {
-  if (!(activeMs > 0)) return 0;
-  return Math.round(KXS_MET * KXS_REF_KG * (activeMs / 3600000));
+// Gasto energético estimado (kcal) por actividades, con MET del Compendium of Physical Activities y un peso de
+// referencia (KRUX no guarda el peso del usuario: es una estimación, no una medida). Una jornada de roca es sobre
+// todo esperar y asegurar, así que el tiempo total no se multiplica por un MET de escalada:
+//   · cada vía cuenta el tiempo que se tarda en escalarla (por sus metros) con el MET de su dificultad;
+//   · el recorrido a pie (GPS) cuenta como senderismo;
+//   · el resto del tiempo activo cuenta como estar de pie o asegurando.
+const KXS_KCAL = {
+  kg: 70,
+  metClimb: 5.8,          // escalada en roca, dificultad baja-moderada
+  metClimbHard: 7.5,      // escalada en roca, dificultad alta (desde hardGrade)
+  hardGrade: '6c',
+  metWalk: 6.0,           // senderismo campo a través (aproximaciones con mochila)
+  metRest: 1.8,           // de pie, asegurando o descansando
+  climbMPerMin: 2.5,      // ritmo de escalada: una vía de 25 m ≈ 10 min
+  defaultRouteM: 20,      // vía sin longitud conocida
+  minRouteMin: 4, maxRouteMin: 180,
+  walkMinSpeed: 0.25,     // m/s: por debajo es ruido del GPS con la persona parada
+  walkSpeed: 0.7          // m/s: ritmo mínimo supuesto en un tramo sin puntos (móvil bloqueado)
+};
+
+// Tiempo andando a partir del track: cada tramo cuenta lo que se tarda en recorrerlo a walkSpeed, nunca más que su
+// duración real. Un tramo largo sin puntos (pantalla bloqueada) no se cuenta entero como marcha.
+function kxsWalkMs(track) {
+  let ms = 0;
+  for (let i = 1; i < (track || []).length; i++) {
+    const a = track[i - 1], b = track[i];
+    const dt = (b.t - a.t) / 1000;
+    if (!(dt > 0)) continue;
+    const d = kxsHaversine(a, b);
+    if (d / dt < KXS_KCAL.walkMinSpeed) continue;
+    ms += Math.min(dt, d / KXS_KCAL.walkSpeed) * 1000;
+  }
+  return ms;
+}
+
+// Minutos de escalada y MET de una vía registrada (los intentos también cuentan: se escala igual)
+function kxsRouteEffort(e) {
+  const m = e.meters > 0 ? e.meters : KXS_KCAL.defaultRouteM;
+  const min = Math.min(KXS_KCAL.maxRouteMin, Math.max(KXS_KCAL.minRouteMin, m / KXS_KCAL.climbMPerMin));
+  const rank = typeof kxGradeRank === 'function' ? kxGradeRank : () => -1;
+  const hard = e.grade && rank(e.grade) >= 0 && rank(e.grade) >= rank(KXS_KCAL.hardGrade);
+  return { ms: min * 60000, met: hard ? KXS_KCAL.metClimbHard : KXS_KCAL.metClimb };
+}
+
+// Desglose { total, climb, walk, rest } en kcal y los tiempos usados (ms). Si escalar y andar suman más que el tiempo
+// activo (vías largas mal estimadas), se reparten dentro de él para no contar más horas de las que duró la sesión.
+function kxsEstimateKcal({ entries = [], activeMs = 0, track = [] } = {}) {
+  const K = KXS_KCAL, h = ms => ms / 3600000;
+  const efforts = (entries || []).map(kxsRouteEffort);
+  let climbMs = efforts.reduce((s, x) => s + x.ms, 0);
+  let walkMs = kxsWalkMs(track);
+  const total = Math.max(activeMs || 0, 0);
+  const scale = total > 0 && climbMs + walkMs > total ? total / (climbMs + walkMs) : (total > 0 ? 1 : 0);
+  climbMs *= scale; walkMs *= scale;
+  const restMs = Math.max(0, total - climbMs - walkMs);
+  const climb = efforts.reduce((s, x) => s + x.met * K.kg * h(x.ms * scale), 0);
+  const walk = K.metWalk * K.kg * h(walkMs);
+  const rest = K.metRest * K.kg * h(restMs);
+  const r = Math.round;
+  return { total: r(climb) + r(walk) + r(rest), climb: r(climb), walk: r(walk), rest: r(rest), climbMs: r(climbMs), walkMs: r(walkMs), restMs: r(restMs) };
 }
 
 function kxsHaversine(a, b) {
@@ -202,7 +256,9 @@ function kxsAscentPayload(entry, sessionId) {
     style: entry.style,
     date: new Date(entry.at).toISOString().split('T')[0],
     loggedAt: entry.at,
-    tries: 1,
+    tries: entry.tries > 0 ? entry.tries : 1,
+    rating: entry.rating || 0,
+    notes: entry.notes || '',
     sessionId,
     companions: entry.companions || []
   };
@@ -546,7 +602,10 @@ const KruxSession = (() => {
         ascentId: db.collection('ascents').doc().id,
         routeId: info.routeId, routeName: info.routeName, grade: info.grade || '', style, sector: info.sector || '',
         schoolId: info.schoolId, schoolName: info.schoolName,
-        at: nowMs(), meters: null, companions: (info.companions || []).slice(0, 10), synced: false
+        at: nowMs(), meters: null, companions: (info.companions || []).slice(0, 10), synced: false,
+        tries: Math.max(1, Math.min(999, parseInt(info.tries, 10) || 1)),
+        rating: [1, 2, 3, 4, 5].includes(Number(info.rating)) ? Number(info.rating) : 0,
+        notes: String(info.notes || '').slice(0, 1000)
       };
       item.entries.push(entry);
       item.session.ascentIds = item.entries.map(e => e.ascentId);
@@ -577,6 +636,8 @@ const KruxSession = (() => {
       await Promise.race([Promise.allSettled(pendingMeters), new Promise(r => { waitT = setTimeout(r, 2500); })]);
       clearTimeout(waitT);
       const stats = kxsStats(item.entries);
+      // Las calorías se calculan al cerrar, con los metros de cada vía y el track completo (Firestore guarda el track reducido)
+      stats.kcal = kxsEstimateKcal({ entries: item.entries, activeMs: kxsActiveMs({ ...item.session, endedAt: now }), track: item.track });
       const school = kxsMainSchool(item.entries);
       item.session = kxsFinish(item.session, now, {
         stats, distanceM: item.session.gps.distanceM || 0,
