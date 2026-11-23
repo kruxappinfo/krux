@@ -127,7 +127,7 @@
   <script defer src="./train-mental-ops.js?v=1"></script>
   <script defer src="./train-mental-ui.js?v=3"></script>
 
-  <script defer src="./mobile-auth.js?v=2"></script>
+  <script defer src="./mobile-auth.js?v=3"></script>
 
   <script defer src="./spotter-approval.js?v=1"></script>
   <script defer src="./dev-route-editor.js?v=9"></script>
@@ -1920,9 +1920,8 @@
   <div id="mobile-onboarding" class="mobile-onboarding hidden">
     <!-- Video de fondo a pantalla completa -->
     <div class="onboarding-background">
-      <video class="onboarding-video" autoplay muted loop playsinline>
-        <source src="Visuales/Videos/video_onboarding.mp4" type="video/mp4">
-      </video>
+      <!-- Sin src ni autoplay: mobile-auth.js lo carga y reproduce solo mientras se ve la bienvenida -->
+      <video class="onboarding-video" muted loop playsinline preload="none" data-src="Visuales/Videos/video_onboarding.mp4?v=2"></video>
       <div class="onboarding-bg-overlay"></div>
     </div>
 
