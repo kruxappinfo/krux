@@ -127,7 +127,7 @@
   <script defer src="./train-mental-ops.js?v=1"></script>
   <script defer src="./train-mental-ui.js?v=3"></script>
 
-  <script defer src="./mobile-auth.js?v=3"></script>
+  <script defer src="./mobile-auth.js?v=4"></script>
 
   <script defer src="./spotter-approval.js?v=1"></script>
   <script defer src="./dev-route-editor.js?v=9"></script>
@@ -1918,10 +1918,8 @@
 
   <!-- Mobile Onboarding (Solo visible en app mÃ³vil, tipo Strava) -->
   <div id="mobile-onboarding" class="mobile-onboarding hidden">
-    <!-- Video de fondo a pantalla completa -->
+    <!-- Fondo a pantalla completa (sin vídeo) -->
     <div class="onboarding-background">
-      <!-- Sin src ni autoplay: mobile-auth.js lo carga y reproduce solo mientras se ve la bienvenida -->
-      <video class="onboarding-video" muted loop playsinline preload="none" data-src="Visuales/Videos/video_onboarding.mp4?v=2"></video>
       <div class="onboarding-bg-overlay"></div>
     </div>
 

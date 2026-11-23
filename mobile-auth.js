@@ -807,34 +807,8 @@
 
       setupEventListeners();
       setupAuthListener();
-      setupOnboardingVideo();
 
       console.log('[MobileAuth] Sistema inicializado correctamente');
-    }
-
-    // El vídeo de fondo solo se descarga y reproduce mientras la bienvenida está visible;
-    // al ocultarse se pausa para no seguir gastando datos ni batería
-    function setupOnboardingVideo() {
-      const video = onboarding && onboarding.querySelector('.onboarding-video');
-      if (!video) return;
-
-      const sync = () => {
-        const visible = !onboarding.classList.contains('hidden');
-        if (visible) {
-          if (!video.getAttribute('src') && video.dataset.src) {
-            video.muted = true; // iOS solo permite reproducir sin gesto si está silenciado
-            video.preload = 'auto';
-            video.src = video.dataset.src;
-          }
-          const p = video.play();
-          if (p && p.catch) p.catch(() => {});
-        } else if (!video.paused) {
-          video.pause();
-        }
-      };
-
-      new MutationObserver(sync).observe(onboarding, { attributes: true, attributeFilter: ['class'] });
-      sync();
     }
 
     // Esperar a que el DOM esté listo antes de inicializar
