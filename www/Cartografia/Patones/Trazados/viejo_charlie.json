@@ -1,0 +1,403 @@
+{
+ "schoolId": "patones",
+ "sectorName": "Viejo Charlie",
+ "source": "Croquis de la guía de escalada de Patones y de una segunda fuente, reproducidos con permiso de sus autores",
+ "drawings": [
+  {
+   "routeId": 322,
+   "routeName": "Señor Cho",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 177.0,
+     "y": 1078.5
+    },
+    {
+     "x": 183.0,
+     "y": 893.8
+    },
+    {
+     "x": 195.0,
+     "y": 846.8
+    },
+    {
+     "x": 210.0,
+     "y": 776.0
+    },
+    {
+     "x": 213.0,
+     "y": 677.8
+    }
+   ]
+  },
+  {
+   "routeId": 323,
+   "routeName": "Travesía del señor Cho",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 177.0,
+     "y": 1078.5
+    },
+    {
+     "x": 183.0,
+     "y": 893.8
+    },
+    {
+     "x": 202.5,
+     "y": 878.6
+    },
+    {
+     "x": 270.0,
+     "y": 898.4
+    },
+    {
+     "x": 390.0,
+     "y": 924.8
+    },
+    {
+     "x": 495.0,
+     "y": 945.2
+    },
+    {
+     "x": 607.5,
+     "y": 966.2
+    }
+   ]
+  },
+  {
+   "routeId": 324,
+   "routeName": "Atentado a Dick Turpin",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 243.0,
+     "y": 1087.1
+    },
+    {
+     "x": 252.0,
+     "y": 995.4
+    },
+    {
+     "x": 270.0,
+     "y": 912.8
+    },
+    {
+     "x": 292.5,
+     "y": 828.2
+    }
+   ],
+   "supersedes": [
+    {
+     "x": 143.5,
+     "y": 1091.1
+    }
+   ]
+  },
+  {
+   "routeId": 595,
+   "routeName": "Dawaj Kurwa",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 300.0,
+     "y": 1094.5
+    },
+    {
+     "x": 298.5,
+     "y": 975.1
+    },
+    {
+     "x": 300.0,
+     "y": 855.2
+    },
+    {
+     "x": 303.0,
+     "y": 783.4
+    },
+    {
+     "x": 315.0,
+     "y": 698.0
+    }
+   ]
+  },
+  {
+   "routeId": 325,
+   "routeName": "Bulón de biela",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 363.0,
+     "y": 1102.7
+    },
+    {
+     "x": 352.5,
+     "y": 1003.4
+    },
+    {
+     "x": 322.5,
+     "y": 905.0
+    },
+    {
+     "x": 292.5,
+     "y": 828.2
+    }
+   ],
+   "supersedes": [
+    {
+     "x": 312.3,
+     "y": 1139.3
+    }
+   ]
+  },
+  {
+   "routeId": 326,
+   "routeName": "Rocaña",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 427.5,
+     "y": 1111.1
+    },
+    {
+     "x": 435.0,
+     "y": 1046.0
+    },
+    {
+     "x": 429.0,
+     "y": 961.5
+    },
+    {
+     "x": 397.5,
+     "y": 931.4
+    }
+   ]
+  },
+  {
+   "routeId": 327,
+   "routeName": "Sergi O'Conor",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 532.5,
+     "y": 1124.7
+    },
+    {
+     "x": 543.0,
+     "y": 1066.6
+    },
+    {
+     "x": 525.0,
+     "y": 1005.2
+    },
+    {
+     "x": 480.0,
+     "y": 941.6
+    },
+    {
+     "x": 468.0,
+     "y": 866.2
+    }
+   ],
+   "supersedes": [
+    {
+     "x": 543.1,
+     "y": 1174.2
+    }
+   ]
+  },
+  {
+   "routeId": 328,
+   "routeName": "El viejo Charlie robó la manivela",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 715.5,
+     "y": 1148.5
+    },
+    {
+     "x": 708.0,
+     "y": 1085.8
+    },
+    {
+     "x": 675.0,
+     "y": 1005.2
+    },
+    {
+     "x": 667.5,
+     "y": 896.6
+    }
+   ],
+   "supersedes": [
+    {
+     "x": 817.5,
+     "y": 1198.0
+    }
+   ]
+  },
+  {
+   "routeId": 329,
+   "routeName": "Variante",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 715.5,
+     "y": 1148.5
+    },
+    {
+     "x": 717.0,
+     "y": 1068.6
+    },
+    {
+     "x": 727.5,
+     "y": 985.4
+    },
+    {
+     "x": 735.0,
+     "y": 905.6
+    }
+   ]
+  },
+  {
+   "routeId": 330,
+   "routeName": "Aúpame que no llego",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 843.0,
+     "y": 1165.1
+    },
+    {
+     "x": 858.0,
+     "y": 1133.8
+    },
+    {
+     "x": 798.0,
+     "y": 1096.6
+    },
+    {
+     "x": 810.0,
+     "y": 1016.0
+    },
+    {
+     "x": 825.0,
+     "y": 897.2
+    },
+    {
+     "x": 807.0,
+     "y": 850.2
+    },
+    {
+     "x": 723.0,
+     "y": 811.0
+    },
+    {
+     "x": 682.5,
+     "y": 765.8
+    },
+    {
+     "x": 675.0,
+     "y": 693.2
+    },
+    {
+     "x": 697.5,
+     "y": 599.0
+    },
+    {
+     "x": 750.0,
+     "y": 531.2
+    },
+    {
+     "x": 792.0,
+     "y": 477.0
+    }
+   ]
+  },
+  {
+   "routeId": 332,
+   "routeName": "Chancrilla",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 997.5,
+     "y": 1185.2
+    },
+    {
+     "x": 975.0,
+     "y": 1125.2
+    },
+    {
+     "x": 930.0,
+     "y": 965.6
+    },
+    {
+     "x": 892.5,
+     "y": 782.6
+    },
+    {
+     "x": 885.0,
+     "y": 710.0
+    },
+    {
+     "x": 897.0,
+     "y": 615.0
+    },
+    {
+     "x": 930.0,
+     "y": 545.6
+    },
+    {
+     "x": 960.0,
+     "y": 509.6
+    }
+   ],
+   "supersedes": [
+    {
+     "x": 1079.2,
+     "y": 1204.0
+    }
+   ]
+  },
+  {
+   "routeId": 331,
+   "routeName": "Siroco",
+   "imageId": "img_1794513360983_58slq85st",
+   "anchorType": "sin_terminar",
+   "points": [
+    {
+     "x": 952.5,
+     "y": 1181.2
+    },
+    {
+     "x": 942.5,
+     "y": 1115.2
+    },
+    {
+     "x": 912.5,
+     "y": 1045.2
+    },
+    {
+     "x": 877.5,
+     "y": 995.2
+    }
+   ],
+   "supersedes": [
+    {
+     "x": 1046.0,
+     "y": 1198.0
+    }
+   ]
+  }
+ ]
+}

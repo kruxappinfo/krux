@@ -1,0 +1,616 @@
+{
+ "schoolId": "patones",
+ "sectorName": "Cielo Líquido",
+ "source": "Croquis de la guía de escalada de Patones y topo de theCrag, reproducidos con permiso de sus autores",
+ "drawings": [
+  {
+   "routeId": 304,
+   "routeName": "Diedro P.D.G.R.",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "sin_terminar",
+   "points": [
+    {
+     "x": 226.0,
+     "y": 692.0
+    },
+    {
+     "x": 238.0,
+     "y": 622.0
+    }
+   ]
+  },
+  {
+   "routeId": 305,
+   "routeName": "Clematis",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 245.0,
+     "y": 706.0
+    },
+    {
+     "x": 249.0,
+     "y": 560.0
+    },
+    {
+     "x": 255.0,
+     "y": 430.0
+    },
+    {
+     "x": 262.0,
+     "y": 350.0
+    },
+    {
+     "x": 284.0,
+     "y": 293.0
+    }
+   ]
+  },
+  {
+   "routeId": 306,
+   "routeName": "La guerra del grado",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 263.0,
+     "y": 716.0
+    },
+    {
+     "x": 278.0,
+     "y": 584.7
+    },
+    {
+     "x": 290.5,
+     "y": 465.2
+    },
+    {
+     "x": 300.0,
+     "y": 335.0
+    }
+   ]
+  },
+  {
+   "routeId": 307,
+   "routeName": "Cuarto más pa' pibas",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 281.0,
+     "y": 737.0
+    },
+    {
+     "x": 315.5,
+     "y": 500.5
+    },
+    {
+     "x": 329.6,
+     "y": 384.6
+    },
+    {
+     "x": 344.8,
+     "y": 359.1
+    }
+   ]
+  },
+  {
+   "routeId": 308,
+   "routeName": "Tripi continuo",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 292.0,
+     "y": 762.9
+    },
+    {
+     "x": 325.0,
+     "y": 626.2
+    },
+    {
+     "x": 357.2,
+     "y": 464.2
+    },
+    {
+     "x": 378.8,
+     "y": 375.2
+    }
+   ]
+  },
+  {
+   "routeId": 309,
+   "routeName": "Cielo líquido",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 323.0,
+     "y": 773.0
+    },
+    {
+     "x": 354.8,
+     "y": 664.3
+    },
+    {
+     "x": 386.6,
+     "y": 496.6
+    },
+    {
+     "x": 407.6,
+     "y": 419.5
+    },
+    {
+     "x": 437.0,
+     "y": 390.5
+    }
+   ]
+  },
+  {
+   "routeId": 310,
+   "routeName": "Mama Gulus",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 378.0,
+     "y": 805.3
+    },
+    {
+     "x": 391.3,
+     "y": 662.8
+    },
+    {
+     "x": 423.6,
+     "y": 495.2
+    },
+    {
+     "x": 437.0,
+     "y": 390.5
+    }
+   ]
+  },
+  {
+   "routeId": 311,
+   "routeName": "Angie",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 422.0,
+     "y": 810.5
+    },
+    {
+     "x": 445.0,
+     "y": 663.5
+    },
+    {
+     "x": 472.9,
+     "y": 496.2
+    },
+    {
+     "x": 491.4,
+     "y": 423.6
+    },
+    {
+     "x": 513.4,
+     "y": 349.4
+    }
+   ]
+  },
+  {
+   "routeId": 312,
+   "routeName": "El último mohicano",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 467.3,
+     "y": 821.6
+    },
+    {
+     "x": 491.3,
+     "y": 666.1
+    },
+    {
+     "x": 523.3,
+     "y": 521.6
+    },
+    {
+     "x": 520.6,
+     "y": 468.2
+    },
+    {
+     "x": 544.8,
+     "y": 397.4
+    },
+    {
+     "x": 564.8,
+     "y": 349.3
+    }
+   ]
+  },
+  {
+   "routeId": 313,
+   "routeName": "Menos es más",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 533.1,
+     "y": 852.6
+    },
+    {
+     "x": 565.2,
+     "y": 695.7
+    },
+    {
+     "x": 592.8,
+     "y": 561.7
+    },
+    {
+     "x": 606.9,
+     "y": 488.1
+    },
+    {
+     "x": 621.5,
+     "y": 450.2
+    }
+   ]
+  },
+  {
+   "routeId": 605,
+   "routeName": "S/N 1",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 579.6,
+     "y": 868.0
+    },
+    {
+     "x": 606.5,
+     "y": 734.3
+    },
+    {
+     "x": 638.7,
+     "y": 588.5
+    },
+    {
+     "x": 662.0,
+     "y": 488.6
+    },
+    {
+     "x": 700.0,
+     "y": 420.0
+    },
+    {
+     "x": 722.0,
+     "y": 338.0
+    }
+   ]
+  },
+  {
+   "routeId": 314,
+   "routeName": "Pon un alien en tu vida",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 579.6,
+     "y": 868.0
+    },
+    {
+     "x": 606.5,
+     "y": 734.3
+    },
+    {
+     "x": 638.7,
+     "y": 588.5
+    },
+    {
+     "x": 662.0,
+     "y": 488.6
+    },
+    {
+     "x": 763.8,
+     "y": 319.6
+    }
+   ]
+  },
+  {
+   "routeId": 606,
+   "routeName": "S/N 2",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 635.0,
+     "y": 890.0
+    },
+    {
+     "x": 665.0,
+     "y": 704.0
+    },
+    {
+     "x": 704.0,
+     "y": 497.0
+    }
+   ]
+  },
+  {
+   "routeId": 315,
+   "routeName": "El teatrillo de la autocomplacencia",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 669.4,
+     "y": 898.2
+    },
+    {
+     "x": 698.5,
+     "y": 741.9
+    },
+    {
+     "x": 715.1,
+     "y": 595.2
+    },
+    {
+     "x": 746.9,
+     "y": 522.6
+    },
+    {
+     "x": 744.6,
+     "y": 470.2
+    },
+    {
+     "x": 763.8,
+     "y": 319.6
+    }
+   ]
+  },
+  {
+   "routeId": 316,
+   "routeName": "Manu manu",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 748.0,
+     "y": 926.9
+    },
+    {
+     "x": 758.4,
+     "y": 804.5
+    },
+    {
+     "x": 772.2,
+     "y": 644.7
+    },
+    {
+     "x": 799.8,
+     "y": 555.5
+    }
+   ],
+   "branches": [
+    {
+     "branchId": 1,
+     "forkPointIndex": 2,
+     "forkPoint": {
+      "x": 799.8,
+      "y": 555.5
+     },
+     "points": [
+      {
+       "x": 832.0,
+       "y": 462.0
+      },
+      {
+       "x": 854.0,
+       "y": 362.0
+      }
+     ],
+     "anchorType": "desconocido"
+    }
+   ]
+  },
+  {
+   "routeId": 607,
+   "routeName": "S/N 3",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 775.0,
+     "y": 945.0
+    },
+    {
+     "x": 790.0,
+     "y": 800.0
+    },
+    {
+     "x": 825.0,
+     "y": 640.0
+    },
+    {
+     "x": 860.0,
+     "y": 500.0
+    },
+    {
+     "x": 898.0,
+     "y": 365.0
+    }
+   ]
+  },
+  {
+   "routeId": 317,
+   "routeName": "Velocidad",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 795.9,
+     "y": 954.1
+    },
+    {
+     "x": 825.7,
+     "y": 810.6
+    },
+    {
+     "x": 870.3,
+     "y": 678.4
+    },
+    {
+     "x": 908.7,
+     "y": 540.9
+    },
+    {
+     "x": 937.3,
+     "y": 422.6
+    }
+   ]
+  },
+  {
+   "routeId": 318,
+   "routeName": "Diedro Easy Rider",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 886.5,
+     "y": 1028.6
+    },
+    {
+     "x": 900.0,
+     "y": 930.0
+    },
+    {
+     "x": 905.0,
+     "y": 800.0
+    },
+    {
+     "x": 930.0,
+     "y": 680.0
+    },
+    {
+     "x": 965.0,
+     "y": 580.0
+    },
+    {
+     "x": 1032.0,
+     "y": 440.0
+    }
+   ]
+  },
+  {
+   "routeId": 608,
+   "routeName": "S/N 4",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 920.0,
+     "y": 1058.0
+    },
+    {
+     "x": 922.0,
+     "y": 900.0
+    },
+    {
+     "x": 935.0,
+     "y": 762.0
+    },
+    {
+     "x": 952.0,
+     "y": 700.0
+    },
+    {
+     "x": 990.0,
+     "y": 640.0
+    },
+    {
+     "x": 1050.0,
+     "y": 590.0
+    },
+    {
+     "x": 1128.0,
+     "y": 540.0
+    }
+   ]
+  },
+  {
+   "routeId": 319,
+   "routeName": "Así casca la basca",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 935.5,
+     "y": 1067.6
+    },
+    {
+     "x": 943.7,
+     "y": 958.9
+    },
+    {
+     "x": 950.4,
+     "y": 823.8
+    },
+    {
+     "x": 967.2,
+     "y": 718.2
+    }
+   ]
+  },
+  {
+   "routeId": 320,
+   "routeName": "Salamandra Boulder Café",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "desconocido",
+   "points": [
+    {
+     "x": 951.3,
+     "y": 1114.1
+    },
+    {
+     "x": 968.6,
+     "y": 995.2
+    },
+    {
+     "x": 1001.5,
+     "y": 852.6
+    },
+    {
+     "x": 1030.7,
+     "y": 728.8
+    }
+   ]
+  },
+  {
+   "routeId": 321,
+   "routeName": "Efluvios",
+   "imageId": "img_1794513635369_c0z7q4xg0",
+   "anchorType": "sin_terminar",
+   "points": [
+    {
+     "x": 951.3,
+     "y": 1114.1
+    },
+    {
+     "x": 968.6,
+     "y": 995.2
+    },
+    {
+     "x": 1004.9,
+     "y": 963.5
+    },
+    {
+     "x": 1028.0,
+     "y": 883.3
+    }
+   ]
+  }
+ ]
+}
