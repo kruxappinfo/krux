@@ -6185,6 +6185,8 @@ function initProfileStatClicks() {
 }
 
 // ================== EDIT PROFILE LOGIC ==================
+let kxOpenEditProfile = null;
+
 function initEditProfile() {
   const modal = document.getElementById('edit-profile-modal');
   const closeBtn = document.getElementById('close-edit-profile-modal');
@@ -6236,36 +6238,41 @@ function initEditProfile() {
 
   // Open Modal - Use event delegation for the edit button
   document.addEventListener('click', (e) => {
-    if (e.target.id === 'edit-profile-btn' || e.target.closest('#edit-profile-btn')) {
-      if (!currentUser) return;
-      selectedPhotoFile = null;
-
-      // Pre-fill form with current data
-      document.getElementById('edit-display-name').value = currentUser.displayName || '';
-      if (usernameInput) {
-        usernameInput.value = '';
-        const st = document.getElementById('edit-username-status');
-        if (st) { st.textContent = ''; st.dataset.tone = ''; }
-      }
-      if (photoPreview) {
-        photoPreview.src = currentUser.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=100';
-      }
-
-      db.collection('users').doc(currentUser.uid).get().then(doc => {
-        if (doc.exists) {
-          const data = doc.data();
-          document.getElementById('edit-bio').value = data.bio || '';
-          document.getElementById('edit-location').value = data.location || '';
-          currentUsername = data.username || '';
-          if (usernameInput) usernameInput.value = currentUsername;
-          if (usernameField) usernameField.setCurrent(currentUsername);
-          if (bioCharCount) bioCharCount.textContent = (data.bio || '').length;
-        }
-      });
-
-      modal.classList.remove('hidden');
-    }
+    if (e.target.id === 'edit-profile-btn' || e.target.closest('#edit-profile-btn')) openEditProfileModal();
   });
+
+  // Ajustes → «Editar perfil» abre el mismo modal ya relleno
+  kxOpenEditProfile = openEditProfileModal;
+
+  function openEditProfileModal() {
+    if (!currentUser) return;
+    selectedPhotoFile = null;
+
+    // Pre-fill form with current data
+    document.getElementById('edit-display-name').value = currentUser.displayName || '';
+    if (usernameInput) {
+      usernameInput.value = '';
+      const st = document.getElementById('edit-username-status');
+      if (st) { st.textContent = ''; st.dataset.tone = ''; }
+    }
+    if (photoPreview) {
+      photoPreview.src = currentUser.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=100';
+    }
+
+    db.collection('users').doc(currentUser.uid).get().then(doc => {
+      if (doc.exists) {
+        const data = doc.data();
+        document.getElementById('edit-bio').value = data.bio || '';
+        document.getElementById('edit-location').value = data.location || '';
+        currentUsername = data.username || '';
+        if (usernameInput) usernameInput.value = currentUsername;
+        if (usernameField) usernameField.setCurrent(currentUsername);
+        if (bioCharCount) bioCharCount.textContent = (data.bio || '').length;
+      }
+    });
+
+    modal.classList.remove('hidden');
+  }
 
   // Close Modal
   closeBtn.addEventListener('click', () => {
@@ -6371,8 +6378,7 @@ async function handleSettingsItemClick(e) {
   try {
     switch (itemId) {
       case 'settings-edit-profile':
-        const editModal = document.getElementById('edit-profile-modal');
-        if (editModal) editModal.classList.remove('hidden');
+        if (kxOpenEditProfile) kxOpenEditProfile();
         break;
 
       case 'settings-notifications':
