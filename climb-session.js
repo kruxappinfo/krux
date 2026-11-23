@@ -119,10 +119,11 @@ function kxsRouteEffort(e) {
   return { ms: min * 60000, met: hard ? KXS_KCAL.metClimbHard : KXS_KCAL.metClimb };
 }
 
-// Desglose { total, climb, walk, rest } en kcal y los tiempos usados (ms). Si escalar y andar suman más que el tiempo
+// Desglose { total, climb, walk, rest, kg } en kcal y los tiempos usados (ms). Si escalar y andar suman más que el tiempo
 // activo (vías largas mal estimadas), se reparten dentro de él para no contar más horas de las que duró la sesión.
-function kxsEstimateKcal({ entries = [], activeMs = 0, track = [] } = {}) {
-  const K = KXS_KCAL, h = ms => ms / 3600000;
+// kg: el peso del usuario si lo ha indicado en su perfil; si no, el de referencia.
+function kxsEstimateKcal({ entries = [], activeMs = 0, track = [], kg = null } = {}) {
+  const K = { ...KXS_KCAL, kg: kxsValidWeight(kg) || KXS_KCAL.kg }, h = ms => ms / 3600000;
   const efforts = (entries || []).map(kxsRouteEffort);
   let climbMs = efforts.reduce((s, x) => s + x.ms, 0);
   let walkMs = kxsWalkMs(track);
@@ -134,8 +135,49 @@ function kxsEstimateKcal({ entries = [], activeMs = 0, track = [] } = {}) {
   const walk = K.metWalk * K.kg * h(walkMs);
   const rest = K.metRest * K.kg * h(restMs);
   const r = Math.round;
-  return { total: r(climb) + r(walk) + r(rest), climb: r(climb), walk: r(walk), rest: r(rest), climbMs: r(climbMs), walkMs: r(walkMs), restMs: r(restMs) };
+  return { total: r(climb) + r(walk) + r(rest), climb: r(climb), walk: r(walk), rest: r(rest), climbMs: r(climbMs), walkMs: r(walkMs), restMs: r(restMs), kg: K.kg, ownKg: !!kxsValidWeight(kg) };
 }
+
+// ============================================
+// PESO DEL USUARIO (solo para las calorías)
+// ============================================
+// Es un dato personal: no va en users/{uid} (lo lee cualquier usuario con sesión) sino en users/{uid}/private/settings,
+// que solo puede leer y escribir su dueño. Se guarda también en el móvil para usarlo sin conexión.
+function kxsValidWeight(v) {
+  const n = Math.round(Number(v) * 10) / 10;
+  return n >= 30 && n <= 250 ? n : null;
+}
+const KruxWeight = (() => {
+  let cached = null, cachedUid = null;
+  const key = uid => `krux_weight_${uid}`;
+  const ref = uid => db.collection('users').doc(uid).collection('private').doc('settings');
+  return {
+    get() { return cached; },
+    async load(uid) {
+      if (!uid) return null;
+      if (cachedUid !== uid) { cachedUid = uid; cached = null; }
+      try { cached = kxsValidWeight(localStorage.getItem(key(uid))) || cached; } catch (e) { /* sin almacenamiento */ }
+      try {
+        const doc = await ref(uid).get();
+        const v = doc.exists ? kxsValidWeight(doc.data().weightKg) : null;
+        if (v) { cached = v; try { localStorage.setItem(key(uid), String(v)); } catch (e) { /* sin almacenamiento */ } }
+      } catch (e) { /* sin red o sin permiso: vale el del móvil */ }
+      return cached;
+    },
+    // kg vacío borra el peso. Devuelve true si quedó guardado en la cuenta, 'local' si solo en el móvil.
+    async save(uid, kg) {
+      const v = kg === '' || kg == null ? null : kxsValidWeight(kg);
+      if (kg !== '' && kg != null && !v) throw Object.assign(new Error('weight'), { code: 'weight' });
+      cachedUid = uid; cached = v;
+      try { if (v) localStorage.setItem(key(uid), String(v)); else localStorage.removeItem(key(uid)); } catch (e) { /* sin almacenamiento */ }
+      try {
+        await ref(uid).set({ weightKg: v || firebase.firestore.FieldValue.delete() }, { merge: true });
+        return true;
+      } catch (e) { return 'local'; }
+    }
+  };
+})();
+if (typeof window !== 'undefined') window.KruxWeight = KruxWeight;
 
 function kxsHaversine(a, b) {
   const R = 6371000, rad = Math.PI / 180;
@@ -354,7 +396,7 @@ const KruxSession = (() => {
       id, type: d.type || 'rock', status: d.status, startedAt: ms(d.startedAt), endedAt: ms(d.endedAt),
       pauses: d.pauses || [], activeMs: d.activeMs || 0, gps: d.gps || { enabled: false, status: 'off', distanceM: 0 },
       schoolId: d.schoolId || '', schoolName: d.schoolName || '', ascentIds: d.ascentIds || [],
-      stats: d.stats || null, rev: d.rev || 1, updatedAt: ms(d.updatedAt) || 0
+      stats: d.stats || null, rev: d.rev || 1, updatedAt: ms(d.updatedAt) || 0, postId: d.postId || null
     };
   }
 
@@ -503,8 +545,21 @@ const KruxSession = (() => {
     if (watchId != null) return;
     const cap = typeof window !== 'undefined' ? window.Capacitor : null;
     const native = cap && cap.isNativePlatform && cap.isNativePlatform() && cap.Plugins && cap.Plugins.Geolocation;
+    const background = cap && cap.isNativePlatform && cap.isNativePlatform() && cap.Plugins && cap.Plugins.BackgroundGeolocation;
     try {
-      if (native) {
+      if (background) {
+        // App nativa: sigue registrando con la pantalla bloqueada o la app en segundo plano (si no, cada bloqueo deja
+        // una recta entre el último punto y el siguiente). En Android se muestra una notificación mientras graba.
+        watchKind = 'background';
+        watchId = await background.addWatcher({
+          backgroundTitle: 'Sesión de escalada en curso',
+          backgroundMessage: 'KRUX está registrando tu recorrido. Finaliza o pausa la sesión para detenerlo.',
+          requestPermissions: true, stale: false, distanceFilter: 0
+        }, (loc, err) => {
+          if (err) gpsFailed(err.code === 'NOT_AUTHORIZED' ? 'denied' : 'error', err.code === 'NOT_AUTHORIZED' ? 'Sin permiso de ubicación' : 'No se pudo obtener la ubicación');
+          else if (loc && !loc.simulated) onFix({ coords: { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy }, timestamp: loc.time || nowMs() });
+        });
+      } else if (native) {
         const G = cap.Plugins.Geolocation;
         const perm = await G.requestPermissions();
         if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') return gpsFailed('denied', 'Sin permiso de ubicación');
@@ -527,7 +582,8 @@ const KruxSession = (() => {
     const id = watchId, kind = watchKind;
     watchId = null; watchKind = null;
     try {
-      if (kind === 'native') window.Capacitor.Plugins.Geolocation.clearWatch({ id });
+      if (kind === 'background') window.Capacitor.Plugins.BackgroundGeolocation.removeWatcher({ id });
+      else if (kind === 'native') window.Capacitor.Plugins.Geolocation.clearWatch({ id });
       else navigator.geolocation.clearWatch(id);
     } catch (e) { /* ya detenido */ }
   }
@@ -556,6 +612,7 @@ const KruxSession = (() => {
       uid = u ? u.uid : null;
       state = { active: null, finished: [] };
       if (!uid) { emit('change'); return; }
+      KruxWeight.load(uid);   // para las calorías al finalizar (no bloquea)
       restore();
       emit('change');
       await recover();
@@ -637,7 +694,7 @@ const KruxSession = (() => {
       clearTimeout(waitT);
       const stats = kxsStats(item.entries);
       // Las calorías se calculan al cerrar, con los metros de cada vía y el track completo (Firestore guarda el track reducido)
-      stats.kcal = kxsEstimateKcal({ entries: item.entries, activeMs: kxsActiveMs({ ...item.session, endedAt: now }), track: item.track });
+      stats.kcal = kxsEstimateKcal({ entries: item.entries, activeMs: kxsActiveMs({ ...item.session, endedAt: now }), track: item.track, kg: KruxWeight.get() });
       const school = kxsMainSchool(item.entries);
       item.session = kxsFinish(item.session, now, {
         stats, distanceM: item.session.gps.distanceM || 0,
@@ -669,6 +726,33 @@ const KruxSession = (() => {
       const local = state.finished.find(f => f.session.id === sessionId);
       if (local) return local.entries;
       return loadAscents(sessionId);
+    },
+
+    // Borra una sesión finalizada (no la que está en curso: esa se finaliza antes). Los ascensos se conservan: son
+    // tu registro de vías y siguen en Actividad. Sin conexión no se borra (para no dejar copias a medias).
+    async remove(sessionId) {
+      if (!uid || !sessionId) return false;
+      if (state.active && state.active.session.id === sessionId) throw Object.assign(new Error('active'), { code: 'active' });
+      const local = state.finished.find(f => f.session.id === sessionId);
+      if (local && local.dirty && !local.entries.some(e => e.synced)) {
+        // Nunca llegó a subirse: basta con quitarla del móvil
+        state.finished = state.finished.filter(f => f !== local);
+        persist(); emit('deleted');
+        return true;
+      }
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) throw Object.assign(new Error('offline'), { code: 'offline' });
+      await col().doc(sessionId).delete();
+      state.finished = state.finished.filter(f => f.session.id !== sessionId);
+      persist(); emit('deleted');
+      return true;
+    },
+
+    // Publicación del feed en la que se compartió la sesión (para no publicarla dos veces y poder borrarla con ella)
+    async setPost(sessionId, postId) {
+      if (!uid || !sessionId) return;
+      const local = state.finished.find(f => f.session.id === sessionId);
+      if (local) { local.session.postId = postId || null; persist(); }
+      await col().doc(sessionId).set({ postId: postId || null }, { merge: true });
     },
 
     // Adopta la sesión activa de otro dispositivo (tras un conflicto al iniciar)

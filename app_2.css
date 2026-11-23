@@ -35403,3 +35403,40 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 @media (prefers-reduced-motion: reduce) {
   .kx-geo-handle::before { transition: none; }
 }
+
+/* Editar perfil: etiqueta «Opcional» y ayuda bajo el campo (peso) */
+.edit-form-optional { margin-left: 6px; font-size: 12px; font-weight: 400; color: var(--kx-ink-3, var(--text-secondary)); }
+.edit-form-help { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--kx-ink-3, var(--text-secondary)); }
+
+/* ============================================
+   FEED — SESIÓN DE ESCALADA COMPARTIDA (post type: climb_session)
+   ============================================ */
+.kxs-fc { margin: 12px 0; padding: 16px; border-radius: 16px; background: var(--kx-sage-soft); border: 1px solid var(--kx-sage); display: grid; gap: 12px; }
+.kxs-fc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kxs-fc-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--kx-forest); }
+.kxs-fc-date { font-size: 12px; color: var(--kx-ink-3); }
+.kxs-fc-title { font-size: 20px; line-height: 1.2; font-weight: 800; color: var(--kx-ink); text-wrap: balance; }
+.kxs-fc-map, .kxs-fc-hero { display: block; width: 100%; height: 150px; border-radius: 12px; background: linear-gradient(160deg, var(--kx-forest), var(--kx-primary-pressed)); }
+.kxs-fc-contour { fill: none; stroke: rgba(220, 233, 223, 0.14); stroke-width: 1.5; }
+.kxs-fc-route { fill: none; stroke: var(--kx-coral); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.kxs-fc-start { fill: var(--kx-chalk); stroke: var(--kx-forest); stroke-width: 2; }
+.kxs-fc-end { fill: var(--kx-coral); stroke: var(--kx-chalk); stroke-width: 2; }
+.kxs-fc-hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.kxs-fc-hero strong { font-size: 52px; line-height: 1; font-weight: 800; color: var(--kx-chalk); }
+.kxs-fc-hero strong[style] { color: var(--c); }
+.kxs-fc-hero small { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--kx-sage); }
+.kxs-fc-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.kxs-fc-stats div { min-width: 0; }
+.kxs-fc-stats dt { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--kx-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kxs-fc-stats dd { margin: 2px 0 0; font-size: 17px; font-weight: 800; color: var(--kx-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kxs-fc-strip { display: flex; gap: 3px; height: 8px; }
+.kxs-fc-strip span { min-width: 8px; border-radius: 4px; background: var(--c); }
+@media (max-width: 360px) { .kxs-fc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Resumen de la sesión: compartir, publicar y borrar */
+.kxs-share-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 16px; }
+.kxs-delete-link { display: block; margin: 20px auto 4px; padding: 12px 16px; min-height: 44px; border: 0; background: none; font: inherit; font-weight: 700; color: var(--kx-danger); cursor: pointer; }
+.kxs-story-preview { display: block; width: min(100%, 260px); aspect-ratio: 9 / 16; margin: 4px auto 14px; border-radius: 16px; object-fit: cover; box-shadow: 0 10px 30px rgba(15, 47, 40, 0.18); }
+.kxs-story-preview.is-transparent { background-color: #8a9a92; background-image: linear-gradient(45deg, rgba(255,255,255,.18) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.18) 75%), linear-gradient(45deg, rgba(255,255,255,.18) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.18) 75%); background-size: 24px 24px; background-position: 0 0, 12px 12px; }
+.kxs-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; color: var(--kx-ink); }
+.kxs-check input { width: 20px; height: 20px; accent-color: var(--kx-forest); }

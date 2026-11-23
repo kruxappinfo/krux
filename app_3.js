@@ -6271,7 +6271,14 @@ function initEditProfile() {
       }
     });
 
-    modal.classList.remove('hidden');
+    // Peso (privado, users/{uid}/private/settings): se rellena aparte del perfil público
+  const weightInput = document.getElementById('edit-weight');
+  if (weightInput && window.KruxWeight) {
+    weightInput.value = KruxWeight.get() || '';
+    KruxWeight.load(currentUser.uid).then(v => { if (v && document.activeElement !== weightInput) weightInput.value = v; });
+  }
+
+  modal.classList.remove('hidden');
   }
 
   // Close Modal
@@ -6322,6 +6329,17 @@ function initEditProfile() {
 
       let photoURL = currentUser.photoURL;
 
+      // El peso se valida antes de guardar nada: un valor fuera de rango no debe dejar el perfil a medias
+      const weightInput = document.getElementById('edit-weight');
+      const weightRaw = weightInput ? weightInput.value.trim().replace(',', '.') : '';
+      if (weightRaw && !(typeof kxsValidWeight === 'function' && kxsValidWeight(weightRaw))) {
+        showToast('Indica un peso entre 30 y 250 kg', 'warning');
+        weightInput.focus();
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+        return;
+      }
+
       // Upload new photo if selected
       if (selectedPhotoFile) {
         submitBtn.textContent = 'Subiendo foto...';
@@ -6340,6 +6358,9 @@ function initEditProfile() {
       };
 
       const success = await updateUserProfile(profileData);
+      if (success && weightInput && window.KruxWeight && String(KruxWeight.get() || '') !== String(weightRaw ? kxsValidWeight(weightRaw) : '')) {
+        await KruxWeight.save(currentUser.uid, weightRaw);   // si no hay conexión queda en el móvil
+      }
 
       if (success) {
         modal.classList.add('hidden');
@@ -11017,6 +11038,9 @@ function renderPostCard(post, container) {
     const photoTag = locationName ? `<span class="feed-photo-tag" aria-hidden="true">${FEED_ICON_PIN}<span>${locationName}</span></span>` : '';
     mediaHTML += kxMediaHTML(postMedia, { tag: photoTag });
     card._lightboxItems = postMedia; // el visor recibe todas las fotos y vídeos, no solo los de la cuadrícula
+  } else if (post.type === 'climb_session' && post.climbSession && window.KruxSessionShare) {
+    // Sesión de escalada compartida desde su resumen: tarjeta propia (recorrido o grado máximo, cifras y grados)
+    mediaHTML += KruxSessionShare.feedCardHTML(post.climbSession);
   } else if (post.type === 'ascensions' && post.ascensions) {
     const ascensionsList = post.ascensions.map(a => `
       <div class="feed-ascension-item">
@@ -13530,6 +13554,9 @@ function renderPostInModal(post, container) {
         </div>
       `;
     }
+  } else if (post.type === 'climb_session' && post.climbSession && window.KruxSessionShare) {
+    contentHTML = (post.content ? `<div class="feed-text-content"><p class="feed-text-body">${renderTextWithMentions(post.content, post.mentions)}</p></div>` : '')
+      + KruxSessionShare.feedCardHTML(post.climbSession);
   } else if (post.type === 'text' || post.content) {
     contentHTML = `
       <div class="feed-text-content">

@@ -8,7 +8,7 @@ const SRC = readFileSync(new URL('../climb-session.js', import.meta.url), 'utf8'
 const RANK = ['5a', '5b', '6a', '6a+', '6b', '6c', '7a'];
 
 // Mundo simulado: Firestore en memoria, logAscent con la misma semántica que user-features.js, localStorage y GPS
-function world({ online = true, geo = null } = {}) {
+function world({ online = true, geo = null, cap = undefined } = {}) {
   const store = new Map();               // ruta → documento
   const ascents = new Map();             // id → payload recibido por logAscent
   const ls = new Map();
@@ -21,6 +21,7 @@ function world({ online = true, geo = null } = {}) {
       store.set(path, opts && opts.merge ? { ...(store.get(path) || {}), ...data } : data);
     },
     get: async () => ({ exists: store.has(path), data: () => store.get(path) }),
+    delete: async () => { if (!w.online) throw new Error('offline'); store.delete(path); },
     onSnapshot: () => () => {},
     collection: (n) => coll(`${path}/${n}`)
   });
@@ -47,7 +48,7 @@ function world({ online = true, geo = null } = {}) {
       watchPosition: (ok, err) => { const id = w.watchers.length + 1; w.watchers.push({ ok, err, id, cleared: false }); return id; },
       clearWatch: (id) => { w.watchers.find(x => x.id === id).cleared = true; }
     } },
-    window: { addEventListener() {}, Capacitor: undefined },
+    window: { addEventListener() {}, Capacitor: cap },
     document: { addEventListener() {}, visibilityState: 'visible' },
     fetch: async () => ({ ok: false })
   });
@@ -459,16 +460,123 @@ describe('conflicto entre dispositivos', () => {
   });
 });
 
+describe('borrar una sesión', () => {
+  const info = (over) => ({ schoolId: 'valeria', schoolName: 'Valeria', routeId: 1, routeName: 'Thor', grade: '6b', sector: 'Puente', style: 'redpoint', ...over });
+  it('borra el documento de la sesión y conserva los ascensos', async () => {
+    const w = world(); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    await K.start();
+    await K.addAscent(info());
+    const done = await K.finish();
+    await K.flush();
+    const path = `users/u1/climb_sessions/${done.session.id}`;
+    expect(w.store.has(path)).toBe(true);
+    expect(await K.remove(done.session.id)).toBe(true);
+    expect(w.store.has(path)).toBe(false);
+    expect(w.ascents.size).toBe(1);                               // la vía sigue en el registro de ascensos
+  });
+
+  it('no deja borrar la sesión en curso ni borrar sin conexión', async () => {
+    const w = world(); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    const s = await K.start();
+    await expect(K.remove(s.id)).rejects.toMatchObject({ code: 'active' });
+    const done = await K.finish();
+    await K.flush();
+    w.online = false;
+    await expect(K.remove(done.session.id)).rejects.toMatchObject({ code: 'offline' });
+  });
+
+  it('recuerda la publicación del feed de la sesión', async () => {
+    const w = world(); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    await K.start();
+    const done = await K.finish();
+    await K.flush();
+    await K.setPost(done.session.id, 'post1');
+    expect(w.store.get(`users/u1/climb_sessions/${done.session.id}`).postId).toBe('post1');
+  });
+});
+
+describe('peso del usuario para las calorías', () => {
+  it('solo acepta pesos razonables y cambia las calorías', () => {
+    const w = world();
+    const valid = w.get('kxsValidWeight'), kcal = w.get('kxsEstimateKcal');
+    expect([valid(68), valid('72.5'), valid(20), valid(300), valid('')]).toEqual([68, 72.5, null, null, null]);
+    const ref = kcal({ activeMs: 3600000 }), mine = kcal({ activeMs: 3600000, kg: 84 });
+    expect(ref.kg).toBe(70); expect(ref.ownKg).toBe(false);
+    expect(mine.kg).toBe(84); expect(mine.ownKg).toBe(true);
+    expect(mine.total).toBe(Math.round(1.8 * 84));
+  });
+
+  it('se guarda en users/{uid}/private/settings y en el móvil, nunca en el perfil público', async () => {
+    const w = world(); const W = w.get('KruxWeight');
+    expect(await W.save('u1', '71,0'.replace(',', '.'))).toBe(true);
+    expect(w.store.get('users/u1/private/settings')).toEqual({ weightKg: 71 });
+    expect(w.store.has('users/u1')).toBe(false);
+    expect(w.ls.get('krux_weight_u1')).toBe('71');
+    await expect(W.save('u1', 400)).rejects.toMatchObject({ code: 'weight' });
+    w.online = false;
+    expect(await W.save('u1', 69)).toBe('local');               // sin red: queda en el móvil
+    expect(W.get()).toBe(69);
+  });
+});
+
+describe('GPS en segundo plano (app nativa)', () => {
+  it('usa BackgroundGeolocation, graba los fixes y quita el watcher al pausar', async () => {
+    const bg = { watchers: [], removed: [] };
+    const cap = { isNativePlatform: () => true, getPlatform: () => 'ios', Plugins: {
+      Geolocation: {},
+      BackgroundGeolocation: {
+        addWatcher: async (opts, cb) => { bg.watchers.push({ opts, cb }); return 'w1'; },
+        removeWatcher: ({ id }) => { bg.removed.push(id); }
+      }
+    } };
+    const w = world({ cap }); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    await K.start({ gps: true });
+    expect(bg.watchers).toHaveLength(1);
+    expect(bg.watchers[0].opts.backgroundMessage).toBeTruthy();
+    const fix = (dLat, t) => bg.watchers[0].cb({ latitude: 40 + dLat, longitude: -3.7, accuracy: 8, time: t, simulated: false });
+    fix(0, 1000); fix(0.0002, 21000);                           // ~22 m en 20 s
+    expect(K.get().track).toHaveLength(2);
+    expect(K.get().session.gps.status).toBe('ok');
+    bg.watchers[0].cb({ latitude: 41, longitude: -3.7, accuracy: 5, time: 22000, simulated: true });   // simulada: se ignora
+    expect(K.get().track).toHaveLength(2);
+    K.pause();
+    expect(bg.removed).toEqual(['w1']);
+  });
+
+  it('sin permiso queda anotado como denegado y la sesión sigue', async () => {
+    let cb;
+    const cap = { isNativePlatform: () => true, Plugins: { Geolocation: {}, BackgroundGeolocation: { addWatcher: async (o, c) => { cb = c; return 'w'; }, removeWatcher() {} } } };
+    const w = world({ cap }); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    await K.start({ gps: true });
+    cb(null, { code: 'NOT_AUTHORIZED' });
+    expect(K.get().session.gps.status).toBe('denied');
+    expect(K.isActive()).toBe(true);
+  });
+});
+
 describe('permisos nativos', () => {
   const root = new URL('../', import.meta.url);
   const sh = readFileSync(new URL('../scripts/native-permissions.sh', import.meta.url), 'utf8');
 
-  it('el script es idempotente, cubre iOS y Android y no pide ubicación en segundo plano', () => {
+  it('el script es idempotente y configura la ubicación en segundo plano de las sesiones (iOS y Android)', () => {
     expect(sh).toContain('NSLocationWhenInUseUsageDescription');
-    expect(sh).toContain('ACCESS_FINE_LOCATION');
-    expect(sh).toContain('ACCESS_COARSE_LOCATION');
-    expect(sh).not.toMatch(/BACKGROUND_LOCATION|NSLocationAlways|UIBackgroundModes/);
+    expect(sh).toContain('NSLocationAlwaysAndWhenInUseUsageDescription');
+    expect(sh).toMatch(/UIBackgroundModes: string location/);          // añade «location» sin borrar otros modos
+    expect(sh).toMatch(/grep -qx '\[\[:space:\]\]\*location'/);   // y solo si no estaba
+    for (const p of ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_LOCATION', 'POST_NOTIFICATIONS']) expect(sh).toContain(p);
+    expect(sh).not.toMatch(/ACCESS_BACKGROUND_LOCATION/);             // Android usa el servicio en primer plano, no ubicación «siempre»
     expect(sh).toMatch(/if f'android.permission.\{perm\}"' not in s/);   // solo añade si falta
+  });
+  it('el GPS de la sesión usa el plugin de segundo plano en la app nativa y lo detiene al pausar o finalizar', () => {
+    const src = readFileSync(new URL('../climb-session.js', import.meta.url), 'utf8');
+    expect(src).toMatch(/cap\.Plugins\.BackgroundGeolocation/);
+    expect(src).toMatch(/BackgroundGeolocation\.removeWatcher\(\{ id \}\)/);
+    expect(src).toMatch(/backgroundMessage:/);
   });
   it('cap:sync aplica los permisos tras sincronizar', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));

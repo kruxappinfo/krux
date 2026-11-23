@@ -121,7 +121,7 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
     expect(require('node:crypto').createHash('md5').update(fs.readFileSync(path.join(ROOT, 'firestore.rules.previous'))).digest('hex')).toBe('311a726e31a1da22962d8ada891bd08f');
     expect(fs.statSync(path.join(ROOT, 'firestore.rules.previous')).size).toBe(36519);
   });
-  it('firestore.rules es el ruleset anterior, la propuesta o la propuesta + el bloque geojson_ediciones (desplegado el 2026-11-23): nunca otra cosa', () => {
+  it('firestore.rules es el ruleset anterior, la propuesta o la propuesta + geojson_ediciones (2026-11-23) + users/{uid}/private: nunca otra cosa', () => {
     const GEOJSON_BLOCK = `
     // Puntos del geojson movidos por el superadmin desde el mapa (un documento por escuela y uno para rocódromos).
     // Lectura pública: todos los mapas aplican estas ediciones al cargar. Solo escribe la cuenta de Krux.
@@ -137,7 +137,13 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
     const at = proposal.indexOf('    match /pending_poi/{poiId} {');
     const end = proposal.indexOf(ANCHOR, at) + ANCHOR.length;
     expect(at).toBeGreaterThan(0);
-    expect(rules.trimEnd()).toBe((proposal.slice(0, end) + GEOJSON_BLOCK + proposal.slice(end)).trimEnd());
+    // Bloque añadido después: users/{uid}/private (peso del usuario, solo su dueño), tras climb_sessions
+    const PRIVATE_ANCHOR = "          && request.resource.data.status in ['active', 'paused', 'finished'];\n      }\n";
+    const privStart = rules.indexOf('\n      // Datos privados del usuario');
+    const privEnd = rules.indexOf('      }\n', rules.indexOf('match /private/{docId}')) + '      }\n'.length;
+    const withoutPrivate = privStart > 0 ? rules.slice(0, privStart) + rules.slice(privEnd) : rules;
+    if (privStart > 0) expect(rules.slice(0, privStart).endsWith(PRIVATE_ANCHOR)).toBe(true);
+    expect(withoutPrivate.trimEnd()).toBe((proposal.slice(0, end) + GEOJSON_BLOCK + proposal.slice(end)).trimEnd());
   });
   it('storage.rules es copia idéntica de la propuesta 0c y no contiene el comodín global', () => {
     expect(sha('storage.rules')).toBe(sha('docs/security-phase0/storage.rules.phase0c.proposal'));

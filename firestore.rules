@@ -97,6 +97,16 @@ service cloud.firestore {
           && request.resource.data.status in ['active', 'paused', 'finished'];
       }
 
+      // Datos privados del usuario (hoy solo el peso, para estimar las calorías de las sesiones): users/{uid} lo
+      // puede leer cualquier usuario con sesión, este documento solo su dueño.
+      match /private/{docId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && docId == 'settings'
+          && request.resource.data.keys().hasOnly(['weightKg'])
+          && (!('weightKg' in request.resource.data)
+            || (request.resource.data.weightKg is number && request.resource.data.weightKg >= 30 && request.resource.data.weightKg <= 250));
+      }
+
       match /following/{followedUserId} {
         allow read: if isAuthenticated();
         allow write: if isOwner(userId);
