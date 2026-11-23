@@ -413,15 +413,15 @@ function nudgeInfoWindowIfOverlapTopBar(attempt = 0) {
 
 // FunciÃ³n helper para obtener la ruta de imagen del tiempo segÃºn el código WMO
 function getWeatherIconPath(code) {
-  if (code === 0) return 'icons/weather/sunny.png';
-  if ([1, 2].includes(code)) return 'icons/weather/partly-cloudy.png';
-  if (code === 3) return 'icons/weather/cloudy.png';
-  if ([45, 48].includes(code)) return 'icons/weather/fog.png';
-  if ([51, 53, 55].includes(code)) return 'icons/weather/light-rain.png';
-  if ([61, 63, 65].includes(code)) return 'icons/weather/rain.png';
-  if ([71, 73, 75].includes(code)) return 'icons/weather/snow.png';
-  if ([95, 96, 99].includes(code)) return 'icons/weather/storm.png';
-  return 'icons/weather/partly-cloudy.png';
+  if (code === 0) return 'icons/weather/sunny.png?v=2';
+  if ([1, 2].includes(code)) return 'icons/weather/partly-cloudy.png?v=2';
+  if (code === 3) return 'icons/weather/cloudy.png?v=2';
+  if ([45, 48].includes(code)) return 'icons/weather/fog.png?v=2';
+  if ([51, 53, 55].includes(code)) return 'icons/weather/light-rain.png?v=2';
+  if ([61, 63, 65].includes(code)) return 'icons/weather/rain.png?v=2';
+  if ([71, 73, 75].includes(code)) return 'icons/weather/snow.png?v=2';
+  if ([95, 96, 99].includes(code)) return 'icons/weather/storm.png?v=2';
+  return 'icons/weather/partly-cloudy.png?v=2';
 }
 
 async function fetchWeatherSummary(lat, lng) {
@@ -534,7 +534,7 @@ async function fetchWeatherWeek(lat, lng) {
             </div>
             <div class="week-icon"><img src="${weatherIconPath}" alt="Tiempo" class="weather-icon-img"></div>
             <div class="week-details">
-              <div class="week-precip"><img src="icons/weather/Gota.png" alt="Lluvia" class="precip-icon"> ${precipProb}% | ${precipAmt.toFixed(1)} mm</div>
+              <div class="week-precip"><img src="icons/weather/Gota.png?v=2" alt="Lluvia" class="precip-icon"> ${precipProb}% | ${precipAmt.toFixed(1)} mm</div>
               <div class="week-wind">${windArrow} ${wind} km/h</div>
             </div>
           </div>
