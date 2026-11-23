@@ -17,8 +17,8 @@ const SECTOR_GALLERY_CONFIG = {
   maxImages: Infinity,       // Sin límite de fotos por sector
   maxFileSize: 30 * 1024 * 1024, // 30MB
   allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
-  compressThreshold: 2 * 1024 * 1024, // Comprimir si > 2MB
-  maxDimension: 2000         // Máx dimensión en px
+  maxDimension: 2000,        // Máx dimensión en px
+  jpegQuality: 0.75          // Se comprimen todas: a 0.85 una foto de roca de 2000 px pesaba ~1,7 MB; a 0.75, ~800 KB sin diferencia visible
 };
 
 // ============================================
@@ -1288,10 +1288,7 @@ async function uploadSectorImage(schoolId, encodedSectorName) {
       const imagePath = `sector-images/${schoolId}/${normalizedName}/${imageId}.jpg`;
       const storageRef = firebase.storage().ref(imagePath);
 
-      let fileToUpload = file;
-      if (file.size > SECTOR_GALLERY_CONFIG.compressThreshold) {
-        fileToUpload = await compressSectorImage(file);
-      }
+      const fileToUpload = await compressSectorImage(file);
 
       const uploadTask = storageRef.put(fileToUpload, {
         contentType: 'image/jpeg',
@@ -1410,12 +1407,18 @@ function compressSectorImage(file) {
         canvas.height = height;
         ctx.drawImage(img, 0, 0, width, height);
 
+        const resized = width !== img.width || height !== img.height;
         canvas.toBlob((blob) => {
-          resolve(new File([blob], file.name, { type: 'image/jpeg' }));
-        }, 'image/jpeg', 0.85);
+          // Un JPEG que ya cabía y pesaba menos se sube tal cual (recomprimirlo solo perdería calidad)
+          if (!blob || (!resized && file.type === 'image/jpeg' && blob.size >= file.size)) resolve(file);
+          else resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+        }, 'image/jpeg', SECTOR_GALLERY_CONFIG.jpegQuality);
       };
+      // Si el navegador no puede decodificarla, se sube el original en vez de dejar la subida colgada
+      img.onerror = () => resolve(file);
       img.src = e.target.result;
     };
+    reader.onerror = () => resolve(file);
     reader.readAsDataURL(file);
   });
 }
