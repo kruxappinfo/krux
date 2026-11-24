@@ -13350,7 +13350,8 @@ async function handleReportPost(postId) {
     // For now, just show a confirmation and log
     const confirmed = await showConfirm(
       '¿Estás seguro de que quieres denunciar esta publicación?',
-      'Denunciar Publicación'
+      'Denunciar Publicación',
+      'Aceptar'
     );
 
     if (confirmed) {
