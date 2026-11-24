@@ -1456,6 +1456,8 @@ function updateLocalStats(change) {
 
 // Follow a user
 async function followUser(targetUserId) {
+    // Los contadores de las dos cuentas se vuelven a calcular la próxima vez
+    if (typeof kxForgetSocialCounts === 'function') kxForgetSocialCounts(currentUser.uid, targetUserId);
     try {
         const batch = db.batch();
 
@@ -1508,6 +1510,8 @@ async function followUser(targetUserId) {
 
 // Unfollow a user
 async function unfollowUser(targetUserId) {
+    // Los contadores de las dos cuentas se vuelven a calcular la próxima vez
+    if (typeof kxForgetSocialCounts === 'function') kxForgetSocialCounts(currentUser.uid, targetUserId);
     try {
         const batch = db.batch();
 

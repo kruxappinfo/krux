@@ -1795,6 +1795,8 @@ function initGlobalSearch() {
 let previousViewBeforeProfile = 'feed-view';
 // Store currently viewed profile userId (null = own profile)
 let currentProfileUserId = null;
+// Cuenta cuyos datos están pintados ahora mismo en la vista de perfil
+let kxShownProfileUid = null;
 // Loading state to prevent race conditions
 let profileLoadingState = {
   isLoading: false,
@@ -1878,6 +1880,7 @@ window.openPublicProfile = async function (userId) {
 
   // FIX #1: Reset state BEFORE switching view to prevent flash of old data
   resetProfileState();
+  kxShownProfileUid = userId;
 
   // Navigate to profile view
   switchView('profile-view');
@@ -2470,99 +2473,50 @@ async function checkFollowStatus(userId) {
   }
 }
 
-/**
- * Get the REAL count of followers (only counting users that actually exist)
- * This fixes the bug where deleted/orphaned users inflate the counter
- * Optimized version with batching to avoid Firestore errors
- */
-async function getRealFollowersCount(userId) {
+// Cuántas de estas cuentas siguen existiendo (una cuenta borrada no cuenta como seguidor).
+// Se pregunta en grupos de 30 y en paralelo: con 200 seguidores son 7 lecturas en vez de 200 seguidas.
+async function kxCountExistingUsers(ids) {
+  if (!ids.length) return 0;
+  const groups = [];
+  for (let i = 0; i < ids.length; i += 30) groups.push(ids.slice(i, i + 30));
+  const sizes = await Promise.all(groups.map(group =>
+    db.collection('users').where(firebase.firestore.FieldPath.documentId(), 'in', group).get()
+      .then(snap => snap.size)
+      .catch(() => group.length)   // si falla el grupo, mejor contar de más que enseñar 0
+  ));
+  return sizes.reduce((a, b) => a + b, 0);
+}
+
+// Seguidores / siguiendo reales, con un minuto de memoria: volver a un perfil ya visto es instantáneo.
+// Seguir o dejar de seguir borra la memoria de las dos cuentas (kxForgetSocialCounts).
+const kxSocialCountCache = new Map();
+const KX_SOCIAL_COUNT_TTL = 60 * 1000;
+function kxForgetSocialCounts(...uids) {
+  uids.forEach(uid => { kxSocialCountCache.delete(`followers:${uid}`); kxSocialCountCache.delete(`following:${uid}`); });
+}
+async function kxRealSocialCount(userId, kind) {
   if (!userId) return 0;
-
+  const key = `${kind}:${userId}`;
+  const hit = kxSocialCountCache.get(key);
+  if (hit && Date.now() - hit.at < KX_SOCIAL_COUNT_TTL) return hit.count;
   try {
-    const snapshot = await db.collection('users')
-      .doc(userId)
-      .collection('followers')
-      .get();
-
-    if (snapshot.empty) return 0;
-
-    // Get all follower IDs
-    const followerIds = snapshot.docs.map(doc => doc.id);
-
-    // Process in batches of 10 to avoid overwhelming Firestore
-    const batchSize = 10;
-    let existingCount = 0;
-
-    for (let i = 0; i < followerIds.length; i += batchSize) {
-      const batch = followerIds.slice(i, i + batchSize);
-      const promises = batch.map(uid =>
-        db.collection('users').doc(uid).get()
-          .then(doc => doc.exists ? 1 : 0)
-          .catch(() => 0)
-      );
-      const results = await Promise.all(promises);
-      existingCount += results.reduce((sum, val) => sum + val, 0);
-    }
-
-    return existingCount;
+    const snapshot = await db.collection('users').doc(userId).collection(kind).get();
+    const count = await kxCountExistingUsers(snapshot.docs.map(doc => doc.id));
+    kxSocialCountCache.set(key, { count, at: Date.now() });
+    return count;
   } catch (error) {
-    console.error('Error getting real followers count:', error);
+    console.error(`Error getting real ${kind} count:`, error);
     // Fallback: return the count from stats if available
     try {
       const userDoc = await db.collection('users').doc(userId).get();
-      return userDoc.data()?.stats?.followersCount || 0;
+      return userDoc.data()?.stats?.[kind === 'followers' ? 'followersCount' : 'followingCount'] || 0;
     } catch (e) {
       return 0;
     }
   }
 }
-
-/**
- * Get the REAL count of following (only counting users that actually exist)
- * This fixes the bug where deleted/orphaned users inflate the counter
- * Optimized version with batching to avoid Firestore errors
- */
-async function getRealFollowingCount(userId) {
-  if (!userId) return 0;
-
-  try {
-    const snapshot = await db.collection('users')
-      .doc(userId)
-      .collection('following')
-      .get();
-
-    if (snapshot.empty) return 0;
-
-    // Get all following IDs
-    const followingIds = snapshot.docs.map(doc => doc.id);
-
-    // Process in batches of 10 to avoid overwhelming Firestore
-    const batchSize = 10;
-    let existingCount = 0;
-
-    for (let i = 0; i < followingIds.length; i += batchSize) {
-      const batch = followingIds.slice(i, i + batchSize);
-      const promises = batch.map(uid =>
-        db.collection('users').doc(uid).get()
-          .then(doc => doc.exists ? 1 : 0)
-          .catch(() => 0)
-      );
-      const results = await Promise.all(promises);
-      existingCount += results.reduce((sum, val) => sum + val, 0);
-    }
-
-    return existingCount;
-  } catch (error) {
-    console.error('Error getting real following count:', error);
-    // Fallback: return the count from stats if available
-    try {
-      const userDoc = await db.collection('users').doc(userId).get();
-      return userDoc.data()?.stats?.followingCount || 0;
-    } catch (e) {
-      return 0;
-    }
-  }
-}
+function getRealFollowersCount(userId) { return kxRealSocialCount(userId, 'followers'); }
+function getRealFollowingCount(userId) { return kxRealSocialCount(userId, 'following'); }
 
 /**
  * Setup social buttons (followers/following) for a specific user
@@ -5671,8 +5625,10 @@ async function initProfile() {
 
   // Configure profile view for own profile (hide back button, show settings)
   configureProfileViewForOwnProfile();
-  // Nada del perfil visto antes se queda en pantalla mientras carga el propio
-  resetProfileState();
+  // Si lo que hay en pantalla es de otra cuenta, se vacía; si ya era el propio, se queda visible
+  // mientras se actualiza por detrás (volver a la pestaña Perfil no muestra ceros ni «Cargando»)
+  if (kxShownProfileUid !== authUser.uid) resetProfileState();
+  kxShownProfileUid = authUser.uid;
 
   // 1. Basic Info (from Auth & Firestore)
   const avatarEl = document.getElementById('profile-avatar');
@@ -5720,14 +5676,12 @@ async function initProfile() {
   // 2. Seguidores, siguiendo, estadísticas y publicaciones en paralelo; cada parte comprueba el loadId
   await Promise.all([
     (async () => {
-      const [postsCount, realFollowersCount, realFollowingCount] = await Promise.all([
-        getUserPostsCount(authUser.uid),
+      // (el número de publicaciones no se muestra en el perfil: ya no se descargan dos veces)
+      const [realFollowersCount, realFollowingCount] = await Promise.all([
         getRealFollowersCount(authUser.uid),
         getRealFollowingCount(authUser.uid)
       ]);
       if (isStale()) return;
-      const postsStat = document.getElementById('stat-posts');
-      if (postsStat) postsStat.textContent = postsCount;
       const followersStat = document.getElementById('stat-followers');
       if (followersStat) followersStat.textContent = realFollowersCount;
       const followingStat = document.getElementById('stat-following');
@@ -5753,41 +5707,20 @@ async function getUserPostsCount(userId) {
 
 // Load user posts for profile
 async function loadUserPosts(userId) {
-  const uidToUse = userId;
-  const firestore = firebase.firestore();
-
-  // Detectar si estamos en mÃ³vil (Capacitor) - necesita más tiempo de sincronizaciÃ³n
-  const isMobile = window.Capacitor !== undefined;
-  const baseDelay = isMobile ? 800 : 500;
-
-  const executeQuery = async () => {
-    const snapshot = await firestore.collection('posts')
-      .where('userId', '==', uidToUse)
-      .limit(50)
-      .get();
-    return snapshot;
-  };
-
+  // Una sola consulta, las más recientes primero (índice userId + createdAt, el mismo que usa el feed).
+  // Antes, un perfil sin publicaciones repetía la consulta 3 veces con esperas: hasta 3,6 s en el móvil.
   try {
-    // Primer intento
-    let snapshot = await executeQuery();
-
-    // Si no hay resultados, Firestore puede estar sincronizando - reintentar
-    if (snapshot.size === 0) {
-      await new Promise(resolve => setTimeout(resolve, baseDelay));
-      snapshot = await executeQuery();
-    }
-
-    // Segundo reintento
-    if (snapshot.size === 0) {
-      await new Promise(resolve => setTimeout(resolve, baseDelay * 1.5));
-      snapshot = await executeQuery();
-    }
-
-    // Tercer reintento (solo mÃ³vil)
-    if (snapshot.size === 0 && isMobile) {
-      await new Promise(resolve => setTimeout(resolve, baseDelay * 2));
-      snapshot = await executeQuery();
+    let snapshot;
+    try {
+      snapshot = await db.collection('posts')
+        .where('userId', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .limit(50)
+        .get();
+    } catch (e) {
+      // Sin el índice (p. ej. en un proyecto de pruebas) se piden sin ordenar y se ordenan aquí
+      if (e.code !== 'failed-precondition') throw e;
+      snapshot = await db.collection('posts').where('userId', '==', userId).limit(50).get();
     }
 
     const posts = [];
@@ -5863,8 +5796,10 @@ async function renderProfileGrid(loadId = null) {
     return;
   }
 
-  // Show loading
-  grid.innerHTML = '<div class="empty-message" style="text-align: center; padding: 20px;">Cargando publicaciones...</div>';
+  // «Cargando» solo si aún no hay nada: al recargar el propio perfil las publicaciones siguen a la vista
+  if (!grid.querySelector('.feed-card')) {
+    grid.innerHTML = '<div class="empty-message" style="text-align: center; padding: 20px;">Cargando publicaciones...</div>';
+  }
 
   try {
     const posts = await loadUserPosts(authUser.uid);
