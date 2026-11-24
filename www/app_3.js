@@ -995,6 +995,9 @@ document.addEventListener('click', async (e) => {
       case 'bookmark':
         await handleFeedBookmark(postId, feedActionBtn);
         break;
+      case 'share':
+        kxOpenPostShare(postId);
+        break;
     }
     return;
   }
@@ -3321,8 +3324,12 @@ function initMessages() {
 
   // Texto escapado, con enlaces activos y saltos de línea conservados (CSS pre-wrap)
   function chatFormatText(text) {
-    return escapeHtmlMention(text || '').replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g,
-      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+    return escapeHtmlMention(text || '').replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g, (url) => {
+      const postId = kxPostIdFromUrl(url.replace(/&amp;/g, '&'));
+      return postId
+        ? `<a href="${url}" data-kx-post="${postId}">${url}</a>`
+        : `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+    });
   }
 
   const CHAT_ICON_SENT = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
@@ -3604,6 +3611,13 @@ function initMessages() {
   });
 
   chatModal?.addEventListener('click', (e) => {
+    const postLink = e.target.closest('a[data-kx-post]');
+    if (postLink) {
+      e.preventDefault();
+      closeChat({ animate: false });
+      openPostModal(postLink.dataset.kxPost);
+      return;
+    }
     const action = e.target.closest('[data-chat-action]')?.dataset.chatAction;
     if (action === 'profile') {
       openChatProfile();
@@ -11020,16 +11034,6 @@ function renderPostCard(post, container) {
                 <span>Borrar</span>
               </button>
             ` : `
-              <button class="feed-post-menu-item" data-action="share" data-post-id="${post.id || ''}">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="18" cy="5" r="3"></circle>
-                  <circle cx="6" cy="12" r="3"></circle>
-                  <circle cx="18" cy="19" r="3"></circle>
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
-                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-                </svg>
-                <span>Compartir</span>
-              </button>
               <button class="feed-post-menu-item feed-post-menu-item-danger" data-action="report" data-post-id="${post.id || ''}">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
@@ -11146,6 +11150,9 @@ function renderPostCard(post, container) {
           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
         </svg>
         <span class="feed-action-count">${comments > 0 ? formatCount(comments) : ''}</span>
+      </button>
+      <button class="feed-action-btn" data-action="share" data-post-id="${post.id || ''}" aria-label="Compartir por mensaje">
+        ${KX_SHARE_ICON}
       </button>
       <span class="feed-actions-spacer"></span>${buildFeedBookmarkButton(post.id, post.bookmarked)}
     </div>
@@ -12962,9 +12969,213 @@ async function handleFeedBookmark(postId, button) {
   }
 }
 
+// ================== COMPARTIR PUBLICACIÓN POR MENSAJE ==================
+// El botón de compartir de la barra de acciones abre una hoja con las conversaciones y la gente que sigues; enviar
+// deja un mensaje con el enlace en el chat (MessagingService). Ese enlace abre la publicación dentro de la app.
+const KX_SHARE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
+const KX_SHARE_CHECK = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+const KX_SHARE_HOSTS = ['climbmaps-80cae.web.app', 'climbmaps-80cae.firebaseapp.com'];
+const KX_SHARE_PUBLIC_URL = 'https://climbmaps-80cae.web.app/';
+
+/** Enlace público de una publicación (en la app nativa el origen no es una web, se usa la pública). */
+function kxPostShareUrl(postId) {
+  const base = /^https?:$/.test(window.location.protocol) ? window.location.origin + window.location.pathname : KX_SHARE_PUBLIC_URL;
+  return `${base}?post=${encodeURIComponent(postId)}`;
+}
+
+/** Id de publicación de un enlace compartido de KRUX, o null si el enlace no es de una publicación nuestra. */
+function kxPostIdFromUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.host !== window.location.host && !KX_SHARE_HOSTS.includes(u.host)) return null;
+    const id = u.searchParams.get('post');
+    return id && /^[A-Za-z0-9_-]{4,64}$/.test(id) ? id : null;
+  } catch (_) { return null; }
+}
+
+let kxShareSheet = null;
+
+function kxCloseShareSheet() {
+  if (!kxShareSheet) return;
+  const { root, opener, onKey } = kxShareSheet;
+  document.removeEventListener('keydown', onKey, true);
+  root.classList.add('is-closing');
+  setTimeout(() => root.remove(), 160);
+  kxShareSheet = null;
+  if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+}
+
+/** Personas a las que enviar: conversaciones recientes primero y después a quienes sigues. */
+async function kxShareRecipients(uid) {
+  const people = new Map();
+  try {
+    const convs = await db.collection('conversations').where('participants', 'array-contains', uid)
+      .orderBy('lastMessageTime', 'desc').limit(30).get();
+    convs.forEach(doc => {
+      const other = window.MessagingService?.getOtherParticipant({ id: doc.id, ...doc.data() });
+      if (other && !people.has(other.id)) people.set(other.id, { id: other.id, name: other.displayName, photo: other.photoURL, convId: doc.id });
+    });
+  } catch (e) { console.error('Error cargando conversaciones para compartir:', e); }
+  try {
+    const following = await db.collection('users').doc(uid).collection('following').limit(40).get();
+    const ids = following.docs.map(d => d.id).filter(id => !people.has(id));
+    const docs = await Promise.all(ids.map(id => db.collection('users').doc(id).get().catch(() => null)));
+    const extra = [];
+    docs.forEach((d, i) => {
+      if (!d || !d.exists) return;
+      const data = d.data();
+      extra.push({ id: ids[i], name: data.displayName || data.username || 'Usuario', photo: data.photoURL || '', convId: null });
+    });
+    extra.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    extra.forEach(p => people.set(p.id, p));
+  } catch (e) { console.error('Error cargando seguidos para compartir:', e); }
+  return [...people.values()];
+}
+
+async function kxOpenPostShare(postId) {
+  const me = firebase.auth().currentUser;
+  if (!me) { showToast('Inicia sesión para compartir', 'info'); return; }
+  kxCloseShareSheet();
+
+  const root = document.createElement('div');
+  root.className = 'kx-share';
+  root.innerHTML = `
+    <div class="kx-share-backdrop"></div>
+    <div class="kx-share-sheet" role="dialog" aria-modal="true" aria-labelledby="kx-share-title" tabindex="-1">
+      <div class="kx-share-grab" aria-hidden="true"></div>
+      <div class="kx-share-head">
+        <h2 id="kx-share-title">Compartir publicación</h2>
+        <button type="button" class="kx-share-close" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg>
+        </button>
+      </div>
+      <input type="search" class="kx-share-search" placeholder="Buscar persona" aria-label="Buscar persona" autocomplete="off">
+      <div class="kx-share-list" aria-live="polite"><div class="kx-share-state">Cargando…</div></div>
+      <div class="kx-share-foot">
+        <button type="button" class="kx-share-link" data-share="copy">Copiar enlace</button>
+        ${navigator.share ? '<button type="button" class="kx-share-link" data-share="native">Más opciones</button>' : ''}
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+
+  const sheet = root.querySelector('.kx-share-sheet');
+  const list = root.querySelector('.kx-share-list');
+  const search = root.querySelector('.kx-share-search');
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); kxCloseShareSheet(); } };
+  document.addEventListener('keydown', onKey, true);
+  kxShareSheet = { root, onKey, opener: document.activeElement instanceof HTMLElement ? document.activeElement : null };
+  if (window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches) search.focus();
+  else sheet.focus({ preventScroll: true });
+
+  root.querySelector('.kx-share-backdrop').addEventListener('click', kxCloseShareSheet);
+  root.querySelector('.kx-share-close').addEventListener('click', kxCloseShareSheet);
+
+  // Texto del mensaje: quién publicó, un extracto y el enlace
+  const url = kxPostShareUrl(postId);
+  let intro = 'Mira esta publicación en KRUX';
+  const postPromise = db.collection('posts').doc(postId).get().then(doc => {
+    if (!doc.exists) return;
+    const d = doc.data();
+    const excerpt = (d.content || '').replace(/\s+/g, ' ').trim();
+    intro = `Mira esta publicación de ${d.userName || 'Usuario'}${excerpt ? `: «${excerpt.slice(0, 90)}${excerpt.length > 90 ? '…' : ''}»` : ''}`;
+  }).catch(() => {});
+
+  const sendTo = async (person, btn) => {
+    btn.disabled = true;
+    btn.classList.add('is-sending');
+    try {
+      await postPromise;
+      let convId = person.convId;
+      if (!convId) {
+        const conv = await window.MessagingService.getOrCreateConversation(person.id, { displayName: person.name, photoURL: person.photo });
+        convId = conv.id;
+        person.convId = convId;
+      }
+      await window.MessagingService.sendMessage(convId, `${intro}\n${url}`, person.id);
+      btn.classList.remove('is-sending');
+      btn.classList.add('is-sent');
+      btn.innerHTML = `${KX_SHARE_CHECK}<span>Enviado</span>`;
+    } catch (e) {
+      console.error('Error compartiendo la publicación:', e);
+      btn.disabled = false;
+      btn.classList.remove('is-sending');
+      showToast('No se ha podido enviar el mensaje', 'error', { detail: typeof kxFriendlyError === 'function' ? kxFriendlyError(e) : undefined });
+    }
+  };
+
+  let people = [];
+  const sentIds = new Set();
+  const render = () => {
+    const q = search.value.trim().toLowerCase();
+    const visible = people.filter(p => !q || p.name.toLowerCase().includes(q));
+    list.replaceChildren();
+    if (!visible.length) {
+      const empty = document.createElement('div');
+      empty.className = 'kx-share-state';
+      empty.textContent = people.length ? 'Nadie coincide con la búsqueda' : 'Todavía no tienes conversaciones ni sigues a nadie. Copia el enlace para compartirlo.';
+      list.appendChild(empty);
+      return;
+    }
+    visible.forEach(person => {
+      const row = document.createElement('div');
+      row.className = 'kx-share-row';
+      const img = document.createElement('img');
+      img.className = 'kx-share-avatar';
+      img.alt = '';
+      img.referrerPolicy = 'no-referrer';
+      img.src = person.photo || generateAvatarFallback(person.name, 80);
+      img.addEventListener('error', () => { img.src = generateAvatarFallback(person.name, 80); }, { once: true });
+      const name = document.createElement('span');
+      name.className = 'kx-share-name';
+      name.textContent = person.name;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'kx-share-send';
+      btn.setAttribute('aria-label', `Enviar a ${person.name}`);
+      if (sentIds.has(person.id)) { btn.disabled = true; btn.classList.add('is-sent'); btn.innerHTML = `${KX_SHARE_CHECK}<span>Enviado</span>`; }
+      else btn.textContent = 'Enviar';
+      btn.addEventListener('click', async () => { await sendTo(person, btn); if (btn.classList.contains('is-sent')) sentIds.add(person.id); });
+      row.append(img, name, btn);
+      list.appendChild(row);
+    });
+  };
+  search.addEventListener('input', render);
+
+  root.querySelector('.kx-share-foot').addEventListener('click', async (e) => {
+    const action = e.target.closest('[data-share]')?.dataset.share;
+    if (action === 'copy') {
+      try { await navigator.clipboard.writeText(url); showToast('Enlace copiado', 'info'); }
+      catch (_) { showToast('No se ha podido copiar el enlace', 'error'); }
+    } else if (action === 'native') {
+      await postPromise;
+      try { await navigator.share({ title: 'KRUX', text: intro, url }); } catch (_) { /* cancelado */ }
+    }
+  });
+
+  people = await kxShareRecipients(me.uid);
+  if (kxShareSheet && kxShareSheet.root === root) render();
+}
+
+// Enlace ?post=ID: abre la publicación al entrar (con la sesión ya iniciada) y limpia la dirección
+(function kxOpenSharedPostFromUrl() {
+  let postId = null;
+  try { postId = new URLSearchParams(window.location.search).get('post'); } catch (_) { return; }
+  if (!postId || !/^[A-Za-z0-9_-]{4,64}$/.test(postId)) return;
+  const unsubscribe = firebase.auth().onAuthStateChanged(user => {
+    if (!user) return;
+    unsubscribe();
+    try {
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete('post');
+      window.history.replaceState({}, '', clean.pathname + clean.search + clean.hash);
+    } catch (_) { /* sin historial */ }
+    setTimeout(() => openPostModal(postId), 600);
+  });
+})();
+
 // Handle share button click - navigator.share for mobile, clipboard fallback for desktop
 async function handleFeedShare(postId) {
-  const shareUrl = `${window.location.origin}${window.location.pathname}?post=${postId}`;
+  const shareUrl = kxPostShareUrl(postId);
 
   try {
     // Get post data for share text
@@ -13557,16 +13768,6 @@ function renderPostInModal(post, container) {
                 <span>Borrar</span>
               </button>
             ` : `
-              <button class="feed-post-menu-item modal-menu-action" data-action="share" data-post-id="${postId}">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="18" cy="5" r="3"></circle>
-                  <circle cx="6" cy="12" r="3"></circle>
-                  <circle cx="18" cy="19" r="3"></circle>
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
-                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-                </svg>
-                <span>Compartir</span>
-              </button>
               <button class="feed-post-menu-item feed-post-menu-item-danger modal-menu-action" data-action="report" data-post-id="${postId}">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
@@ -13637,6 +13838,9 @@ function renderPostInModal(post, container) {
           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
         </svg>
         <span class="feed-action-count">${commentsCount > 0 ? formatCount(commentsCount) : ''}</span>
+      </button>
+      <button class="feed-action-btn" data-action="share" data-post-id="${post.id || ''}" aria-label="Compartir por mensaje">
+        ${KX_SHARE_ICON}
       </button>
     </div>
   `;
