@@ -6463,6 +6463,7 @@ async function handleSettingsItemClick(e) {
         const confirmLogout = await showConfirm('¿Estás seguro de que quieres cerrar sesión?', 'Cerrar sesión', 'Cerrar sesión');
         if (confirmLogout) {
           try {
+            if (window.KruxPush) await KruxPush.stop();   // este móvil deja de recibir los push de la cuenta
             await firebase.auth().signOut();
             showToast('Sesión cerrada', 'success');
             window.location.reload();

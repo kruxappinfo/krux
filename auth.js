@@ -319,7 +319,8 @@ function signInWithGoogle() {
 }
 
 // Sign out
-function signOut() {
+async function signOut() {
+    if (window.KruxPush) await KruxPush.stop();   // este móvil deja de recibir los push de la cuenta
     auth.signOut()
         .then(() => {
             // Signed out successfully
