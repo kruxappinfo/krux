@@ -13752,6 +13752,7 @@ function updateAllUserAvatars(photoURL, userName) {
     '#user-photo',
     '#user-photo-dropdown',
     '#create-post-avatar',
+    '#feed-composer-avatar',
     '#pp-avatar'
   ];
 
