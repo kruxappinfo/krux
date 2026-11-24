@@ -639,6 +639,9 @@ function kxAscentDoc(ascentData) {
         ...(ascentData.sessionId ? { sessionId: ascentData.sessionId } : {}),
         ...(ascentData.loggedAt ? { loggedAt: new Date(ascentData.loggedAt) } : {}),
         ...(Array.isArray(ascentData.companions) && ascentData.companions.length ? { companions: ascentData.companions.slice(0, 10) } : {}),
+        // Ascenso confirmado desde una etiqueta de un compañero (ascent-partners.js)
+        ...(ascentData.taggedBy ? { taggedBy: ascentData.taggedBy } : {}),
+        ...(ascentData.sourceAscentId ? { sourceAscentId: ascentData.sourceAscentId } : {}),
     };
 }
 
@@ -646,7 +649,11 @@ function kxAscentDoc(ascentData) {
 async function kxWriteAscent(ascentData, checkExisting) {
     const ref = db.collection('ascents').doc(ascentData.id);
     if (checkExisting && (await ref.get()).exists) return;
-    await ref.set(kxAscentDoc(ascentData));
+    const doc = kxAscentDoc(ascentData);
+    await ref.set(doc);
+    // Aviso a los compañeros etiquetados (también en los ascensos de sesión y en los que esperaban en la cola);
+    // no bloquea el registro ni lo hace fallar
+    if (doc.companions && window.KruxPartners) KruxPartners.notifyTagged(ascentData.id, doc).catch(() => {});
     // El contador del perfil no bloquea el registro: si no responde, Firestore lo sube al volver la red
     try {
         await kxWithTimeout(db.collection('users').doc(currentUser.uid).update({
@@ -876,8 +883,13 @@ async function updateAscent(ascentId, ascentData) {
             rating: ascentData.rating,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
+        if (Array.isArray(ascentData.companions)) data.companions = ascentData.companions.slice(0, 10);
 
         await db.collection('ascents').doc(ascentId).update(data);
+        // Solo se avisa a los compañeros añadidos ahora: los de antes ya tienen su notificación
+        if (ascentData.newCompanions && ascentData.newCompanions.length && window.KruxPartners) {
+            KruxPartners.notifyTagged(ascentId, { ...data, date: data.date }, ascentData.newCompanions).catch(() => {});
+        }
         return true;
     } catch (error) {
         console.error('Error updating ascent:', error);
@@ -1028,14 +1040,15 @@ function kxLocalISODate(d = new Date()) {
 }
 
 // Open ascent modal
-function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector) {
+// opts.fromTag: confirmar la etiqueta de un compañero (siempre en el formulario, aunque haya una sesión activa)
+function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector, opts = {}) {
     if (!currentUser) {
         showToast('Inicia sesión para registrar tus ascensiones', 'info');
         return;
     }
 
     // Con una sesión de escalada activa, el registro pasa por la hoja de la sesión (mismo logAscent, con sessionId)
-    if (routeId != null && schoolId && window.KruxSession && KruxSession.isActive() && window.KruxSessionUI) {
+    if (!opts.fromTag && routeId != null && schoolId && window.KruxSession && KruxSession.isActive() && window.KruxSessionUI) {
         KruxSessionUI.openRegister({ schoolId, schoolName, routeId, routeName, grade, sector });
         return;
     }
@@ -1060,8 +1073,24 @@ function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector
     dateInput.max = todayStr;
     dateInput.value = todayStr;
 
+    if (window.KruxPartners) KruxPartners.resetForm();
     kxAscentVotes.open(schoolId, routeId, grade);
     modal.classList.remove('hidden');
+}
+
+// Estilo del formulario de ascenso (campo oculto, desplegable y su etiqueta)
+function kxSetAscentStyle(style) {
+    const input = document.getElementById('ascent-style');
+    if (input) input.value = style;
+    document.querySelectorAll('.style-dropdown-menu .style-option').forEach(o => {
+        const on = o.dataset.value === style;
+        o.classList.toggle('selected', on);
+        const toggle = document.getElementById('style-dropdown-toggle');
+        if (on && toggle) {
+            toggle.querySelector('.style-icon').dataset.style = style;
+            toggle.querySelector('.style-dropdown-label').innerHTML = o.querySelector('.style-text').innerHTML;
+        }
+    });
 }
 
 // Close ascent modal
@@ -1073,6 +1102,7 @@ function closeAscentModal() {
     modal.classList.add('hidden');
     form.reset();
     kxAscentVotes.reset();
+    if (window.KruxPartners) KruxPartners.resetForm();
 
     // Reset style dropdown to default (redpoint)
     document.getElementById('ascent-style').value = 'redpoint';
@@ -1169,6 +1199,7 @@ function openEditAscentModal(ascent) {
     // Store ascent ID in form for update
     form.dataset.ascentId = ascent.id;
     form.dataset.editMode = 'true';
+    if (window.KruxPartners) KruxPartners.resetForm(ascent.companions || []);
 
     // Change title and button text
     const modalTitle = document.getElementById('ascent-modal-title');
@@ -2815,7 +2846,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     tries: Math.max(1, parseInt(document.getElementById('ascent-tries').value, 10) || 1),
                     notes: document.getElementById('ascent-notes').value,
                     rating: parseInt(document.querySelector('input[name="rating"]:checked')?.value || 0),
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    ...(window.KruxPartners ? KruxPartners.formExtras(form) : {})
                 };
 
                 // Check if we're in edit mode
@@ -2824,6 +2856,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (isEditMode && ascentId) {
                     // Update existing ascent
+                    if (window.KruxPartners) ascentData.newCompanions = KruxPartners.addedSinceOpen();
                     if (!await updateAscent(ascentId, ascentData)) return; // ya avisa del error; el formulario sigue abierto
                     await kxAscentVotes.save();
                     closeAscentModal();
@@ -2834,10 +2867,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Create new ascent
                     const saved = await logAscent(ascentData);
                     if (!saved) return; // ya avisa del error; el formulario sigue abierto
+                    const fromTag = !!form.dataset.tagNotification;
+                    if (fromTag && window.KruxPartners) await KruxPartners.confirmed(form);
                     await kxAscentVotes.save();
                     closeAscentModal();
                     if (saved === 'queued') showToast('Ascenso guardado en el móvil', 'success', { detail: 'Se subirá solo cuando vuelvas a tener cobertura.' });
-                    else showToast('Ascenso registrado', 'success');
+                    else showToast(fromTag ? 'Ascenso confirmado y añadido a tu registro' : 'Ascenso registrado', 'success');
                     if (typeof loadActivityData === 'function') loadActivityData();
                 }
 

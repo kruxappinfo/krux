@@ -35435,6 +35435,17 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 
 /* Resumen de la sesión: compartir, publicar y borrar */
 .kxs-share-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 16px; }
+.kx-ascent-tag-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--kx-sage-soft); color: var(--kx-forest); font-size: 0.875rem; font-weight: 600; line-height: 1.4; }
+.kx-ascent-tag-note[hidden], #ascent-partners-group[hidden] { display: none; }
+.kx-ascent-partners-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--kx-line); border-radius: 12px; background: transparent; color: var(--kx-ink); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.kx-ascent-partners-btn svg { flex: none; color: var(--kx-forest); }
+.kx-ascent-partners-btn span { flex: 1; min-width: 0; }
+.kx-ascent-partners-btn[aria-expanded="true"] .kx-ascent-partners-chev { transform: rotate(180deg); }
+.kx-ascent-partners-help { display: block; margin-top: 6px; color: var(--kx-ink-3); font-size: 0.8125rem; }
+.notification-tag-actions { display: flex; gap: 8px; margin-top: 8px; }
+.notification-tag-actions .kx-btn { min-height: 36px; }
+.notification-tag-status { display: block; margin-top: 4px; font-size: 0.8125rem; font-weight: 700; color: var(--kx-ink-3); }
+.notification-tag-status.is-ok { color: var(--kx-forest); }
 .kxs-routemap { margin: 0 0 16px; border-radius: 16px; overflow: hidden; background: var(--kx-sage-soft); box-shadow: inset 0 0 0 1px rgba(15, 47, 40, 0.08); }
 .kxs-routemap-map { position: relative; height: clamp(12rem, 52vw, 16rem); }
 .kxs-routemap-svg { display: block; width: 100%; height: 100%; }
