@@ -8193,6 +8193,17 @@ function sortGrades(grades) {
  * @param {string} grade
  * @returns {string} Hex color code
  */
+/** Texto que se lee sobre el color de un grado: granito en los claros, blanco en los oscuros. */
+function kxGradeInk(hex) {
+  const m = String(hex).trim().match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return '#202923';
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255)
+    .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  // Contraste de cada opción con el fondo del grado: gana la mayor
+  return (1.05 / (l + 0.05)) > ((l + 0.05) / (0.0217 + 0.05)) ? '#FFFFFF' : '#202923';
+}
+
 function getGradeColor(grade) {
   const gradeLower = grade.toLowerCase();
 
@@ -8562,7 +8573,7 @@ async function loadSchoolStats(schoolId, chartId) {
             const c = segment.getAttribute('data-count');
             const color = segment.getAttribute('stroke');
             centerText.innerHTML = `
-               <div class="ml-total-vias" style="color: ${color};">${g}</div>
+               <div class="ml-total-vias is-grade" style="background: ${color}; color: ${kxGradeInk(color)};">${g}</div>
                <div class="ml-total-label">${c} Vías</div>
              `;
           });
@@ -10167,12 +10178,16 @@ function renderDonutChart(gradeData) {
   const showSegment = (segment) => {
     const grade = segment.getAttribute('data-grade');
     const count = segment.getAttribute('data-count');
+    // El grado va en una cápsula con su color real (los pastel como texto suelto apenas se leían)
     const color = segment.getAttribute('stroke');
     centerText.innerHTML = `
-      <div class="bs-donut-total" style="color: ${color};">${grade.toUpperCase()}</div>
-      <div class="bs-donut-label">${count} Vías</div>
+      <div class="bs-donut-total is-grade" style="background: ${color}; color: ${kxGradeInk(color)};">${grade.toUpperCase()}</div>
+      <div class="bs-donut-label">${count} ${count === '1' ? 'Vía' : 'Vías'}</div>
     `;
+    // El segmento tocado destaca y el resto se atenúa: los grados con pocas vías se distinguen mejor
+    svgSegments.forEach(s => s.classList.toggle('is-dim', s !== segment));
   };
+  const resetSegments = () => svgSegments.forEach(s => s.classList.remove('is-dim'));
 
   svgSegments.forEach(segment => {
     segment.addEventListener('mouseenter', () => showSegment(segment));
@@ -10188,6 +10203,7 @@ function renderDonutChart(gradeData) {
       if (e.pointerType === 'mouse' || !container.isConnected || e.target.closest('.bs-donut-segment')) return;
       const c = document.getElementById('bs-donut-center');
       if (c) c.innerHTML = container._kxDefaultCenter;
+      container.querySelectorAll('.bs-donut-segment.is-dim').forEach(seg => seg.classList.remove('is-dim'));
     }, true);
   }
 
@@ -10195,6 +10211,7 @@ function renderDonutChart(gradeData) {
   if (svgEl) {
     svgEl.addEventListener('mouseleave', () => {
       centerText.innerHTML = defaultCenterContent;
+      resetSegments();
     });
   }
 }
