@@ -1604,6 +1604,9 @@ async function updateUserProfile(profileData) {
             if (navAvatar) navAvatar.src = profileData.photoURL;
         }
 
+        // El compositor del feed ("¿Qué quieres compartir?") y su copia local para el arranque
+        if (typeof updateFeedComposer === 'function') updateFeedComposer(currentUser);
+
         // Update header name if exists
         const headerName = document.getElementById('user-name');
         if (headerName) headerName.textContent = profileData.displayName;
