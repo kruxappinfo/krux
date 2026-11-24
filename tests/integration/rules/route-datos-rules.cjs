@@ -52,7 +52,8 @@ const expect = async (label, promise, shouldPass) => {
   await expect('metros 0', ref(SP, 9).set(data(SP, 9, { long1: 0 }), merge), false);
   await expect('metros 501', ref(SP, 9).set(data(SP, 9, { long1: 501 }), merge), false);
   await expect('estilo vacío', ref(SP, 9).set(data(SP, 9, { estilo: '' }), merge), false);
-  await expect('estilo de 41 caracteres', ref(SP, 9).set(data(SP, 9, { estilo: 'x'.repeat(41) }), merge), false);
+  await expect('estilo de 121 caracteres', ref(SP, 9).set(data(SP, 9, { estilo: 'x'.repeat(121) }), merge), false);
+  await expect('varios estilos (120 caracteres)', ref(SP, 15).set(data(SP, 15, { estilo: 'x'.repeat(120) }), merge), true);
   await expect('campo no admitido (grado1)', ref(SP, 9).set(data(SP, 9, { grado1: '6a' }), merge), false);
   await expect('variante 6 no admitida', ref(SP, 9).set(data(SP, 9, { exp6: 5 }), merge), false);
   await expect('fecha inventada', ref(SP, 9).set(data(SP, 9, { exp1: 5, updatedAt: new Date(2000, 0, 1) }), merge), false);

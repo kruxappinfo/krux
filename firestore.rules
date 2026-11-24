@@ -648,7 +648,7 @@ service cloud.firestore {
         return f is map && f.keys().hasOnly(['nombre', 'estilo', 'descripcion',
             'grado1', 'grado2', 'grado3', 'grado4', 'grado5',
             'exp1', 'exp2', 'exp3', 'exp4', 'exp5', 'long1', 'long2', 'long3', 'long4', 'long5']) &&
-          okStr(f, 'nombre', 1, 80) && okStr(f, 'estilo', 0, 40) && okStr(f, 'descripcion', 0, 600) &&
+          okStr(f, 'nombre', 1, 80) && okStr(f, 'estilo', 0, 120) && okStr(f, 'descripcion', 0, 600) &&
           okStr(f, 'grado1', 1, 8) && okStr(f, 'grado2', 1, 8) && okStr(f, 'grado3', 1, 8) &&
           okStr(f, 'grado4', 1, 8) && okStr(f, 'grado5', 1, 8) &&
           okIntOrNull(f, 'exp1', 0, 50) && okIntOrNull(f, 'exp2', 0, 50) && okIntOrNull(f, 'exp3', 0, 50) &&
@@ -663,7 +663,7 @@ service cloud.firestore {
           d.schoolId is string && d.routeId is int &&
           docId == d.schoolId + '_' + string(d.routeId) &&
           d.updatedBy == request.auth.uid && d.updatedAt == request.time &&
-          (!('estilo' in d) || (d.estilo is string && d.estilo.size() > 0 && d.estilo.size() <= 40)) &&
+          (!('estilo' in d) || (d.estilo is string && d.estilo.size() > 0 && d.estilo.size() <= 120)) &&
           okInt(d, 'exp1', 0, 50) && okInt(d, 'exp2', 0, 50) && okInt(d, 'exp3', 0, 50) &&
           okInt(d, 'exp4', 0, 50) && okInt(d, 'exp5', 0, 50) &&
           okInt(d, 'long1', 1, 500) && okInt(d, 'long2', 1, 500) && okInt(d, 'long3', 1, 500) &&
