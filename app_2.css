@@ -35676,18 +35676,24 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 .kx-share .kx-share-close:hover { background: var(--kx-stone-hover); }
 .kx-share .kx-share-search { width: 100%; min-height: 44px; margin: 0 0 6px; padding: 0 16px; border: 0; border-radius: 22px; background: var(--kx-stone-card); box-shadow: none; font: inherit; font-size: var(--kx-fs-body); color: var(--kx-ink); }
 .kx-share .kx-share-search:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 1px; }
-.kx-share-list { flex: 1; min-height: 120px; overflow-y: auto; overscroll-behavior: contain; margin: 0 -8px; padding: 0 8px; }
+.kx-share-list { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 120px; overflow-y: auto; overscroll-behavior: contain; margin: 0 -8px; padding: 2px 0; }
 .kx-share-state { padding: 28px 12px; text-align: center; font-size: var(--kx-fs-meta); color: var(--kx-ink-3); }
-.kx-share-row { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 6px 0; }
+.kx-share .kx-share-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; margin: 0; padding: 6px 8px; border: 0; border-radius: 16px; background: transparent; box-shadow: none; transform: none; will-change: auto; font: inherit; text-align: left; color: var(--kx-ink); cursor: pointer; transition: background 0.15s; }
+.kx-share .kx-share-row:hover { background: var(--kx-stone-card); }
+.kx-share .kx-share-row.is-selected { background: var(--kx-sage-soft); }
+.kx-share .kx-share-row:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: -2px; }
+.kx-share-check { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--kx-ink-3); color: transparent; transition: background 0.15s, box-shadow 0.15s, color 0.15s; }
+.kx-share-check svg { width: 15px; height: 15px; }
+.kx-share-row.is-selected .kx-share-check { background: var(--kx-primary); box-shadow: none; color: #fff; }
 .kx-share-avatar { flex: none; width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: var(--kx-sage-soft); }
 .kx-share-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--kx-fs-lead); font-weight: var(--kx-fw-strong); color: var(--kx-ink); }
-.kx-share .kx-share-send { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 88px; min-height: 40px; padding: 0 16px; border: 0; border-radius: 20px; background: var(--kx-primary); box-shadow: none; transform: none; will-change: auto; font: inherit; font-size: var(--kx-fs-meta); font-weight: var(--kx-fw-strong); color: #fff; cursor: pointer; transition: background 0.15s; }
-.kx-share .kx-share-send:hover { background: var(--kx-primary-hover); }
-.kx-share .kx-share-send:active { background: var(--kx-primary-pressed); }
-.kx-share .kx-share-send.is-sending { opacity: 0.6; cursor: progress; }
-.kx-share .kx-share-send.is-sent { background: var(--kx-sage); color: var(--kx-forest); cursor: default; opacity: 1; }
-.kx-share .kx-share-send:focus-visible, .kx-share .kx-share-link:focus-visible, .kx-share .kx-share-close:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
-.kx-share-foot { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid var(--kx-line); }
+.kx-share .kx-share-link:focus-visible, .kx-share .kx-share-close:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+.kx-share-foot { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid var(--kx-line); }
+.kx-share .kx-share-submit { flex: 1 0 100%; min-height: 48px; padding: 0 16px; border: 0; border-radius: 24px; background: var(--kx-primary); box-shadow: none; transform: none; will-change: auto; font: inherit; font-size: var(--kx-fs-body); font-weight: var(--kx-fw-strong); color: #fff; cursor: pointer; transition: background 0.15s, opacity 0.15s; }
+.kx-share .kx-share-submit:hover:not(:disabled) { background: var(--kx-primary-hover); }
+.kx-share .kx-share-submit:active:not(:disabled) { background: var(--kx-primary-pressed); }
+.kx-share .kx-share-submit:disabled { opacity: 0.4; cursor: default; }
+.kx-share .kx-share-submit:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 .kx-share .kx-share-link { flex: 1; min-height: 44px; padding: 0 12px; border: 0; border-radius: 22px; background: var(--kx-stone-card); box-shadow: none; transform: none; will-change: auto; font: inherit; font-size: var(--kx-fs-meta); font-weight: var(--kx-fw-strong); color: var(--kx-ink); cursor: pointer; }
 .kx-share .kx-share-link:hover { background: var(--kx-stone-hover); }
 @media (min-width: 769px) {

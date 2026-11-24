@@ -13050,8 +13050,9 @@ async function kxOpenPostShare(postId) {
         </button>
       </div>
       <input type="search" class="kx-share-search" placeholder="Buscar persona" aria-label="Buscar persona" autocomplete="off">
-      <div class="kx-share-list" aria-live="polite"><div class="kx-share-state">Cargando…</div></div>
+      <div class="kx-share-list" role="group" aria-label="Personas"><div class="kx-share-state">Cargando…</div></div>
       <div class="kx-share-foot">
+        <button type="button" class="kx-share-submit" data-share="send" disabled>Enviar</button>
         <button type="button" class="kx-share-link" data-share="copy">Copiar enlace</button>
         ${navigator.share ? '<button type="button" class="kx-share-link" data-share="native">Más opciones</button>' : ''}
       </div>
@@ -13080,31 +13081,49 @@ async function kxOpenPostShare(postId) {
     intro = `Mira esta publicación de ${d.userName || 'Usuario'}${excerpt ? `: «${excerpt.slice(0, 90)}${excerpt.length > 90 ? '…' : ''}»` : ''}`;
   }).catch(() => {});
 
-  const sendTo = async (person, btn) => {
-    btn.disabled = true;
-    btn.classList.add('is-sending');
-    try {
-      await postPromise;
-      let convId = person.convId;
-      if (!convId) {
-        const conv = await window.MessagingService.getOrCreateConversation(person.id, { displayName: person.name, photoURL: person.photo });
-        convId = conv.id;
-        person.convId = convId;
-      }
-      await window.MessagingService.sendMessage(convId, `${intro}\n${url}`, person.id);
-      btn.classList.remove('is-sending');
-      btn.classList.add('is-sent');
-      btn.innerHTML = `${KX_SHARE_CHECK}<span>Enviado</span>`;
-    } catch (e) {
-      console.error('Error compartiendo la publicación:', e);
-      btn.disabled = false;
-      btn.classList.remove('is-sending');
-      showToast('No se ha podido enviar el mensaje', 'error', { detail: typeof kxFriendlyError === 'function' ? kxFriendlyError(e) : undefined });
-    }
+  const submit = root.querySelector('.kx-share-submit');
+  let people = [];
+  const selected = new Map();   // id → persona marcada
+  let sending = false;
+
+  const updateSubmit = () => {
+    const n = selected.size;
+    submit.disabled = !n || sending;
+    submit.textContent = sending ? 'Enviando…' : (n > 1 ? `Enviar a ${n} personas` : 'Enviar');
   };
 
-  let people = [];
-  const sentIds = new Set();
+  const sendTo = async (person) => {
+    let convId = person.convId;
+    if (!convId) {
+      const conv = await window.MessagingService.getOrCreateConversation(person.id, { displayName: person.name, photoURL: person.photo });
+      convId = conv.id;
+      person.convId = convId;
+    }
+    await window.MessagingService.sendMessage(convId, `${intro}\n${url}`, person.id);
+  };
+
+  // Envía a todas las personas marcadas; si alguna falla se queda marcada para reintentar
+  const sendSelected = async () => {
+    if (!selected.size || sending) return;
+    sending = true;
+    updateSubmit();
+    await postPromise;
+    let ok = 0, lastError = null;
+    for (const person of [...selected.values()]) {
+      try { await sendTo(person); ok++; selected.delete(person.id); }
+      catch (e) { console.error('Error compartiendo la publicación:', e); lastError = e; }
+    }
+    sending = false;
+    if (lastError) {
+      render();
+      updateSubmit();
+      showToast(ok ? `Enviado a ${ok}, pero no a ${selected.size}` : 'No se ha podido enviar el mensaje', 'error', { detail: typeof kxFriendlyError === 'function' ? kxFriendlyError(lastError) : undefined });
+      return;
+    }
+    showToast(ok > 1 ? `Enviado a ${ok} personas` : 'Enviado', 'success');
+    kxCloseShareSheet();
+  };
+
   const render = () => {
     const q = search.value.trim().toLowerCase();
     const visible = people.filter(p => !q || p.name.toLowerCase().includes(q));
@@ -13117,8 +13136,15 @@ async function kxOpenPostShare(postId) {
       return;
     }
     visible.forEach(person => {
-      const row = document.createElement('div');
+      const row = document.createElement('button');
+      row.type = 'button';
       row.className = 'kx-share-row';
+      row.setAttribute('role', 'checkbox');
+      const sync = () => {
+        const on = selected.has(person.id);
+        row.classList.toggle('is-selected', on);
+        row.setAttribute('aria-checked', String(on));
+      };
       const img = document.createElement('img');
       img.className = 'kx-share-avatar';
       img.alt = '';
@@ -13128,14 +13154,18 @@ async function kxOpenPostShare(postId) {
       const name = document.createElement('span');
       name.className = 'kx-share-name';
       name.textContent = person.name;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'kx-share-send';
-      btn.setAttribute('aria-label', `Enviar a ${person.name}`);
-      if (sentIds.has(person.id)) { btn.disabled = true; btn.classList.add('is-sent'); btn.innerHTML = `${KX_SHARE_CHECK}<span>Enviado</span>`; }
-      else btn.textContent = 'Enviar';
-      btn.addEventListener('click', async () => { await sendTo(person, btn); if (btn.classList.contains('is-sent')) sentIds.add(person.id); });
-      row.append(img, name, btn);
+      const check = document.createElement('span');
+      check.className = 'kx-share-check';
+      check.setAttribute('aria-hidden', 'true');
+      check.innerHTML = KX_SHARE_CHECK;
+      row.append(img, name, check);
+      row.addEventListener('click', () => {
+        if (sending) return;
+        if (selected.has(person.id)) selected.delete(person.id); else selected.set(person.id, person);
+        sync();
+        updateSubmit();
+      });
+      sync();
       list.appendChild(row);
     });
   };
@@ -13143,7 +13173,9 @@ async function kxOpenPostShare(postId) {
 
   root.querySelector('.kx-share-foot').addEventListener('click', async (e) => {
     const action = e.target.closest('[data-share]')?.dataset.share;
-    if (action === 'copy') {
+    if (action === 'send') {
+      await sendSelected();
+    } else if (action === 'copy') {
       try { await navigator.clipboard.writeText(url); showToast('Enlace copiado', 'info'); }
       catch (_) { showToast('No se ha podido copiar el enlace', 'error'); }
     } else if (action === 'native') {
