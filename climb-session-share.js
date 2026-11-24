@@ -278,5 +278,5 @@ function kxsFeedCardHTML(cs) {
 }
 
 if (typeof window !== 'undefined') {
-  window.KruxSessionShare = { storyCanvas: kxsStoryCanvas, shareImage: kxsShareImage, publish: kxsPublishSession, feedCardHTML: kxsFeedCardHTML, postData: kxsPostData };
+  window.KruxSessionShare = { storyCanvas: kxsStoryCanvas, shareImage: kxsShareImage, publish: kxsPublishSession, feedCardHTML: kxsFeedCardHTML, postData: kxsPostData, fitTrack: kxsFitTrack };
 }

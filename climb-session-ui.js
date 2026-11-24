@@ -124,16 +124,70 @@ const KruxSessionUI = (() => {
     document.body.appendChild(el);
     sheet = KXMapSheet.create(el, {
       snaps: ['expanded'],
-      onStateChange: (s) => document.body.classList.toggle('kx-sess-open', s !== 'hidden')
+      onStateChange: (s) => { document.body.classList.toggle('kx-sess-open', s !== 'hidden'); if (s === 'hidden') dropRouteMap(); }
     });
     el.addEventListener('click', onClick);
   }
 
   function isOpen() { return !!(sheet && sheet.state !== 'hidden'); }
-  function close() { if (sheet) sheet.close(); view = null; }
+  function close() { dropRouteMap(); if (sheet) sheet.close(); view = null; }
+
+  // ---------- Mapa del recorrido (resumen de una sesión con GPS) ----------
+  // Un mapa pequeño propio con la vista base que el usuario tiene elegida; se destruye al cambiar de vista
+  // para no dejar contextos WebGL vivos. Sin MapLibre o sin WebGL se dibuja el recorrido en SVG.
+  let routeMap = null;
+  function dropRouteMap() {
+    if (!routeMap) return;
+    try { routeMap.remove(); } catch (e) { /* ya destruido */ }
+    routeMap = null;
+  }
+  function routeSvgHTML(pts) {
+    const fit = window.KruxSessionShare ? KruxSessionShare.fitTrack(pts, 320, 180, 18) : [];
+    if (fit.length < 2) return '';
+    const d = fit.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+    const [sx, sy] = fit[0], [ex, ey] = fit[fit.length - 1];
+    return `<svg class="kxs-routemap-svg" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <path class="kxs-fc-route" d="${d}"/><circle class="kxs-fc-start" cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="6"/><circle class="kxs-fc-end" cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="6"/></svg>`;
+  }
+  function mountRouteMap(box, pts) {
+    dropRouteMap();
+    const canMap = typeof maplibregl !== 'undefined' && typeof kxBaseStyle === 'function' && typeof MAPLIBRE_CONFIG !== 'undefined'
+      && (!maplibregl.supported || maplibregl.supported());
+    if (!canMap) { box.innerHTML = routeSvgHTML(pts); return; }
+    const coords = pts.map(p => [p.lng, p.lat]);
+    const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+    const offline = typeof kxIsOffline === 'function' && kxIsOffline();
+    const base = offline ? 'sat' : (window.KxBaseMap ? KxBaseMap.stored() : undefined);
+    try {
+      routeMap = new maplibregl.Map({
+        container: box, style: kxBaseStyle(MAPLIBRE_CONFIG.MAPTILER_KEY, base, { offline }),
+        bounds, fitBoundsOptions: { padding: 32, maxZoom: 17 },
+        cooperativeGestures: true, dragRotate: false, pitchWithRotate: false, attributionControl: { compact: true }
+      });
+    } catch (e) { routeMap = null; box.innerHTML = routeSvgHTML(pts); return; }
+    const m = routeMap;
+    m.on('load', () => {
+      // La hoja aún se estaba abriendo al crear el mapa: se vuelve a medir y encuadrar con su tamaño final
+      m.resize();
+      m.fitBounds(bounds, { padding: 32, maxZoom: 17, duration: 0 });
+      const attrib = box.querySelector('.maplibregl-ctrl-attrib');
+      if (attrib) attrib.classList.remove('maplibregl-compact-show');   // la atribución empieza plegada (botón «i»)
+      m.addSource('kxs-route', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } } });
+      m.addLayer({ id: 'kxs-route-casing', type: 'line', source: 'kxs-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#F7F6F0', 'line-width': 7, 'line-opacity': 0.9 } });
+      m.addLayer({ id: 'kxs-route-line', type: 'line', source: 'kxs-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#FF8D67', 'line-width': 4 } });
+      m.addSource('kxs-route-ends', { type: 'geojson', data: { type: 'FeatureCollection', features: [
+        { type: 'Feature', properties: { end: 0 }, geometry: { type: 'Point', coordinates: coords[0] } },
+        { type: 'Feature', properties: { end: 1 }, geometry: { type: 'Point', coordinates: coords[coords.length - 1] } }] } });
+      m.addLayer({ id: 'kxs-route-ends', type: 'circle', source: 'kxs-route-ends', paint: {
+        'circle-radius': 6, 'circle-stroke-width': 2.5, 'circle-stroke-color': '#F7F6F0',
+        'circle-color': ['case', ['==', ['get', 'end'], 1], '#FF8D67', '#153E35'] } });   // colores de marca (--kx-coral / --kx-forest)
+    });
+    m.on('error', (e) => { if (e && e.error && /webgl/i.test(String(e.error.message))) { dropRouteMap(); box.innerHTML = routeSvgHTML(pts); } });
+  }
 
   function setView(name, data = {}) {
     ensureSheet();
+    dropRouteMap();
     view = name; ctx = data;
     const v = VIEWS[name](data);
     const body = el.querySelector('#kx-sess-body');
@@ -263,26 +317,34 @@ const KruxSessionUI = (() => {
 
     summary({ item, history = false }) {
       const s = item.session;
+      const pts = (s.gps && s.gps.enabled) ? itemTrack(item) : [];
+      const hasRoute = pts.length > 1;
       return {
         // Cabecera centrada con cierre a la izquierda y bloque de portada (icono, título, escuela · fecha)
         head: `<header class="kxs-sumhead"><button type="button" class="kx-close" data-kx-close aria-label="Cerrar">${kxIcon('x', { size: 20, stroke: 2 })}</button>
           <h2 class="kxs-sumhead-title" id="kx-sess-title">Sesión de roca</h2><span aria-hidden="true"></span></header>`,
         body: `<div class="kxs-hero"><h3 class="kxs-hero-title">${kxEsc(history ? (s.schoolName || 'Sesión de escalada') : 'Sesión completada')}</h3>
           <p class="kxs-hero-meta">${kxEsc([history ? '' : s.schoolName, kxsDate(s.startedAt)].filter(Boolean).join(' · '))}</p></div>
+          ${hasRoute ? `<figure class="kxs-routemap"><div class="kxs-routemap-map" id="kxs-routemap" role="img" aria-label="Mapa del recorrido de la sesión"></div>
+            <figcaption class="kxs-routemap-legend"><span><i class="is-start"></i>Inicio</span><span><i class="is-end"></i>Fin</span>${s.gps.distanceM > 0 ? `<span class="kxs-routemap-dist">${kxEsc(kxsFormatDistance(s.gps.distanceM))}</span>` : ''}</figcaption></figure>` : ''}
           ${window.KruxSessionShare ? `<div class="kxs-share-row">
             ${kxButtonHTML({ icon: 'instagram', label: 'Historia', variant: 'secondary', attrs: { 'data-kxs': 'story' } })}
             ${kxButtonHTML({ icon: s.postId ? 'check' : 'send', label: s.postId ? 'En el feed' : 'Publicar', variant: 'secondary', attrs: { 'data-kxs': 'publish' } })}
           </div>` : ''}
           ${kxsSummaryBodyHTML(s, item.entries)}
-          <button type="button" class="kxs-delete-link" data-kxs="delete">Borrar sesión</button>`,
+          ${history ? '' : '<button type="button" class="kxs-delete-link" data-kxs="delete">Borrar sesión</button>'}`,
+        // En el historial, borrar va en el pie a la vista; al acabar una sesión queda como enlace discreto
         foot: history
-          ? kxButtonHTML({ label: 'Cerrar', variant: 'secondary', size: 'lg', attrs: { 'data-kx-close': true } })
+          ? `<div class="kxs-foot-row">${kxButtonHTML({ icon: 'trash', label: 'Borrar', variant: 'danger', size: 'lg', attrs: { 'data-kxs': 'delete' } })}
+              ${kxButtonHTML({ label: 'Cerrar', variant: 'secondary', size: 'lg', attrs: { 'data-kx-close': true } })}</div>`
           : kxButtonHTML({ icon: 'chartBar', label: 'Ver en Actividad', size: 'lg', attrs: { 'data-kxs': 'to-activity' } })
             + kxButtonHTML({ label: 'Cerrar', variant: 'secondary', size: 'lg', attrs: { 'data-kx-close': true } }),
         after(root) {
           const chart = root.querySelector('#kxs-gchart');
           const st = s.stats || kxsStats(item.entries);
           if (chart) kxBindGradeChart(chart, kxGradeStats(st.gradeCounts, { ungraded: st.ungraded }), {});
+          const box = root.querySelector('#kxs-routemap');
+          if (box) mountRouteMap(box, pts);
         }
       };
     }
