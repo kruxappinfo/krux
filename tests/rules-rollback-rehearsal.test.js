@@ -121,7 +121,7 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
     expect(require('node:crypto').createHash('md5').update(fs.readFileSync(path.join(ROOT, 'firestore.rules.previous'))).digest('hex')).toBe('311a726e31a1da22962d8ada891bd08f');
     expect(fs.statSync(path.join(ROOT, 'firestore.rules.previous')).size).toBe(36519);
   });
-  it('firestore.rules es el ruleset anterior, la propuesta o la propuesta + geojson_ediciones (2026-11-23) + users/{uid}/private: nunca otra cosa', () => {
+  it('firestore.rules es el ruleset anterior, la propuesta o la propuesta + geojson_ediciones (2026-11-23) + users/{uid}/private + push_tokens: nunca otra cosa', () => {
     const GEOJSON_BLOCK = `
     // Puntos del geojson movidos por el superadmin desde el mapa (un documento por escuela y uno para rocódromos).
     // Lectura pública: todos los mapas aplican estas ediciones al cargar. Solo escribe la cuenta de Krux.
@@ -131,7 +131,14 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
     }
 `;
     const ANCHOR = "      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());\n    }\n";   // cierre de match /pending_poi
-    const rules = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
+    let rules = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
+    // Bloque añadido después (2026-11-24): users/{uid}/push_tokens (tokens de push, solo su dueño), justo antes de private
+    const pushStart = rules.indexOf('\n      // Tokens de notificaciones push');
+    if (pushStart > 0) {
+      const pushEnd = rules.indexOf('      }\n', rules.indexOf('match /push_tokens/{tokenId}')) + '      }\n'.length;
+      expect(rules.slice(pushEnd).startsWith('\n      // Datos privados del usuario')).toBe(true);
+      rules = rules.slice(0, pushStart) + rules.slice(pushEnd);
+    }
     if ([manifest['firestore.rules.previous'], manifest['docs/security-phase0/firestore.rules.route-photos-only.proposal']].includes(sha('firestore.rules'))) return;
     const proposal = fs.readFileSync(path.join(ROOT, 'docs/security-phase0/firestore.rules.route-photos-only.proposal'), 'utf8');
     const at = proposal.indexOf('    match /pending_poi/{poiId} {');

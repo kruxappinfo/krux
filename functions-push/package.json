@@ -1,0 +1,11 @@
+{
+  "name": "krux-functions-push",
+  "private": true,
+  "description": "Notificaciones push de KRUX: envía por FCM cada notificación nueva de la app",
+  "main": "index.js",
+  "engines": { "node": "22" },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^4.9.0"
+  }
+}

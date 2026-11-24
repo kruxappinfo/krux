@@ -97,6 +97,17 @@ service cloud.firestore {
           && request.resource.data.status in ['active', 'paused', 'finished'];
       }
 
+      // Tokens de notificaciones push de los móviles del usuario (push.js). Solo los lee y escribe su dueño; la Cloud
+      // Function pushOnNotification los lee con permisos de administrador. El id del documento es el propio token.
+      match /push_tokens/{tokenId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && tokenId.size() <= 400
+          && request.resource.data.keys().hasOnly(['token', 'platform', 'updatedAt'])
+          && request.resource.data.token == tokenId
+          && request.resource.data.platform in ['ios', 'android'];
+      }
+
       // Datos privados del usuario (hoy solo el peso, para estimar las calorías de las sesiones): users/{uid} lo
       // puede leer cualquier usuario con sesión, este documento solo su dueño.
       match /private/{docId} {

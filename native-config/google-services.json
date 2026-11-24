@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "627029956398",
+    "project_id": "climbmaps-80cae",
+    "storage_bucket": "climbmaps-80cae.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:627029956398:android:76af3b092ccb0a0a480cbf",
+        "android_client_info": {
+          "package_name": "com.krux.climbing"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "627029956398-po5n6s6ls2hfrtinrsgcst9crmd3c2g9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.krux.climbing",
+            "certificate_hash": "3627e36db67b2bcdc01965868d9fa3c58ef0a717"
+          }
+        },
+        {
+          "client_id": "627029956398-5a2lp12qs13fspuennpp7267stcqoe03.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQt-mjs1vaT2LT0Hso2jRgVKSSD8MKNFk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "627029956398-5a2lp12qs13fspuennpp7267stcqoe03.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "627029956398-56bejmgdu7vacv4foaqop0n2ogvgjbm7.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.krux.climbing"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
