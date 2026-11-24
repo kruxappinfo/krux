@@ -61,7 +61,7 @@ const claim = (X, name, { reserve = true, setUser = true, freeOld = true } = {})
   results.push({ label: 'el nombre antiguo de A queda libre', pass: !freed.exists, expected: 'libre', got: freed.exists ? 'ocupado' : 'libre' });
   await expect('B puede quedarse ahora el nombre antiguo de A', claim(B, na), true);
   await expect('A sigue editando el resto de su perfil sin tocar el nombre de usuario', A.db.collection('users').doc(A.uid).update({ bio: 'hola' }), true);
-  await expect('otra persona sigue pudiendo actualizar contadores', B.db.collection('users').doc(A.uid).update({ 'stats.followersCount': 1 }), true);
+  await expect('otra persona no cambia contadores sin seguir de verdad', B.db.collection('users').doc(A.uid).update({ 'stats.followersCount': 1 }), false);
   await expect('nadie más puede cambiar el nombre de usuario de A', B.db.collection('users').doc(A.uid).update({ username: na }), false);
 
   const failed = results.filter(r => !r.pass);

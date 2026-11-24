@@ -46,10 +46,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isOwner(userId) && usernameKept();
-      // Allow owner full write, OR allow any authenticated user to update stats or savedPosts
+      // El dueño escribe su perfil; otra persona solo puede sumar o restar 1 a sus seguidores
+      // al seguirle o dejar de seguirle (en el mismo lote que crea o borra su documento en followers)
       allow update: if (isOwner(userId) && usernameKept()) ||
-                      (isAuthenticated() && 
-                       (onlyStatsChanged() || onlySavedPostsChanged()));
+                      (isAuthenticated() && followerCountChange());
 
       // El nombre de usuario solo cambia a uno reservado para esta cuenta en usernames/ (y no se puede quitar)
       function usernameKept() {
@@ -59,20 +59,18 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/usernames/$(after)).data.uid == userId);
       }
       allow delete: if isOwner(userId);
-      
-      // Helper to check if only stats fields are being modified
-      function onlyStatsChanged() {
-        let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-        return changedKeys.hasOnly(['stats']) || 
-               changedKeys.hasOnly(['stats.followersCount']) ||
-               changedKeys.hasOnly(['stats.followingCount']) ||
-               changedKeys.hasOnly(['stats.followersCount', 'stats.followingCount']);
-      }
-      
-      // Helper to check if only savedPosts field is being modified (for bookmarks)
-      function onlySavedPostsChanged() {
-        let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-        return changedKeys.hasOnly(['savedPosts']);
+
+      // Solo cambia stats.followersCount, en ±1, y cuadra con el documento del que sigue en followers
+      function followerCountChange() {
+        let before = resource.data.get('stats', {});
+        let after = request.resource.data.get('stats', {});
+        let oldCount = before.get('followersCount', 0);
+        let newCount = after.get('followersCount', 0);
+        let followerPath = /databases/$(database)/documents/users/$(userId)/followers/$(request.auth.uid);
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stats'])
+          && after.diff(before).affectedKeys().hasOnly(['followersCount'])
+          && ((newCount == oldCount + 1 && !exists(followerPath) && existsAfter(followerPath))
+              || (newCount == oldCount - 1 && exists(followerPath) && !existsAfter(followerPath)));
       }
 
       match /favorites/{favoriteId} {
