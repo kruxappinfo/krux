@@ -32602,6 +32602,44 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 .kx-style-pick[aria-pressed="true"] { background: var(--kx-forest); border-color: var(--kx-forest); color: #fff; }
 .kx-style-pick:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 .kx-redit-hint { font-weight: 400; color: #6B706D; }
+/* Cápsula con dato que un spotter o admin puede corregir */
+.kx-rchip.is-editable { cursor: pointer; }
+.kx-rchip.is-editable:hover { box-shadow: inset 0 0 0 1.5px var(--kx-line); }
+.kx-rchip.is-editable:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+.kx-redit-history {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--kx-forest);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* Historial de cambios de una vía */
+.kx-rhist { max-width: 460px; }
+.kx-rhist-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.kx-rhist-list > p { margin: 0; }
+.kx-rhist-item { padding: 12px; border-radius: 14px; background: var(--kx-rchip-bg, #ECEEEA); }
+.kx-rhist-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 0.875rem; color: var(--kx-ink, #1f2937); }
+.kx-rhist-head span { color: #6B706D; font-size: 0.8125rem; }
+.kx-rhist-item ul { margin: 8px 0; padding-left: 18px; font-size: 0.875rem; line-height: 1.4; color: var(--kx-ink, #1f2937); overflow-wrap: anywhere; }
+.kx-rhist-undo {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(32, 41, 35, 0.16);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--kx-ink, #1f2937);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kx-rhist-undo[data-armed] { background: var(--kx-forest); border-color: var(--kx-forest); color: #fff; }
+.kx-rhist-undo:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 .ml-contribute-modal { max-height: calc(100dvh - 40px); overflow-y: auto; }
 
 @media (min-width: 769px) {

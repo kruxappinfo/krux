@@ -3334,11 +3334,20 @@ function kxApplyGeoEdits(geojson, layer, edits) {
 // ============================================
 // Estilo, expreses y metros que faltan en el GeoJSON de una vía de KRUX. Un spotter o admin los guarda al momento
 // en route_datos/{escuela}_{id} (sin pasar por Sugerencias) y se aplican encima del archivo al cargarlo.
-// Esos campos sueltos solo rellenan huecos. El mapa «fix» (solo admins: «Editar datos» de la ficha) sustituye
-// cualquier dato: nombre, grado, estilo, descripción, expreses y metros; null en expreses/metros los borra.
+// Estilo, expreses y metros (spotters y admins) sustituyen al archivo; el mapa «fix» (solo admins: «Editar datos»
+// de la ficha) corrige nombre, grado y descripción. Cada cambio queda en el historial (route-datos.js).
 const KX_ROUTE_DATA_COLLECTION = 'route_datos';
 const kxRouteDataCache = new Map();   // escuela → Promise<Map<id, datos>>
 let kxViasGeojson = null;             // datos de vias-source (para pintar al momento un dato recién guardado)
+let kxRouteStaff = false;              // spotter o admin: las cápsulas con dato se pueden corregir
+if (typeof firebase !== 'undefined' && firebase.auth) {
+  firebase.auth().onAuthStateChanged(user => {
+    kxRouteStaff = false;
+    if (!user) return;
+    if (user.email === 'krux.app.info@gmail.com') { kxRouteStaff = true; return; }
+    isRoutePopupAdmin().then(v => { kxRouteStaff = v; }).catch(() => {});
+  });
+}
 
 function kxRouteDataFor(schoolId) {
   if (!kxRouteDataCache.has(schoolId)) {
@@ -3365,32 +3374,35 @@ function kxSetRouteStyle(props, style, description) {
   if ('descripcio' in props) props.descripcio = props.descripcion;   // el alias del GeoJSON no debe devolver el texto anterior
 }
 
-// Aplica a props los datos añadidos (huecos) y las correcciones de admin (fix). Devuelve true si cambió algo
+// Aplica a props lo guardado en route_datos. Devuelve true si cambió algo.
+// Primero el mapa fix (nombre, grado, descripción: solo admins) y después estilo, expreses y metros, que sustituyen
+// al archivo; un expreses o metros null es «sin dato». Un estilo vacío lo quita.
 function kxApplyRouteData(props, data) {
   if (!props || !data) return false;
   if (!props.descripcion && props.descripcio) props.descripcion = props.descripcio;
-  const empty = v => v == null || String(v).trim() === '';
+  const before = `${props.descripcion}|${props._kxStyle}`;
   let changed = false;
-  for (let i = 1; i <= 5; i++) {
-    for (const k of ['exp' + i, 'long' + i]) {
-      if (data[k] != null && empty(props[k])) { props[k] = data[k]; changed = true; }
-    }
-  }
-  if (data.estilo) {
-    const cur = kxRouteSplitDescription(props.descripcion, props._kxStyle);
-    if (!cur.style) { kxSetRouteStyle(props, data.estilo, cur.description); changed = true; }
-  }
-  const fix = data.fix;
-  if (fix && typeof fix === 'object') {
+  const fix = data.fix && typeof data.fix === 'object' ? data.fix : null;
+  if (fix) {
     for (const [k, v] of Object.entries(fix)) {
       if (k === 'estilo' || k === 'descripcion') continue;
       if (props[k] !== v) { props[k] = v; changed = true; }
     }
-    if ('estilo' in fix || 'descripcion' in fix) {
-      const cur = kxRouteSplitDescription(props.descripcion, props._kxStyle);
-      kxSetRouteStyle(props, 'estilo' in fix ? fix.estilo : cur.style, 'descripcion' in fix ? fix.descripcion : cur.description);
-      changed = true;
+  }
+  for (let i = 1; i <= 5; i++) {
+    for (const k of ['exp' + i, 'long' + i]) {
+      if (k in data && props[k] !== data[k]) { props[k] = data[k]; changed = true; }
     }
+  }
+  const hasFix = k => fix && k in fix;
+  if (hasFix('estilo') || hasFix('descripcion') || 'estilo' in data) {
+    const cur = kxRouteSplitDescription(props.descripcion, props._kxStyle);
+    let style = cur.style, description = cur.description;
+    if (hasFix('estilo')) style = fix.estilo;           // correcciones antiguas de admin
+    if (hasFix('descripcion')) description = fix.descripcion;
+    if ('estilo' in data) style = data.estilo;
+    kxSetRouteStyle(props, style, description);
+    if (before !== `${props.descripcion}|${props._kxStyle}`) changed = true;
   }
   return changed;
 }
@@ -4310,7 +4322,7 @@ async function showRoutePopup(props, coords) {
         <span class="ml-route-grade" style="background-color: ${gradeColor}">${grade}</span>
       </div>
 
-      ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, estilo: props._kxStyle, exp: props.exp1, long: props.long1, routeName, suffix: props._isTrinomialGroup ? props._trinomialIndex : 1 })}
+      ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, estilo: props._kxStyle, editable: kxRouteStaff && !props.docId, exp: props.exp1, long: props.long1, routeName, suffix: props._isTrinomialGroup ? props._trinomialIndex : 1 })}
       ${kxRouteDescriptionHTML(props.descripcion, props._kxStyle)}
 
       <div id="ml-variant-grade-${routeId}"></div>
@@ -4513,7 +4525,7 @@ async function mlBuildVariantSlideHTML(variantData, isTrinomial) {
       <span class="ml-route-name">${routeName}${getVariantLabel(props)}</span>
     </div>
 
-    ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, estilo: props._kxStyle, exp, long: longM, routeName, suffix: isTrinomial ? props._trinomialIndex : 1 })}
+    ${kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, estilo: props._kxStyle, editable: kxRouteStaff && !props.docId, exp, long: longM, routeName, suffix: isTrinomial ? props._trinomialIndex : 1 })}
     ${kxRouteDescriptionHTML(props.descripcion, props._kxStyle)}
 
     <div id="ml-variant-grade-${routeId}"></div>
@@ -4757,7 +4769,7 @@ function kxFillRouteSheet(props, { isTrinomial = false, contribute = true } = {}
   if (!props.descripcion && props.descripcio) props.descripcion = props.descripcio;
   const chipsEl = document.getElementById('rbs-info-items');
   if (chipsEl) {
-    chipsEl.innerHTML = kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, estilo: props._kxStyle, exp: props.exp1, long: props.long1, contribute, routeName, suffix: props._isTrinomialGroup ? props._trinomialIndex : 1 });
+    chipsEl.innerHTML = kxRouteChipsHTML({ routeId, schoolId, descripcion: props.descripcion, estilo: props._kxStyle, editable: kxRouteStaff && !props.docId, exp: props.exp1, long: props.long1, contribute, routeName, suffix: props._isTrinomialGroup ? props._trinomialIndex : 1 });
   }
   const descEl = document.getElementById('rbs-desc-container');
   if (descEl) descEl.innerHTML = kxRouteDescriptionHTML(props.descripcion, props._kxStyle);
@@ -5104,21 +5116,26 @@ function kxRouteSplitDescription(text, knownStyle = null) {
  * opts.contribute = false oculta las cápsulas vacías.
  * opts.suffix: número de variante de un trinomio (exp2/long2…); routeName: vía a la que se atribuye el dato.
  */
-function kxRouteChipsHTML({ routeId, schoolId, descripcion, estilo = null, exp, long, contribute = true, routeName = '', suffix = 1 }) {
+function kxRouteChipsHTML({ routeId, schoolId, descripcion, estilo = null, exp, long, contribute = true, routeName = '', suffix = 1, editable = false }) {
   const has = v => v != null && String(v).trim() !== '';
-  const chip = (icon, alt, value, field, ask, strong = false, cls = '') => {
+  const encName = encodeURIComponent(routeName || '').replace(/'/g, '%27');
+  const chip = (icon, alt, value, field, ask, strong = false, cls = '', current = '') => {
     if (has(value)) {
+      // Spotters y admins corrigen el dato tocando la cápsula (el modal se abre con el valor actual)
+      if (editable) {
+        return `<button type="button" class="kx-rchip is-editable${strong ? ' is-strong' : ''}${cls}" aria-label="Corregir: ${alt}" onclick="mlContributeField(${routeId}, '${schoolId}', '${field}', ${Number(suffix) || 1}, '${encName}', '${encodeURIComponent(current).replace(/'/g, '%27')}')"><img src="icons/${icon}" alt="" width="28" height="28"><span class="kx-rchip-text">${kxEscHTML(value)}</span></button>`;
+      }
       return `<div class="kx-rchip${strong ? ' is-strong' : ''}${cls}"><img src="icons/${icon}" alt="${alt}" width="28" height="28"><span class="kx-rchip-text">${kxEscHTML(value)}</span></div>`;
     }
     if (!contribute) return '';
-    return `<button type="button" class="kx-rchip is-missing${cls}" onclick="mlContributeField(${routeId}, '${schoolId}', '${field}', ${Number(suffix) || 1}, '${encodeURIComponent(routeName || '').replace(/'/g, '%27')}')"><img src="icons/${icon}" alt="" width="28" height="28"><span class="kx-rchip-text">${ask}</span></button>`;
+    return `<button type="button" class="kx-rchip is-missing${cls}" onclick="mlContributeField(${routeId}, '${schoolId}', '${field}', ${Number(suffix) || 1}, '${encName}')"><img src="icons/${icon}" alt="" width="28" height="28"><span class="kx-rchip-text">${ask}</span></button>`;
   };
   const expNum = has(exp) ? Number(exp) : null;
   const expText = has(exp) ? `${exp} ${expNum === 1 ? 'exprés' : 'expreses'}` : null;
   const html =
-    chip('placa.png', 'Estilo', kxRouteSplitDescription(descripcion, estilo).style, 'tipo', 'Estilo', true, ' is-style') +
-    chip('mosq.png', 'Equipamiento', expText, 'express', 'Expreses') +
-    chip('cuerda.png', 'Longitud', has(long) ? `${long} m` : null, 'metros', 'Metros', true);
+    chip('placa.png', 'Estilo', kxRouteSplitDescription(descripcion, estilo).style, 'tipo', 'Estilo', true, ' is-style', kxRouteSplitDescription(descripcion, estilo).style || '') +
+    chip('mosq.png', 'Equipamiento', expText, 'express', 'Expreses', false, '', has(exp) ? String(exp) : '') +
+    chip('cuerda.png', 'Longitud', has(long) ? `${long} m` : null, 'metros', 'Metros', true, '', has(long) ? String(long) : '');
   return html ? `<div class="kx-rchips">${html}</div>` : '';
 }
 
@@ -6119,7 +6136,8 @@ function kxStylePicksValue(group, extra = '') {
 // Vía y campo a los que se atribuye la contribución abierta (una variante usa exp2/long2…)
 let mlContributeTarget = { routeName: null, suffix: 1 };
 
-function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '') {
+function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '', encodedCurrent = '') {
+  const current = encodedCurrent ? decodeURIComponent(encodedCurrent) : '';
   const routeName = (encodedName && decodeURIComponent(encodedName)) || mlCurrentRouteName || 'Sin nombre';
   // Si se abre desde la ficha móvil, se vuelve a ella con el dato ya puesto cuando lo guarda un spotter
   const fromSheet = rbsCurrentState !== 'hidden' && kxRouteSheetProps && Number(kxRouteSheetProps.id) === Number(routeId)
@@ -6139,18 +6157,20 @@ function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '
 
   // Generar solo el campo correspondiente al tipo de sugerencia
   let fieldHTML = '';
+  const style = kxStyleParse(current);
   if (field === 'tipo') {
     fieldHTML = `
       <div style="margin-bottom:8px; font-size:14px; color:#374151;">Estilo de la v&iacute;a <span style="color:#6B706D;">(puedes marcar varios)</span></div>
-      ${kxStylePicksHTML('ml-contribute-tipo')}`;
+      ${kxStylePicksHTML('ml-contribute-tipo', style.picked)}
+      <input class="ml-contribute-input" id="ml-contribute-tipo-otro" maxlength="60" style="margin-top:8px" value="${kxEscHTML(style.other)}" placeholder="Otro estilo (opcional)" aria-label="Otro estilo">`;
   } else if (field === 'express') {
     fieldHTML = `
       <label style="display:block; margin-bottom:8px; font-size:14px; color:#374151;">N&uacute;mero de express</label>
-      <input type="number" class="ml-contribute-input" id="ml-contribute-exp" placeholder="Ej: 8" min="0" max="50">`;
+      <input type="number" inputmode="numeric" class="ml-contribute-input" id="ml-contribute-exp" placeholder="Ej: 8" min="0" max="50" value="${kxEscHTML(current)}">`;
   } else if (field === 'metros') {
     fieldHTML = `
       <label style="display:block; margin-bottom:8px; font-size:14px; color:#374151;">Metros de la v&iacute;a</label>
-      <input type="number" class="ml-contribute-input" id="ml-contribute-long" placeholder="Ej: 25" min="0" max="500">`;
+      <input type="number" inputmode="numeric" class="ml-contribute-input" id="ml-contribute-long" placeholder="Ej: 25" min="1" max="500" value="${kxEscHTML(current)}">`;
   } else {
     // Fallback: mostrar todos los campos si no se especifica campo
     fieldHTML = `
@@ -6167,14 +6187,15 @@ function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '
   overlay.className = 'ml-contribute-modal-overlay';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
+  const fixing = !!current && kxRouteStaff;
   overlay.innerHTML = `
     <div class="ml-contribute-modal">
-      <h3>Contribuir datos</h3>
-      <p>Ayuda a completar la información de <strong>${routeName}</strong></p>
+      <h3>${fixing ? 'Corregir dato' : 'Contribuir datos'}</h3>
+      <p>${fixing ? 'Tu cambio se guarda al momento y queda en el historial de' : 'Ayuda a completar la información de'} <strong>${kxEscHTML(routeName)}</strong></p>
       ${fieldHTML}
       <div class="ml-contribute-actions">
         <button class="ml-contribute-btn ml-contribute-btn-cancel" onclick="this.closest('.ml-contribute-modal-overlay').remove()">Cancelar</button>
-        <button class="ml-contribute-btn ml-contribute-btn-submit" onclick="mlSubmitContribution(${routeId}, '${schoolId}')">Enviar</button>
+        <button class="ml-contribute-btn ml-contribute-btn-submit" onclick="mlSubmitContribution(${routeId}, '${schoolId}')">${fixing ? 'Guardar' : 'Enviar'}</button>
       </div>
     </div>
   `;
@@ -6188,7 +6209,7 @@ function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '
 async function mlSubmitContribution(routeId, schoolId) {
   const routeName = mlContributeTarget.routeName || mlCurrentRouteName || 'Sin nombre';
   const suffix = mlContributeTarget.suffix;
-  const tipo = kxStylePicksValue(document.getElementById('ml-contribute-tipo'));
+  const tipo = kxStylePicksValue(document.getElementById('ml-contribute-tipo'), document.getElementById('ml-contribute-tipo-otro')?.value);
   const exp = document.getElementById('ml-contribute-exp')?.value;
   const long = document.getElementById('ml-contribute-long')?.value;
 
@@ -6282,20 +6303,15 @@ async function kxCanSaveRouteData(routeId, schoolId) {
   }
 }
 
+// values: { estilo?, exp<N>?, long<N>? } — sustituyen al dato del archivo y quedan en el historial de la vía
 async function kxSaveRouteData(routeId, schoolId, values) {
-  const user = firebase.auth().currentUser;
-  await firebase.firestore().collection(KX_ROUTE_DATA_COLLECTION).doc(`${schoolId}_${routeId}`).set({
-    ...values,
-    schoolId,
-    routeId,
-    updatedBy: user.uid,
-    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-  }, { merge: true });
+  if (typeof kxRouteDataWrite !== 'function') throw new Error('route-datos.js no está cargado');
+  const role = (await kxIsAdminUser()) ? 'admin' : 'spotter';
+  const merged = await kxRouteDataWrite(schoolId, routeId, values, role);
+  if (!merged) return;   // ya estaba así
 
   // Lo que ya está en memoria recibe el dato sin recargar la escuela
-  const byId = await kxRouteDataFor(schoolId);
-  const merged = { ...(byId.get(routeId) || {}), ...values };
-  byId.set(routeId, merged);
+  (await kxRouteDataFor(schoolId)).set(routeId, merged);
   const url = MAPLIBRE_SCHOOLS[schoolId]?.geojson?.vias;
   if (url) kxRoutesGeojsonCache.delete(url);
   if (mlCurrentSchool !== schoolId) return;
@@ -6310,9 +6326,8 @@ async function kxSaveRouteData(routeId, schoolId, values) {
       if (Number(p.id) !== routeId) continue;
       kxApplyRouteData(p, merged);
       if (p._isTrinomialGroup) {
-        const i = p._trinomialIndex;
-        if (p._displayExp == null || p._displayExp === '') p._displayExp = p['exp' + i];
-        if (p._displayLong == null || p._displayLong === '') p._displayLong = p['long' + i];
+        p._displayExp = p['exp' + p._trinomialIndex];
+        p._displayLong = p['long' + p._trinomialIndex];
       }
     }
   }
@@ -6339,8 +6354,10 @@ async function kxReopenSheetAfterRouteData(fromSheet) {
 // ============================================
 // EDITAR DATOS DE UNA VÍA (solo admins)
 // ============================================
-// Nombre, grado, estilo, descripción, expreses y metros de una vía de KRUX. Se guardan en route_datos (mapa fix)
-// y sustituyen lo que trae el GeoJSON. En un trinomio, grado, expreses y metros son los de la variante abierta.
+// Nombre, grado, estilo, descripción, expreses y metros de una vía de KRUX. Se guardan en route_datos (nombre, grado y
+// descripción en el mapa fix; estilo, expreses y metros, como los de un spotter) y sustituyen lo que trae el GeoJSON.
+// Cada cambio queda en el historial y el botón «Historial» permite volver a un valor anterior.
+// En un trinomio, grado, expreses y metros son los de la variante abierta.
 
 // info: { routeId, schoolId, suffix, nombre, grado, estilo, descripcion, exp, long }
 function kxRouteEditButtonHTML(info, cls) {
@@ -6410,6 +6427,7 @@ function kxOpenRouteEditor(btn) {
         <button type="button" class="ml-contribute-btn ml-contribute-btn-cancel" onclick="this.closest('.ml-contribute-modal-overlay').remove()">Cancelar</button>
         <button type="submit" class="ml-contribute-btn ml-contribute-btn-submit">Guardar</button>
       </div>
+      <button type="button" class="kx-redit-history kx-redit-wide" onclick="kxOpenRouteHistory()">Ver historial de cambios</button>
     </form>`;
   overlay.querySelector('form').onsubmit = (e) => { e.preventDefault(); kxSubmitRouteEditor(e.target); };
   document.body.appendChild(overlay);
@@ -6436,45 +6454,107 @@ async function kxSubmitRouteEditor(form) {
   // Solo lo que ha cambiado: el resto sigue saliendo del GeoJSON
   const s = info.suffix;
   const same = (a, b) => String(a == null ? '' : a) === String(b == null ? '' : b);
-  const fix = {};
-  if (!same(nombre, info.nombre)) fix.nombre = nombre;
-  if (!same(grado, info.grado)) fix['grado' + s] = grado;
+  const changes = {};
+  if (!same(nombre, info.nombre)) changes.f_nombre = nombre;
+  if (!same(grado, info.grado)) changes['f_grado' + s] = grado;
   const estilo = kxStylePicksValue(form.querySelector('#kx-redit-styles'), get('estiloOtro'));
   if (estilo.length > KX_STYLE_MAX) return toast('Demasiados estilos: quita alguno', 'info');
-  if (!same(estilo, info.estilo)) fix.estilo = estilo;
-  if (!same(get('descripcion'), info.descripcion)) fix.descripcion = get('descripcion');
-  if (!same(exp.v, info.exp)) fix['exp' + s] = exp.v;
-  if (!same(long.v, info.long)) fix['long' + s] = long.v;
-  if (!Object.keys(fix).length) { form.closest('.ml-contribute-modal-overlay')?.remove(); return; }
+  if (!same(estilo, info.estilo)) changes.estilo = estilo;
+  if (!same(get('descripcion'), info.descripcion)) changes.f_descripcion = get('descripcion');
+  if (!same(exp.v, info.exp)) changes['exp' + s] = exp.v;
+  if (!same(long.v, info.long)) changes['long' + s] = long.v;
+  if (!Object.keys(changes).length) { form.closest('.ml-contribute-modal-overlay')?.remove(); return; }
 
   const submit = form.querySelector('.ml-contribute-btn-submit');
   if (submit) submit.disabled = true;
+  let merged;
   try {
-    await firebase.firestore().collection(KX_ROUTE_DATA_COLLECTION).doc(`${info.schoolId}_${info.routeId}`).set({
-      fix,
-      schoolId: info.schoolId,
-      routeId: info.routeId,
-      updatedBy: firebase.auth().currentUser.uid,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+    if (typeof kxRouteDataWrite !== 'function') throw new Error('route-datos.js no está cargado');
+    merged = await kxRouteDataWrite(info.schoolId, info.routeId, changes, 'admin');
   } catch (e) {
     console.error('Error guardando los datos de la vía:', e);
     toast('No se pudieron guardar los cambios', 'error');
     if (submit) submit.disabled = false;
     return;
   }
-  form.closest('.ml-contribute-modal-overlay')?.remove();
+  document.querySelectorAll('.ml-contribute-modal-overlay').forEach(o => o.remove());
   toast('Datos de la vía actualizados', 'success');
+  await kxFinishRouteDataEdit(info, merged, fromSheet);
+}
 
-  // El grado o el nombre cambian el mapa (color, variantes, recuentos): se recarga la escuela con los datos nuevos
-  const byId = await kxRouteDataFor(info.schoolId);
-  const prev = byId.get(info.routeId) || {};
-  byId.set(info.routeId, { ...prev, fix: { ...(prev.fix || {}), ...fix } });
+// Tras guardar o restaurar: el grado o el nombre cambian el mapa (color, variantes, recuentos), así que se recarga
+// la escuela con los datos nuevos y se vuelve a abrir la vía
+async function kxFinishRouteDataEdit(info, merged, fromSheet) {
+  if (merged) (await kxRouteDataFor(info.schoolId)).set(info.routeId, merged);
   const url = MAPLIBRE_SCHOOLS[info.schoolId]?.geojson?.vias;
   if (url) kxRoutesGeojsonCache.delete(url);
   if (mlCurrentSchool !== info.schoolId) return;
   await mlLoadSchool(info.schoolId, true);
   kxOpenRouteById(info.routeId, fromSheet ? fromSheet.slide : 0);
+}
+
+// ---------- Historial de cambios de la vía (admins) ----------
+async function kxOpenRouteHistory() {
+  const { info, fromSheet } = kxRouteEditing || {};
+  if (!info) return;
+  const toast = (m, t) => { if (typeof showToast === 'function') showToast(m, t); };
+  const overlay = document.createElement('div');
+  overlay.className = 'ml-contribute-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `<div class="ml-contribute-modal kx-rhist"><h3>Historial de cambios</h3>
+    <p>${kxEscHTML(info.nombre)} · lo más reciente primero</p>
+    <div class="kx-rhist-list" aria-live="polite"><p>Cargando…</p></div>
+    <div class="ml-contribute-actions"><button type="button" class="ml-contribute-btn ml-contribute-btn-cancel" onclick="this.closest('.ml-contribute-modal-overlay').remove()">Cerrar</button></div></div>`;
+  document.body.appendChild(overlay);
+  const list = overlay.querySelector('.kx-rhist-list');
+
+  let entries;
+  try {
+    entries = await kxRouteDataHistory(info.schoolId, info.routeId);
+  } catch (e) {
+    console.error('Error leyendo el historial:', e);
+    list.innerHTML = '<p>No se pudo cargar el historial.</p>';
+    return;
+  }
+  if (!entries.length) { list.innerHTML = '<p>Esta vía aún no tiene cambios registrados.</p>'; return; }
+
+  const show = (e, key, pick) => {
+    const v = pick in e ? e[pick] : undefined;
+    return v === undefined ? 'dato del mapa' : (v === null || v === '' ? 'vacío' : String(v));
+  };
+  list.innerHTML = entries.map((en, i) => {
+    const when = en.at && en.at.toDate ? en.at.toDate().toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    const lines = Object.entries(en.changes || {}).map(([key, c]) =>
+      `<li><strong>${kxEscHTML(kxRdFieldLabel(key))}:</strong> ${kxEscHTML(show(c, key, 'from'))} → ${kxEscHTML(show(c, key, 'to'))}</li>`).join('');
+    return `<div class="kx-rhist-item">
+      <div class="kx-rhist-head"><strong>${kxEscHTML(en.name)}</strong> <span>${en.role === 'admin' ? 'admin' : 'spotter'} · ${kxEscHTML(when)}</span></div>
+      <ul>${lines}</ul>
+      <button type="button" class="kx-rhist-undo" data-i="${i}">Volver a los valores anteriores</button>
+    </div>`;
+  }).join('');
+
+  // Restaurar pide una segunda pulsación para confirmar
+  list.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.kx-rhist-undo');
+    if (!btn) return;
+    if (!btn.dataset.armed) {
+      btn.dataset.armed = '1';
+      btn.textContent = 'Pulsa otra vez para confirmar';
+      setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = 'Volver a los valores anteriores'; } }, 4000);
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const merged = await kxRouteDataWrite(info.schoolId, info.routeId, kxRdRestoreChanges(entries[Number(btn.dataset.i)].changes), 'admin');
+      document.querySelectorAll('.ml-contribute-modal-overlay').forEach(o => o.remove());
+      toast(merged ? 'Valores anteriores restaurados' : 'La vía ya estaba así', merged ? 'success' : 'info');
+      await kxFinishRouteDataEdit(info, merged, fromSheet);
+    } catch (e) {
+      console.error('Error restaurando:', e);
+      toast('No se pudo restaurar', 'error');
+      btn.disabled = false;
+    }
+  });
 }
 
 // Abre la ficha (móvil) o el popup (escritorio) de una vía de la escuela cargada, igual que al tocarla en el mapa
@@ -6499,6 +6579,7 @@ function kxOpenRouteById(routeId, slide = 0) {
 }
 
 window.kxOpenRouteEditor = kxOpenRouteEditor;
+window.kxOpenRouteHistory = kxOpenRouteHistory;
 window.mlContributeField = mlContributeField;
 window.mlSubmitContribution = mlSubmitContribution;
 

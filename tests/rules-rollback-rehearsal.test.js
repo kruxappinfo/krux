@@ -140,7 +140,7 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
       rules = rules.slice(0, pushStart) + rules.slice(pushEnd);
     }
     // Bloque añadido después (2026-11-24): route_datos (datos de vía de spotters/admins), justo tras geojson_ediciones
-    const datosStart = rules.indexOf('\n    // Datos de vía añadidos al momento por spotters/admins');
+    const datosStart = rules.indexOf('\n    // Datos de vía que spotters y admins escriben al momento');
     if (datosStart > 0) {
       const datosEnd = rules.indexOf('\n    }\n', rules.indexOf('match /route_datos/{docId}')) + '\n    }\n'.length;
       expect(rules.slice(0, datosStart).endsWith('allow write: if isAuthenticated() && isSuperAdmin();\n    }\n')).toBe(true);

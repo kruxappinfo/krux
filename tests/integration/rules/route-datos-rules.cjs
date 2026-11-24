@@ -51,7 +51,9 @@ const expect = async (label, promise, shouldPass) => {
   await expect('expreses decimales', ref(SP, 9).set(data(SP, 9, { exp1: 7.5 }), merge), false);
   await expect('metros 0', ref(SP, 9).set(data(SP, 9, { long1: 0 }), merge), false);
   await expect('metros 501', ref(SP, 9).set(data(SP, 9, { long1: 501 }), merge), false);
-  await expect('estilo vacío', ref(SP, 9).set(data(SP, 9, { estilo: '' }), merge), false);
+  await expect('estilo vacío (quita el estilo)', ref(SP, 9).set(data(SP, 9, { estilo: '' }), merge), true);
+  await expect('expreses nulos (sin dato)', ref(SP, 9).set(data(SP, 9, { exp1: null }), merge), true);
+  await expect('metros nulos (sin dato)', ref(SP, 9).set(data(SP, 9, { long1: null }), merge), true);
   await expect('estilo de 121 caracteres', ref(SP, 9).set(data(SP, 9, { estilo: 'x'.repeat(121) }), merge), false);
   await expect('varios estilos (120 caracteres)', ref(SP, 15).set(data(SP, 15, { estilo: 'x'.repeat(120) }), merge), true);
   await expect('campo no admitido (grado1)', ref(SP, 9).set(data(SP, 9, { grado1: '6a' }), merge), false);
@@ -77,6 +79,47 @@ const expect = async (label, promise, shouldPass) => {
   await expect('fix: metros como texto', ref(AD, 14).set(fix(AD, 14, { long1: '20' }), merge), false);
   await expect('fix: descripción de 601 caracteres', ref(AD, 14).set(fix(AD, 14, { descripcion: 'x'.repeat(601) }), merge), false);
   await expect('fix que no es un mapa', ref(AD, 14).set(data(AD, 14, { fix: 'hola' }), merge), false);
+
+  // Historial: solo en la misma escritura que cambia la vía, sin editar ni borrar, lectura solo admins
+  const histRef = (u, id) => ref(u, id).collection('historial').doc();
+  const entry = (u, role, changes, over) => Object.assign({ uid: u.uid, role, at: u.FV.serverTimestamp(), changes }, over || {});
+  const withHist = (u, id, mainData, hist) => u.db.runTransaction(async (t) => {
+    await t.get(ref(u, id));
+    t.set(ref(u, id), mainData, merge);
+    t.set(histRef(u, id), hist);
+  });
+  await expect('historial: spotter escribe dato y deja su entrada', withHist(SP, 20, data(SP, 20, { exp1: 7 }), entry(SP, 'spotter', { exp1: { to: 7 } })), true);
+  await expect('historial: spotter con campo de fix', withHist(SP, 21, data(SP, 21, { exp1: 7 }), entry(SP, 'spotter', { f_nombre: { to: 'x' } })), false);
+  await expect('historial: admin con campo de fix', withHist(AD, 22, data(AD, 22, { fix: { nombre: 'Nueva' } }), entry(AD, 'admin', { f_nombre: { to: 'Nueva' } })), true);
+  await expect('historial: super-admin deja su entrada', withHist(SA, 23, data(SA, 23, { long1: 12 }), entry(SA, 'admin', { long1: { to: 12 } })), true);
+  await expect('historial: entrada suelta, sin escribir la vía', histRef(SP, 24).set(entry(SP, 'spotter', { exp1: { to: 7 } })), false);
+  await expect('historial: entrada a nombre de otro', withHist(SP, 25, data(SP, 25, { exp1: 7 }), entry(SP, 'spotter', { exp1: { to: 7 } }, { uid: AD.uid })), false);
+  await expect('historial: fecha inventada', withHist(SP, 26, data(SP, 26, { exp1: 7 }), entry(SP, 'spotter', { exp1: { to: 7 } }, { at: new Date(2000, 0, 1) })), false);
+  await expect('historial: rol inventado', withHist(SP, 27, data(SP, 27, { exp1: 7 }), entry(SP, 'spotter', { exp1: { to: 7 } }, { role: 'dios' })), false);
+  await expect('historial: sin cambios', withHist(SP, 28, data(SP, 28, { exp1: 7 }), entry(SP, 'spotter', {})), false);
+  await expect('historial: campo no admitido', withHist(SP, 29, data(SP, 29, { exp1: 7 }), entry(SP, 'spotter', { grado1: { to: '8c' } })), false);
+  await expect('historial: campo extra en la entrada', withHist(SP, 30, data(SP, 30, { exp1: 7 }), entry(SP, 'spotter', { exp1: { to: 7 } }, { extra: 1 })), false);
+  await expect('historial: usuario normal no escribe', withHist(U, 31, data(U, 31, { exp1: 7 }), entry(U, 'spotter', { exp1: { to: 7 } })), false);
+  await expect('historial: admin quita un dato (sin «to») y lo registra', (async () => {
+    await withHist(AD, 32, data(AD, 32, { exp1: 9 }), entry(AD, 'admin', { exp1: { to: 9 } }));
+    await u2del(AD, 32);
+  })(), true);
+  async function u2del(u, id) {
+    await u.db.runTransaction(async (t) => {
+      await t.get(ref(u, id));
+      t.set(ref(u, id), { schoolId: school, routeId: id, updatedBy: u.uid, updatedAt: u.FV.serverTimestamp(), exp1: u.FV.delete() }, merge);
+      t.set(histRef(u, id), entry(u, 'admin', { exp1: { from: 9 } }));
+    });
+  }
+  const hs = (u, id) => ref(u, id).collection('historial');
+  await expect('historial: admin lo lee', hs(AD, 20).get(), true);
+  await expect('historial: super-admin lo lee', hs(SA, 20).get(), true);
+  await expect('historial: spotter no lo lee', hs(SP, 20).get(), false);
+  await expect('historial: usuario no lo lee', hs(U, 20).get(), false);
+  const first = (await hs(AD, 20).get()).docs[0];
+  await expect('historial: el admin no edita una entrada', hs(AD, 20).doc(first.id).update({ role: 'admin' }), false);
+  await expect('historial: el super-admin tampoco la edita', hs(SA, 20).doc(first.id).update({ role: 'admin' }), false);
+  await expect('historial: el admin no la borra', hs(AD, 20).doc(first.id).delete(), false);
 
   await expect('cualquiera lee (sin ser spotter)', ref(U, 1).get(), true);
   await expect('cualquiera lista por escuela', U.db.collection('route_datos').where('schoolId', '==', school).get(), true);

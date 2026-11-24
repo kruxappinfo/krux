@@ -7499,7 +7499,7 @@ async function loadAdminSuggestions() {
         return;
       }
       fields.forEach(field => adminSuggestions.push({
-        id: doc.id, routeName: raw.routeName, schoolId: raw.schoolId, userEmail: raw.userEmail,
+        id: doc.id, routeName: raw.routeName, routeId: raw.routeId, schoolId: raw.schoolId, userEmail: raw.userEmail,
         status: raw.status, createdAt: raw.timestamp || raw.createdAt || null,
         field, suggestedValue: String(raw.data[field])
       }));
@@ -7715,14 +7715,8 @@ async function approveAdminSuggestion(suggestionId) {
     const db = firebase.firestore();
     const currentUserEmail = firebase.auth().currentUser?.email;
 
-    await db.collection('routeSuggestions').doc(suggestionId).update({
-      status: 'approved',
-      approvedValue: finalValue,
-      approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      approvedBy: currentUserEmail
-    });
-
-    // Actualizar la vía en pending_routes
+    // El dato va a la vía: pending_routes si es de la comunidad; si es una vía del mapa de KRUX, route_datos con historial.
+    // Solo después se marca la sugerencia como aprobada.
     const routeQuery = await db.collection('pending_routes')
       .where('nombre', '==', suggestion.routeName)
       .where('schoolId', '==', suggestion.schoolId)
@@ -7733,7 +7727,20 @@ async function approveAdminSuggestion(suggestionId) {
       const updateData = {};
       updateData[suggestion.field] = finalValue;
       await db.collection('pending_routes').doc(routeDoc.id).update(updateData);
+    } else {
+      const result = await kxRouteDataApproveSuggestion(suggestion, finalValue, 'admin');
+      if (!result.ok) {
+        showToast(result.error, 'error');
+        return;
+      }
     }
+
+    await db.collection('routeSuggestions').doc(suggestionId).update({
+      status: 'approved',
+      approvedValue: finalValue,
+      approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      approvedBy: currentUserEmail
+    });
 
     showToast('Sugerencia aprobada', 'success');
     loadAdminSuggestions();

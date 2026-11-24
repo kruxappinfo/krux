@@ -631,13 +631,10 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isSuperAdmin();
     }
 
-    // Datos de vía añadidos al momento por spotters/admins (estilo, expreses y metros que faltan en el GeoJSON).
-    // Un documento por vía: {escuela}_{id}. Se aplican encima del archivo al cargar la escuela (maplibre-map.js).
-    // El mapa fix (correcciones que sustituyen cualquier dato de la vía) solo lo escriben admins.
+    // Datos de vía que spotters y admins escriben al momento (estilo, expreses y metros) y correcciones de admin
+    // (mapa fix: nombre, grado y descripción). Un documento por vía: {escuela}_{id}. Se aplican encima del GeoJSON al
+    // cargar la escuela (maplibre-map.js). Cada cambio deja una entrada en historial/ (route-datos.js).
     match /route_datos/{docId} {
-      function okInt(d, k, lo, hi) {
-        return !(k in d) || (d[k] is int && d[k] >= lo && d[k] <= hi);
-      }
       function okIntOrNull(d, k, lo, hi) {
         return !(k in d) || d[k] == null || (d[k] is int && d[k] >= lo && d[k] <= hi);
       }
@@ -663,11 +660,11 @@ service cloud.firestore {
           d.schoolId is string && d.routeId is int &&
           docId == d.schoolId + '_' + string(d.routeId) &&
           d.updatedBy == request.auth.uid && d.updatedAt == request.time &&
-          (!('estilo' in d) || (d.estilo is string && d.estilo.size() > 0 && d.estilo.size() <= 120)) &&
-          okInt(d, 'exp1', 0, 50) && okInt(d, 'exp2', 0, 50) && okInt(d, 'exp3', 0, 50) &&
-          okInt(d, 'exp4', 0, 50) && okInt(d, 'exp5', 0, 50) &&
-          okInt(d, 'long1', 1, 500) && okInt(d, 'long2', 1, 500) && okInt(d, 'long3', 1, 500) &&
-          okInt(d, 'long4', 1, 500) && okInt(d, 'long5', 1, 500) &&
+          okStr(d, 'estilo', 0, 120) &&
+          okIntOrNull(d, 'exp1', 0, 50) && okIntOrNull(d, 'exp2', 0, 50) && okIntOrNull(d, 'exp3', 0, 50) &&
+          okIntOrNull(d, 'exp4', 0, 50) && okIntOrNull(d, 'exp5', 0, 50) &&
+          okIntOrNull(d, 'long1', 1, 500) && okIntOrNull(d, 'long2', 1, 500) && okIntOrNull(d, 'long3', 1, 500) &&
+          okIntOrNull(d, 'long4', 1, 500) && okIntOrNull(d, 'long5', 1, 500) &&
           (!('fix' in d) || validFix(d.fix));
       }
       // Un spotter no puede crear ni cambiar fix (lo deja como estaba)
@@ -679,6 +676,33 @@ service cloud.firestore {
       allow create, update: if isAuthenticated() && validRouteData(request.resource.data) &&
         (isAdmin() || isSuperAdmin() || (isSpotter() && fixUntouched()));
       allow delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+
+      // Historial de cambios: solo se crea en la misma escritura que cambia la vía (getAfter) y nunca se edita.
+      // Lo leen los admins, que son quienes pueden volver a un valor anterior.
+      match /historial/{entryId} {
+        function keysSpotter(c) {
+          return c.keys().hasOnly(['estilo', 'exp1', 'exp2', 'exp3', 'exp4', 'exp5',
+            'long1', 'long2', 'long3', 'long4', 'long5']);
+        }
+        function keysAdmin(c) {
+          return c.keys().hasOnly(['estilo', 'exp1', 'exp2', 'exp3', 'exp4', 'exp5',
+            'long1', 'long2', 'long3', 'long4', 'long5',
+            'f_nombre', 'f_descripcion', 'f_grado1', 'f_grado2', 'f_grado3', 'f_grado4', 'f_grado5']);
+        }
+        allow read: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+        allow create: if isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin()) &&
+          request.resource.data.keys().hasOnly(['uid', 'role', 'at', 'changes']) &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.role in ['spotter', 'admin'] &&
+          request.resource.data.at == request.time &&
+          request.resource.data.changes is map &&
+          request.resource.data.changes.size() > 0 && request.resource.data.changes.size() <= 18 &&
+          (keysSpotter(request.resource.data.changes) ||
+            ((isAdmin() || isSuperAdmin()) && keysAdmin(request.resource.data.changes))) &&
+          getAfter(/databases/$(database)/documents/route_datos/$(docId)).data.updatedBy == request.auth.uid &&
+          getAfter(/databases/$(database)/documents/route_datos/$(docId)).data.updatedAt == request.time;
+        allow update, delete: if false;
+      }
     }
 
     // Pending sectors (sectores pendientes de aprobación)
