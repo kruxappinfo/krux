@@ -14029,6 +14029,26 @@ body.pwa-standalone .feed-header {
   margin-top: 2px;
 }
 
+/* Grado tocado: cápsula con el color del grado */
+.bs-donut-total.is-grade,
+.ml-total-vias.is-grade {
+  display: inline-block;
+  padding: 4px 14px 5px;
+  border-radius: 999px;
+  font-size: 30px;
+  letter-spacing: -0.01em;
+}
+
+.ml-total-vias.is-grade {
+  padding: 3px 10px 4px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.bs-donut-total.is-grade + .bs-donut-label {
+  margin-top: 6px;
+}
+
 /* ========================================
    TIEMPO ACTUAL Y PREVISIÓN DE 7 DÍAS (ficha de escuela)
    Tarjeta con acceso a una ventana con la previsión; ambas comparten la fila «tiempo ahora».
@@ -14311,6 +14331,15 @@ body.pwa-standalone .feed-header {
 .bs-donut-segment {
   animation: donutDraw 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   animation-delay: var(--segment-delay, 0s);
+}
+
+/* Al tocar un grado, el resto se atenúa */
+.bs-donut-segment {
+  transition: opacity 0.2s ease;
+}
+
+.bs-donut-segment.is-dim {
+  opacity: 0.3;
 }
 
 /* Fade in para contenido expandido */
