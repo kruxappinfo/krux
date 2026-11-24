@@ -471,7 +471,7 @@ function showToast(message, type = 'info') {
         font-size: 14px;
         font-weight: 500;
         z-index: 9999;
-        animation: slideUp 0.3s ease;
+        animation: kxAdminToastUp 0.3s ease;
         ${type === 'success' ? 'background: #10b981; color: white;' : ''}
         ${type === 'error' ? 'background: #ef4444; color: white;' : ''}
         ${type === 'info' ? 'background: #3b82f6; color: white;' : ''}
@@ -482,7 +482,7 @@ function showToast(message, type = 'info') {
         const style = document.createElement('style');
         style.id = 'toast-styles';
         style.textContent = `
-            @keyframes slideUp {
+            @keyframes kxAdminToastUp {
                 from { opacity: 0; transform: translateX(-50%) translateY(20px); }
                 to { opacity: 1; transform: translateX(-50%) translateY(0); }
             }

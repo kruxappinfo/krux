@@ -13361,7 +13361,7 @@ input[type="range"].ml-grade-slider-input::-moz-range-thumb {
   gap: 12px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
   z-index: 10000;
-  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: kxCenteredSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   max-width: calc(100vw - 32px);
 }
 
@@ -13401,7 +13401,9 @@ input[type="range"].ml-grade-slider-input::-moz-range-thumb {
   background: rgba(255, 255, 255, 0.2);
 }
 
-@keyframes slideUp {
+/* Solo para el aviso centrado con translateX(-50%). Antes se llamaba slideUp y, al ir después, sustituía al
+   slideUp de las ventanas: todas entraban desplazadas media pantalla a la izquierda. */
+@keyframes kxCenteredSlideUp {
   from {
     opacity: 0;
     transform: translate(-50%, 20px);
