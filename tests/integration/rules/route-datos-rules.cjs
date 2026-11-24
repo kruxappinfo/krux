@@ -57,6 +57,26 @@ const expect = async (label, promise, shouldPass) => {
   await expect('variante 6 no admitida', ref(SP, 9).set(data(SP, 9, { exp6: 5 }), merge), false);
   await expect('fecha inventada', ref(SP, 9).set(data(SP, 9, { exp1: 5, updatedAt: new Date(2000, 0, 1) }), merge), false);
 
+  // Correcciones de admin (fix): sustituyen cualquier dato; un spotter no las crea ni las cambia
+  const fix = (u, id, f) => data(u, id, { fix: f });
+  await expect('admin corrige nombre, grado, estilo y descripción', ref(AD, 10).set(fix(AD, 10, { nombre: 'La Raja', grado1: '6b', estilo: 'Fisura', descripcion: 'Salida delicada' }), merge), true);
+  await expect('admin borra expreses y metros (null)', ref(AD, 10).set(fix(AD, 10, { exp1: null, long1: null }), merge), true);
+  await expect('admin corrige variante 3', ref(AD, 10).set(fix(AD, 10, { grado3: '7a', exp3: 9, long3: 20 }), merge), true);
+  await expect('admin deja la descripción vacía', ref(AD, 10).set(fix(AD, 10, { descripcion: '' }), merge), true);
+  await expect('super-admin corrige', ref(SA, 11).set(fix(SA, 11, { grado1: '5c' }), merge), true);
+  await expect('spotter no puede crear fix', ref(SP, 12).set(fix(SP, 12, { grado1: '6a' }), merge), false);
+  await expect('spotter no puede cambiar fix', ref(SP, 10).set(fix(SP, 10, { grado1: '8a' }), merge), false);
+  await expect('spotter rellena un hueco en una vía con fix (fix intacto)', ref(SP, 10).set(data(SP, 10, { exp2: 6 }), merge), true);
+  await expect('usuario no puede corregir', ref(U, 13).set(fix(U, 13, { nombre: 'x' }), merge), false);
+  await expect('fix: nombre vacío', ref(AD, 14).set(fix(AD, 14, { nombre: '' }), merge), false);
+  await expect('fix: grado vacío', ref(AD, 14).set(fix(AD, 14, { grado1: '' }), merge), false);
+  await expect('fix: grado de 9 caracteres', ref(AD, 14).set(fix(AD, 14, { grado1: '123456789' }), merge), false);
+  await expect('fix: campo no admitido (sector)', ref(AD, 14).set(fix(AD, 14, { sector: 'Otro' }), merge), false);
+  await expect('fix: expreses fuera de rango', ref(AD, 14).set(fix(AD, 14, { exp1: 99 }), merge), false);
+  await expect('fix: metros como texto', ref(AD, 14).set(fix(AD, 14, { long1: '20' }), merge), false);
+  await expect('fix: descripción de 601 caracteres', ref(AD, 14).set(fix(AD, 14, { descripcion: 'x'.repeat(601) }), merge), false);
+  await expect('fix que no es un mapa', ref(AD, 14).set(data(AD, 14, { fix: 'hola' }), merge), false);
+
   await expect('cualquiera lee (sin ser spotter)', ref(U, 1).get(), true);
   await expect('cualquiera lista por escuela', U.db.collection('route_datos').where('schoolId', '==', school).get(), true);
   await expect('spotter no borra', ref(SP, 1).delete(), false);

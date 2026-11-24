@@ -632,15 +632,34 @@ service cloud.firestore {
     }
 
     // Datos de vía añadidos al momento por spotters/admins (estilo, expreses y metros que faltan en el GeoJSON).
-    // Un documento por vía: {escuela}_{id}. Se aplican encima del archivo al cargar la escuela (maplibre-map.js)
+    // Un documento por vía: {escuela}_{id}. Se aplican encima del archivo al cargar la escuela (maplibre-map.js).
+    // El mapa fix (correcciones que sustituyen cualquier dato de la vía) solo lo escriben admins.
     match /route_datos/{docId} {
       function okInt(d, k, lo, hi) {
         return !(k in d) || (d[k] is int && d[k] >= lo && d[k] <= hi);
       }
+      function okIntOrNull(d, k, lo, hi) {
+        return !(k in d) || d[k] == null || (d[k] is int && d[k] >= lo && d[k] <= hi);
+      }
+      function okStr(d, k, lo, hi) {
+        return !(k in d) || (d[k] is string && d[k].size() >= lo && d[k].size() <= hi);
+      }
+      function validFix(f) {
+        return f is map && f.keys().hasOnly(['nombre', 'estilo', 'descripcion',
+            'grado1', 'grado2', 'grado3', 'grado4', 'grado5',
+            'exp1', 'exp2', 'exp3', 'exp4', 'exp5', 'long1', 'long2', 'long3', 'long4', 'long5']) &&
+          okStr(f, 'nombre', 1, 80) && okStr(f, 'estilo', 0, 40) && okStr(f, 'descripcion', 0, 600) &&
+          okStr(f, 'grado1', 1, 8) && okStr(f, 'grado2', 1, 8) && okStr(f, 'grado3', 1, 8) &&
+          okStr(f, 'grado4', 1, 8) && okStr(f, 'grado5', 1, 8) &&
+          okIntOrNull(f, 'exp1', 0, 50) && okIntOrNull(f, 'exp2', 0, 50) && okIntOrNull(f, 'exp3', 0, 50) &&
+          okIntOrNull(f, 'exp4', 0, 50) && okIntOrNull(f, 'exp5', 0, 50) &&
+          okIntOrNull(f, 'long1', 1, 500) && okIntOrNull(f, 'long2', 1, 500) && okIntOrNull(f, 'long3', 1, 500) &&
+          okIntOrNull(f, 'long4', 1, 500) && okIntOrNull(f, 'long5', 1, 500);
+      }
       function validRouteData(d) {
         return d.keys().hasOnly(['schoolId', 'routeId', 'estilo',
             'exp1', 'exp2', 'exp3', 'exp4', 'exp5', 'long1', 'long2', 'long3', 'long4', 'long5',
-            'updatedBy', 'updatedAt']) &&
+            'fix', 'updatedBy', 'updatedAt']) &&
           d.schoolId is string && d.routeId is int &&
           docId == d.schoolId + '_' + string(d.routeId) &&
           d.updatedBy == request.auth.uid && d.updatedAt == request.time &&
@@ -648,11 +667,17 @@ service cloud.firestore {
           okInt(d, 'exp1', 0, 50) && okInt(d, 'exp2', 0, 50) && okInt(d, 'exp3', 0, 50) &&
           okInt(d, 'exp4', 0, 50) && okInt(d, 'exp5', 0, 50) &&
           okInt(d, 'long1', 1, 500) && okInt(d, 'long2', 1, 500) && okInt(d, 'long3', 1, 500) &&
-          okInt(d, 'long4', 1, 500) && okInt(d, 'long5', 1, 500);
+          okInt(d, 'long4', 1, 500) && okInt(d, 'long5', 1, 500) &&
+          (!('fix' in d) || validFix(d.fix));
+      }
+      // Un spotter no puede crear ni cambiar fix (lo deja como estaba)
+      function fixUntouched() {
+        return !('fix' in request.resource.data) ||
+          (resource != null && 'fix' in resource.data && request.resource.data.fix == resource.data.fix);
       }
       allow read: if true;
-      allow create, update: if isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin()) &&
-        validRouteData(request.resource.data);
+      allow create, update: if isAuthenticated() && validRouteData(request.resource.data) &&
+        (isAdmin() || isSuperAdmin() || (isSpotter() && fixUntouched()));
       allow delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
     }
 
