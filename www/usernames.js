@@ -78,12 +78,20 @@ function kxMentionLabel(m) {
 // ============================================
 const KruxUsernames = (() => {
   const ref = (name) => db.collection('usernames').doc(name);
+  // Con mala cobertura una lectura o la transacción pueden quedarse esperando sin fallar:
+  // a los ms se corta con Error('timeout') para que la pantalla no se quede en «Guardando…»
+  const KX_UNAME_TIMEOUT_MS = 12000;
+  const withTimeout = (p, ms = KX_UNAME_TIMEOUT_MS) => {
+    let t;
+    return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('timeout')), ms); })])
+      .finally(() => clearTimeout(t));
+  };
 
   // true si está libre o ya es de esta cuenta
   async function isAvailable(name, uid) {
     const u = kxNormalizeUsername(name);
     if (kxValidateUsername(u, kxUsernameOpts())) return false;
-    const snap = await ref(u).get();
+    const snap = await withTimeout(ref(u).get());
     return !snap.exists || (snap.data() || {}).uid === uid;
   }
 
@@ -103,7 +111,7 @@ const KruxUsernames = (() => {
     const u = kxNormalizeUsername(name);
     if (kxValidateUsername(u, kxUsernameOpts())) throw new Error('invalid');
     const userRef = db.collection('users').doc(user.uid);
-    await db.runTransaction(async (tx) => {
+    const tx = db.runTransaction(async (tx) => {
       const [taken, me] = await Promise.all([tx.get(ref(u)), tx.get(userRef)]);
       if (taken.exists && (taken.data() || {}).uid !== user.uid) throw new Error('taken');
       const old = me.exists ? me.data().username : null;
@@ -113,6 +121,15 @@ const KruxUsernames = (() => {
       else tx.set(userRef, { username: u }, { merge: true });
       if (old && old !== u) tx.delete(ref(old));
     });
+    try {
+      await withTimeout(tx);
+    } catch (e) {
+      if (e.message !== 'timeout') throw e;
+      // La transacción pudo llegar al servidor aunque la respuesta no vuelva: si el perfil ya lo tiene, está guardado
+      const me = await withTimeout(userRef.get({ source: 'server' }), 6000).catch(() => null);
+      if (me && me.exists && me.data().username === u) return u;
+      throw e;
+    }
     return u;
   }
 
@@ -171,6 +188,7 @@ function kxUsernameClaimError(e) {
   const m = e && e.message;
   if (m === 'taken') return 'Ese nombre de usuario ya está cogido';
   if (m === 'invalid') return 'Ese nombre de usuario no es válido';
+  if (m === 'timeout') return 'Está tardando demasiado. Revisa la conexión y vuelve a intentarlo.';
   return 'No se pudo guardar el nombre de usuario. Revisa la conexión.';
 }
 
