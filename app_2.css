@@ -32567,16 +32567,16 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 /* Editar datos de la vía (admins): formulario en dos columnas sobre el modal de contribución */
 .kx-redit {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  max-width: 460px;
+  max-width: 480px;
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
   font-family: var(--kx-font);
 }
 .kx-redit h3, .kx-redit p, .kx-redit-wide { grid-column: 1 / -1; }
 .kx-redit p { margin-bottom: 4px; }
-.kx-redit-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 0.8125rem; font-weight: 600; color: var(--kx-ink-2, #374151); }
+.kx-redit-field { display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; min-width: 0; font-size: 0.8125rem; font-weight: 600; color: var(--kx-ink-2, #374151); }
 .kx-redit-field .ml-contribute-input { min-height: 44px; padding: 10px 12px; font: inherit; font-size: 1rem; font-weight: 400; color: var(--kx-ink, #1f2937); }
 .kx-redit-field textarea.ml-contribute-input { resize: vertical; line-height: 1.4; }
 .kx-redit-field .ml-contribute-input:focus { border-color: var(--kx-forest); }
@@ -32584,6 +32584,25 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 .kx-redit .ml-contribute-btn { min-height: 44px; }
 .kx-redit .ml-contribute-btn-submit { background: var(--kx-forest); }
 @media (max-width: 359px) { .kx-redit { grid-template-columns: 1fr; } }
+
+/* Estilo de la vía: varias opciones a la vez (aviso de dato que falta y editor de admins) */
+.kx-style-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.kx-style-pick {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(32, 41, 35, 0.16);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--kx-ink, #1f2937);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.kx-style-pick[aria-pressed="true"] { background: var(--kx-forest); border-color: var(--kx-forest); color: #fff; }
+.kx-style-pick:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+.kx-redit-hint { font-weight: 400; color: #6B706D; }
+.ml-contribute-modal { max-height: calc(100dvh - 40px); overflow-y: auto; }
 
 @media (min-width: 769px) {
   .maplibregl-popup.ml-route-popup { max-width: 440px !important; }   /* el límite general de popups es 320px */

@@ -6080,6 +6080,42 @@ function generateSectorEstadoHTML(avgVote, ratedCount, totalCount) {
 /**
  * Abre modal para que el usuario contribuya datos faltantes de una vía
  */
+// ---------- Estilo de la vía: varias opciones a la vez ----------
+// Se guarda como texto («Placa, fisura y desplome»): es lo que lee la cápsula de estilo y lo que admiten las reglas
+const KX_ROUTE_STYLES = ['Placa', 'Vertical', 'Desplome', 'Techo', 'Fisura', 'Diedro', 'Bavaresa', 'Chimenea',
+  'Arista', 'Espolón', 'Muro', 'Travesía', 'Regletas', 'Agujeros', 'Romos', 'Cantos', 'Adherencia',
+  'Resistencia', 'Continuidad', 'Bloque', 'Técnica', 'Atlética'];
+const KX_STYLE_MAX = 120;
+
+function kxStyleKey(s) { return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim(); }
+
+// «Placa, fisura y desplome» → { picked: ['Placa', 'Fisura', 'Desplome'], other: '' } (lo que no es una opción va a other)
+function kxStyleParse(text) {
+  const picked = [], other = [];
+  String(text || '').split(/,|\s+y\s+|\s+e\s+|\//).map(t => t.trim()).filter(Boolean).forEach(part => {
+    const hit = KX_ROUTE_STYLES.find(o => kxStyleKey(o) === kxStyleKey(part));
+    if (hit) { if (!picked.includes(hit)) picked.push(hit); } else other.push(part);
+  });
+  return { picked, other: other.join(', ') };
+}
+
+function kxStyleJoin(parts) {
+  const list = parts.map(p => String(p).trim()).filter(Boolean).map((p, i) => (i ? p.charAt(0).toLowerCase() + p.slice(1) : p.charAt(0).toUpperCase() + p.slice(1)));
+  return list.length > 1 ? `${list.slice(0, -1).join(', ')} y ${list[list.length - 1]}` : (list[0] || '');
+}
+
+function kxStylePicksHTML(id, selected = []) {
+  const on = new Set(selected);
+  return `<div class="kx-style-picks" id="${id}" role="group" aria-label="Estilo de la vía">${KX_ROUTE_STYLES.map(o =>
+    `<button type="button" class="kx-style-pick" aria-pressed="${on.has(o)}" data-style="${o}" onclick="this.setAttribute('aria-pressed', this.getAttribute('aria-pressed') !== 'true')">${o}</button>`).join('')}</div>`;
+}
+
+function kxStylePicksValue(group, extra = '') {
+  if (!group) return '';
+  const picked = [...group.querySelectorAll('.kx-style-pick[aria-pressed="true"]')].map(b => b.dataset.style);
+  return kxStyleJoin([...picked, ...String(extra || '').split(',')]);
+}
+
 // Vía y campo a los que se atribuye la contribución abierta (una variante usa exp2/long2…)
 let mlContributeTarget = { routeName: null, suffix: 1 };
 
@@ -6105,16 +6141,8 @@ function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '
   let fieldHTML = '';
   if (field === 'tipo') {
     fieldHTML = `
-      <label style="display:block; margin-bottom:8px; font-size:14px; color:#374151;">Tipo de escalada</label>
-      <select class="ml-contribute-select" id="ml-contribute-tipo">
-        <option value="">Selecciona...</option>
-        <option value="Placa">Placa</option>
-        <option value="Fisura">Fisura</option>
-        <option value="Diedro">Diedro</option>
-        <option value="Desplome">Desplome</option>
-        <option value="Bavaresa">Bavaresa</option>
-        <option value="Chimenea">Chimenea</option>
-      </select>`;
+      <div style="margin-bottom:8px; font-size:14px; color:#374151;">Estilo de la v&iacute;a <span style="color:#6B706D;">(puedes marcar varios)</span></div>
+      ${kxStylePicksHTML('ml-contribute-tipo')}`;
   } else if (field === 'express') {
     fieldHTML = `
       <label style="display:block; margin-bottom:8px; font-size:14px; color:#374151;">N&uacute;mero de express</label>
@@ -6126,16 +6154,8 @@ function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '
   } else {
     // Fallback: mostrar todos los campos si no se especifica campo
     fieldHTML = `
-      <label style="display:block; margin-bottom:8px; font-size:14px; color:#374151;">Tipo de escalada</label>
-      <select class="ml-contribute-select" id="ml-contribute-tipo">
-        <option value="">Selecciona...</option>
-        <option value="Placa">Placa</option>
-        <option value="Fisura">Fisura</option>
-        <option value="Diedro">Diedro</option>
-        <option value="Desplome">Desplome</option>
-        <option value="Bavaresa">Bavaresa</option>
-        <option value="Chimenea">Chimenea</option>
-      </select>
+      <div style="margin-bottom:8px; font-size:14px; color:#374151;">Estilo de la v&iacute;a <span style="color:#6B706D;">(puedes marcar varios)</span></div>
+      ${kxStylePicksHTML('ml-contribute-tipo')}
       <label style="display:block; margin-top:12px; margin-bottom:8px; font-size:14px; color:#374151;">N&uacute;mero de express</label>
       <input type="number" class="ml-contribute-input" id="ml-contribute-exp" placeholder="Ej: 8" min="0" max="50">
       <label style="display:block; margin-top:12px; margin-bottom:8px; font-size:14px; color:#374151;">Metros de la v&iacute;a</label>
@@ -6168,7 +6188,7 @@ function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '
 async function mlSubmitContribution(routeId, schoolId) {
   const routeName = mlContributeTarget.routeName || mlCurrentRouteName || 'Sin nombre';
   const suffix = mlContributeTarget.suffix;
-  const tipo = document.getElementById('ml-contribute-tipo')?.value;
+  const tipo = kxStylePicksValue(document.getElementById('ml-contribute-tipo'));
   const exp = document.getElementById('ml-contribute-exp')?.value;
   const long = document.getElementById('ml-contribute-long')?.value;
 
@@ -6189,6 +6209,7 @@ async function mlSubmitContribution(routeId, schoolId) {
     if (await kxCanSaveRouteData(routeId, schoolId)) {
       const values = {};
       if (tipo) values.estilo = tipo;
+      if (tipo.length > KX_STYLE_MAX) { if (typeof showToast === 'function') showToast('Demasiados estilos: quita alguno', 'info'); return; }
       if (exp) values['exp' + suffix] = parseInt(exp, 10);
       if (long) values['long' + suffix] = parseInt(long, 10);
       const bad = Object.entries(values).find(([k, v]) => k !== 'estilo' &&
@@ -6358,6 +6379,7 @@ function kxOpenRouteEditor(btn) {
   hideRouteBottomSheet();
 
   const val = v => (v == null ? '' : kxEscHTML(String(v)));
+  const styleParts = kxStyleParse(info.estilo);
   const overlay = document.createElement('div');
   overlay.className = 'ml-contribute-modal-overlay';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
@@ -6371,15 +6393,16 @@ function kxOpenRouteEditor(btn) {
       <label class="kx-redit-field">Grado${info.suffix > 1 ? ` (variante ${info.suffix})` : ''}
         <input class="ml-contribute-input" name="grado" maxlength="8" value="${val(info.grado)}" placeholder="6a+" required>
       </label>
-      <label class="kx-redit-field">Estilo
-        <input class="ml-contribute-input" name="estilo" maxlength="40" value="${val(info.estilo)}" placeholder="Placa">
-      </label>
       <label class="kx-redit-field">Expreses
         <input class="ml-contribute-input" name="exp" type="number" inputmode="numeric" min="0" max="50" value="${val(info.exp)}">
       </label>
       <label class="kx-redit-field">Metros
         <input class="ml-contribute-input" name="long" type="number" inputmode="numeric" min="1" max="500" value="${val(info.long)}">
       </label>
+      <div class="kx-redit-field kx-redit-wide">Estilo <span class="kx-redit-hint">puedes marcar varios</span>
+        ${kxStylePicksHTML('kx-redit-styles', styleParts.picked)}
+        <input class="ml-contribute-input" name="estiloOtro" maxlength="60" value="${val(styleParts.other)}" placeholder="Otro estilo (opcional)" aria-label="Otro estilo">
+      </div>
       <label class="kx-redit-field kx-redit-wide">Descripción
         <textarea class="ml-contribute-input" name="descripcion" rows="3" maxlength="600">${val(info.descripcion)}</textarea>
       </label>
@@ -6416,7 +6439,9 @@ async function kxSubmitRouteEditor(form) {
   const fix = {};
   if (!same(nombre, info.nombre)) fix.nombre = nombre;
   if (!same(grado, info.grado)) fix['grado' + s] = grado;
-  if (!same(get('estilo'), info.estilo)) fix.estilo = get('estilo');
+  const estilo = kxStylePicksValue(form.querySelector('#kx-redit-styles'), get('estiloOtro'));
+  if (estilo.length > KX_STYLE_MAX) return toast('Demasiados estilos: quita alguno', 'info');
+  if (!same(estilo, info.estilo)) fix.estilo = estilo;
   if (!same(get('descripcion'), info.descripcion)) fix.descripcion = get('descripcion');
   if (!same(exp.v, info.exp)) fix['exp' + s] = exp.v;
   if (!same(long.v, info.long)) fix['long' + s] = long.v;
