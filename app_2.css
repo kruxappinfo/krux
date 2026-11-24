@@ -22004,17 +22004,7 @@ body.plan-editor-open { overflow: hidden; }
   background: var(--kx-surface);
 }
 
-#view-post-modal .feed-media-modal .feed-image-container {
-  aspect-ratio: auto;
-  max-height: 70vh;
-}
-
-#view-post-modal .feed-media-modal .feed-image-container .feed-image {
-  position: static;
-  height: auto;
-  max-height: 70vh;
-}
-
+/* La foto sale recortada como en el feed; entera, al tocarla (visor) */
 #view-post-modal .feed-media-modal .feed-images-grid {
   aspect-ratio: 1.3;
 }
