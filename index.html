@@ -64,7 +64,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=244" />
+  <link rel="stylesheet" href="./app_2.css?v=245" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -86,6 +86,8 @@
 
   <script defer src="./vendor/firebase-9.23.0/firebase-storage-compat.js"></script>
 
+  <script defer src="./vendor/firebase-9.23.0/firebase-messaging-compat.js"></script>
+
   <script defer src="./firebase-config.js?v=2"></script>
 
   <script defer src="./usernames.js?v=2"></script>
@@ -96,7 +98,7 @@
 
   <script defer src="./user-features.js?v=17"></script>
   <script defer src="./ascent-partners.js?v=2"></script>
-  <script defer src="./push.js?v=1"></script>
+  <script defer src="./push.js?v=2"></script>
 
   <script defer src="./route-photos.js?v=3"></script>
 
@@ -1319,6 +1321,10 @@
         <button type="button" class="kx-chip" data-filter="follow" aria-pressed="false">Seguidores<span class="kx-chip-count"></span></button>
         <button type="button" class="kx-chip" data-filter="comment" aria-pressed="false">Comentarios<span class="kx-chip-count"></span></button>
         <button type="button" class="kx-chip" data-filter="like" aria-pressed="false">Me gusta<span class="kx-chip-count"></span></button>
+      </div>
+      <div class="notification-push-cta" id="notification-push-cta" hidden>
+        <p>Recibe los avisos en este dispositivo aunque KRUX esté cerrada.</p>
+        <button type="button" class="kx-btn kx-btn--secondary kx-btn--sm" id="notification-push-btn">Activar avisos</button>
       </div>
       <div id="notification-list" class="notification-list kx-sheet-body"></div>
       <div class="kx-sheet-footer" id="notifications-footer" hidden>
