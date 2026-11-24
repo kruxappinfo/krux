@@ -2967,16 +2967,16 @@ window.MessagingService = {
         };
         if (extra.sharedPost) message.sharedPost = extra.sharedPost;
 
-        // Add message to subcollection
-        await db.collection('conversations').doc(conversationId)
-            .collection('messages').add(message);
-
-        // Update conversation metadata
-        await db.collection('conversations').doc(conversationId).update({
+        // Mensaje y datos de la conversación en el mismo lote: nunca un mensaje que no sube la bandeja ni el contador
+        const convRef = db.collection('conversations').doc(conversationId);
+        const batch = db.batch();
+        batch.set(convRef.collection('messages').doc(), message);
+        batch.update(convRef, {
             lastMessage: (extra.preview || text.trim()).substring(0, 50),
             lastMessageTime: firebase.firestore.FieldValue.serverTimestamp(),
             [`unreadCount.${recipientId}`]: firebase.firestore.FieldValue.increment(1)
         });
+        await batch.commit();
     },
 
     /**
@@ -2984,7 +2984,7 @@ window.MessagingService = {
      * @param {function} callback - Called with array of conversations
      * @returns {function} - Unsubscribe function
      */
-    subscribeToConversations(callback) {
+    subscribeToConversations(callback, onError) {
         const currentUser = firebase.auth().currentUser;
         if (!currentUser) return () => { };
 
@@ -2999,6 +2999,7 @@ window.MessagingService = {
                 callback(conversations);
             }, error => {
                 console.error('Error subscribing to conversations:', error);
+                if (typeof onError === 'function') onError(error);
             });
     },
 

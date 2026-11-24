@@ -3172,21 +3172,33 @@ function initMessages() {
     }
 
     if (window.MessagingService) {
+      const uid = currentUser.uid;
       unsubscribeConversations = window.MessagingService.subscribeToConversations((convs) => {
+        convRetryDelay = 2000;
         conversations = convs;
         updateBadge();
         if (!dropdown.classList.contains('hidden')) {
           renderConversations();
         }
+      }, () => {
+        // La escucha se cortó: se reabre con espera creciente mientras siga la misma sesión
+        unsubscribeConversations = null;
+        clearTimeout(convRetryTimer);
+        convRetryTimer = setTimeout(() => {
+          if ((firebase.auth().currentUser || {}).uid === uid) setupConversationsListener();
+        }, convRetryDelay);
+        convRetryDelay = Math.min(convRetryDelay * 2, 60000);
       });
     }
   }
+  let convRetryTimer = null, convRetryDelay = 2000;
 
   // Auth state listener
   firebase.auth().onAuthStateChanged(user => {
     if (user) {
       setupConversationsListener();
     } else {
+      clearTimeout(convRetryTimer);
       if (unsubscribeConversations) {
         unsubscribeConversations();
         unsubscribeConversations = null;
@@ -3781,11 +3793,13 @@ function initNotifications() {
   const deletingNotificationIds = new Set(); // Track notifications being deleted
 
   // Wait for auth state
+  let retryTimer = null, retryDelay = 2000;
   firebase.auth().onAuthStateChanged(user => {
     if (user) {
       setupNotificationListener(user.uid);
     } else {
-      if (unsubscribe) unsubscribe();
+      clearTimeout(retryTimer);
+      if (unsubscribe) { unsubscribe(); unsubscribe = null; }
       notifications = [];
       hasUnread = false;
       setBellUnread(false);
@@ -3793,12 +3807,16 @@ function initNotifications() {
   });
 
   function setupNotificationListener(userId) {
+    // Nunca dos escuchas a la vez (ni una de otra cuenta)
+    clearTimeout(retryTimer);
+    if (unsubscribe) { unsubscribe(); unsubscribe = null; }
     unsubscribe = db.collection('users')
       .doc(userId)
       .collection('notifications')
       .orderBy('createdAt', 'desc')
       .limit(20)
       .onSnapshot(snapshot => {
+        retryDelay = 2000;
         notifications = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
@@ -3817,7 +3835,15 @@ function initNotifications() {
           renderNotifications();
         }
       }, error => {
+        // Un error corta la escucha para siempre: se vuelve a abrir con espera creciente mientras siga la sesión
         console.error('Error listening to notifications:', error);
+        unsubscribe = null;
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+          const u = firebase.auth().currentUser;
+          if (u && u.uid === userId) setupNotificationListener(userId);
+        }, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 60000);
       });
   }
 
@@ -10593,8 +10619,7 @@ async function submitPost() {
       userId: currentUser.uid,
       userName: currentUser.displayName || 'Usuario',
       userPhoto: await kxAuthorPhoto(currentUser.uid) || currentUser.photoURL || '',
-      likes: 0,
-      liked: false,
+      likes: [],
       commentsCount: 0,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -10818,11 +10843,17 @@ function showEmptyFeedState(container) {
 }
 
 // Load feed from Firebase - Timeline de seguidos
+// Cada carga del feed lleva un número: si empieza otra (sesión restaurada, tirar para recargar, publicar…),
+// la anterior no pinta nada. Antes dos cargas a la vez duplicaban las publicaciones y sus botones.
+let kxFeedLoadSeq = 0;
+
 async function loadFeed(opts) {
   const container = document.getElementById('feed-container');
   if (!container) return;
   // silent: recarga por gesto; la lista sigue visible hasta que llegan las publicaciones nuevas
   const silent = !!(opts && opts.silent);
+  const seq = ++kxFeedLoadSeq;
+  const stale = () => seq !== kxFeedLoadSeq;
 
   try {
     if (!silent) container.innerHTML = '<div class="loading-spinner">Cargando publicaciones...</div>';
@@ -10844,6 +10875,7 @@ async function loadFeed(opts) {
       followingIds.push(currentUser.uid);
     }
 
+    if (stale()) return;
     if (!silent) container.innerHTML = '';
 
     // Vista previa local sin sesión: publicaciones de demostración (ver isLocalDevPreview en auth.js)
@@ -10866,6 +10898,7 @@ async function loadFeed(opts) {
 
     // Fetch posts using batched 'where in' queries (Firestore limit: 30 per query)
     const firebasePosts = [];
+    let failedBatches = 0, lastBatchError = null;
     const batchSize = 30;
     const postsPerBatch = Math.ceil(50 / Math.ceil(followingIds.length / batchSize)); // Distribute limit across batches
 
@@ -10890,8 +10923,13 @@ async function loadFeed(opts) {
         });
       } catch (error) {
         console.error('Error fetching posts batch:', error);
+        failedBatches++;
+        lastBatchError = error;
       }
     }
+    if (stale()) return;
+    // Sin ninguna respuesta no es «no hay publicaciones»: es un fallo (sin conexión, permisos…) y se puede reintentar
+    if (failedBatches > 0 && firebasePosts.length === 0) throw lastBatchError;
 
     // Sort all posts by createdAt and limit to 50
     firebasePosts.sort((a, b) => {
@@ -10929,6 +10967,7 @@ async function loadFeed(opts) {
       }
     }
 
+    if (stale()) return;
     // Use filtered posts (solo datos reales)
     const allPosts = [...limitedPosts];
 
@@ -10937,7 +10976,8 @@ async function loadFeed(opts) {
       return;
     }
 
-    if (silent) container.innerHTML = '';
+    // Siempre se vacía antes de pintar: nunca quedan publicaciones de una carga anterior
+    container.innerHTML = '';
     allPosts.forEach(post => {
       renderPostCard(post, container);
     });
@@ -10947,11 +10987,12 @@ async function loadFeed(opts) {
 
   } catch (error) {
     console.error('Error loading feed:', error);
+    if (stale()) return;
     if (silent) throw error;
 
     container.innerHTML = `
         <div class="feed-state feed-state-error">
-          <p>Error al cargar el feed: ${error.message}</p>
+          <p>No se ha podido cargar el feed. Revisa la conexión.</p>
           <button type="button" class="feed-state-btn" onclick="loadFeed()">Reintentar</button>
         </div>
       `;
@@ -11352,6 +11393,37 @@ function attachFeedEventListeners(container) {
 
 // ================== FEED ACTION HANDLERS ==================
 
+// Una misma acción (enviar un comentario, dar like a una publicación…) no se lanza dos veces a la vez:
+// un doble toque o un Enter repetido ya no duplica comentarios ni deja el like a medias
+const kxBusyActions = new Set();
+async function kxRunOnce(key, fn) {
+  if (kxBusyActions.has(key)) return undefined;
+  kxBusyActions.add(key);
+  try { return await fn(); } finally { kxBusyActions.delete(key); }
+}
+
+// Lo que se hace después de guardar (recargar la lista, avisar al autor…) no puede convertir
+// un guardado correcto en un mensaje de error: si falla, solo queda en la consola
+async function kxAfterSave(label, fn) {
+  try { await fn(); } catch (e) { console.warn(`[Social] ${label}:`, e); }
+}
+
+// Comentario o respuesta y su contador en un mismo lote: o se guardan los dos o ninguno
+async function kxAddWithCounter(collectionRef, data, counterRef, field) {
+  const docRef = collectionRef.doc();
+  const batch = db.batch();
+  batch.set(docRef, data);
+  batch.update(counterRef, { [field]: firebase.firestore.FieldValue.increment(1) });
+  await batch.commit();
+  return docRef;
+}
+async function kxDeleteWithCounter(docRef, counterRef, field) {
+  const batch = db.batch();
+  batch.delete(docRef);
+  batch.update(counterRef, { [field]: firebase.firestore.FieldValue.increment(-1) });
+  await batch.commit();
+}
+
 // Handle like button click - Uses array likes[] with arrayUnion/arrayRemove
 // Colors: Active = Red (#ef4444), Inactive = outline (no fill)
 async function handleFeedLike(postId, button) {
@@ -11359,7 +11431,10 @@ async function handleFeedLike(postId, button) {
     showToast('Inicia sesión para dar like', 'info');
     return;
   }
+  return kxRunOnce(`like:${postId}`, () => kxToggleFeedLike(postId, button));
+}
 
+async function kxToggleFeedLike(postId, button) {
   const isLiked = button.classList.contains('liked');
   const svg = button.querySelector('svg');
   const countSpan = button.querySelector('.feed-action-count');
@@ -11393,31 +11468,11 @@ async function handleFeedLike(postId, button) {
     const postRef = db.collection('posts').doc(postId);
 
     // Update likes array using arrayUnion/arrayRemove
-    if (isLiked) {
-      // Remove like
-      await postRef.update({
-        likes: firebase.firestore.FieldValue.arrayRemove(currentUser.uid)
-      });
-
-      // Delete notification when unliking
-      const postDoc = await postRef.get();
-      const postData = postDoc.data();
-      if (postData && postData.userId && postData.userId !== currentUser.uid) {
-        deleteNotification(postData.userId, 'like', postId);
-      }
-    } else {
-      // Add like
-      await postRef.update({
-        likes: firebase.firestore.FieldValue.arrayUnion(currentUser.uid)
-      });
-
-      // Create notification for post author
-      const postDoc = await postRef.get();
-      const postData = postDoc.data();
-      if (postData && postData.userId && postData.userId !== currentUser.uid) {
-        createNotification(postData.userId, 'like', `le dio like a tu publicación`, { postId });
-      }
-    }
+    await postRef.update({
+      likes: isLiked
+        ? firebase.firestore.FieldValue.arrayRemove(currentUser.uid)
+        : firebase.firestore.FieldValue.arrayUnion(currentUser.uid)
+    });
   } catch (error) {
     console.error('Error toggling like:', error);
     // Revert optimistic update on error
@@ -11441,7 +11496,16 @@ async function handleFeedLike(postId, button) {
       countSpan.textContent = currentCount > 0 ? formatCount(currentCount) : '';
     }
     showToast('Error al dar like', 'error');
+    return;
   }
+
+  // El like ya está guardado: el aviso al autor va aparte y no lo deshace si falla
+  kxAfterSave('aviso de like', async () => {
+    const postData = (await db.collection('posts').doc(postId).get()).data();
+    if (!postData || !postData.userId || postData.userId === currentUser.uid) return;
+    if (isLiked) deleteNotification(postData.userId, 'like', postId);
+    else createNotification(postData.userId, 'like', `le dio like a tu publicación`, { postId });
+  });
 }
 
 // Handle comment button click - Toggle inline comments section
@@ -11861,6 +11925,8 @@ async function handleCommentLike(postId, commentId, btn) {
 
   const commentRef = db.collection('posts').doc(postId).collection('comments').doc(commentId);
   const countSpan = btn.querySelector('.feed-comment-action-count');
+  if (kxBusyActions.has(`clike:${commentId}`)) return;
+  kxBusyActions.add(`clike:${commentId}`);
 
   try {
     const isLiked = btn.classList.contains('liked');
@@ -11885,6 +11951,8 @@ async function handleCommentLike(postId, commentId, btn) {
   } catch (error) {
     console.error('Error toggling comment like:', error);
     showToast('Error al procesar like', 'error');
+  } finally {
+    kxBusyActions.delete(`clike:${commentId}`);
   }
 }
 
@@ -11938,7 +12006,11 @@ async function handleSubmitReply(postId, commentId, text, container) {
   }
 
   if (!text.trim()) return;
+  return kxRunOnce(`reply:${commentId}`, () => kxSubmitReply(postId, commentId, text, container));
+}
 
+async function kxSubmitReply(postId, commentId, text, container) {
+  let newReplyDoc = null;
   try {
     // Get user photo from Firestore (might be different from Auth)
     let userPhotoURL = currentUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.displayName || 'U')}&background=153E35&color=fff&size=40`;
@@ -11987,24 +12059,18 @@ async function handleSubmitReply(postId, commentId, text, container) {
       replyData.replyToUserName = replyToUserName;
     }
 
-    // Create reply in subcollection
-    const replyRef = db.collection('posts').doc(postId).collection('comments').doc(commentId).collection('replies');
-    const newReplyDoc = await replyRef.add(replyData);
-
-    // Get parent comment data to notify its author
+    // Respuesta y repliesCount en el mismo lote
     const commentRef = db.collection('posts').doc(postId).collection('comments').doc(commentId);
-    const commentDoc = await commentRef.get();
-    const commentData = commentDoc.exists ? commentDoc.data() : null;
+    newReplyDoc = await kxAddWithCounter(commentRef.collection('replies'), replyData, commentRef, 'repliesCount');
 
-    // Update repliesCount on parent comment
-    await commentRef.update({
-      repliesCount: firebase.firestore.FieldValue.increment(1)
+    // Aviso al autor del comentario (si falla, la respuesta sigue guardada)
+    kxAfterSave('aviso de respuesta', async () => {
+      const commentDoc = await commentRef.get();
+      const commentData = commentDoc.exists ? commentDoc.data() : null;
+      if (commentData && commentData.userId && commentData.userId !== currentUser.uid) {
+        createNotification(commentData.userId, 'reply', `respondió a tu comentario`, { postId, commentId, replyId: newReplyDoc.id });
+      }
     });
-
-    // Send reply notification to the comment author
-    if (commentData && commentData.userId && commentData.userId !== currentUser.uid) {
-      createNotification(commentData.userId, 'reply', `respondió a tu comentario`, { postId, commentId, replyId: newReplyDoc.id });
-    }
 
     // Hide reply form and clear mentions
     form?.classList.add('hidden');
@@ -12054,8 +12120,14 @@ async function handleSubmitReply(postId, commentId, text, container) {
       sendMentionNotifications(validMentions, { type: 'reply', postId });
     }
   } catch (error) {
+    if (newReplyDoc) {
+      // Ya estaba guardada: solo falló refrescar la pantalla
+      console.warn('[Social] respuesta guardada, fallo al refrescar:', error);
+      showToast('Respuesta publicada', 'success');
+      return;
+    }
     console.error('Error submitting reply:', error);
-    showToast('Error al publicar respuesta', 'error');
+    showToast('Error al publicar respuesta', 'error', { detail: kxFriendlyError(error) });
   }
 }
 
@@ -12287,6 +12359,8 @@ async function handleReplyLike(postId, commentId, replyId, btn) {
 
   const replyRef = db.collection('posts').doc(postId).collection('comments').doc(commentId).collection('replies').doc(replyId);
   const countSpan = btn.querySelector('.feed-comment-action-count');
+  if (kxBusyActions.has(`rlike:${replyId}`)) return;
+  kxBusyActions.add(`rlike:${replyId}`);
 
   try {
     const isLiked = btn.classList.contains('liked');
@@ -12309,6 +12383,8 @@ async function handleReplyLike(postId, commentId, replyId, btn) {
   } catch (error) {
     console.error('Error toggling reply like:', error);
     showToast('Error al procesar like', 'error');
+  } finally {
+    kxBusyActions.delete(`rlike:${replyId}`);
   }
 }
 
@@ -12320,13 +12396,9 @@ async function deleteReply(postId, commentId, replyId, container) {
   }
 
   try {
-    // Delete reply
-    await db.collection('posts').doc(postId).collection('comments').doc(commentId).collection('replies').doc(replyId).delete();
-
-    // Update repliesCount on parent comment
-    await db.collection('posts').doc(postId).collection('comments').doc(commentId).update({
-      repliesCount: firebase.firestore.FieldValue.increment(-1)
-    });
+    // Respuesta y repliesCount en el mismo lote
+    const commentRef = db.collection('posts').doc(postId).collection('comments').doc(commentId);
+    await kxDeleteWithCounter(commentRef.collection('replies').doc(replyId), commentRef, 'repliesCount');
 
     // Remove from DOM
     const replyItem = container.querySelector(`.feed-reply-item[data-reply-id="${replyId}"]`);
@@ -12385,7 +12457,11 @@ async function handleSubmitReplyToReply(postId, parentCommentId, replyToId, text
   }
 
   if (!text.trim()) return;
+  return kxRunOnce(`reply:${replyToId}`, () => kxSubmitReplyToReply(postId, parentCommentId, replyToId, text, container));
+}
 
+async function kxSubmitReplyToReply(postId, parentCommentId, replyToId, text, container) {
+  let newReplyDoc = null;
   try {
     // Get user photo from Firestore
     let userPhotoURL = currentUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.displayName || 'U')}&background=153E35&color=fff&size=40`;
@@ -12435,24 +12511,19 @@ async function handleSubmitReplyToReply(postId, parentCommentId, replyToId, text
       replyData.replyToUserName = replyToUserName;
     }
 
-    // Save to the SAME subcollection as the parent comment's replies (no sub-sub-collections)
-    const repliesRef = db.collection('posts').doc(postId).collection('comments').doc(parentCommentId).collection('replies');
-    const newReplyDoc = await repliesRef.add(replyData);
-
-    // Get the reply being responded to, to notify its author
-    const replyToDoc = await db.collection('posts').doc(postId).collection('comments').doc(parentCommentId).collection('replies').doc(replyToId).get();
-    const replyToData = replyToDoc.exists ? replyToDoc.data() : null;
-
-    // Update repliesCount on parent comment
+    // Save to the SAME subcollection as the parent comment's replies (no sub-sub-collections),
+    // en el mismo lote que repliesCount del comentario
     const commentRef = db.collection('posts').doc(postId).collection('comments').doc(parentCommentId);
-    await commentRef.update({
-      repliesCount: firebase.firestore.FieldValue.increment(1)
-    });
+    newReplyDoc = await kxAddWithCounter(commentRef.collection('replies'), replyData, commentRef, 'repliesCount');
 
-    // Send reply notification to the author of the reply being responded to
-    if (replyToData && replyToData.userId && replyToData.userId !== currentUser.uid) {
-      createNotification(replyToData.userId, 'reply', `respondió a tu comentario`, { postId, commentId: parentCommentId, replyId: newReplyDoc.id });
-    }
+    // Aviso al autor de la respuesta contestada (si falla, la respuesta sigue guardada)
+    kxAfterSave('aviso de respuesta', async () => {
+      const replyToDoc = await commentRef.collection('replies').doc(replyToId).get();
+      const replyToData = replyToDoc.exists ? replyToDoc.data() : null;
+      if (replyToData && replyToData.userId && replyToData.userId !== currentUser.uid) {
+        createNotification(replyToData.userId, 'reply', `respondió a tu comentario`, { postId, commentId: parentCommentId, replyId: newReplyDoc.id });
+      }
+    });
 
     // Hide the reply form and clear mentions
     if (form) {
@@ -12474,8 +12545,13 @@ async function handleSubmitReplyToReply(postId, parentCommentId, replyToId, text
       sendMentionNotifications(validMentions, { type: 'reply', postId });
     }
   } catch (error) {
+    if (newReplyDoc) {
+      console.warn('[Social] respuesta guardada, fallo al refrescar:', error);
+      showToast('Respuesta publicada', 'success');
+      return;
+    }
     console.error('Error submitting reply to reply:', error);
-    showToast('Error al publicar respuesta', 'error');
+    showToast('Error al publicar respuesta', 'error', { detail: kxFriendlyError(error) });
   }
 }
 
@@ -12639,29 +12715,9 @@ async function deleteInlineComment(postId, commentId, container, commentAuthorId
       return;
     }
 
-    // Eliminar comentario de la subcolecciÃ³n
-    await db.collection('posts').doc(postId).collection('comments').doc(commentId).delete();
-
-    // OperaciÃ³n atÃ³mica: Decrementar commentsCount en el documento padre del post
-    // Usar increment(-1) para asegurar que el contador se mantenga sincronizado
-    await db.collection('posts').doc(postId).update({
-      commentsCount: firebase.firestore.FieldValue.increment(-1)
-    });
-
-    // Recargar comentarios
-    await loadInlineComments(postId, container);
-
-    // Actualizar contador en el botÃ³n
-    const card = container.closest('.feed-card');
-    const countSpan = card?.querySelector('[data-action="comment"] .feed-action-count');
-    if (countSpan) {
-      // Obtener documento actualizado del post para leer el nuevo commentsCount
-      const postDoc = await db.collection('posts').doc(postId).get();
-      const updatedCommentsCount = postDoc.data()?.commentsCount || 0;
-      countSpan.textContent = updatedCommentsCount > 0 ? formatCount(updatedCommentsCount) : '';
-    }
-
-    showToast('Comentario eliminado', 'success');
+    // Comentario y commentsCount en el mismo lote
+    const postRef = db.collection('posts').doc(postId);
+    await kxDeleteWithCounter(postRef.collection('comments').doc(commentId), postRef, 'commentsCount');
   } catch (error) {
     console.error('Error deleting comment:', error);
 
@@ -12673,7 +12729,20 @@ async function deleteInlineComment(postId, commentId, container, commentAuthorId
     } else {
       showToast('Error al eliminar comentario', 'error', { detail: kxFriendlyError(error) });
     }
+    return;
   }
+
+  showToast('Comentario eliminado', 'success');
+  await kxAfterSave('recargar comentarios', async () => {
+    await loadInlineComments(postId, container);
+    const card = container.closest('.feed-card');
+    const countSpan = card?.querySelector('[data-action="comment"] .feed-action-count');
+    if (countSpan) {
+      const postDoc = await db.collection('posts').doc(postId).get();
+      const updatedCommentsCount = postDoc.data()?.commentsCount || 0;
+      countSpan.textContent = updatedCommentsCount > 0 ? formatCount(updatedCommentsCount) : '';
+    }
+  });
 }
 
 // ================== POST EDIT/DELETE FUNCTIONS ==================
@@ -12889,15 +12958,19 @@ async function handleInlineCommentSubmit(postId, form) {
   const text = input?.value?.trim();
 
   if (!text) return;
+  return kxRunOnce(`comment:${postId}`, () => kxSubmitComment(postId, form, input, text));
+}
 
+async function kxSubmitComment(postId, form, input, text) {
+  const mentionAC = input?._mentionAutocomplete;
+  let newCommentDoc, validMentions;
   try {
     // Disable form while submitting
     input.disabled = true;
 
     // Extract mentions from autocomplete
-    const mentionAC = input?._mentionAutocomplete;
     const mentions = mentionAC ? mentionAC.getMentions() : [];
-    const validMentions = extractMentionsFromText(text, mentions);
+    validMentions = extractMentionsFromText(text, mentions);
 
     // Build comment data
     const commentData = {
@@ -12911,52 +12984,46 @@ async function handleInlineCommentSubmit(postId, form) {
       commentData.mentions = validMentions;
     }
 
-    // Add comment to Firestore subcollection
-    const newCommentDoc = await db.collection('posts').doc(postId).collection('comments').add(commentData);
-
-    // Atomically increment commentsCount in the parent post document
-    await db.collection('posts').doc(postId).update({
-      commentsCount: firebase.firestore.FieldValue.increment(1)
-    });
-
-    // Clear input and mentions
-    input.value = '';
-    input.disabled = false;
-    if (mentionAC) mentionAC.clearMentions();
-
-    // Reload comments
-    const commentsList = form.parentElement.querySelector('.feed-comments-list');
-    if (commentsList) {
-      await loadInlineComments(postId, commentsList);
-    }
-
-    // Get updated post document (for both count update and notification)
-    const postDoc = await db.collection('posts').doc(postId).get();
-    const postData = postDoc.data();
-
-    // Update comment count in button - read from updated post data
-    const card = form.closest('.feed-card');
-    const countSpan = card?.querySelector('[data-action="comment"] .feed-action-count');
-    if (countSpan) {
-      const updatedCommentsCount = postData?.commentsCount || 0;
-      countSpan.textContent = updatedCommentsCount > 0 ? formatCount(updatedCommentsCount) : '';
-    }
-
-    // Create notification for post author
-    if (postData && postData.userId && postData.userId !== currentUser.uid) {
-      createNotification(postData.userId, 'comment', `comentó en tu publicación`, { postId, commentId: newCommentDoc.id });
-    }
-
-    // Send mention notifications
-    if (validMentions.length > 0) {
-      sendMentionNotifications(validMentions, { type: 'comment', postId });
-    }
-
+    // Comentario y commentsCount en el mismo lote
+    const postRef = db.collection('posts').doc(postId);
+    newCommentDoc = await kxAddWithCounter(postRef.collection('comments'), commentData, postRef, 'commentsCount');
   } catch (error) {
     console.error('Error posting comment:', error);
     input.disabled = false;
-    showToast('Error al enviar comentario', 'error');
+    showToast('Error al enviar comentario', 'error', { detail: kxFriendlyError(error) });
+    return;
   }
+
+  // Guardado: el texto se limpia ya, aunque lo de después falle
+  input.value = '';
+  input.disabled = false;
+  if (mentionAC) mentionAC.clearMentions();
+
+  const card = form.closest('.feed-card');
+  const countSpan = card?.querySelector('[data-action="comment"] .feed-action-count');
+  if (countSpan) {
+    const n = (parseInt(countSpan.textContent, 10) || 0) + 1;
+    countSpan.textContent = formatCount(n);
+  }
+
+  await kxAfterSave('recargar comentarios', async () => {
+    const commentsList = form.parentElement.querySelector('.feed-comments-list');
+    if (commentsList) await loadInlineComments(postId, commentsList);
+  });
+
+  kxAfterSave('avisos del comentario', async () => {
+    const postData = (await db.collection('posts').doc(postId).get()).data();
+    if (countSpan && postData) {
+      const updatedCommentsCount = postData.commentsCount || 0;
+      countSpan.textContent = updatedCommentsCount > 0 ? formatCount(updatedCommentsCount) : '';
+    }
+    if (postData && postData.userId && postData.userId !== currentUser.uid) {
+      createNotification(postData.userId, 'comment', `comentó en tu publicación`, { postId, commentId: newCommentDoc.id });
+    }
+    if (validMentions.length > 0) {
+      sendMentionNotifications(validMentions, { type: 'comment', postId });
+    }
+  });
 }
 
 // Handle bookmark/save button click - Uses savedPosts array in users/{uid}

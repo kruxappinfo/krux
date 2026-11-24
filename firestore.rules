@@ -15,6 +15,30 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // Likes de otra persona: solo puede poner o quitar SU uid (antes podía reescribir la lista entera).
+    // Las publicaciones antiguas guardaban likes: 0 (número); se trata como lista vacía.
+    function onlyOwnLikeToggled(before, after) {
+      let old = before.get('likes', []);
+      let oldSet = old is list ? old.toSet() : [].toSet();
+      let next = after.get('likes', []);
+      let me = [request.auth.uid].toSet();
+      return next is list && (next.toSet() == oldSet.union(me) || next.toSet() == oldSet.difference(me));
+    }
+
+    // Contadores que cualquiera mueve al comentar o borrar: solo de uno en uno
+    function stepByOne(before, after, field) {
+      let diff = after.get(field, 0) - before.get(field, 0);
+      return after.get(field, 0) is int && (diff == 1 || diff == -1);
+    }
+
+    // Solo cambian likes y/o el contador indicado, y cada uno dentro de lo permitido
+    function likesOrCounterOnly(counter) {
+      let keys = request.resource.data.diff(resource.data).affectedKeys();
+      return keys.hasOnly(['likes', counter])
+        && (!keys.hasAny(['likes']) || onlyOwnLikeToggled(resource.data, request.resource.data))
+        && (!keys.hasAny([counter]) || stepByOne(resource.data, request.resource.data, counter));
+    }
+
     function isString(field, maxLen) {
       return field is string && field.size() <= maxLen;
     }
@@ -453,21 +477,14 @@ service cloud.firestore {
     // Posts collection - allows authenticated users to create posts and update likes/commentsCount
     match /posts/{postId} {
       allow read: if true; // Anyone can read posts
-      allow create: if isAuthenticated(); // Any authenticated user can create posts
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid; // solo a nombre propio
       // Allow owner to update/delete, OR allow any authenticated user to update likes/commentsCount
       allow update: if isAuthenticated() && (
         resource.data.userId == request.auth.uid || // Owner can update anything
-        onlyLikesOrCommentsChanged() // Anyone can update likes/commentsCount
+        likesOrCounterOnly('commentsCount') // otros: su like y commentsCount ±1
       );
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
       
-      // Helper to check if only likes or commentsCount fields are being modified
-      function onlyLikesOrCommentsChanged() {
-        let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-        return changedKeys.hasOnly(['likes']) || 
-               changedKeys.hasOnly(['commentsCount']) ||
-               changedKeys.hasOnly(['likes', 'commentsCount']);
-     }
 // Comments subcollection - allow comment author to edit, comment/post author to delete
       match /comments/{commentId} {
         allow read: if true; // Anyone can read comments
@@ -475,20 +492,12 @@ service cloud.firestore {
         // Allow update if: comment author (full edit) OR any authenticated user (likes/repliesCount)
         allow update: if isAuthenticated() && (
           resource.data.userId == request.auth.uid || // Author can update anything
-          onlyCommentInteractionChanged() // Anyone can update likes or repliesCount
+          likesOrCounterOnly('repliesCount') // otros: su like y repliesCount ±1
         );
         // Allow delete if user is comment author OR post author
         allow delete: if isAuthenticated() &&
                        (resource.data.userId == request.auth.uid ||
                         get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid);
-
-        // Helper to check if only likes or repliesCount fields are being modified
-        function onlyCommentInteractionChanged() {
-          let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-          return changedKeys.hasOnly(['likes']) ||
-                 changedKeys.hasOnly(['repliesCount']) ||
-                 changedKeys.hasOnly(['likes', 'repliesCount']);
-        }
 
         // Replies subcollection - nested comments
         match /replies/{replyId} {
@@ -497,7 +506,8 @@ service cloud.firestore {
           // Allow update if: reply author (full edit) OR any authenticated user (only likes)
           allow update: if isAuthenticated() && (
             resource.data.userId == request.auth.uid ||
-            onlyReplyLikesChanged()
+            (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+              && onlyOwnLikeToggled(resource.data, request.resource.data))
           );
           // Allow delete if: reply author, parent comment author, or post author
           allow delete: if isAuthenticated() && (
@@ -506,10 +516,6 @@ service cloud.firestore {
             get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid
           );
 
-          function onlyReplyLikesChanged() {
-            let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-            return changedKeys.hasOnly(['likes']);
-          }
         }
       }
     }
