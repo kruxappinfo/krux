@@ -21267,6 +21267,11 @@ body.plan-editor-open { overflow: hidden; }
   display: none;
 }
 
+/* Sin contador, me gusta y comentar se ajustan al icono (el ancho mínimo dejaba un hueco a la derecha) */
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn:is([data-action="like"], [data-action="comment"]):has(.feed-action-count:empty) {
+  min-width: 0;
+}
+
 :is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn:active {
   transform: scale(0.94);
 }
