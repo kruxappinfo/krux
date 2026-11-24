@@ -21254,6 +21254,17 @@ body.plan-editor-open { overflow: hidden; }
 
 :is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn[data-action="comment"] {
   padding-left: 4px !important;
+  padding-right: 4px !important;
+}
+
+/* Compartir pegado a comentar, con la misma separación que comentar y me gusta */
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn[data-action="share"] {
+  padding-left: 4px !important;
+}
+
+/* Sin contador no queda hueco tras el icono */
+:is(#feed-view, #view-post-modal, #profile-view) .feed-action-count:empty {
+  display: none;
 }
 
 :is(#feed-view, #view-post-modal, #profile-view) .feed-action-btn:active {
