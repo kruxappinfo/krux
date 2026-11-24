@@ -35435,6 +35435,16 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 
 /* Resumen de la sesión: compartir, publicar y borrar */
 .kxs-share-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 16px; }
+.kxs-routemap { margin: 0 0 16px; border-radius: 16px; overflow: hidden; background: var(--kx-sage-soft); box-shadow: inset 0 0 0 1px rgba(15, 47, 40, 0.08); }
+.kxs-routemap-map { position: relative; height: clamp(12rem, 52vw, 16rem); }
+.kxs-routemap-svg { display: block; width: 100%; height: 100%; }
+.kxs-routemap-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 10px 14px; font-size: 0.8125rem; font-weight: 600; color: var(--kx-ink-3); }
+.kxs-routemap-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.kxs-routemap-legend .kxs-routemap-dist { margin-left: auto; color: var(--kx-ink); font-weight: 800; }
+.kxs-routemap-legend i { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 2px var(--kx-chalk); }
+.kxs-routemap-legend i.is-start { background: var(--kx-forest); }
+.kxs-routemap-legend i.is-end { background: var(--kx-coral); }
+.kxs-foot-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
 .kxs-delete-link { display: block; margin: 20px auto 4px; padding: 12px 16px; min-height: 44px; border: 0; background: none; font: inherit; font-weight: 700; color: var(--kx-danger); cursor: pointer; }
 .kxs-story-preview { display: block; width: min(100%, 260px); aspect-ratio: 9 / 16; margin: 4px auto 14px; border-radius: 16px; object-fit: cover; box-shadow: 0 10px 30px rgba(15, 47, 40, 0.18); }
 .kxs-story-preview.is-transparent { background-color: #8a9a92; background-image: linear-gradient(45deg, rgba(255,255,255,.18) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.18) 75%), linear-gradient(45deg, rgba(255,255,255,.18) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.18) 75%); background-size: 24px 24px; background-position: 0 0, 12px 12px; }
