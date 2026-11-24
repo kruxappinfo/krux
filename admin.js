@@ -2496,6 +2496,7 @@ async function loadSuggestions() {
                     allSuggestions.push({
                         id: doc.id,
                         routeName: raw.routeName,
+                        routeId: raw.routeId,
                         schoolId: raw.schoolId,
                         userId: raw.userId,
                         userEmail: raw.userEmail,
@@ -2761,15 +2762,8 @@ async function approveSuggestion(suggestionId, fieldName) {
     }
 
     try {
-        // 1. Actualizar el estado de la sugerencia
-        await db.collection('routeSuggestions').doc(suggestionId).update({
-            status: 'approved',
-            approvedValue: finalValue,
-            approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            approvedBy: currentUser.email
-        });
-
-        // 2. Buscar la vía en pending_routes y actualizarla
+        // 1. El dato va a la vía: si es una vía de la comunidad (pending_routes) se actualiza allí; si es una vía del mapa
+        //    de KRUX, a route_datos con su historial. Solo después se marca la sugerencia como aprobada.
         const routeQuery = await db.collection('pending_routes')
             .where('nombre', '==', suggestion.routeName)
             .where('schoolId', '==', suggestion.schoolId)
@@ -2783,8 +2777,20 @@ async function approveSuggestion(suggestionId, fieldName) {
             await db.collection('pending_routes').doc(routeDoc.id).update(updateData);
             console.log(`Vía "${suggestion.routeName}" actualizada con ${suggestion.field}=${finalValue}`);
         } else {
-            console.warn(`No se encontró la vía "${suggestion.routeName}" en pending_routes`);
+            const result = await kxRouteDataApproveSuggestion(suggestion, finalValue, 'admin');
+            if (!result.ok) {
+                showToast(result.error, 'error');
+                return;
+            }
         }
+
+        // 2. Actualizar el estado de la sugerencia
+        await db.collection('routeSuggestions').doc(suggestionId).update({
+            status: 'approved',
+            approvedValue: finalValue,
+            approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            approvedBy: currentUser.email
+        });
 
         showToast('Sugerencia aprobada y vía actualizada', 'success');
         loadSuggestions();
