@@ -13887,6 +13887,19 @@ body.pwa-standalone .feed-header {
   color: #374151;
 }
 
+/* Pista bajo el título: gris suave para que no compita con el gráfico */
+.bs-chart-header:has(.bs-chart-hint) {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bs-chart-hint {
+  font-size: var(--kx-fs-caption, 0.8125rem);
+  font-weight: 500;
+  color: var(--kx-ink-3, #5A665F);
+  opacity: 0.8;
+}
+
 .bs-skeleton-donut {
   display: flex;
   justify-content: center;
