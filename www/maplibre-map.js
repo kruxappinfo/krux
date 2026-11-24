@@ -3329,16 +3329,72 @@ function kxApplyGeoEdits(geojson, layer, edits) {
   return moved;
 }
 
-// fetch + json de un geojson de Cartografia/ con los puntos movidos ya aplicados
+// ============================================
+// DATOS DE VÍA AÑADIDOS POR SPOTTERS (route_datos)
+// ============================================
+// Estilo, expreses y metros que faltan en el GeoJSON de una vía de KRUX. Un spotter o admin los guarda al momento
+// en route_datos/{escuela}_{id} (sin pasar por Sugerencias) y se aplican encima del archivo al cargarlo.
+// Solo rellenan huecos: un dato que ya trae el archivo no se sustituye.
+const KX_ROUTE_DATA_COLLECTION = 'route_datos';
+const kxRouteDataCache = new Map();   // escuela → Promise<Map<id, datos>>
+let kxViasGeojson = null;             // datos de vias-source (para pintar al momento un dato recién guardado)
+
+function kxRouteDataFor(schoolId) {
+  if (!kxRouteDataCache.has(schoolId)) {
+    const p = firebase.firestore().collection(KX_ROUTE_DATA_COLLECTION).where('schoolId', '==', schoolId).get()
+      .then(snap => {
+        const byId = new Map();
+        snap.forEach(doc => byId.set(Number(doc.data().routeId), doc.data()));
+        return byId;
+      })
+      .catch(e => {
+        kxRouteDataCache.delete(schoolId);
+        console.debug('[Datos de vía] Sin datos añadidos para', schoolId, e && e.code);
+        return new Map();
+      });
+    kxRouteDataCache.set(schoolId, p);
+  }
+  return kxRouteDataCache.get(schoolId);
+}
+
+// Rellena en props los huecos con los datos añadidos. Devuelve true si cambió algo
+function kxApplyRouteData(props, data) {
+  if (!props || !data) return false;
+  const empty = v => v == null || String(v).trim() === '';
+  let changed = false;
+  for (let i = 1; i <= 5; i++) {
+    for (const k of ['exp' + i, 'long' + i]) {
+      if (data[k] != null && empty(props[k])) { props[k] = data[k]; changed = true; }
+    }
+  }
+  if (data.estilo) {
+    if (!props.descripcion && props.descripcio) props.descripcion = props.descripcio;
+    if (!kxRouteSplitDescription(props.descripcion).style) {
+      props.descripcion = props.descripcion ? `${data.estilo}. ${props.descripcion}` : data.estilo;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function kxApplyRouteDataAll(geojson, byId) {
+  if (!geojson || !Array.isArray(geojson.features) || !byId || !byId.size) return;
+  for (const f of geojson.features) {
+    if (f.properties) kxApplyRouteData(f.properties, byId.get(Number(f.properties.id)));
+  }
+}
+
+// fetch + json de un geojson de Cartografia/ con los puntos movidos (y, en las vías, los datos añadidos) ya aplicados
 async function kxGeoFetchJSON(url) {
   const meta = kxGeoFileMeta(url);
-  const editsP = meta && typeof firebase !== 'undefined'
-    ? Promise.race([kxGeoEditsFor(meta.docId), new Promise(r => setTimeout(() => r(null), KX_GEO_EDITS_WAIT_MS))])
-    : null;
+  const withTimeout = p => Promise.race([p, new Promise(r => setTimeout(() => r(null), KX_GEO_EDITS_WAIT_MS))]);
+  const editsP = meta && typeof firebase !== 'undefined' ? withTimeout(kxGeoEditsFor(meta.docId)) : null;
+  const routeDataP = meta && meta.layer === 'vias' && typeof firebase !== 'undefined' ? withTimeout(kxRouteDataFor(meta.docId)) : null;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const geojson = await response.json();
   if (editsP) kxApplyGeoEdits(geojson, meta.layer, await editsP);
+  if (routeDataP) kxApplyRouteDataAll(geojson, await routeDataP);
   return geojson;
 }
 
@@ -3367,6 +3423,7 @@ async function mlLoadGeoJSONLayer(layerId, url, type, paint, minzoom = 0, layout
       data: geojson
     });
     mlLoadedSources.add(sourceId);
+    if (layerId === 'vias') kxViasGeojson = geojson;
 
     // Añadir capa
     const layerConfig = {
@@ -5991,7 +6048,11 @@ let mlContributeTarget = { routeName: null, suffix: 1 };
 
 function mlContributeField(routeId, schoolId, field, suffix = 1, encodedName = '') {
   const routeName = (encodedName && decodeURIComponent(encodedName)) || mlCurrentRouteName || 'Sin nombre';
-  mlContributeTarget = { routeName, suffix: Number(suffix) || 1 };
+  // Si se abre desde la ficha móvil, se vuelve a ella con el dato ya puesto cuando lo guarda un spotter
+  const fromSheet = rbsCurrentState !== 'hidden' && kxRouteSheetProps && Number(kxRouteSheetProps.id) === Number(routeId)
+    ? { props: kxRouteSheetProps, group: mlCurrentVariantGroup, slide: mlCurrentVariantSlide }
+    : null;
+  mlContributeTarget = { routeName, suffix: Number(suffix) || 1, fromSheet };
 
   // Cerrar popup / bottom sheet
   if (mlRoutePopup) mlRoutePopup.remove();
@@ -6084,6 +6145,35 @@ async function mlSubmitContribution(routeId, schoolId) {
     return;
   }
 
+  // Spotters y admins: el dato se guarda al momento en las vías de KRUX (las vías de la comunidad siguen por Sugerencias)
+  const submitBtn = document.querySelector('.ml-contribute-btn-submit');
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    if (await kxCanSaveRouteData(routeId, schoolId)) {
+      const values = {};
+      if (tipo) values.estilo = tipo;
+      if (exp) values['exp' + suffix] = parseInt(exp, 10);
+      if (long) values['long' + suffix] = parseInt(long, 10);
+      const bad = Object.entries(values).find(([k, v]) => k !== 'estilo' &&
+        (!Number.isInteger(v) || v < (k.startsWith('exp') ? 0 : 1) || v > (k.startsWith('exp') ? 50 : 500)));
+      if (bad) {
+        if (typeof showToast === 'function') showToast(bad[0].startsWith('exp') ? 'Expreses: entre 0 y 50' : 'Metros: entre 1 y 500', 'info');
+        return;
+      }
+      await kxSaveRouteData(Number(routeId), schoolId, values);
+      document.querySelector('.ml-contribute-modal-overlay')?.remove();
+      if (typeof showToast === 'function') showToast('Dato guardado en la vía', 'success');
+      kxReopenSheetAfterRouteData(mlContributeTarget.fromSheet);
+      return;
+    }
+  } catch (error) {
+    console.error('Error guardando el dato de la vía:', error);
+    if (typeof showToast === 'function') showToast('No se pudo guardar el dato', 'error');
+    return;
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+
   const contribution = {
     routeId: routeId,
     routeName: routeName,
@@ -6120,6 +6210,74 @@ async function mlSubmitContribution(routeId, schoolId) {
     if (typeof showToast === 'function') showToast('Error al enviar', 'error');
   }
 }
+// ¿Puede el usuario guardar el dato directamente? Spotter/admin y vía del GeoJSON de la escuela
+async function kxCanSaveRouteData(routeId, schoolId) {
+  const user = firebase.auth().currentUser;
+  if (!user || !schoolId || !Number.isFinite(Number(routeId))) return false;
+  const isStaff = user.email === 'krux.app.info@gmail.com' || await isRoutePopupAdmin();
+  if (!isStaff) return false;
+  try {
+    const features = await kxSchoolRouteFeatures(schoolId);
+    return features.some(f => f.properties && Number(f.properties.id) === Number(routeId));
+  } catch (_) {
+    return false;
+  }
+}
+
+async function kxSaveRouteData(routeId, schoolId, values) {
+  const user = firebase.auth().currentUser;
+  await firebase.firestore().collection(KX_ROUTE_DATA_COLLECTION).doc(`${schoolId}_${routeId}`).set({
+    ...values,
+    schoolId,
+    routeId,
+    updatedBy: user.uid,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
+
+  // Lo que ya está en memoria recibe el dato sin recargar la escuela
+  const byId = await kxRouteDataFor(schoolId);
+  const merged = { ...(byId.get(routeId) || {}), ...values };
+  byId.set(routeId, merged);
+  const url = MAPLIBRE_SCHOOLS[schoolId]?.geojson?.vias;
+  if (url) kxRoutesGeojsonCache.delete(url);
+  if (mlCurrentSchool !== schoolId) return;
+
+  if (kxViasGeojson && mlMap && mlMap.getSource('vias-source')) {
+    const f = kxViasGeojson.features.find(ft => ft.properties && Number(ft.properties.id) === routeId);
+    if (f && kxApplyRouteData(f.properties, merged)) mlMap.getSource('vias-source').setData(kxViasGeojson);
+  }
+  for (const group of mlVariantGroups.values()) {
+    for (const slide of group) {
+      const p = slide.props;
+      if (Number(p.id) !== routeId) continue;
+      kxApplyRouteData(p, merged);
+      if (p._isTrinomialGroup) {
+        const i = p._trinomialIndex;
+        if (p._displayExp == null || p._displayExp === '') p._displayExp = p['exp' + i];
+        if (p._displayLong == null || p._displayLong === '') p._displayLong = p['long' + i];
+      }
+    }
+  }
+}
+
+// Vuelve a abrir la ficha móvil de la que salió la contribución, ya con el dato
+async function kxReopenSheetAfterRouteData(fromSheet) {
+  if (!fromSheet) return;
+  const { props, group, slide } = fromSheet;
+  if (group && group[slide]) {
+    const isTrinomial = !!group[0].props._isTrinomialGroup;
+    const shown = await showRouteBottomSheet(kxVariantSheetProps(group[slide], isTrinomial));
+    if (!shown) return;
+    mlCurrentVariantGroup = group;
+    mlCurrentVariantSlide = slide;
+    kxMountRouteVariantBar(group, slide, isTrinomial);
+    return;
+  }
+  const data = (await kxRouteDataFor(mlCurrentSchool)).get(Number(props.id));
+  kxApplyRouteData(props, data);
+  showRouteBottomSheet(props);
+}
+
 window.mlContributeField = mlContributeField;
 window.mlSubmitContribution = mlSubmitContribution;
 

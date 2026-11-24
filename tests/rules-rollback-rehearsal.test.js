@@ -139,6 +139,13 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
       expect(rules.slice(pushEnd).startsWith('\n      // Datos privados del usuario')).toBe(true);
       rules = rules.slice(0, pushStart) + rules.slice(pushEnd);
     }
+    // Bloque añadido después (2026-11-24): route_datos (datos de vía de spotters/admins), justo tras geojson_ediciones
+    const datosStart = rules.indexOf('\n    // Datos de vía añadidos al momento por spotters/admins');
+    if (datosStart > 0) {
+      const datosEnd = rules.indexOf('\n    }\n', rules.indexOf('match /route_datos/{docId}')) + '\n    }\n'.length;
+      expect(rules.slice(0, datosStart).endsWith('allow write: if isAuthenticated() && isSuperAdmin();\n    }\n')).toBe(true);
+      rules = rules.slice(0, datosStart) + rules.slice(datosEnd);
+    }
     if ([manifest['firestore.rules.previous'], manifest['docs/security-phase0/firestore.rules.route-photos-only.proposal']].includes(sha('firestore.rules'))) return;
     const proposal = fs.readFileSync(path.join(ROOT, 'docs/security-phase0/firestore.rules.route-photos-only.proposal'), 'utf8');
     const at = proposal.indexOf('    match /pending_poi/{poiId} {');

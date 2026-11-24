@@ -631,6 +631,31 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isSuperAdmin();
     }
 
+    // Datos de vía añadidos al momento por spotters/admins (estilo, expreses y metros que faltan en el GeoJSON).
+    // Un documento por vía: {escuela}_{id}. Se aplican encima del archivo al cargar la escuela (maplibre-map.js)
+    match /route_datos/{docId} {
+      function okInt(d, k, lo, hi) {
+        return !(k in d) || (d[k] is int && d[k] >= lo && d[k] <= hi);
+      }
+      function validRouteData(d) {
+        return d.keys().hasOnly(['schoolId', 'routeId', 'estilo',
+            'exp1', 'exp2', 'exp3', 'exp4', 'exp5', 'long1', 'long2', 'long3', 'long4', 'long5',
+            'updatedBy', 'updatedAt']) &&
+          d.schoolId is string && d.routeId is int &&
+          docId == d.schoolId + '_' + string(d.routeId) &&
+          d.updatedBy == request.auth.uid && d.updatedAt == request.time &&
+          (!('estilo' in d) || (d.estilo is string && d.estilo.size() > 0 && d.estilo.size() <= 40)) &&
+          okInt(d, 'exp1', 0, 50) && okInt(d, 'exp2', 0, 50) && okInt(d, 'exp3', 0, 50) &&
+          okInt(d, 'exp4', 0, 50) && okInt(d, 'exp5', 0, 50) &&
+          okInt(d, 'long1', 1, 500) && okInt(d, 'long2', 1, 500) && okInt(d, 'long3', 1, 500) &&
+          okInt(d, 'long4', 1, 500) && okInt(d, 'long5', 1, 500);
+      }
+      allow read: if true;
+      allow create, update: if isAuthenticated() && (isAdminOrSpotter() || isSuperAdmin()) &&
+        validRouteData(request.resource.data);
+      allow delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
     // Pending sectors (sectores pendientes de aprobación)
     match /pending_sectors/{sectorId} {
       allow read: if resource.data.status == 'approved' ||
