@@ -2946,8 +2946,9 @@ window.MessagingService = {
      * @param {string} conversationId - The conversation ID
      * @param {string} text - Message text
      * @param {string} recipientId - The recipient's user ID
+     * @param {object} [extra] - sharedPost: publicación compartida (el chat la pinta como tarjeta); preview: texto de la bandeja
      */
-    async sendMessage(conversationId, text, recipientId) {
+    async sendMessage(conversationId, text, recipientId, extra = {}) {
         const currentUser = firebase.auth().currentUser;
         if (!currentUser) throw new Error('Not authenticated');
 
@@ -2957,6 +2958,7 @@ window.MessagingService = {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             status: 'sent'
         };
+        if (extra.sharedPost) message.sharedPost = extra.sharedPost;
 
         // Add message to subcollection
         await db.collection('conversations').doc(conversationId)
@@ -2964,7 +2966,7 @@ window.MessagingService = {
 
         // Update conversation metadata
         await db.collection('conversations').doc(conversationId).update({
-            lastMessage: text.trim().substring(0, 50),
+            lastMessage: (extra.preview || text.trim()).substring(0, 50),
             lastMessageTime: firebase.firestore.FieldValue.serverTimestamp(),
             [`unreadCount.${recipientId}`]: firebase.firestore.FieldValue.increment(1)
         });

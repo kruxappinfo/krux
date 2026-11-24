@@ -35707,3 +35707,21 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   .kx-share-backdrop, .kx-share-sheet { animation: none; }
   .kx-share.is-closing .kx-share-sheet { transition: none; }
 }
+
+/* ---------- Publicación compartida en el chat: tarjeta con miniatura ---------- */
+#chat-modal .chat-message.is-post { width: min(260px, 78%); padding: 4px; }
+#chat-modal .chat-message.is-post .chat-message-text { display: block; padding: 4px 8px 8px; }
+#chat-modal .chat-message.is-post .chat-message-meta { float: none; display: flex; justify-content: flex-end; margin: 5px 6px 2px; top: 0; }
+#chat-modal .chat-post { display: flex; flex-direction: column; width: 100%; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 16px; overflow: hidden; background: var(--kx-surface); box-shadow: none; transform: none; will-change: auto; font: inherit; text-align: left; color: var(--kx-ink); cursor: pointer; }
+#chat-modal .chat-message.received.is-post { border: 0; background: var(--kx-stone-card); }
+#chat-modal .chat-post:focus-visible { outline: 2px solid var(--kx-coral); outline-offset: 2px; }
+#chat-modal .chat-post:active { opacity: 0.85; }
+#chat-modal .chat-post-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 12px; }
+#chat-modal .chat-post-avatar { flex: none; width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: var(--kx-sage-soft); }
+#chat-modal .chat-post-author { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--kx-fs-meta); font-weight: var(--kx-fw-strong); }
+#chat-modal .chat-post-thumb { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--kx-stone-card); }
+#chat-modal .chat-post-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 10px 12px 12px; padding: 0; font-size: var(--kx-fs-meta); line-height: 1.35; white-space: normal; color: var(--kx-ink-2); }
+#chat-modal .chat-post-text strong { font-weight: var(--kx-fw-strong); color: var(--kx-ink); }
+#chat-modal .chat-post.is-loading .chat-post-bar { width: 96px; height: 10px; border-radius: 5px; background: var(--kx-stone-card); }
+#chat-modal .chat-post.is-loading .chat-post-avatar { display: block; }
+#chat-modal .chat-post.is-missing { display: block; padding: 14px 12px; cursor: default; font-size: var(--kx-fs-meta); color: var(--kx-ink-3); }

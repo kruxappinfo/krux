@@ -3322,6 +3322,59 @@ function initMessages() {
     return label.charAt(0).toUpperCase() + label.slice(1);
   }
 
+  // ---- Publicaciones compartidas: tarjeta con miniatura ----
+  // Los mensajes nuevos traen sharedPost; los antiguos solo el enlace en la última línea, y sus datos se piden
+  // una vez a Firestore (chatPostCache: undefined = cargando, null = ya no existe).
+  const chatPostCache = new Map();
+
+  function chatSharedPost(msg) {
+    if (msg.sharedPost?.id) return { id: msg.sharedPost.id, data: msg.sharedPost, note: '' };
+    const lines = String(msg.text || '').trim().split('\n');
+    const postId = kxPostIdFromUrl(lines[lines.length - 1].trim());
+    if (!postId) return null;
+    const note = lines.slice(0, -1).join('\n').trim();
+    // El texto que añadía el propio botón de compartir no se repite encima de la tarjeta
+    const auto = /^(Mira esta publicación|Publicación de )/.test(note);
+    return { id: postId, data: chatPostData(postId), note: auto ? '' : note };
+  }
+
+  function chatPostData(postId) {
+    if (chatPostCache.has(postId)) return chatPostCache.get(postId);
+    chatPostCache.set(postId, undefined);
+    db.collection('posts').doc(postId).get()
+      .then(doc => doc.exists ? kxSharedPostData(doc.id, doc.data()) : null)
+      .catch(() => null)
+      .then(data => {
+        chatPostCache.set(postId, data);
+        chatMessagesContainer?.querySelectorAll(`.chat-post[data-kx-post-open="${postId}"]`).forEach(el => {
+          el.outerHTML = chatPostCardHTML(postId, data);
+        });
+      });
+    return undefined;
+  }
+
+  function chatPostCardHTML(postId, data) {
+    const id = escapeHtmlMention(postId);
+    if (data === null) {
+      return `<div class="chat-post is-missing">Esta publicación ya no está disponible</div>`;
+    }
+    if (!data) {
+      return `<button type="button" class="chat-post is-loading" data-kx-post-open="${id}" aria-label="Abrir publicación">
+        <span class="chat-post-head"><span class="chat-post-avatar"></span><span class="chat-post-bar"></span></span>
+        <span class="chat-post-thumb"></span></button>`;
+    }
+    const author = escapeHtmlMention(data.author || 'Usuario');
+    const photo = escapeHtmlMention(data.authorPhoto || generateAvatarFallback(data.author || 'Usuario', 64));
+    return `<button type="button" class="chat-post" data-kx-post-open="${id}" aria-label="Abrir publicación de ${author}">
+      <span class="chat-post-head">
+        <img class="chat-post-avatar" src="${photo}" alt="" referrerPolicy="no-referrer" data-fallback="${escapeHtmlMention(generateAvatarFallback(data.author || 'Usuario', 64))}">
+        <span class="chat-post-author">${author}</span>
+      </span>
+      ${data.thumb ? `<img class="chat-post-thumb" src="${escapeHtmlMention(data.thumb)}" alt="" loading="lazy" decoding="async">` : ''}
+      ${data.text ? `<span class="chat-post-text"><strong>${author}</strong> ${escapeHtmlMention(data.text)}</span>` : ''}
+    </button>`;
+  }
+
   // Texto escapado, con enlaces activos y saltos de línea conservados (CSS pre-wrap)
   function chatFormatText(text) {
     return escapeHtmlMention(text || '').replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g, (url) => {
@@ -3423,9 +3476,12 @@ function initMessages() {
       if (isPending) classes.push('is-pending');
       if (!firstRender && !previousIds.has(msg.id)) classes.push('is-new');
 
+      const shared = chatSharedPost(msg);
+      if (shared) classes.push('is-post');
+
       html += `
         <div class="${classes.join(' ')}" data-id="${msg.id}">
-          <div class="chat-message-text">${chatFormatText(msg.text)}</div>
+          ${shared ? `${shared.note ? `<div class="chat-message-text">${chatFormatText(shared.note)}</div>` : ''}${chatPostCardHTML(shared.id, shared.data)}` : `<div class="chat-message-text">${chatFormatText(msg.text)}</div>`}
           ${showMeta ? `<div class="chat-message-meta">${time ? `<span class="chat-message-time">${time}</span>` : ''}${status}</div>` : ''}
         </div>`;
     });
@@ -3610,12 +3666,20 @@ function initMessages() {
     if (willOpen) chatMenu.querySelector('.chat-menu-item')?.focus();
   });
 
+  // Miniaturas del chat: avatar roto → iniciales; foto rota → la tarjeta se queda sin foto
+  chatMessagesContainer?.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    if (img.classList.contains('chat-post-avatar') && img.dataset.fallback && img.src !== img.dataset.fallback) img.src = img.dataset.fallback;
+    else if (img.classList.contains('chat-post-thumb')) img.remove();
+  }, true);
+
   chatModal?.addEventListener('click', (e) => {
-    const postLink = e.target.closest('a[data-kx-post]');
+    const postLink = e.target.closest('a[data-kx-post], [data-kx-post-open]');
     if (postLink) {
       e.preventDefault();
       closeChat({ animate: false });
-      openPostModal(postLink.dataset.kxPost);
+      openPostModal(postLink.dataset.kxPost || postLink.dataset.kxPostOpen);
       return;
     }
     const action = e.target.closest('[data-chat-action]')?.dataset.chatAction;
@@ -12974,7 +13038,7 @@ async function handleFeedBookmark(postId, button) {
 // deja un mensaje con el enlace en el chat (MessagingService). Ese enlace abre la publicación dentro de la app.
 const KX_SHARE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
 const KX_SHARE_CHECK = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-const KX_SHARE_HOSTS = ['climbmaps-80cae.web.app', 'climbmaps-80cae.firebaseapp.com'];
+const KX_SHARE_HOSTS = ['climbmaps-80cae.web.app', 'climbmaps-80cae.firebaseapp.com', 'kruxappinfo.github.io'];
 const KX_SHARE_PUBLIC_URL = 'https://climbmaps-80cae.web.app/';
 
 /** Enlace público de una publicación (en la app nativa el origen no es una web, se usa la pública). */
@@ -12991,6 +13055,20 @@ function kxPostIdFromUrl(url) {
     const id = u.searchParams.get('post');
     return id && /^[A-Za-z0-9_-]{4,64}$/.test(id) ? id : null;
   } catch (_) { return null; }
+}
+
+/** Lo que viaja en el mensaje para pintar la miniatura: autor, primera foto (o portada del vídeo) y un extracto. */
+function kxSharedPostData(id, d) {
+  const first = kxPostMedia(d)[0];
+  const thumb = first ? (first.type === 'photo' ? first.url : (first.poster || '')) : '';
+  const text = (d.content || '').replace(/\s+/g, ' ').trim();
+  return {
+    id,
+    author: d.userName || 'Usuario',
+    authorPhoto: d.userPhoto || '',
+    thumb: thumb || '',
+    text: text.length > 140 ? text.slice(0, 139) + '…' : text
+  };
 }
 
 let kxShareSheet = null;
@@ -13074,11 +13152,11 @@ async function kxOpenPostShare(postId) {
   // Texto del mensaje: quién publicó, un extracto y el enlace
   const url = kxPostShareUrl(postId);
   let intro = 'Mira esta publicación en KRUX';
+  let sharedPost = null;
   const postPromise = db.collection('posts').doc(postId).get().then(doc => {
     if (!doc.exists) return;
-    const d = doc.data();
-    const excerpt = (d.content || '').replace(/\s+/g, ' ').trim();
-    intro = `Mira esta publicación de ${d.userName || 'Usuario'}${excerpt ? `: «${excerpt.slice(0, 90)}${excerpt.length > 90 ? '…' : ''}»` : ''}`;
+    sharedPost = kxSharedPostData(doc.id, doc.data());
+    intro = `Publicación de ${sharedPost.author}`;
   }).catch(() => {});
 
   const submit = root.querySelector('.kx-share-submit');
@@ -13099,7 +13177,9 @@ async function kxOpenPostShare(postId) {
       convId = conv.id;
       person.convId = convId;
     }
-    await window.MessagingService.sendMessage(convId, `${intro}\n${url}`, person.id);
+    // El texto lleva el enlace para versiones de la app que aún no pintan la tarjeta
+    await window.MessagingService.sendMessage(convId, `${intro}\n${url}`, person.id,
+      sharedPost ? { sharedPost, preview: intro } : {});
   };
 
   // Envía a todas las personas marcadas; si alguna falla se queda marcada para reintentar
