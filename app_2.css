@@ -17657,13 +17657,12 @@ body.pwa-standalone .feed-header {
 
 #ascent-logbook-modal {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 10000;
-  background: var(--bg-primary, #fff);
+  background: var(--kx-bg);
   display: none;
+  font-family: var(--kx-font);
+  color: var(--kx-ink);
 }
 
 #ascent-logbook-modal:not(.hidden) {
@@ -17679,267 +17678,357 @@ body.pwa-standalone .feed-header {
   margin: 0 auto;
 }
 
+/* Cabecera y filtros: una sola banda fija sobre la lista */
 .logbook-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--kx-touch) 1fr var(--kx-touch);
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color, #eee);
+  gap: var(--kx-space-2);
+  padding: calc(var(--kx-space-2) + env(safe-area-inset-top, 0px)) var(--kx-space-4) var(--kx-space-2);
   flex-shrink: 0;
-  background: var(--bg-primary, #fff);
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  background: var(--kx-bg);
 }
 
 .logbook-back-btn {
-  background: none;
-  border: none;
-  padding: 4px;
-  cursor: pointer;
-  color: var(--text-primary, #2d2d2d);
+  width: var(--kx-touch);
+  height: var(--kx-touch);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  width: 36px;
-  height: 36px;
-  transition: background 0.2s;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--kx-surface);
+  box-shadow: 0 0 0 1px var(--kx-line), 0 2px 6px rgba(32, 41, 35, 0.06);
+  color: var(--kx-ink);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
-.logbook-back-btn:hover {
-  background: var(--bg-secondary, #f5f5f5);
-}
+.logbook-back-btn:hover { background: var(--kx-stone-card); }
+.logbook-back-btn:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 
 .logbook-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary, #2d2d2d);
   margin: 0;
+  text-align: center;
+  font-size: var(--kx-fs-lead);
+  font-weight: var(--kx-fw-heavy);
+  letter-spacing: var(--kx-ls-tight);
+  color: var(--kx-ink);
 }
 
-/* Filters */
 .logbook-filters {
-  padding: 12px 16px 8px;
+  padding: var(--kx-space-2) var(--kx-space-4) var(--kx-space-3);
   flex-shrink: 0;
-  background: var(--bg-primary, #fff);
-  border-bottom: 1px solid var(--border-color, #eee);
+  background: var(--kx-bg);
+  border-bottom: 1px solid var(--kx-line);
 }
 
 .logbook-filter-row {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--kx-space-2);
 }
 
 .logbook-filter-row + .logbook-filter-row {
-  margin-top: 8px;
+  margin-top: var(--kx-space-2);
 }
 
 .logbook-select {
-  flex: 1;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color, #ddd);
-  background: var(--bg-secondary, #f5f5f5);
-  color: var(--text-primary, #2d2d2d);
-  font-size: 13px;
-  font-weight: 500;
+  min-width: 0;
+  min-height: var(--kx-touch);
+  padding: 0 2.25rem 0 var(--kx-space-3);
+  border: 1px solid var(--kx-line);
+  border-radius: var(--kx-radius-sm);
+  background-color: var(--kx-surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235A665F' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  color: var(--kx-ink);
+  font-family: var(--kx-font);
+  font-size: var(--kx-fs-body);
+  font-weight: var(--kx-fw-text);
+  text-overflow: ellipsis;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  padding-right: 30px;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.logbook-select:focus {
-  outline: none;
-  border-color: var(--accent-primary, #6366f1);
+.logbook-select:hover { border-color: rgba(32, 41, 35, 0.22); }
+.logbook-select:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 1px; }
+
+/* Filtro aplicado: verde de marca, para ver de un vistazo qué recorta la lista */
+.logbook-select.is-set {
+  border-color: var(--kx-forest);
+  background-color: var(--kx-sage-soft);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23153E35' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  color: var(--kx-forest);
+  font-weight: var(--kx-fw-strong);
+}
+
+.logbook-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--kx-space-3);
+  min-height: 2rem;
+  margin-top: var(--kx-space-2);
 }
 
 .logbook-result-count {
-  font-size: 12px;
-  color: var(--text-muted, #999);
-  padding: 6px 0 0;
+  font-size: var(--kx-fs-caption);
+  font-weight: var(--kx-fw-text);
+  color: var(--kx-ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Ascent List */
+.logbook-clear {
+  min-height: var(--kx-touch);
+  border-radius: 6px;
+  margin: -0.375rem -0.5rem -0.375rem 0;
+  padding: 0 var(--kx-space-2);
+  border: 0;
+  background: transparent;
+  color: var(--kx-forest);
+  font-family: var(--kx-font);
+  font-size: var(--kx-fs-caption);
+  font-weight: var(--kx-fw-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.logbook-clear:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; border-radius: 6px; }
+
+/* Lista: un bloque blanco por mes */
 .logbook-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: var(--kx-space-3) var(--kx-space-4) calc(var(--kx-space-7) + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
-/* Logbook Item */
+.logbook-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--kx-space-3);
+  padding: var(--kx-space-8) 0;
+  color: var(--kx-ink-3);
+  font-size: var(--kx-fs-meta);
+}
+
+.logbook-month + .logbook-month { margin-top: var(--kx-space-5); }
+
+.logbook-month-head {
+  position: sticky;
+  top: calc(-1 * var(--kx-space-3));
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+  padding: var(--kx-space-3) var(--kx-space-1) var(--kx-space-2);
+  background: var(--kx-bg);
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-heavy);
+  letter-spacing: var(--kx-ls-tight);
+  color: var(--kx-ink);
+}
+
+.logbook-month-count {
+  font-size: var(--kx-fs-caption);
+  font-weight: var(--kx-fw-text);
+  color: var(--kx-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.logbook-month-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--kx-surface);
+  border-radius: var(--kx-radius-lg);
+  box-shadow: 0 0 0 1px var(--kx-line), 0 1px 2px rgba(32, 41, 35, 0.04);
+  overflow: hidden;
+}
+
 .logbook-item {
   display: flex;
   align-items: center;
-  padding: 10px 16px;
-  gap: 12px;
-  border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.06));
-  transition: background 0.15s;
+  gap: var(--kx-space-3);
+  min-height: 4.5rem;
+  padding: var(--kx-space-3) var(--kx-space-2) var(--kx-space-3) var(--kx-space-4);
 }
 
-.logbook-item:last-child {
-  border-bottom: none;
+.logbook-item + .logbook-item {
+  border-top: 1px solid var(--kx-line);
 }
 
-.logbook-item:active {
-  background: var(--bg-secondary, #f5f5f5);
-}
-
+/* Grado en su color real; un intento lo lleva hueco (aún sin encadenar) */
 .logbook-item-grade {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: var(--accent-gradient, linear-gradient(135deg, #6366f1, #8b5cf6));
-  color: #fff;
-  font-weight: 700;
-  font-size: 15px;
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 2.75rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  border-radius: var(--kx-radius-sm);
+  background: var(--grade, #888888);
+  color: var(--grade-ink, #ffffff);
+  font-size: var(--kx-fs-meta);
+  font-weight: var(--kx-fw-heavy);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
-.logbook-item-grade.grade-project {
-  background: linear-gradient(135deg, #9ca3af, #6b7280);
+.logbook-item.is-project .logbook-item-grade {
+  background: var(--kx-surface);
+  box-shadow: inset 0 0 0 2px var(--grade, #888888);
+  color: var(--kx-ink);
 }
 
 .logbook-item-body {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
+/* Línea 1: vía y día. Línea 2: estilo y lugar */
+.logbook-item-top,
+.logbook-item-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--kx-space-2);
+  min-width: 0;
+}
+
+.logbook-item-meta { align-items: center; }
+
 .logbook-item-name {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--text-primary, #2d2d2d);
+  flex: 1;
+  min-width: 0;
+  font-size: var(--kx-fs-body);
+  font-weight: var(--kx-fw-strong);
+  line-height: 1.3;
+  color: var(--kx-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.3;
 }
 
 .logbook-item-location {
-  font-size: 12px;
-  color: var(--text-secondary, #666);
+  min-width: 0;
+  font-size: var(--kx-fs-caption);
+  color: var(--kx-ink-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-top: 1px;
-}
-
-.logbook-item-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  flex-shrink: 0;
-  gap: 4px;
 }
 
 .logbook-item-date {
-  font-size: 11px;
-  color: var(--text-muted, #999);
+  flex-shrink: 0;
+  font-size: var(--kx-fs-caption);
+  color: var(--kx-ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
+/* Estilo del ascenso: fondos suaves y tinta legible de la paleta semántica */
 .logbook-item-style {
-  display: flex;
+  flex-shrink: 0;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: var(--kx-fw-strong);
+  white-space: nowrap;
+  background: var(--kx-stone-card);
+  color: var(--kx-ink-2);
 }
 
-.logbook-item-style svg {
-  width: 14px;
-  height: 14px;
-}
+.logbook-item-style svg { width: 14px; height: 14px; stroke: currentColor; flex-shrink: 0; }
+.logbook-style-redpoint { background: var(--kx-danger-soft); color: var(--kx-danger-ink); }
+.logbook-style-onsight { background: var(--kx-info-soft); color: var(--kx-info-ink); }
+.logbook-style-flash { background: var(--kx-warning-soft); color: var(--kx-warning-ink); }
+.logbook-style-toprope { background: #EFE9F6; color: #6B3FA0; }
+.logbook-style-project { background: var(--kx-stone-card); color: var(--kx-ink-3); }
 
-.logbook-item-check {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.logbook-item-check svg {
-  width: 14px;
-  height: 14px;
-  stroke: #22c55e;
-}
-
-/* Logbook Delete Button */
+/* Borrar: siempre visible y con área táctil completa (en móvil no hay hover) */
 .logbook-item-delete {
   flex-shrink: 0;
+  width: var(--kx-touch);
+  height: var(--kx-touch);
+  min-height: var(--kx-touch);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  background: none;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--text-muted, #bbb);
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s;
   padding: 0;
-}
-.logbook-item:hover .logbook-item-delete {
-  opacity: 1;
-}
-.logbook-item-delete:hover {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
-}
-.logbook-item-delete svg {
-  width: 15px;
-  height: 15px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--kx-ink-3);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-/* Empty State */
+.logbook-item-delete:hover { color: var(--kx-danger); background: var(--kx-danger-soft); }
+/* El estilo global de button añade sombra y un salto al pasar el ratón: aquí no */
+.logbook-item-delete,
+.logbook-item-delete:hover,
+.logbook-clear,
+.logbook-clear:hover {
+  box-shadow: none;
+  transform: none;
+  will-change: auto;
+  white-space: nowrap;
+}
+.logbook-clear:hover { background: transparent; color: var(--kx-primary-hover); }
+.logbook-back-btn:hover { transform: none; box-shadow: 0 0 0 1px var(--kx-line), 0 2px 6px rgba(32, 41, 35, 0.06); }
+.logbook-item-delete:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: -2px; }
+.logbook-item-delete svg { width: 18px; height: 18px; }
+
+/* Vacío */
 .logbook-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
+  padding: var(--kx-space-8) var(--kx-space-5);
   text-align: center;
 }
 
 .logbook-empty-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: var(--bg-secondary, #f5f5f5);
+  width: 4rem;
+  height: 4rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 16px;
+  margin-bottom: var(--kx-space-4);
+  border-radius: 999px;
+  background: var(--kx-sage-soft);
+  color: var(--kx-forest);
 }
 
-.logbook-empty-icon svg {
-  width: 28px;
-  height: 28px;
-  stroke: var(--text-muted, #999);
-}
+.logbook-empty-icon svg { width: 28px; height: 28px; stroke: currentColor; }
 
 .logbook-empty-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary, #2d2d2d);
-  margin-bottom: 6px;
+  margin-bottom: var(--kx-space-1);
+  font-size: var(--kx-fs-lead);
+  font-weight: var(--kx-fw-strong);
+  color: var(--kx-ink);
 }
 
 .logbook-empty-text {
-  font-size: 13px;
-  color: var(--text-secondary, #666);
-  max-width: 260px;
+  max-width: 16rem;
+  font-size: var(--kx-fs-meta);
+  line-height: var(--kx-lh-body);
+  color: var(--kx-ink-3);
 }
 
 /* Clickable stats card */
@@ -17964,20 +18053,13 @@ body.pwa-standalone .feed-header {
   transition: transform 0.2s;
 }
 
-/* Desktop enhancements */
 @media (min-width: 768px) {
-  .logbook-container {
-    border-left: 1px solid var(--border-color, #eee);
-    border-right: 1px solid var(--border-color, #eee);
-  }
+  .logbook-header { padding-top: var(--kx-space-4); }
+}
 
-  .logbook-item:hover {
-    background: var(--bg-secondary, #f5f5f5);
-  }
-
-  .logbook-select:hover {
-    border-color: var(--accent-primary, #6366f1);
-  }}
+@media (max-width: 359px) {
+  .logbook-filter-row { grid-template-columns: 1fr; }
+}
 
 /* ================================================
    VARIANT CAROUSEL - Popup/BottomSheet Navigation

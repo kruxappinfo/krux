@@ -1,6 +1,6 @@
 // Coherencia de la publicación del cliente de fotos de vía (route-photos.js): las copias de raíz y de www/ deben ser idénticas y las dos subidas de versión
 // (CACHE_VERSION del Service Worker y ?v= del <script> en index.html) deben hacerse JUNTAS: ni a medias ni solo en una de las dos carpetas.
-// Estado: v306 / ?v=2 y v307 / ?v=3 (publicados); v308 / ?v=3 (push en la web), v309 a v313 / ?v=3 (datos de vía, popup más ancho, varios estilos, historial y vías hechas en el croquis): el script de fotos no cambia. Cualquier otra combinación es un error.
+// Estado: v306 / ?v=2 y v307 / ?v=3 (publicados); v308 / ?v=3 (push en la web), v309 a v314 / ?v=3 (datos de vía, popup, estilos, historial, croquis y libro de ascensiones): el script de fotos no cambia. Cualquier otra combinación es un error.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,9 +17,9 @@ describe('publicación del cliente de fotos de vía: raíz y www/ sincronizadas'
   it('sw.js precachea route-photos.js', () => {
     expect(read('sw.js')).toMatch(/'\.\/route-photos\.js'/);
   });
-  it('la versión del Service Worker y el ?v= del script van juntos (v306 con ?v=2, v307 a v313 con ?v=3)', () => {
+  it('la versión del Service Worker y el ?v= del script van juntos (v306 con ?v=2, v307 a v314 con ?v=3)', () => {
     const pair = `${swVersion('sw.js')}|${scriptV('index.html')}`;
-    expect(['v306|2', 'v307|3', 'v308|3', 'v309|3', 'v310|3', 'v311|3', 'v312|3', 'v313|3']).toContain(pair);
+    expect(['v306|2', 'v307|3', 'v308|3', 'v309|3', 'v310|3', 'v311|3', 'v312|3', 'v313|3', 'v314|3']).toContain(pair);
   });
   it('index.html carga route-photos.js una sola vez', () => {
     expect((read('index.html').match(/route-photos\.js/g) || []).length).toBe(1);
