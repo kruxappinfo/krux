@@ -1,6 +1,6 @@
 // ================== PUSH DE KRUX ==================
 // Cada notificación nueva de la app (users/{uid}/notifications/{id}, la campana) se envía también como push a los
-// móviles del usuario: tokens de FCM en users/{uid}/push_tokens/{id} (los guarda push.js). Los tokens que FCM da por
+// dispositivos del usuario (app nativa y web instalada): tokens de FCM en users/{uid}/push_tokens/{id} (los guarda push.js). Los tokens que FCM da por
 // caducados se borran. Codebase «push»: se despliega aparte de las funciones que ya hay en el proyecto.
 //   firebase deploy --only functions:push
 
@@ -65,7 +65,8 @@ exports.pushOnNotification = functions.firestore
       notification: { title, body },
       data,
       android: { priority: 'high', notification: { channelId: 'krux_default', sound: 'default' } },
-      apns: { payload: { aps: { sound: 'default' } } }
+      apns: { payload: { aps: { sound: 'default' } } },
+      webpush: { headers: { Urgency: 'high', TTL: '86400' } }   // web instalada: lo muestra sw.js
     });
 
     const dead = [];

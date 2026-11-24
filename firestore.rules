@@ -105,7 +105,7 @@ service cloud.firestore {
           && tokenId.size() <= 400
           && request.resource.data.keys().hasOnly(['token', 'platform', 'updatedAt'])
           && request.resource.data.token == tokenId
-          && request.resource.data.platform in ['ios', 'android'];
+          && request.resource.data.platform in ['ios', 'android', 'web'];
       }
 
       // Datos privados del usuario (hoy solo el peso, para estimar las calorías de las sesiones): users/{uid} lo

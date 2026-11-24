@@ -151,6 +151,9 @@ describe('Service Worker: versión de caché y descarga de los JS protegidos', (
         .replace('async function fetchAndCache(request, cache, fresh = false)', 'async function fetchAndCache(request, cache)')
         .replace("await fetch(request, fresh ? { cache: 'reload' } : undefined)", 'await fetch(request)');
     }
-    expect(normalized).toBe(a);
+    // v307→v308 (push en la web): además se admiten el SDK de mensajería en el precacheo y los listeners push/notificationclick
+    const withoutPush = (x) => x.replace(" './vendor/firebase-9.23.0/firebase-messaging-compat.js',", '')
+      .replace(/self\.addEventListener\('push'[\s\S]*$/, '');
+    expect(withoutPush(normalized)).toBe(withoutPush(a));
   });
 });

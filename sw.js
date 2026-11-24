@@ -4,7 +4,7 @@
  * PWA completa con soporte offline
  */
 
-const CACHE_VERSION = 'v307';
+const CACHE_VERSION = 'v308';
 const CACHE_NAME = `krux-cache-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `krux-data-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
@@ -52,6 +52,7 @@ const STATIC_ASSETS = [
   './vendor/firebase-9.23.0/firebase-auth-compat.js',
   './vendor/firebase-9.23.0/firebase-firestore-compat.js',
   './vendor/firebase-9.23.0/firebase-storage-compat.js',
+  './vendor/firebase-9.23.0/firebase-messaging-compat.js',
   './assets/schools/generic/caliza.svg',
   './assets/schools/generic/granito.svg',
   './assets/schools/generic/roca.svg',
@@ -413,50 +414,41 @@ async function syncPendingAscents() {
   });
 }
 
-// Manejar notificaciones push (preparado para el futuro)
+// ============================================
+// PUSH (web instalada: FCM; el token lo guarda push.js)
+// ============================================
+// FCM entrega {notification:{title, body}, data:{notificationId, type, ...}}. Siempre se muestra una notificación:
+// Safari en iOS retira el permiso si un push llega sin enseñar nada.
 self.addEventListener('push', (event) => {
-  if (event.data) {
-    const data = event.data.json();
-    const options = {
-      body: data.body || 'Nueva notificación de KRUX',
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch (_) { payload = { notification: { body: event.data && event.data.text() } }; }
+  const n = payload.notification || {};
+  const data = payload.data || {};
+  event.waitUntil(
+    self.registration.showNotification(n.title || payload.title || 'KRUX', {
+      body: n.body || payload.body || 'Tienes un aviso nuevo en KRUX',
       icon: './icons/pwa/icon-192x192.png',
       badge: './icons/pwa/icon-96x96.png',
-      vibrate: [100, 50, 100],
-      data: {
-        url: data.url || './'
-      },
-      actions: [
-        { action: 'open', title: 'Abrir' },
-        { action: 'close', title: 'Cerrar' }
-      ]
-    };
-
-    event.waitUntil(
-      self.registration.showNotification(data.title || 'KRUX', options)
-    );
-  }
+      tag: data.notificationId || undefined,
+      data
+    })
+  );
 });
 
-// Manejar clic en notificaciones
+// Al tocarla: se enfoca la app abierta y se le pasa el aviso (push.js abre lo mismo que la campana);
+// si estaba cerrada se abre con ?kxpush=1 y se muestra la campana
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
-  if (event.action === 'open' || !event.action) {
-    const urlToOpen = event.notification.data?.url || './';
-
-    event.waitUntil(
-      self.clients.matchAll({ type: 'window' }).then(clientList => {
-        // Si ya hay una ventana abierta, enfocarla
-        for (const client of clientList) {
-          if (client.url === urlToOpen && 'focus' in client) {
-            return client.focus();
-          }
-        }
-        // Si no, abrir una nueva
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(urlToOpen);
-        }
-      })
-    );
-  }
+  const data = event.notification.data || {};
+  const scope = self.registration.scope;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const client = list.find(c => c.url.startsWith(scope));
+      if (client) {
+        client.postMessage({ type: 'KRUX_PUSH_CLICK', data });
+        return 'focus' in client ? client.focus() : undefined;
+      }
+      return self.clients.openWindow ? self.clients.openWindow(scope + '?kxpush=1') : undefined;
+    })
+  );
 });
