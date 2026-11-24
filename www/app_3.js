@@ -3812,7 +3812,7 @@ function initNotifications() {
       const notificationId = String(n.id);
       const fromName = escapeHtmlMention(n.fromUserName || 'Usuario');
       // Las notificaciones de seguimiento antiguas ya traen el nombre dentro del texto
-      const bodyText = String(n.text || '').replace(/^\s*<strong>[^<]*<\/strong>\s*/, '');
+      const bodyText = n.type === 'ascent_tag' ? tagNotificationHTML(n) : String(n.text || '').replace(/^\s*<strong>[^<]*<\/strong>\s*/, '');
 
       return `${groupHeader}
         <div class="notification-item ${unreadClass}" data-id="${notificationId}" data-notification-id="${notificationId}">
@@ -3840,6 +3840,38 @@ function initNotifications() {
     setBellUnread(hasUnread);
   }
 
+  // Etiqueta de un compañero en un ascenso (ascent-partners.js): el texto sale de los datos de la vía, escapados,
+  // con los botones para confirmarlo (abre el formulario ya rellenado) o rechazarlo
+  function tagNotificationHTML(n) {
+    const t = n.tag || {};
+    const day = t.date ? new Date(t.date + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '';
+    const where = [t.schoolName, day].filter(Boolean).map(x => kxEsc(x)).join(' · ');
+    const head = `te ha añadido como compañero en <strong>${kxEsc(t.routeName || 'una vía')}</strong>${t.grade ? ` (${kxEsc(t.grade)})` : ''}${where ? `<br><small>${where}</small>` : ''}`;
+    if (n.status === 'accepted') return `${head}<span class="notification-tag-status is-ok">Añadido a tu registro</span>`;
+    if (n.status === 'declined') return `${head}<span class="notification-tag-status">Rechazado</span>`;
+    return `${head}<span class="notification-tag-actions">
+        <button type="button" class="kx-btn kx-btn--primary kx-btn--sm" data-tag-act="confirm" data-id="${kxEsc(n.id)}">Confirmar</button>
+        <button type="button" class="kx-btn kx-btn--secondary kx-btn--sm" data-tag-act="decline" data-id="${kxEsc(n.id)}">No fui yo</button>
+      </span>`;
+  }
+
+  // Confirmar / rechazar una etiqueta: antes que el clic de la notificación (que abriría el perfil)
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tag-act]');
+    if (!b) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const n = notifications.find(x => x.id === b.dataset.id);
+    if (!n || !window.KruxPartners) return;
+    if (b.dataset.tagAct === 'confirm') {
+      dropdown.classList.add('hidden');
+      KruxPartners.confirm(n);
+    } else {
+      b.disabled = true;
+      KruxPartners.decline(n);
+    }
+  }, true);
+
   function getNotificationIcon(type) {
     switch (type) {
       case 'follow':
@@ -3855,6 +3887,9 @@ function initNotifications() {
         return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path></svg>';
       case 'reply':
         return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>';
+      case 'ascent_tag':
+      case 'ascent_tag_ok':
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"></path></svg>';
       default:
         return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle></svg>';
     }

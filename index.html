@@ -64,7 +64,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=243" />
+  <link rel="stylesheet" href="./app_2.css?v=244" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -94,7 +94,8 @@
   <!-- Escuelas descargadas y lecturas sin conexión (antes que quien las usa) -->
   <script defer src="./offline-packs.js?v=6"></script>
 
-  <script defer src="./user-features.js?v=16"></script>
+  <script defer src="./user-features.js?v=17"></script>
+  <script defer src="./ascent-partners.js?v=2"></script>
 
   <script defer src="./route-photos.js?v=3"></script>
 
@@ -116,7 +117,7 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=117"></script>
+  <script defer src="./app_3.js?v=118"></script>
   <script defer src="./activity-ui.js?v=9"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -1677,6 +1678,7 @@
           <label>Vía</label>
           <div id="display-route-name" class="route-name-display"></div>
         </div>
+        <p class="kx-ascent-tag-note" id="ascent-tag-note" hidden></p>
 
         <input type="hidden" id="ascent-sector">
         <input type="hidden" id="ascent-school-city">
@@ -1760,6 +1762,18 @@
         <div class="form-group">
           <label for="ascent-notes">Notas</label>
           <textarea id="ascent-notes" rows="2" placeholder="Sensaciones, beta, compañía…"></textarea>
+        </div>
+
+        <!-- Compañeros de cordada: reciben un aviso para confirmar y añadirlo a su registro. ascent-partners.js -->
+        <div class="form-group" id="ascent-partners-group">
+          <label for="ascent-partners-btn">Compañeros <span class="gm-optional">(opcional)</span></label>
+          <button type="button" class="kx-ascent-partners-btn" id="ascent-partners-btn" aria-expanded="false" aria-controls="ascent-partners">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span id="ascent-partners-label">Añadir compañeros</span>
+            <svg class="kx-ascent-partners-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="kxs-peers" id="ascent-partners" hidden></div>
+          <small class="kx-ascent-partners-help">Les llegará un aviso para confirmarlo y añadirlo a su registro.</small>
         </div>
 
         <div class="form-group rating-group">
