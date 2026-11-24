@@ -1443,6 +1443,10 @@ window.toggleFollow = async function (targetUserId, btn) {
 
 // Helper to update local stats UI immediately
 function updateLocalStats(change) {
+    // Solo en el perfil propio: en el de otra persona ese número es SU «siguiendo», no el mío
+    if (typeof currentProfileUserId !== 'undefined' && currentProfileUserId) return;
+    const profileView = document.getElementById('profile-view');
+    if (!profileView || profileView.classList.contains('hidden')) return;
     const statFollowing = document.getElementById('stat-following');
     if (statFollowing) {
         let current = parseInt(statFollowing.textContent) || 0;

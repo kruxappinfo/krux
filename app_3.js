@@ -1862,10 +1862,7 @@ window.openPublicProfile = async function (userId) {
   // If viewing own profile, just switch to profile view normally
   if (currentUser && currentUser.uid === userId) {
     currentProfileUserId = null;
-    resetProfileState();
-    switchView('profile-view');
-    configureProfileViewForOwnProfile();
-    await initProfile();
+    switchView('profile-view');   // con currentProfileUserId a null, switchView carga el perfil propio
     profileLoadingState.isLoading = false;
     return;
   }
@@ -1956,14 +1953,14 @@ window.openPublicProfile = async function (userId) {
       Promise.resolve(loadProfileMentionsForUser(userId, loadId))
     ]);
 
-    // Update stats with real counts from subcollections
-    document.getElementById('stat-followers').textContent = realFollowersCount;
-    document.getElementById('stat-following').textContent = realFollowingCount;
-
     // Check if still valid after parallel loads
     if (profileLoadingState.currentLoadId !== loadId) {
       return;
     }
+
+    // Update stats with real counts from subcollections
+    document.getElementById('stat-followers').textContent = realFollowersCount;
+    document.getElementById('stat-following').textContent = realFollowingCount;
 
     // Update follow button state
     if (isFollowing) {
@@ -2438,6 +2435,7 @@ async function loadProfileClimbingStatsForUser(userId, loadId = null) {
 
   } catch (error) {
     console.error('Error loading climbing stats:', error);
+    if (loadId && profileLoadingState.currentLoadId !== loadId) return;
     // Set default values even on error to prevent undefined display
     const totalAscentsEl = document.getElementById('total-ascents');
     const maxGradeEl = document.getElementById('max-grade');
@@ -4277,6 +4275,8 @@ function initNavigation() {
     item.addEventListener('click', (e) => {
       const targetId = item.dataset.target;
       if (targetId) {
+        // La pestaña Perfil abre siempre el propio, aunque antes se estuviera viendo el de otra persona
+        if (targetId === 'profile-view') currentProfileUserId = null;
         switchView(targetId);
       } else if (item.id === 'nav-profile-btn') {
         showToast('Perfil de usuario próximamente', 'info');
@@ -4305,6 +4305,12 @@ function closeAllModals() {
 
 function switchView(viewId) {
   closeAllModals();
+
+  // Al salir del perfil de otra persona se cancela su carga: lo que llegue tarde no se pinta
+  if (viewId !== 'profile-view' && currentProfileUserId) {
+    currentProfileUserId = null;
+    profileLoadingState.currentLoadId = null;
+  }
 
   // Cerrar todos los bottom sheets al cambiar de sección
   if (typeof hideBottomSheet === 'function') hideBottomSheet();
@@ -5631,8 +5637,16 @@ async function initProfile() {
     return;
   }
 
+  // Cada carga lleva su id: si mientras tanto se abre otro perfil (o este otra vez), lo que llegue tarde
+  // se descarta en vez de pintar los datos de una cuenta en el perfil de otra
+  const loadId = `own-${Date.now()}-${Math.random()}`;
+  profileLoadingState.currentLoadId = loadId;
+  const isStale = () => profileLoadingState.currentLoadId !== loadId || !!currentProfileUserId;
+
   // Configure profile view for own profile (hide back button, show settings)
   configureProfileViewForOwnProfile();
+  // Nada del perfil visto antes se queda en pantalla mientras carga el propio
+  resetProfileState();
 
   // 1. Basic Info (from Auth & Firestore)
   const avatarEl = document.getElementById('profile-avatar');
@@ -5640,10 +5654,9 @@ async function initProfile() {
     setAvatarWithFallback(avatarEl, authUser.photoURL, authUser.displayName || authUser.email, 150);
   }
 
-  // Fetch full user doc for bio/location/stats
-  let userStats = { totalAscents: 0, followersCount: 0, followingCount: 0 };
   try {
     const userDoc = await db.collection('users').doc(authUser.uid).get();
+    if (isStale()) return;
     if (userDoc.exists) {
       const data = userDoc.data();
 
@@ -5663,75 +5676,40 @@ async function initProfile() {
       }
 
       // Update avatar from Firestore (takes priority over Auth)
-      const avatarEl = document.getElementById('profile-avatar');
       if (avatarEl) {
         const photoURL = data.photoURL || authUser.photoURL;
         const userName = data.displayName || authUser.displayName || authUser.email;
         setAvatarWithFallback(avatarEl, photoURL, userName, 150);
       }
-
-      if (data.stats) {
-        userStats = { ...userStats, ...data.stats };
-      }
     }
   } catch (e) {
     console.error("Error loading profile data", e);
   }
+  if (isStale()) return;
 
-  // 2. Stats Counters
-  const postsStat = document.getElementById('stat-posts');
-  const postsCount = await getUserPostsCount(authUser.uid);
-  if (postsStat) postsStat.textContent = postsCount;
-
-  // FIX: Get real follower/following counts (matching actual existing users)
-  const [realFollowersCount, realFollowingCount] = await Promise.all([
-    getRealFollowersCount(authUser.uid),
-    getRealFollowingCount(authUser.uid)
-  ]);
-
-  const followersStat = document.getElementById('stat-followers');
-  if (followersStat) followersStat.textContent = realFollowersCount;
-
-  const followingStat = document.getElementById('stat-following');
-  if (followingStat) followingStat.textContent = realFollowingCount;
-
-  // 3. Climbing Stats (Real calculation)
-  const ascents = await getUserAscents();
-  const projects = getProjects();
-
-  const totalAscentsEl = document.getElementById('total-ascents');
-  if (totalAscentsEl) totalAscentsEl.textContent = ascents.length || userStats.totalAscents || 0;
-
-  // Calculate Max Grade using compareGradesLocal
-  let maxGrade = '-';
-  if (ascents.length > 0) {
-    const grades = ascents
-      .map(a => a.grade)
-      .filter(g => g && g.trim() !== '');
-    if (grades.length > 0) {
-      const compareFunc = typeof compareGradesLocal === 'function' ? compareGradesLocal : (a, b) => a.localeCompare(b);
-      maxGrade = grades.sort(compareFunc).reverse()[0];
-    }
-  }
-
-  const maxGradeEl = document.getElementById('max-grade');
-  if (maxGradeEl) maxGradeEl.textContent = maxGrade;
-
-  // Unique zones (filter empty schoolNames)
-  const zones = new Set(
-    ascents.map(a => a.schoolName).filter(z => z && z.trim() !== '')
-  );
-  const zonesVisitedEl = document.getElementById('zones-visited');
-  if (zonesVisitedEl) zonesVisitedEl.textContent = zones.size;
-
-  // Populate Posts Grid - IMPORTANTE: esperar a que termine antes de continuar
-  await renderProfileGrid();
-
-  // Tab switching - solo inicializar despuÃ©s de que el grid estÃ© listo
+  // Botones de seguidores/siguiendo y pestañas, ya apuntando a esta cuenta
+  setupProfileSocialButtonsForUser(authUser.uid);
   initProfileTabs();
 
-  // Setup social buttons for own profile
-  setupProfileSocialButtonsForUser(authUser.uid);
+  // 2. Seguidores, siguiendo, estadísticas y publicaciones en paralelo; cada parte comprueba el loadId
+  await Promise.all([
+    (async () => {
+      const [postsCount, realFollowersCount, realFollowingCount] = await Promise.all([
+        getUserPostsCount(authUser.uid),
+        getRealFollowersCount(authUser.uid),
+        getRealFollowingCount(authUser.uid)
+      ]);
+      if (isStale()) return;
+      const postsStat = document.getElementById('stat-posts');
+      if (postsStat) postsStat.textContent = postsCount;
+      const followersStat = document.getElementById('stat-followers');
+      if (followersStat) followersStat.textContent = realFollowersCount;
+      const followingStat = document.getElementById('stat-following');
+      if (followingStat) followingStat.textContent = realFollowingCount;
+    })(),
+    loadProfileClimbingStatsForUser(authUser.uid, loadId),
+    renderProfileGrid(loadId)
+  ]);
 }
 
 // Load user posts count
@@ -5846,9 +5824,11 @@ async function loadUserPosts(userId) {
   }
 }
 
-async function renderProfileGrid() {
+async function renderProfileGrid(loadId = null) {
   const grid = document.getElementById('profile-grid');
   if (!grid) return;
+  // Si mientras carga se abre otro perfil, esto ya no se pinta
+  const isStale = () => !!currentProfileUserId || (loadId && profileLoadingState.currentLoadId !== loadId);
 
   const authUser = firebase.auth().currentUser;
 
@@ -5862,6 +5842,7 @@ async function renderProfileGrid() {
 
   try {
     const posts = await loadUserPosts(authUser.uid);
+    if (isStale()) return;
 
     if (posts.length === 0) {
       grid.innerHTML = '<div class="empty-message" style="text-align: center; padding: 40px 20px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin: 0 auto 16px; opacity: 0.5;"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg><p style="margin: 0; color: #6b7280;">No hay publicaciones aún</p><p style="margin: 8px 0 0; color: #9ca3af; font-size: 14px;">Comparte tu primera publicación</p></div>';
@@ -5896,6 +5877,7 @@ async function renderProfileGrid() {
       }
     }
 
+    if (isStale()) return;
     grid.innerHTML = '';
 
     // Render each post using the same component as the feed
@@ -5908,6 +5890,7 @@ async function renderProfileGrid() {
 
   } catch (error) {
     console.error('Error rendering profile grid:', error);
+    if (isStale()) return;
     grid.innerHTML = '<div class="empty-message" style="text-align: center; padding: 20px; color: #ef4444;">Error al cargar las publicaciones</div>';
   }
 }
