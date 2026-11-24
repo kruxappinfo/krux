@@ -32563,7 +32563,32 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 }
 #route-bottom-sheet .rbs-links svg { width: 13px; height: 13px; }
 
-/* Popup de escritorio: mismas piezas con aire */
+/* Popup de escritorio: mismas piezas con aire. Más ancho que en móvil para que estilo, expreses y metros quepan con su texto */
+/* Editar datos de la vía (admins): formulario en dos columnas sobre el modal de contribución */
+.kx-redit {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-width: 460px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  font-family: var(--kx-font);
+}
+.kx-redit h3, .kx-redit p, .kx-redit-wide { grid-column: 1 / -1; }
+.kx-redit p { margin-bottom: 4px; }
+.kx-redit-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 0.8125rem; font-weight: 600; color: var(--kx-ink-2, #374151); }
+.kx-redit-field .ml-contribute-input { min-height: 44px; padding: 10px 12px; font: inherit; font-size: 1rem; font-weight: 400; color: var(--kx-ink, #1f2937); }
+.kx-redit-field textarea.ml-contribute-input { resize: vertical; line-height: 1.4; }
+.kx-redit-field .ml-contribute-input:focus { border-color: var(--kx-forest); }
+.kx-redit .ml-contribute-actions { margin-top: 4px; }
+.kx-redit .ml-contribute-btn { min-height: 44px; }
+.kx-redit .ml-contribute-btn-submit { background: var(--kx-forest); }
+@media (max-width: 359px) { .kx-redit { grid-template-columns: 1fr; } }
+
+@media (min-width: 769px) {
+  .maplibregl-popup.ml-route-popup { max-width: 440px !important; }   /* el límite general de popups es 320px */
+  .ml-route-popup-new { min-width: 380px; max-width: 420px; }
+}
 .ml-route-popup-new .kx-rchips,
 .ml-route-popup-new .kx-rcard,
 .ml-route-popup-new .kx-ractions { margin-top: 10px; }
