@@ -1648,6 +1648,7 @@ let svRoutesList = [];  // Lista de vías del sector para obtener grados
 let svCurrentImageId = null; // ID de la imagen actual (para galería)
 let svTopoNumbers = new Map(); // Número de croquis de cada trazado (correlativo en todo el sector)
 let svAllDrawings = [];        // Trazados de todas las fotos del sector (para numerar)
+let svSchoolId = null;         // Escuela de la foto abierta (para marcar las vías hechas)
 
 // ============================================
 // CROQUIS: NUMERACIÓN Y COLOR (compartido con route-drawing.js)
@@ -2032,6 +2033,13 @@ function kxDrawDescentLine(ctx, points, color) {
 /**
  * Dibuja la chapa numerada del inicio de una vía (compartido por visor y editor)
  */
+// ¿Ha hecho el usuario la vía de este trazado? (sus ascensos, de user-features.js)
+function svDrawingDone(drawing) {
+  return !!(drawing && drawing.routeId !== undefined && svSchoolId &&
+    typeof hasUserAscent === 'function' && hasUserAscent(svSchoolId, drawing.routeId));
+}
+
+// opts.done: vía hecha por el usuario, con una marca verde en la esquina de la chapa
 function kxDrawTopoBadge(ctx, x, y, number, color, opts = {}) {
   const radius = opts.radius || 9;
   ctx.save();
@@ -2058,8 +2066,31 @@ function kxDrawTopoBadge(ctx, x, y, number, color, opts = {}) {
     ctx.textBaseline = 'middle';
     ctx.fillText(label, x, y + radius * 0.06);
   }
+
+  if (opts.done) {
+    const r = radius * 0.52;
+    const cx = x + radius * 0.78, cy = y - radius * 0.78;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + Math.max(1, radius * 0.12), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = KX_TOPO_DONE;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(1.2, r * 0.32);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.45, cy + r * 0.02);
+    ctx.lineTo(cx - r * 0.1, cy + r * 0.36);
+    ctx.lineTo(cx + r * 0.48, cy - r * 0.32);
+    ctx.stroke();
+  }
   ctx.restore();
 }
+const KX_TOPO_DONE = '#153E35';   // verde bosque (--kx-forest): la misma marca de «hecha» que en el mapa
 
 /**
  * Configura el canvas para una imagen específica de la galería
@@ -2085,6 +2116,7 @@ async function setupSectorViewerCanvasForGallery(schoolId, sectorName, imageInde
 
   // Guardar ID de imagen actual
   svCurrentImageId = imageData.id;
+  svSchoolId = schoolId;
 
   // Vías del sector (para los grados) y trazados: en paralelo y una sola vez por sector
   svEnsureSlideImage(imageIndex);
@@ -3259,7 +3291,8 @@ function drawOverlayRoutePoint(drawing, canvasWidth, canvasHeight) {
   kxDrawTopoBadge(svCtx, scaledPoints[0].x, scaledPoints[0].y, svTopoNumbers.get(kxDrawingKey(drawing)), color, {
     radius: (isZoomed ? 6 : 9) * scaleFactor,
     alpha: isZoomed ? 0.85 : 1,
-    highlighted: isHighlighted
+    highlighted: isHighlighted,
+    done: svDrawingDone(drawing)
   });
 
   // (Diamante de bifurcación eliminado - la línea se une directamente)
@@ -3774,6 +3807,15 @@ function svRouteOfDrawing(drawing) {
  * Pinta el pie del visor: una tira con las vías dibujadas en la foto, en el orden del croquis.
  * Sin trazados muestra solo la ayuda de gestos.
  */
+// Registrar o borrar un ascenso con el visor abierto: se repintan las marcas de «hecha»
+if (typeof document !== 'undefined') {
+  document.addEventListener('kx:ascents-changed', () => {
+    if (typeof sectorImageViewerOpen === 'undefined' || !sectorImageViewerOpen || !svDrawings.length) return;
+    renderViewerLegend();
+    if (svCanvas && svCtx) redrawCanvasOverlay();
+  });
+}
+
 function renderViewerLegend() {
   const footer = document.getElementById('sector-viewer-footer');
   if (!footer) return;
@@ -3793,9 +3835,10 @@ function renderViewerLegend() {
       const key = kxDrawingKey(drawing);
       const { name, grado } = svRouteOfDrawing(drawing);
       const gradeColor = kxGradeColorSafe(grado);
+      const done = svDrawingDone(drawing);
       return `
-        <button type="button" class="sv-legend-chip" data-key="${kxEsc(key)}" aria-pressed="false">
-          <span class="sv-legend-num">${svTopoNumbers.get(key)}</span>
+        <button type="button" class="sv-legend-chip${done ? ' is-done' : ''}" data-key="${kxEsc(key)}" aria-pressed="false"${done ? ` aria-label="${kxEsc(name)}, ${kxEsc(grado)}, hecha"` : ''}>
+          <span class="sv-legend-num">${svTopoNumbers.get(key)}${done ? '<span class="sv-legend-done" aria-hidden="true"><svg viewBox="0 0 12 12" width="10" height="10"><path d="M2.6 6.2 5 8.5l4.4-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' : ''}</span>
           <span class="sv-legend-name">${kxEsc(name)}</span>
           <span class="sv-legend-grade" style="background-color: ${gradeColor}; color: ${kxGradeInk(gradeColor)}">${kxEsc(grado)}</span>
         </button>`;
