@@ -64,7 +64,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=250" />
+  <link rel="stylesheet" href="./app_2.css?v=252" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -120,7 +120,7 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=120"></script>
+  <script defer src="./app_3.js?v=122"></script>
   <script defer src="./activity-ui.js?v=9"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -1627,30 +1627,30 @@
   <div id="ascent-logbook-modal" class="modal hidden">
     <div class="logbook-container">
       <div class="logbook-header">
-        <button id="close-logbook-btn" class="logbook-back-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button type="button" id="close-logbook-btn" class="logbook-back-btn" aria-label="Volver">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
         </button>
         <h3 class="logbook-title">Libro de ascensiones</h3>
-        <div style="width: 20px;"></div>
+        <span class="logbook-header-spacer" aria-hidden="true"></span>
       </div>
 
       <!-- Filters -->
       <div class="logbook-filters">
         <div class="logbook-filter-row">
-          <select id="logbook-filter-school" class="logbook-select">
+          <select id="logbook-filter-school" class="logbook-select" aria-label="Escuela">
             <option value="">Todas las escuelas</option>
           </select>
-          <select id="logbook-filter-sector" class="logbook-select">
+          <select id="logbook-filter-sector" class="logbook-select" aria-label="Sector">
             <option value="">Todos los sectores</option>
           </select>
         </div>
         <div class="logbook-filter-row">
-          <select id="logbook-filter-grade" class="logbook-select">
+          <select id="logbook-filter-grade" class="logbook-select" aria-label="Grado">
             <option value="">Todos los grados</option>
           </select>
-          <select id="logbook-filter-style" class="logbook-select">
+          <select id="logbook-filter-style" class="logbook-select" aria-label="Estilo">
             <option value="">Todos los estilos</option>
             <option value="redpoint">Redpoint</option>
             <option value="onsight">A vista</option>
@@ -1659,7 +1659,10 @@
             <option value="project">Intento</option>
           </select>
         </div>
-        <div class="logbook-result-count" id="logbook-result-count"></div>
+        <div class="logbook-meta">
+          <span class="logbook-result-count" id="logbook-result-count" aria-live="polite"></span>
+          <button type="button" class="logbook-clear" id="logbook-clear-filters" hidden>Quitar filtros</button>
+        </div>
       </div>
 
       <!-- Ascents List -->

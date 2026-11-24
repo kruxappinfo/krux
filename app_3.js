@@ -16857,6 +16857,12 @@ function initLogbook() {
   if (sectorFilter) sectorFilter.addEventListener('change', applyLogbookFilters);
   if (gradeFilter) gradeFilter.addEventListener('change', applyLogbookFilters);
   if (styleFilter) styleFilter.addEventListener('change', applyLogbookFilters);
+  const clearBtn = document.getElementById('logbook-clear-filters');
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    [schoolFilter, sectorFilter, gradeFilter, styleFilter].forEach(sel => { if (sel) sel.value = ''; });
+    populateSectorFilter(logbookAscents);
+    applyLogbookFilters();
+  });
 
 }
 
@@ -16899,7 +16905,7 @@ async function openLogbook() {
   // Show loading state
   const list = document.getElementById('logbook-list');
   if (list) {
-    list.innerHTML = '<div style="display:flex;justify-content:center;padding:40px;"><div class="spinner"></div></div>';
+    list.innerHTML = '<div class="logbook-loading" role="status"><div class="spinner"></div><span>Cargando ascensiones…</span></div>';
   }
 
   try {
@@ -17033,15 +17039,20 @@ function applyLogbookFilters() {
 
   const hasFilter = schoolVal || sectorVal || gradeVal || styleVal;
 
-  // Update result count
+  // Contador y filtros activos (resaltados, con «Quitar filtros»)
   const countEl = document.getElementById('logbook-result-count');
   if (countEl) {
     const total = logbookAscents.length;
     const shown = logbookFiltered.length;
-    countEl.textContent = hasFilter
-      ? `${shown} de ${total} ascensiones`
-      : `${total} ascensiones`;
+    const noun = n => (n === 1 ? 'ascensión' : 'ascensiones');
+    countEl.textContent = hasFilter ? `${shown} de ${total} ${noun(total)}` : `${total} ${noun(total)}`;
   }
+  ['school', 'sector', 'grade', 'style'].forEach(k => {
+    const sel = document.getElementById(`logbook-filter-${k}`);
+    if (sel) sel.classList.toggle('is-set', !!sel.value);
+  });
+  const clearBtn = document.getElementById('logbook-clear-filters');
+  if (clearBtn) clearBtn.hidden = !hasFilter;
 
   renderLogbookList(logbookFiltered);
 }
@@ -17063,51 +17074,29 @@ function renderLogbookList(ascents) {
     return;
   }
 
-  let html = '';
+  // Agrupado por meses, como un cuaderno de escalada: el mes encabeza y cada fila lleva su día
+  const groups = [];
   ascents.forEach(ascent => {
     const dateObj = ascent.date instanceof Date ? ascent.date : new Date(ascent.date);
-    const dateStr = dateObj.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
-
-    const styleSVG = typeof getAscentStyleSVG === 'function' ? getAscentStyleSVG(ascent.style) : '';
-    const styleLabel = STYLE_LABELS[ascent.style] || ascent.style || '';
-    const styleClass = ascent.style ? `ascent-style-${ascent.style}` : '';
-    const isProject = ascent.style === 'project';
-    const isChained = !isProject && ascent.style && ascent.style !== 'project';
-
-    const checkHtml = isChained ? `
-      <span class="logbook-item-check">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
-      </span>
-    ` : '';
-
-    html += `
-      <div class="logbook-item">
-        <div class="logbook-item-grade ${isProject ? 'grade-project' : ''}">${ascent.grade || '?'}</div>
-        <div class="logbook-item-body">
-          <div class="logbook-item-name">${ascent.routeName || 'Sin nombre'}</div>
-          <div class="logbook-item-location">${ascent.schoolName || ''}${ascent.sector ? ' · ' + ascent.sector : ''}</div>
-        </div>
-        <div class="logbook-item-right">
-          <div class="logbook-item-date">${dateStr}</div>
-          <div class="logbook-item-style ${styleClass}">
-            ${styleSVG}
-            <span>${styleLabel}</span>
-            ${checkHtml}
-          </div>
-        </div>
-        ${!currentProfileUserId ? `<button class="logbook-item-delete" data-ascent-id="${ascent.id}" data-school-id="${ascent.schoolId || ''}" data-route-id="${ascent.routeId || ''}" title="Eliminar ascensión">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-            <path d="M10 11v6M14 11v6"></path>
-            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
-          </svg>
-        </button>` : ''}
-      </div>
-    `;
+    const valid = !isNaN(dateObj);
+    const key = valid ? `${dateObj.getFullYear()}-${dateObj.getMonth()}` : 'sin-fecha';
+    let group = groups[groups.length - 1];
+    if (!group || group.key !== key) {
+      const label = valid ? dateObj.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }) : 'Sin fecha';
+      group = { key, label: label.charAt(0).toUpperCase() + label.slice(1), items: [] };
+      groups.push(group);
+    }
+    group.items.push({ ascent, dateObj, valid });
   });
+
+  const canDelete = !currentProfileUserId;
+  const html = groups.map(group => `
+    <section class="logbook-month" aria-label="${logbookEsc(group.label)}">
+      <h4 class="logbook-month-head"><span>${logbookEsc(group.label)}</span><span class="logbook-month-count">${group.items.length}</span></h4>
+      <ul class="logbook-month-list">
+        ${group.items.map(({ ascent, dateObj, valid }) => logbookItemHTML(ascent, dateObj, valid, canDelete)).join('')}
+      </ul>
+    </section>`).join('');
 
   list.innerHTML = html;
 
@@ -17120,17 +17109,52 @@ function renderLogbookList(ascents) {
         const ok = await deleteAscent(ascentId, schoolId, routeId);
         if (ok) {
           logbookAscents = logbookAscents.filter(a => a.id !== ascentId);
-          logbookFiltered = logbookFiltered.filter(a => a.id !== ascentId);
-          const countEl = document.getElementById('logbook-result-count');
-          if (countEl) {
-            const total = logbookFiltered.length;
-            countEl.textContent = total === 1 ? '1 ascensión' : `${total} ascensiones`;
-          }
-          renderLogbookList(logbookFiltered);
+          populateSchoolFilter(logbookAscents);
+          populateSectorFilter(logbookAscents);
+          populateGradeFilter(logbookAscents);
+          applyLogbookFilters();
         }
       });
     });
   });
+}
+
+function logbookEsc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+// Una fila del libro: grado en su color real (hueco si es un intento), vía, lugar, día y estilo
+function logbookItemHTML(ascent, dateObj, valid, canDelete) {
+  const grade = ascent.grade || '?';
+  const color = typeof kxGradeColorSafe === 'function' ? kxGradeColorSafe(ascent.grade)
+    : (ascent.grade && typeof getGradeColor === 'function' ? getGradeColor(String(ascent.grade)) : '#888888');
+  const ink = typeof kxGradeInk === 'function' ? kxGradeInk(color) : '#ffffff';
+  const isProject = ascent.style === 'project';
+  const styleSVG = typeof getAscentStyleSVG === 'function' ? getAscentStyleSVG(ascent.style) : '';
+  const styleLabel = STYLE_LABELS[ascent.style] || ascent.style || '';
+  const day = valid ? dateObj.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }).replace('.', '') : '';
+  const fullDate = valid ? dateObj.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  const place = [ascent.schoolName, ascent.sector].filter(Boolean).join(' · ');
+  const name = ascent.routeName || 'Sin nombre';
+  return `
+    <li class="logbook-item${isProject ? ' is-project' : ''}">
+      <span class="logbook-item-grade" style="--grade: ${color}; --grade-ink: ${ink}" title="${isProject ? 'Intento, sin encadenar' : 'Encadenada'}">${logbookEsc(grade)}</span>
+      <div class="logbook-item-body">
+        <div class="logbook-item-top">
+          <span class="logbook-item-name">${logbookEsc(name)}</span>
+          ${day ? `<time class="logbook-item-date" datetime="${dateObj.toISOString().slice(0, 10)}" title="${logbookEsc(fullDate)}">${logbookEsc(day)}</time>` : ''}
+        </div>
+        <div class="logbook-item-meta">
+          ${styleLabel ? `<span class="logbook-item-style logbook-style-${logbookEsc(ascent.style || 'otro')}">${styleSVG}<span>${logbookEsc(styleLabel)}</span></span>` : ''}
+          ${place ? `<span class="logbook-item-location">${logbookEsc(place)}</span>` : ''}
+        </div>
+      </div>
+      ${canDelete ? `<button type="button" class="logbook-item-delete" data-ascent-id="${logbookEsc(ascent.id)}" data-school-id="${logbookEsc(ascent.schoolId || '')}" data-route-id="${logbookEsc(ascent.routeId || '')}" aria-label="Eliminar ascensión de ${logbookEsc(name)}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V7"/>
+        </svg>
+      </button>` : ''}
+    </li>`;
 }
 
 function renderLogbookEmpty(message) {
@@ -17140,7 +17164,7 @@ function renderLogbookEmpty(message) {
   list.innerHTML = `
     <div class="logbook-empty">
       <div class="logbook-empty-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m8 3 4 8 5-5 5 15H2L8 3z" />
         </svg>
       </div>
