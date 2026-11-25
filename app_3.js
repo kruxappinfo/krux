@@ -11613,13 +11613,10 @@ async function handleFeedComment(postId, button) {
       commentsList.dataset.loaded = 'true';
     }
 
-    // Focus on input and attach mention autocomplete
+    // Menciones en el campo; el teclado no se abre hasta que se pulsa «Añade un comentario»
     const input = commentsSection.querySelector('.feed-comment-input');
-    if (input) {
-      if (!input._mentionAutocomplete) {
-        new MentionAutocomplete(input);
-      }
-      input.focus();
+    if (input && !input._mentionAutocomplete) {
+      new MentionAutocomplete(input);
     }
   } else {
     // Hide comments section
