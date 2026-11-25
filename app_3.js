@@ -1654,6 +1654,25 @@ function initGlobalSearch() {
     openOnMap(target);
   };
 
+  // Desde una publicación cuya ubicación es una escuela: abre la escuela en el mapa
+  window.kxOpenSchoolOnMap = async function (schoolId) {
+    let school;
+    try {
+      const index = await loadPlacesIndex();
+      school = index.schools.find(sc => sc.id === schoolId);
+    } catch (err) {
+      console.error('Error cargando la cartografía:', err);
+      showToast('No se pudo cargar la cartografía. Revisa tu conexión.', 'error');
+      return;
+    }
+    if (!school) {
+      showToast('Esa escuela ya no está en el mapa', 'info');
+      return;
+    }
+    document.getElementById('view-post-modal')?.classList.add('hidden');
+    openOnMap(school);
+  };
+
   // ---------- Eventos ----------
   function setCategory(type) {
     currentType = type;
@@ -8925,6 +8944,17 @@ function initCreatePost() {
     showLocationOptions();
   });
 
+  // Escuelas del mapa (MAPLIBRE_SCHOOLS) cuyo nombre contiene lo escrito
+  function findSchoolLocations(query) {
+    const schools = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? Object.values(MAPLIBRE_SCHOOLS) : [];
+    const q = kxNormalizeText(query);
+    if (!q) return [];
+    return schools
+      .filter(sc => sc && sc.name && Array.isArray(sc.center) && kxNormalizeText(sc.name).includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+      .slice(0, 5);
+  }
+
   // Search locations using Nominatim API
   async function searchLocations(query) {
     if (!query || query.length < 2) {
@@ -8935,6 +8965,15 @@ function initCreatePost() {
     try {
       // Show current location option + loading
       showLocationOptions();
+      // Escuelas de KRUX: salen primero y sin depender de la red
+      const schoolMatches = findSchoolLocations(query);
+      schoolMatches.forEach(sc => {
+        const li = document.createElement('li');
+        li.className = 'location-result-item location-school-option';
+        li.textContent = `${sc.name} · escuela de escalada`;
+        li.addEventListener('click', () => selectLocation({ lat: sc.center[1], lon: sc.center[0], display_name: sc.name, schoolId: sc.id }));
+        locationResults.appendChild(li);
+      });
       const loadingLi = document.createElement('li');
       loadingLi.className = 'location-result-loading';
       loadingLi.textContent = 'Buscando...';
@@ -8955,7 +8994,7 @@ function initCreatePost() {
       const loading = locationResults.querySelector('.location-result-loading');
       if (loading) loading.remove();
 
-      if (data.length === 0) {
+      if (data.length === 0 && !schoolMatches.length) {
         const emptyLi = document.createElement('li');
         emptyLi.className = 'location-result-empty';
         emptyLi.textContent = 'No se encontraron resultados';
@@ -8996,6 +9035,7 @@ function initCreatePost() {
       lng: lng,
       name: place.display_name
     };
+    if (place.schoolId) postData.location.schoolId = place.schoolId;
 
     selectedLocationName = place.display_name;
     showLocationBadge(place.display_name);
@@ -9172,6 +9212,15 @@ document.addEventListener('click', (e) => {
   });
 }, true);
 
+// Ubicación de una publicación que es una escuela de KRUX: el texto abre la escuela en el mapa
+function kxPostSchoolId(post) {
+  const id = post && post.location && typeof post.location === 'object' ? post.location.schoolId : '';
+  return typeof id === 'string' ? kxSafeId(id) : '';
+}
+function kxPostSchoolAttrs(post) {
+  const id = kxPostSchoolId(post);
+  return id ? ` role="button" tabindex="0" onclick="event.stopPropagation(); kxOpenSchoolOnMap('${id}')" onkeydown="if(event.key==='Enter'){event.stopPropagation(); kxOpenSchoolOnMap('${id}')}"` : '';
+}
 function kxNormalizeText(t) {
   return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
@@ -11085,7 +11134,7 @@ function renderPostCard(post, container) {
         <div class="feed-header-row">
           <span class="feed-username feed-username-clickable" data-user-id="${post.userId || ''}">${userName}</span>
         </div>
-        ${locationName ? `<div class="feed-location-text">${FEED_ICON_PIN}<span>${locationName}</span></div>` : ''}
+        ${locationName ? `<div class="feed-location-text${kxPostSchoolId(post) ? ' feed-location-link' : ''}"${kxPostSchoolAttrs(post)}>${FEED_ICON_PIN}<span>${locationName}</span></div>` : ''}
         <div class="feed-time-row"><span class="feed-time">${post.time || 'Ahora'}</span></div>
       </div>
       ${currentUser ? `
@@ -13900,7 +13949,7 @@ function renderPostInModal(post, container) {
         <div class="feed-header-row">
           <span class="feed-username">${userName}</span>
         </div>
-        ${locationName ? `<div class="feed-location-text">${FEED_ICON_PIN}<span>${locationName}</span></div>` : ''}
+        ${locationName ? `<div class="feed-location-text${kxPostSchoolId(post) ? ' feed-location-link' : ''}"${kxPostSchoolAttrs(post)}>${FEED_ICON_PIN}<span>${locationName}</span></div>` : ''}
         <div class="feed-time-row"><span class="feed-time">${post.time || 'Ahora'}</span></div>
       </div>
       ${currentUser ? `

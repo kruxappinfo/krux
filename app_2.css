@@ -7881,6 +7881,9 @@ button.secondary:hover {
   text-decoration: underline;
 }
 
+.feed-location-link { cursor: pointer; }
+.feed-location-link span { text-decoration: underline; text-underline-offset: 2px; }
+
 .feed-location-text {
   font-size: 13px;
   color: #6b7280;
