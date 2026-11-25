@@ -35759,3 +35759,9 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 #chat-modal .chat-post.is-loading .chat-post-bar { width: 96px; height: 10px; border-radius: 5px; background: var(--kx-stone-card); }
 #chat-modal .chat-post.is-loading .chat-post-avatar { display: block; }
 #chat-modal .chat-post.is-missing { display: block; padding: 14px 12px; cursor: default; font-size: var(--kx-fs-meta); color: var(--kx-ink-3); }
+
+/* «Ver más publicaciones» al final del feed */
+.feed-load-more {
+  display: block;
+  margin: 8px auto 24px;
+}

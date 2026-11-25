@@ -372,6 +372,25 @@ async function deleteAccount() {
             }
         }
 
+        // Sus publicaciones (con comentarios, avisos y archivos) y sus seguimientos: si no, quedan publicaciones
+        // de una cuenta que ya no existe y seguidores fantasma en otros perfiles
+        if (typeof kxDeletePostEverywhere === 'function') {
+            const posts = await db.collection('posts').where('userId', '==', uid).get();
+            for (const p of posts.docs) {
+                try { await kxDeletePostEverywhere(p.id, p.data()); }
+                catch (e) { console.warn('[Cuenta] Publicación sin borrar:', e); }
+            }
+        }
+        const following = await userRef.collection('following').get();
+        for (const f of following.docs) {
+            // Me quito de sus seguidores y le resto uno, en el mismo lote (lo exige la regla del contador)
+            const b = db.batch();
+            b.delete(db.collection('users').doc(f.id).collection('followers').doc(uid));
+            b.update(db.collection('users').doc(f.id), { 'stats.followersCount': firebase.firestore.FieldValue.increment(-1) });
+            b.delete(f.ref);
+            try { await b.commit(); } catch (e) { console.warn('[Cuenta] Seguimiento sin borrar:', e); }
+        }
+
         // Eliminar documento principal del usuario
         await userRef.delete();
 

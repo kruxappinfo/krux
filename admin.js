@@ -147,6 +147,8 @@ function navigateTo(section, updateHash = true) {
         loadPendingPOI();
     } else if (section === 'gyms') {
         loadGymContributions();
+    } else if (section === 'errors') {
+        loadClientErrors();
     }
 }
 
@@ -3329,5 +3331,48 @@ async function deleteGymContribution(reportId) {
     } catch (error) {
         console.error('Error deleting gym contribution:', error);
         showToast('No se pudo borrar', 'error');
+    }
+}
+
+// ============================================
+// ERRORES DE LA APP (client_errors, escritos por error-log.js)
+// ============================================
+async function loadClientErrors() {
+    const list = document.getElementById('errorsList');
+    const summary = document.getElementById('errorsSummary');
+    if (!list) return;
+    list.innerHTML = '<p>Cargando…</p>';
+    try {
+        const snap = await db.collection('client_errors').orderBy('at', 'desc').limit(300).get();
+        // Agrupados por mensaje: cuántas veces, última vez, versiones y plataformas
+        const groups = new Map();
+        snap.forEach(doc => {
+            const e = doc.data();
+            const key = `${e.kind}|${e.message}`;
+            const at = e.at && e.at.toDate ? e.at.toDate() : null;
+            const g = groups.get(key) || { e, count: 0, last: at, versions: new Set(), platforms: new Set(), views: new Set() };
+            g.count++;
+            if (at && (!g.last || at > g.last)) g.last = at;
+            if (e.version) g.versions.add(e.version);
+            if (e.platform) g.platforms.add(e.platform);
+            if (e.view) g.views.add(e.view);
+            groups.set(key, g);
+        });
+        summary.textContent = `${snap.size} registros · ${groups.size} errores distintos (últimos 300)`;
+        if (!groups.size) { list.innerHTML = '<p>Sin errores registrados.</p>'; return; }
+        list.innerHTML = [...groups.values()].sort((a, b) => (b.last || 0) - (a.last || 0)).map(g => `
+            <details class="card" style="margin-bottom:8px;padding:10px 12px;">
+                <summary style="cursor:pointer;">
+                    <strong>${g.count}×</strong> ${escapeHtml(g.e.message)}
+                    <div style="font-size:12px;opacity:.7;margin-top:4px;">
+                        ${g.last ? g.last.toLocaleString('es-ES') : ''} · ${escapeHtml([...g.platforms].join(', '))} · ${escapeHtml([...g.versions].join(', '))}
+                        ${g.views.size ? ' · ' + escapeHtml([...g.views].join(', ')) : ''} · ${escapeHtml(g.e.kind)}${g.e.code ? ' · ' + escapeHtml(g.e.code) : ''}
+                    </div>
+                </summary>
+                <pre style="white-space:pre-wrap;font-size:11px;margin-top:8px;">${escapeHtml((g.e.source ? g.e.source + '\n' : '') + (g.e.stack || ''))}</pre>
+            </details>`).join('');
+    } catch (error) {
+        console.error('Error cargando errores de la app:', error);
+        list.innerHTML = `<p>No se pudieron cargar: ${escapeHtml(error.message || '')}</p>`;
     }
 }

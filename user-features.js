@@ -1395,13 +1395,13 @@ function renderUserList(users, container, forceFollowing = false) {
 
         return `
             <div class="user-item">
-                <img src="${photoUrl}" alt="${user.displayName}" class="user-item-avatar">
+                <img src="${typeof kxSafeUrl === 'function' ? kxSafeUrl(photoUrl) : ''}" alt="" class="user-item-avatar">
                 <div class="user-item-info">
-                    <div class="user-item-name">${user.displayName}</div>
-                    <div class="user-item-stats">${user.bio || 'Escalador'}</div>
+                    <div class="user-item-name">${escapeHtml(user.displayName || 'Usuario')}</div>
+                    <div class="user-item-stats">${escapeHtml(user.bio || 'Escalador')}</div>
                 </div>
                 ${user.id !== currentUser?.uid ?
-                `<button class="${btnClass}" onclick="toggleFollow('${user.id}', this)">${btnText}</button>`
+                `<button class="${btnClass}" onclick="toggleFollow('${typeof kxSafeId === 'function' ? kxSafeId(user.id) : ''}', this)">${btnText}</button>`
                 : ''}
             </div>
         `;
@@ -2948,8 +2948,16 @@ window.MessagingService = {
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
-        const docRef = await db.collection('conversations').add(newConversation);
-        return { id: docRef.id, ...newConversation };
+        // Id fijo para la pareja, creado en una transacción: si los dos escriben por primera vez a la vez
+        // se usa la misma conversación (antes se creaban dos)
+        const docRef = db.collection('conversations').doc(`dm_${participants.join('_')}`);
+        const created = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(docRef);
+            if (snap.exists) return { id: docRef.id, ...snap.data() };
+            tx.set(docRef, newConversation);
+            return { id: docRef.id, ...newConversation };
+        });
+        return created;
     },
 
     /**
@@ -2998,7 +3006,12 @@ window.MessagingService = {
             .onSnapshot(snapshot => {
                 const conversations = [];
                 snapshot.forEach(doc => {
-                    conversations.push({ id: doc.id, ...doc.data() });
+                    const conv = { id: doc.id, ...doc.data() };
+                    // Vaciada por mí y sin mensajes posteriores: no aparece en mi bandeja
+                    const cut = MessagingService.clearedAtFor(conv);
+                    const last = conv.lastMessageTime && conv.lastMessageTime.toMillis ? conv.lastMessageTime.toMillis() : Date.now();
+                    if (cut && last <= cut) return;
+                    conversations.push(conv);
                 });
                 callback(conversations);
             }, error => {
@@ -3015,7 +3028,14 @@ window.MessagingService = {
      * @returns {function} - Unsubscribe function
      */
     subscribeToMessages(conversationId, callback, onError) {
-        return db.collection('conversations').doc(conversationId)
+        // Si la vacié, solo se ven los mensajes de después (lo lee de la propia conversación en cada cambio)
+        let cut = 0, lastMessages = [], loaded = false;
+        const visible = (list) => cut ? list.filter(m => !m.timestamp || !m.timestamp.toMillis || m.timestamp.toMillis() > cut) : list;
+        const convUnsub = db.collection('conversations').doc(conversationId).onSnapshot(doc => {
+            const next = doc.exists ? MessagingService.clearedAtFor(doc.data()) : 0;
+            if (next !== cut) { cut = next; if (loaded) callback(visible(lastMessages)); }
+        }, () => { });
+        const msgUnsub = db.collection('conversations').doc(conversationId)
             .collection('messages')
             .orderBy('timestamp', 'asc')
             .onSnapshot(snapshot => {
@@ -3023,11 +3043,14 @@ window.MessagingService = {
                 snapshot.forEach(doc => {
                     messages.push({ id: doc.id, ...doc.data() });
                 });
-                callback(messages);
+                lastMessages = messages;
+                loaded = true;
+                callback(visible(messages));
             }, error => {
                 console.error('Error subscribing to messages:', error);
                 if (typeof onError === 'function') onError(error);
             });
+        return () => { convUnsub(); msgUnsub(); };
     },
 
     /**
@@ -3047,14 +3070,14 @@ window.MessagingService = {
             // Mark messages as read
             const messagesRef = db.collection('conversations').doc(conversationId).collection('messages');
             const unreadMessages = await messagesRef
-                .where('senderId', '!=', currentUser.uid)
                 .where('status', '==', 'sent')
                 .get();
 
+            // Solo los que me enviaron a mí (las reglas no dejan marcar los propios); como mucho 400 por lote
+            const mine = unreadMessages.docs.filter(doc => doc.data().senderId !== currentUser.uid).slice(0, 400);
+            if (!mine.length) return;
             const batch = db.batch();
-            unreadMessages.forEach(doc => {
-                batch.update(doc.ref, { status: 'read' });
-            });
+            mine.forEach(doc => batch.update(doc.ref, { status: 'read' }));
             await batch.commit();
         } catch (error) {
             console.error('Error marking as read:', error);
@@ -3102,7 +3125,8 @@ window.MessagingService = {
     },
 
     /**
-     * Delete a conversation and all its messages
+     * «Eliminar» una conversación: desaparece solo para quien la elimina (clearedAt.{uid}).
+     * Si la otra persona vuelve a escribir, reaparece solo con los mensajes nuevos. Antes se borraba para los dos.
      * @param {string} conversationId - The conversation ID
      * @returns {Promise<boolean>} - True if successful
      */
@@ -3111,19 +3135,10 @@ window.MessagingService = {
         if (!currentUser) return false;
 
         try {
-            // First delete all messages in the subcollection
-            const messagesRef = db.collection('conversations').doc(conversationId).collection('messages');
-            const messagesSnapshot = await messagesRef.get();
-
-            const batch = db.batch();
-            messagesSnapshot.forEach(doc => {
-                batch.delete(doc.ref);
+            await db.collection('conversations').doc(conversationId).update({
+                [`clearedAt.${currentUser.uid}`]: firebase.firestore.FieldValue.serverTimestamp(),
+                [`unreadCount.${currentUser.uid}`]: 0
             });
-
-            // Delete the conversation document
-            batch.delete(db.collection('conversations').doc(conversationId));
-
-            await batch.commit();
             showToast('Conversación eliminada', 'success');
             return true;
         } catch (error) {
@@ -3131,6 +3146,18 @@ window.MessagingService = {
             showToast('Error al eliminar la conversación', 'error');
             return false;
         }
+    },
+
+    /**
+     * Momento hasta el que esta cuenta vació la conversación (ms), o 0 si nunca.
+     * Recién vaciada (marca del servidor aún pendiente) cuenta como «ahora».
+     */
+    clearedAtFor(conversation) {
+        const uid = (firebase.auth().currentUser || {}).uid;
+        const map = conversation && conversation.clearedAt;
+        if (!uid || !map || !(uid in map)) return 0;
+        const v = map[uid];
+        return v && typeof v.toMillis === 'function' ? v.toMillis() : Date.now();
     }
 };
 

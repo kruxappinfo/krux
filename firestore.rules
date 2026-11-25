@@ -156,15 +156,27 @@ service cloud.firestore {
         allow read: if isOwner(userId) ||
                       (isAuthenticated() &&
                        (resource == null || resource.data.fromUserId == request.auth.uid));
-        // Allow update only for owner
-        allow update: if isOwner(userId);
+        // Allow update: owner (leído, estado de la etiqueta) o quien lo envió al volver a avisar (mismo formato)
+        allow update: if isOwner(userId) || (validNotification() && resource.data.fromUserId == request.auth.uid);
         // Allow delete: owner OR creator (check resource.data.fromUserId)
         allow delete: if isOwner(userId) ||
                         (isAuthenticated() && resource.data.fromUserId == request.auth.uid);
-        // Allow create: any authenticated user can create for others
-        // The notificationId contains the creator's uid for idempotency
-        allow create: if isAuthenticated() &&
-                        request.resource.data.fromUserId == request.auth.uid;
+        // Crear: a nombre propio, de un tipo que existe, con el id «tipo_miUid_recurso» (uno por acción)
+        // y con textos acotados. Ya no se puede llenar la bandeja de otra persona con cualquier cosa.
+        allow create: if validNotification();
+
+        function validNotification() {
+          let d = request.resource.data;
+          return isAuthenticated()
+            && request.auth.uid != userId
+            && d.fromUserId == request.auth.uid
+            && d.type in ['like', 'comment', 'reply', 'mention', 'follow', 'ascent_tag', 'ascent_tag_ok']
+            && notificationId.matches(d.type + '_' + request.auth.uid + '(_.*)?')
+            && d.read == false
+            && d.text is string && d.text.size() <= 400
+            && d.get('fromUserName', '') is string && d.get('fromUserName', '').size() <= 100
+            && d.get('fromUserPhoto', '') is string && d.get('fromUserPhoto', '').size() <= 2000;
+        }
       }
 
       // ───────── Entrena: plan activo (un único documento 'active') ─────────
@@ -834,6 +846,18 @@ service cloud.firestore {
               get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'spotter');
     }
 
+    // Fallos de la app en los móviles de los usuarios (error-log.js). Sin datos personales; solo los lee el superadmin.
+    match /client_errors/{errorId} {
+      allow create: if isAuthenticated()
+        && request.resource.data.keys().hasOnly(['kind', 'message', 'code', 'stack', 'source', 'view', 'version', 'platform', 'online', 'ua', 'at'])
+        && request.resource.data.kind in ['error', 'promise', 'console']
+        && request.resource.data.message is string && request.resource.data.message.size() <= 500
+        && request.resource.data.get('stack', '') is string && request.resource.data.get('stack', '').size() <= 2000
+        && request.resource.data.get('ua', '') is string && request.resource.data.get('ua', '').size() <= 300
+        && request.resource.data.at == request.time;
+      allow read, delete: if isAuthenticated() && isSuperAdmin();
+    }
+
     match /conversations/{conversationId} {
       function isParticipant() {
         return isAuthenticated() && request.auth.uid in resource.data.participants;
@@ -843,13 +867,37 @@ service cloud.firestore {
         return isAuthenticated() && request.auth.uid in request.resource.data.participants;
       }
 
-      allow read: if isParticipant();
-      allow create: if willBeParticipant();
-      allow update, delete: if isParticipant();
+      // Leer una conversación que aún no existe no revela nada y la app lo necesita para crearla en una transacción
+      allow read: if isAuthenticated() && (resource == null || request.auth.uid in resource.data.participants);
+      allow create: if willBeParticipant()
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2
+        && request.resource.data.participants[0] != request.resource.data.participants[1];
+      // Sin cambiar quién participa; «eliminar» solo marca clearedAt de quien la elimina
+      allow update: if isParticipant()
+        && request.resource.data.participants == resource.data.participants
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage', 'lastMessageTime', 'unreadCount', 'clearedAt', 'updatedAt'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['clearedAt'])
+            || request.resource.data.clearedAt.diff(resource.data.get('clearedAt', {})).affectedKeys().hasOnly([request.auth.uid]));
+      // Nadie borra la conversación de los dos
+      allow delete: if false;
 
       match /messages/{messageId} {
-        allow read, delete: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
-        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants && request.resource.data.senderId == request.auth.uid;
+        function inConversation() {
+          return isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        }
+        allow read: if inConversation();
+        allow create: if inConversation()
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.keys().hasOnly(['senderId', 'text', 'timestamp', 'status', 'sharedPost'])
+          && request.resource.data.text is string && request.resource.data.text.size() <= 5000;
+        // Solo quien lo recibe lo marca como leído
+        allow update: if inConversation()
+          && resource.data.senderId != request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status == 'read';
+        // Cada uno borra solo sus propios mensajes
+        allow delete: if inConversation() && resource.data.senderId == request.auth.uid;
       }
     }
   }

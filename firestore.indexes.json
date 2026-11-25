@@ -117,21 +117,47 @@
         }
       ],
       "density": "SPARSE_ALL"
-    }
-    ,{
+    },
+    {
       "collectionGroup": "test_measurements",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "testId", "order": "ASCENDING" },
-        { "fieldPath": "measuredAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "testId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "measuredAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "test_measurements",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "testId", "order": "ASCENDING" },
-        { "fieldPath": "measuredAt", "order": "ASCENDING" }
+        {
+          "fieldPath": "testId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "measuredAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "likes",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     }
   ],

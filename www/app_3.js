@@ -2219,10 +2219,7 @@ async function loadProfileLikedPostsForUser(userId, loadId = null) {
 
   try {
     const allPostsSnapshot = await Promise.race([
-      db.collection('posts')
-        .orderBy('createdAt', 'desc')
-        .limit(100)
-        .get(),
+      kxPostsLikedBy(userId),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
     ]);
 
@@ -2663,13 +2660,13 @@ async function openSocialListForUser(userId, type) {
 
       html += `
         <div class="social-list-item">
-          <img src="${user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=DCE9DF&color=153E35&size=50`}"
+          <img src="${kxSafeUrl(user.photoURL, generateAvatarFallback(user.displayName || 'U', 50))}"
                class="social-list-avatar"
-               onclick="document.getElementById('social-list-modal').classList.add('hidden'); openPublicProfile('${user.id}')"
+               onclick="document.getElementById('social-list-modal').classList.add('hidden'); openPublicProfile('${kxSafeId(user.id)}')"
                style="cursor: pointer;">
-          <div class="social-list-info" onclick="document.getElementById('social-list-modal').classList.add('hidden'); openPublicProfile('${user.id}')" style="cursor: pointer;">
-            <div class="social-list-name">${user.displayName || 'Usuario'}</div>
-            <div class="social-list-bio">${user.id === 'akqgKt9WmQRNrpPub9xVKiPKmcn2' ? 'Administrador' : (user.bio || 'Escalador')}</div>
+          <div class="social-list-info" onclick="document.getElementById('social-list-modal').classList.add('hidden'); openPublicProfile('${kxSafeId(user.id)}')" style="cursor: pointer;">
+            <div class="social-list-name">${escapeHtmlMention(user.displayName || 'Usuario')}</div>
+            <div class="social-list-bio">${user.id === 'akqgKt9WmQRNrpPub9xVKiPKmcn2' ? 'Administrador' : escapeHtmlMention(user.bio || 'Escalador')}</div>
           </div>
           ${!isMe && authUser ? `
             <button class="${btnClass}"
@@ -2763,10 +2760,7 @@ async function loadPublicProfileLikes(userId) {
 
   try {
     // Get all posts where the user has liked (similar to renderLikedPosts)
-    const allPostsSnapshot = await db.collection('posts')
-      .orderBy('createdAt', 'desc')
-      .limit(100)
-      .get();
+    const allPostsSnapshot = await kxPostsLikedBy(userId);
 
     const likedPosts = [];
     allPostsSnapshot.forEach(doc => {
@@ -3039,10 +3033,10 @@ function initMessages() {
       const name = escapeHtmlMention(other.displayName || 'Usuario');
       const preview = escapeHtmlMention(conv.lastMessage || 'Sin mensajes');
       const time = formatTime(conv.lastMessageTime || conv.updatedAt);
-      const avatar = other.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(other.displayName)}&background=153E35&color=fff`;
+      const avatar = kxSafeUrl(other.photoURL, generateAvatarFallback(other.displayName || 'Usuario', 88));
 
       return `
-        <div class="message-item ${isUnread ? 'unread' : ''}" role="button" tabindex="0" aria-label="Conversación con ${name}${isUnread ? `, ${unreadCount} sin leer` : ''}" data-conversation-id="${conv.id}" data-recipient-id="${other.id}" data-recipient-name="${name}" data-recipient-photo="${avatar}">
+        <div class="message-item ${isUnread ? 'unread' : ''}" role="button" tabindex="0" aria-label="Conversación con ${name}${isUnread ? `, ${unreadCount} sin leer` : ''}" data-conversation-id="${kxSafeId(conv.id)}" data-recipient-id="${kxSafeId(other.id)}" data-recipient-name="${name}" data-recipient-photo="${avatar}">
           <img src="${avatar}" class="message-avatar" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(other.displayName, 44)}'; this.onerror=null;">
           <div class="message-content">
             <div class="message-row">
@@ -3863,18 +3857,19 @@ function initNotifications() {
 
       const timeAgo = getTimeAgo(createdAt);
       const unreadClass = n.read ? '' : 'unread';
-      const clickHandler = n.fromUserId ? `onclick="handleNotificationClick('${n.id}', '${n.type}', '${n.fromUserId}', '${n.postId || ''}', '${n.commentId || ''}', '${n.replyId || ''}')"` : '';
+      // Todo lo que entra en el onclick se limpia: los avisos los escribe otra persona
+      const clickHandler = n.fromUserId ? `onclick="handleNotificationClick('${kxSafeId(n.id)}', '${kxSafeId(n.type)}', '${kxSafeId(n.fromUserId)}', '${kxSafeId(n.postId)}', '${kxSafeId(n.commentId)}', '${kxSafeId(n.replyId)}')"` : '';
       // Use notification ID directly - Firestore IDs are safe for HTML attributes
       const notificationId = String(n.id);
       const fromName = escapeHtmlMention(n.fromUserName || 'Usuario');
       // Las notificaciones de seguimiento antiguas ya traen el nombre dentro del texto
-      const bodyText = n.type === 'ascent_tag' ? tagNotificationHTML(n) : String(n.text || '').replace(/^\s*<strong>[^<]*<\/strong>\s*/, '');
+      const bodyText = n.type === 'ascent_tag' ? tagNotificationHTML(n) : kxNotificationText(n.text);
 
       return `${groupHeader}
         <div class="notification-item ${unreadClass}" data-id="${notificationId}" data-notification-id="${notificationId}">
           <div class="notification-clickable-area${n.fromUserId ? ' is-actionable' : ''}" ${clickHandler} ${n.fromUserId ? 'role="button" tabindex="0"' : ''}>
             <span class="notification-avatar-wrap">
-              <img src="${n.fromUserPhoto || generateAvatarFallback(n.fromUserName || 'Usuario', 44)}" class="notification-avatar" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(n.fromUserName || 'Usuario', 44)}'; this.onerror=null;">
+              <img src="${kxSafeUrl(n.fromUserPhoto, generateAvatarFallback(n.fromUserName || 'Usuario', 44))}" class="notification-avatar" alt="" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(n.fromUserName || 'Usuario', 44)}'; this.onerror=null;">
               <span class="notification-type" aria-hidden="true">${getNotificationIcon(n.type)}</span>
             </span>
             <div class="notification-content">
@@ -3898,6 +3893,14 @@ function initNotifications() {
 
   // Etiqueta de un compañero en un ascenso (ascent-partners.js): el texto sale de los datos de la vía, escapados,
   // con los botones para confirmarlo (abre el formulario ya rellenado) o rechazarlo
+  // Texto del aviso: se escapa todo y solo se recuperan <strong> y <br>, que ponen los propios avisos de la app.
+  // Las notificaciones de seguimiento antiguas ya traen el nombre dentro del texto (<strong>Nombre</strong> …)
+  function kxNotificationText(text) {
+    return escapeHtmlMention(String(text || '').replace(/^\s*<strong>[^<]*<\/strong>\s*/, ''))
+      .replace(/&lt;(\/?)strong&gt;/g, '<$1strong>')
+      .replace(/&lt;br\s*\/?&gt;/g, '<br>');
+  }
+
   function tagNotificationHTML(n) {
     const t = n.tag || {};
     const day = t.date ? new Date(t.date + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '';
@@ -5857,6 +5860,21 @@ async function renderProfileGrid(loadId = null) {
 }
 
 // Render liked posts
+// Publicaciones con like de esta cuenta: consulta directa (índice likes + createdAt). Si el índice aún no existe,
+// se vuelve a lo de antes (las 100 últimas, filtradas después por quien las recibe).
+async function kxPostsLikedBy(userId) {
+  try {
+    return await db.collection('posts')
+      .where('likes', 'array-contains', userId)
+      .orderBy('createdAt', 'desc')
+      .limit(60)
+      .get();
+  } catch (e) {
+    if (e.code !== 'failed-precondition') throw e;
+    return db.collection('posts').orderBy('createdAt', 'desc').limit(100).get();
+  }
+}
+
 async function renderLikedPosts() {
   const grid = document.getElementById('profile-liked-grid');
   if (!grid) return;
@@ -5875,10 +5893,7 @@ async function renderLikedPosts() {
   try {
     // Get all posts where the user has liked
     const userId = authUser.uid;
-    const allPostsSnapshot = await db.collection('posts')
-      .orderBy('createdAt', 'desc')
-      .limit(100)
-      .get();
+    const allPostsSnapshot = await kxPostsLikedBy(userId);
 
     const likedPosts = [];
     allPostsSnapshot.forEach(doc => {
@@ -6206,13 +6221,13 @@ function initProfileStatClicks() {
 
         html += `
           <div class="social-list-item">
-            <img src="${user.photoURL || 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=50'}" 
+            <img src="${kxSafeUrl(user.photoURL, 'https://ui-avatars.com/api/?name=U&background=DCE9DF&color=153E35&size=50')}" 
                  class="social-list-avatar"
-                 alt="${user.displayName}"
-                 onclick="openPublicProfile('${user.id}')">
-            <div class="social-list-info" onclick="openPublicProfile('${user.id}')">
-              <div class="social-list-name">${user.displayName || 'Usuario'}</div>
-              <div class="social-list-bio">${user.id === 'akqgKt9WmQRNrpPub9xVKiPKmcn2' ? 'Administrador' : (user.bio || 'Escalador')}</div>
+                 alt="${escapeHtmlMention(user.displayName || '')}"
+                 onclick="openPublicProfile('${kxSafeId(user.id)}')">
+            <div class="social-list-info" onclick="openPublicProfile('${kxSafeId(user.id)}')">
+              <div class="social-list-name">${escapeHtmlMention(user.displayName || 'Usuario')}</div>
+              <div class="social-list-bio">${user.id === 'akqgKt9WmQRNrpPub9xVKiPKmcn2' ? 'Administrador' : escapeHtmlMention(user.bio || 'Escalador')}</div>
             </div>
             ${!isMe ? `
               <button class="${btnClass}" 
@@ -6487,6 +6502,7 @@ async function handleSettingsItemClick(e) {
           try {
             if (window.KruxPush) await KruxPush.stop();   // este móvil deja de recibir los push de la cuenta
             await firebase.auth().signOut();
+            if (typeof kxClearFirestoreCache === 'function') await kxClearFirestoreCache();
             showToast('Sesión cerrada', 'success');
             window.location.reload();
           } catch (error) {
@@ -8072,6 +8088,18 @@ function escapeHtmlAdmin(text) {
 // ================== MENTIONS SYSTEM ==================
 
 // Escape HTML for safe rendering
+// URL de imagen que viene de otro usuario: solo https, blob o data:image, y escapada para ir en un atributo
+function kxSafeUrl(url, fallback = '') {
+  const u = String(url || '').trim();
+  if (/^(https:\/\/|blob:|data:image\/)/i.test(u)) return escapeHtmlMention(u);
+  return fallback ? escapeHtmlMention(fallback) : '';
+}
+
+// Id de Firestore (o uid) para meterlo en un onclick o en un selector: solo letras, números, _ y -
+function kxSafeId(id) {
+  return String(id == null ? '' : id).replace(/[^A-Za-z0-9_-]/g, '');
+}
+
 function escapeHtmlMention(text) {
   if (!text) return '';
   const div = document.createElement('div');
@@ -10481,6 +10509,11 @@ async function submitPost() {
   submitBtn.disabled = true;
   submitBtn.classList.add('is-loading');
   submitBtn.textContent = postData.editing ? 'Guardando…' : 'Publicando…';
+  // Con mala cobertura la subida puede tardar mucho sin fallar: se avisa en vez de dejar el botón mudo
+  const slowTimer = setTimeout(() => {
+    submitBtn.textContent = 'Conexión lenta, seguimos…';
+    showToast('La conexión va lenta. Seguimos intentándolo: no cierres la app.', 'info');
+  }, 15000);
 
   try {
     // Se sube todo en el orden elegido por el usuario
@@ -10608,9 +10641,9 @@ async function submitPost() {
     showToast('Publicación creada', 'success');
     closeCreatePostModal();
 
-    // Reload feed and profile grid after a short delay to ensure data is indexed
+    // La publicación ya está guardada: el feed se refresca sin vaciarse ni mostrar «Cargando»
     setTimeout(async () => {
-      await loadFeed();
+      await loadFeed({ silent: true }).catch(() => loadFeed());
       // Update profile grid if we're on profile view
       if (document.getElementById('profile-view') && !document.getElementById('profile-view').classList.contains('hidden')) {
         await renderProfileGrid();
@@ -10645,6 +10678,7 @@ async function submitPost() {
 
     showToast(errorMessage, 'error');
   } finally {
+    clearTimeout(slowTimer);
     submitBtn.classList.remove('is-loading');
     submitBtn.textContent = postData.editing ? 'Guardar' : 'Publicar';
     // Se recalcula con la lógica existente (tras publicar, el editor ya está vacío)
@@ -10781,6 +10815,9 @@ function showEmptyFeedState(container) {
 // Cada carga del feed lleva un número: si empieza otra (sesión restaurada, tirar para recargar, publicar…),
 // la anterior no pinta nada. Antes dos cargas a la vez duplicaban las publicaciones y sus botones.
 let kxFeedLoadSeq = 0;
+// Cuántas publicaciones enseña el feed; «Ver más publicaciones» lo amplía de 30 en 30
+const KX_FEED_PAGE = 50;
+let kxFeedLimit = KX_FEED_PAGE;
 
 async function loadFeed(opts) {
   const container = document.getElementById('feed-container');
@@ -10835,7 +10872,9 @@ async function loadFeed(opts) {
     const firebasePosts = [];
     let failedBatches = 0, lastBatchError = null;
     const batchSize = 30;
-    const postsPerBatch = Math.ceil(50 / Math.ceil(followingIds.length / batchSize)); // Distribute limit across batches
+    // Cada grupo pide el límite entero: repartirlo entre grupos perdía publicaciones recientes
+    // cuando casi todas eran de la misma gente
+    const postsPerBatch = kxFeedLimit;
 
     for (let i = 0; i < followingIds.length; i += batchSize) {
       const batch = followingIds.slice(i, i + batchSize);
@@ -10872,7 +10911,8 @@ async function loadFeed(opts) {
       const timeB = b.createdAt?.toDate?.() || b.createdAt || 0;
       return timeB - timeA;
     });
-    const limitedPosts = firebasePosts.slice(0, 50);
+    const limitedPosts = firebasePosts.slice(0, kxFeedLimit);
+    const hasMore = firebasePosts.length > kxFeedLimit || limitedPosts.length === kxFeedLimit;
 
     // Load user's likes and bookmarks if logged in
     if (currentUser && limitedPosts.length > 0) {
@@ -10911,11 +10951,29 @@ async function loadFeed(opts) {
       return;
     }
 
-    // Siempre se vacía antes de pintar: nunca quedan publicaciones de una carga anterior
+    // Siempre se vacía antes de pintar: nunca quedan publicaciones de una carga anterior.
+    // Al ampliar con «Ver más» se conserva la posición de lectura.
+    const scroller = document.getElementById('feed-view');   // el feed se desplaza dentro de su vista
+    const keepScroll = opts && opts.keepScroll && scroller ? scroller.scrollTop : null;
     container.innerHTML = '';
     allPosts.forEach(post => {
       renderPostCard(post, container);
     });
+    if (hasMore) {
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'feed-state-btn feed-load-more';
+      more.textContent = 'Ver más publicaciones';
+      more.addEventListener('click', async () => {
+        more.disabled = true;
+        more.textContent = 'Cargando…';
+        kxFeedLimit += 30;
+        try { await loadFeed({ silent: true, keepScroll: true }); }
+        catch (_) { more.disabled = false; more.textContent = 'Ver más publicaciones'; showToast('No se han podido cargar más publicaciones', 'error'); }
+      });
+      container.appendChild(more);
+    }
+    if (keepScroll != null) scroller.scrollTop = keepScroll;
 
     // Add event listeners
     attachFeedEventListeners(container);
@@ -10981,8 +11039,9 @@ function renderPostCard(post, container) {
   card.className = `feed-card feed-card-${post.type || 'text'}`;
   card.dataset.postId = post.id || '';
 
-  const userName = post.userName || post.user || 'Usuario';
-  const userPhoto = post.userPhoto || post.avatar || '';
+  // Nombre, foto y ubicación los escribe el autor: se escapan antes de entrar en el HTML
+  const userName = escapeHtmlMention(post.userName || post.user || 'Usuario');
+  const userPhoto = kxSafeUrl(post.userPhoto || post.avatar || '');
 
   // Extract location name (can be object with name property or string)
   let locationName = '';
@@ -11000,6 +11059,7 @@ function renderPostCard(post, container) {
   } else if (post.locationName) {
     locationName = post.locationName;
   }
+  locationName = escapeHtmlMention(locationName);
 
   // Support both array (new) and number (legacy) format for likes
   const likesArray = post.likes;
@@ -11114,8 +11174,8 @@ function renderPostCard(post, container) {
   } else if (post.type === 'ascensions' && post.ascensions) {
     const ascensionsList = post.ascensions.map(a => `
       <div class="feed-ascension-item">
-        <span class="ascension-grade-badge">${a.grade}</span>
-        <span class="ascension-route-name">${a.name}</span>
+        <span class="ascension-grade-badge">${escapeHtmlMention(a.grade)}</span>
+        <span class="ascension-route-name">${escapeHtmlMention(a.name)}</span>
         <span class="ascension-style ${(a.style || 'redpoint').toLowerCase()}">${a.style || 'REDPOINT'}</span>
       </div>
     `).join('');
@@ -11520,7 +11580,8 @@ async function loadInlineComments(postId, container) {
     snapshot.forEach(doc => {
       const comment = doc.data();
       const date = comment.createdAt ? formatTimeAgo(comment.createdAt.toDate()) : '';
-      const photoUrl = comment.userPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.userName || 'U')}&background=153E35&color=fff&size=40`;
+      const photoUrl = kxSafeUrl(comment.userPhoto, generateAvatarFallback(comment.userName || 'U', 40));
+      const commentUserName = escapeHtmlMention(comment.userName || 'Usuario');
 
       // Permisos de UI: Determinar quÃ© opciones mostrar
       const commentAuthorId = comment.userId || null;
@@ -11557,17 +11618,17 @@ async function loadInlineComments(postId, container) {
 
       html += `
         <div class="feed-comment-item" data-comment-id="${doc.id}" data-post-id="${postId}">
-          <img src="${photoUrl}" alt="${comment.userName}" class="feed-comment-avatar" data-author-photo="${comment.userId || ''}" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(comment.userName || 'U', 40)}'; this.onerror=null;">
+          <img src="${photoUrl}" alt="${commentUserName}" class="feed-comment-avatar" data-author-photo="${comment.userId || ''}" referrerPolicy="no-referrer" onerror="this.src='${generateAvatarFallback(comment.userName || 'U', 40)}'; this.onerror=null;">
           <div class="feed-comment-content">
             <div class="feed-comment-header">
-              <span class="feed-comment-username">${comment.userName || 'Usuario'}</span>
+              <span class="feed-comment-username">${commentUserName}</span>
               <span class="feed-comment-time">${date}</span>
               ${menuButton}
             </div>
             <div class="feed-comment-text-wrapper">
               <p class="feed-comment-text" data-comment-id="${doc.id}">${renderTextWithMentions(comment.text || '', comment.mentions)}</p>
               <div class="feed-comment-edit-wrapper hidden" data-comment-id="${doc.id}">
-                <textarea class="feed-comment-edit-input" data-comment-id="${doc.id}" rows="2">${comment.text || ''}</textarea>
+                <textarea class="feed-comment-edit-input" data-comment-id="${doc.id}" rows="2">${escapeHtmlMention(comment.text || '')}</textarea>
                 <div class="feed-comment-edit-actions">
                   <button class="feed-comment-edit-cancel" data-comment-id="${doc.id}">Cancelar</button>
                   <button class="feed-comment-edit-save" data-comment-id="${doc.id}">
@@ -11591,7 +11652,7 @@ async function loadInlineComments(postId, container) {
               <button class="feed-comment-action-btn feed-comment-reply-btn"
                       data-comment-id="${doc.id}"
                       data-post-id="${postId}"
-                      data-comment-author="${comment.userName || 'Usuario'}"
+                      data-comment-author="${commentUserName}"
                       title="Responder">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
@@ -12113,7 +12174,7 @@ async function loadReplies(postId, commentId, container) {
     snapshot.forEach(doc => {
       const reply = doc.data();
       const date = reply.createdAt ? formatTimeAgo(reply.createdAt.toDate()) : '';
-      const photoUrl = reply.userPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(reply.userName || 'U')}&background=153E35&color=fff&size=28`;
+      const photoUrl = kxSafeUrl(reply.userPhoto, generateAvatarFallback(reply.userName || 'U', 28));
 
       // Likes data
       const likes = reply.likes || [];
@@ -12123,8 +12184,8 @@ async function loadReplies(postId, commentId, container) {
       // Permissions
       const isReplyAuthor = currentUserId && reply.userId === currentUserId;
 
-      const replyUserName = reply.userName || 'Usuario';
-      const replyToUserName = reply.replyToUserName || '';
+      const replyUserName = escapeHtmlMention(reply.userName || 'Usuario');
+      const replyToUserName = escapeHtmlMention(reply.replyToUserName || '');
 
       html += `
         <div class="feed-comment-item feed-reply-item"
@@ -12845,8 +12906,8 @@ async function handleDeletePost(postId, container) {
       return;
     }
 
-    // Eliminar el post de Firestore
-    await db.collection('posts').doc(postId).delete();
+    // Publicación, sus comentarios, mis avisos sobre ella y sus archivos
+    await kxDeletePostEverywhere(postId, postData);
 
     // Eliminar el post de la UI
     const card = container.querySelector(`.feed-card[data-post-id="${postId}"]`);
@@ -13663,7 +13724,8 @@ async function kxPrepareVideoForUpload(file, onProgress, opts = {}) {
 // ================== AVATAR HELPER FUNCTIONS ==================
 // Generate fallback avatar URL based on name
 function generateAvatarFallback(name, size = 200) {
-  const encodedName = encodeURIComponent(name || 'Usuario');
+  // encodeURIComponent deja pasar ' ( ) * !: se codifican también, porque esta URL va dentro de onerror="this.src='…'"
+  const encodedName = encodeURIComponent(name || 'Usuario').replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
   return `https://ui-avatars.com/api/?name=${encodedName}&background=153E35&color=fff&size=${size}`;
 }
 
@@ -13813,8 +13875,9 @@ function renderPostInModal(post, container) {
   const isAuthor = currentUser && post.userId === currentUser.uid;
   const postId = post.id;
 
-  const userName = post.userName || post.user || 'Usuario';
-  const userPhoto = post.userPhoto || post.avatar || '';
+  // Nombre, foto y ubicación los escribe el autor: se escapan antes de entrar en el HTML
+  const userName = escapeHtmlMention(post.userName || post.user || 'Usuario');
+  const userPhoto = kxSafeUrl(post.userPhoto || post.avatar || '');
 
   // Extract location name
   let locationName = '';
@@ -13827,6 +13890,7 @@ function renderPostInModal(post, container) {
   } else if (post.locationName) {
     locationName = post.locationName;
   }
+  locationName = escapeHtmlMention(locationName);
 
   // Header - Matches feed card layout: avatar, user+time, location, three-dot menu
   const headerHTML = `
@@ -14149,13 +14213,33 @@ async function confirmDeletePost(postId, post) {
   });
 }
 
-async function deletePost(postId, post) {
-  if (!currentUser) {
-    showToast('Debes iniciar sesión para eliminar', 'error');
-    return;
-  }
+// Borra una publicación y lo que cuelga de ella. Orden: comentarios y respuestas (las reglas dejan al autor
+// de la publicación borrarlos mientras la publicación existe), la publicación, y después lo que ya no hace falta:
+// mis avisos sobre ella y sus fotos y vídeos. Si falla algo de Firestore, no se ha tocado ningún archivo.
+async function kxDeletePostEverywhere(postId, post) {
+  const postRef = db.collection('posts').doc(postId);
 
-  try {
+  const comments = await postRef.collection('comments').get();
+  let batch = db.batch(), pending = 0;
+  const flush = async () => { if (pending) { await batch.commit(); batch = db.batch(); pending = 0; } };
+  for (const c of comments.docs) {
+    const replies = await c.ref.collection('replies').get();
+    for (const r of replies.docs) { batch.delete(r.ref); if (++pending >= 400) await flush(); }
+    batch.delete(c.ref); if (++pending >= 400) await flush();
+  }
+  await flush();
+
+  await postRef.delete();
+
+  await kxAfterSave('avisos de la publicación borrada', async () => {
+    const mine = await db.collection('users').doc(currentUser.uid).collection('notifications').where('postId', '==', postId).get();
+    if (mine.empty) return;
+    const b = db.batch();
+    mine.docs.slice(0, 400).forEach(d => b.delete(d.ref));
+    await b.commit();
+  });
+
+  await kxAfterSave('archivos de la publicación borrada', async () => {
     // Delete photos from Storage if they exist
     if (post.photos && post.photos.length > 0) {
       for (const photoUrl of post.photos) {
@@ -14199,8 +14283,17 @@ async function deletePost(postId, post) {
       }
     }
 
-    // Delete post from Firestore
-    await db.collection('posts').doc(postId).delete();
+  });
+}
+
+async function deletePost(postId, post) {
+  if (!currentUser) {
+    showToast('Debes iniciar sesión para eliminar', 'error');
+    return;
+  }
+
+  try {
+    await kxDeletePostEverywhere(postId, post);
 
     showToast('Publicación eliminada', 'success');
 
