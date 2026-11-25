@@ -1665,12 +1665,17 @@ function initGlobalSearch() {
       showToast('No se pudo cargar la cartografía. Revisa tu conexión.', 'error');
       return;
     }
-    if (!school) {
+    document.getElementById('view-post-modal')?.classList.add('hidden');
+    if (school) { openOnMap(school); return; }
+    // Escuela con marcador pero sin cartografía cargable (p. ej. Sella): el mapa viaja hasta su marcador
+    const marker = (typeof SCHOOL_MARKERS !== 'undefined' ? SCHOOL_MARKERS : []).find(m => m.id === schoolId);
+    if (!marker) {
       showToast('Esa escuela ya no está en el mapa', 'info');
       return;
     }
-    document.getElementById('view-post-modal')?.classList.add('hidden');
-    openOnMap(school);
+    sheet.classList.add('hidden');
+    switchView('map-view');
+    if (await waitForMap()) mlMap.flyTo({ center: marker.coords, zoom: marker.zoom || 14, essential: true });
   };
 
   // ---------- Eventos ----------
@@ -8795,8 +8800,9 @@ function initCreatePost() {
       // Position container relative to button
       positionLocationContainer();
       locationSearchInput.focus();
-      // Show current location option immediately
+      // Ubicación actual y escuelas de KRUX nada más abrir
       showLocationOptions();
+      appendSchoolOptions(findSchoolLocations(locationSearchInput.value.trim()));
     } else {
       locationSearchContainer.classList.add('hidden');
       locationResults.innerHTML = '';
@@ -8818,6 +8824,19 @@ function initCreatePost() {
       locationResults.innerHTML = '';
     }
   });
+
+  // Filas de escuelas de KRUX en el buscador de ubicación (icono de montaña, nombre y «Escuela de escalada»)
+  function appendSchoolOptions(list) {
+    list.forEach(sc => {
+      const li = document.createElement('li');
+      li.className = 'location-result-item location-school-option';
+      li.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20l6.5-11 4 6.5 2.5-4L21 20z"></path></svg>`
+        + `<span class="location-school-text"><span class="location-school-name"></span><small>Escuela de escalada</small></span>`;
+      li.querySelector('.location-school-name').textContent = sc.name;
+      li.addEventListener('click', () => selectLocation({ lat: sc.center[1], lon: sc.center[0], display_name: sc.name, schoolId: sc.id }));
+      locationResults.appendChild(li);
+    });
+  }
 
   // Show location options (current location + search results)
   function showLocationOptions() {
@@ -8927,9 +8946,10 @@ function initCreatePost() {
       clearTimeout(locationSearchTimeout);
     }
 
-    // If empty, show only current location option
+    // Vacío: ubicación actual y todas las escuelas de KRUX
     if (!query) {
       showLocationOptions();
+      appendSchoolOptions(findSchoolLocations(''));
       return;
     }
 
@@ -8942,23 +8962,37 @@ function initCreatePost() {
   // Focus event - show current location option
   locationSearchInput?.addEventListener('focus', () => {
     showLocationOptions();
+    if (!locationSearchInput.value.trim()) appendSchoolOptions(findSchoolLocations(''));
   });
 
-  // Escuelas del mapa (MAPLIBRE_SCHOOLS) cuyo nombre contiene lo escrito
+  // Escuelas del mapa cuyo nombre contiene lo escrito. Se juntan las dos listas: los marcadores del mapa
+  // (SCHOOL_MARKERS, con el nombre que ve el usuario, p. ej. «Hoz del Río Gritos») y la cartografía
+  // (MAPLIBRE_SCHOOLS, p. ej. «Valeria»); se busca por cualquiera de los dos nombres.
   function findSchoolLocations(query) {
-    const schools = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? Object.values(MAPLIBRE_SCHOOLS) : [];
     const q = kxNormalizeText(query);
-    if (!q) return [];
-    return schools
-      .filter(sc => sc && sc.name && Array.isArray(sc.center) && kxNormalizeText(sc.name).includes(q))
+    const byId = new Map();
+    const config = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS : {};
+    (typeof SCHOOL_MARKERS !== 'undefined' ? SCHOOL_MARKERS : []).forEach(m => {
+      if (!m || !m.id || !m.nombre || !Array.isArray(m.coords)) return;
+      byId.set(m.id, { id: m.id, name: m.nombre, center: m.coords, names: [m.nombre] });
+    });
+    Object.values(config).forEach(sc => {
+      if (!sc || !sc.id || !sc.name || !Array.isArray(sc.center)) return;
+      const known = byId.get(sc.id);
+      if (known) known.names.push(sc.name);
+      else byId.set(sc.id, { id: sc.id, name: sc.name, center: sc.center, names: [sc.name] });
+    });
+    return [...byId.values()]
+      .filter(sc => !q || sc.names.some(n => kxNormalizeText(n).includes(q)))
       .sort((a, b) => a.name.localeCompare(b.name, 'es'))
-      .slice(0, 5);
+      .slice(0, q ? 5 : 50);
   }
 
   // Search locations using Nominatim API
   async function searchLocations(query) {
     if (!query || query.length < 2) {
       showLocationOptions();
+      appendSchoolOptions(findSchoolLocations(query || ''));
       return;
     }
 
@@ -8967,13 +9001,7 @@ function initCreatePost() {
       showLocationOptions();
       // Escuelas de KRUX: salen primero y sin depender de la red
       const schoolMatches = findSchoolLocations(query);
-      schoolMatches.forEach(sc => {
-        const li = document.createElement('li');
-        li.className = 'location-result-item location-school-option';
-        li.textContent = `${sc.name} · escuela de escalada`;
-        li.addEventListener('click', () => selectLocation({ lat: sc.center[1], lon: sc.center[0], display_name: sc.name, schoolId: sc.id }));
-        locationResults.appendChild(li);
-      });
+      appendSchoolOptions(schoolMatches);
       const loadingLi = document.createElement('li');
       loadingLi.className = 'location-result-loading';
       loadingLi.textContent = 'Buscando...';
