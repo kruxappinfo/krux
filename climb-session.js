@@ -714,8 +714,11 @@ const KruxSession = (() => {
       if (!uid) return [];
       let remote = [];
       try {
-        const snap = await col().where('status', '==', 'finished').orderBy('startedAt', 'desc').limit(limit).get();
-        remote = snap.docs.map(d => ({ ...deserialize(d.id, d.data()), track: kxsUnpackTrack(d.data().track) }));
+        // Solo ordena por fecha (índice automático): filtrar por estado a la vez exigiría un índice compuesto que no existe
+        // y la consulta fallaba sin avisar. Las sesiones en curso son una o dos, así que se descartan aquí.
+        const snap = await col().orderBy('startedAt', 'desc').limit(limit + 5).get();
+        remote = snap.docs.filter(d => d.data().status === 'finished').slice(0, limit)
+          .map(d => ({ ...deserialize(d.id, d.data()), track: kxsUnpackTrack(d.data().track) }));
       } catch (e) { console.warn('[sesión] historial no disponible:', e && e.code || e); }   // sin red: solo lo local
       const have = new Set(remote.map(s => s.id));
       const local = state.finished.filter(f => !have.has(f.session.id)).map(f => ({ ...f.session, track: f.track }));
