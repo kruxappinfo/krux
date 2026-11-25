@@ -11631,34 +11631,83 @@ async function handleFeedComment(postId, button) {
 // Load comments for inline display
 // Comentarios abiertos en el feed: se cierran solos cuando la publicación sale de la pantalla al hacer scroll.
 // Lo escrito en el campo se conserva (solo se oculta la sección).
+// Si sale por abajo se cierran al momento (no mueve nada de lo que se ve). Si sale por arriba, cerrar sube lo de
+// debajo y hay que corregir el scroll; en iPhone tocar el scroll con el dedo puesto o con la inercia da un salto,
+// así que se espera a que el scroll se pare del todo y entonces se cierra y se corrige en el mismo fotograma.
+let kxTouchActive = false;
+document.addEventListener('touchstart', () => { kxTouchActive = true; }, { passive: true, capture: true });
+document.addEventListener('touchend', () => { kxTouchActive = false; }, { passive: true, capture: true });
+document.addEventListener('touchcancel', () => { kxTouchActive = false; }, { passive: true, capture: true });
+
+function kxScrollParent(el) {
+  let node = el && el.parentElement;
+  while (node && node !== document.body && !(node.scrollHeight > node.clientHeight && /(auto|scroll)/.test(getComputedStyle(node).overflowY))) node = node.parentElement;
+  return node && node !== document.body ? node : null;
+}
+
 function kxCloseCommentsWhenOffscreen(card, section) {
   if (typeof IntersectionObserver === 'undefined' || card._kxCommentsObserver) return;
-  const observer = new IntersectionObserver((entries) => {
-    const entry = entries[entries.length - 1];
-    if (entry.isIntersecting || section.classList.contains('hidden')) return;
-    // Sin altura (vista oculta, cambio de pestaña) no es un scroll: se deja como está
-    if (!entry.boundingClientRect.height) return;
-    // Si la publicación queda por encima, al cerrar se sube lo de debajo: se toma de referencia la primera
-    // publicación visible y se corrige el scroll para que no salte
-    let anchor = null, anchorTop = 0;
-    if (entry.boundingClientRect.bottom <= 0) {
-      anchor = [...document.querySelectorAll('.feed-card')].find(c => c !== card && c.getBoundingClientRect().bottom > 0);
-      if (anchor) anchorTop = anchor.getBoundingClientRect().top;
-    }
+  const scroller = kxScrollParent(card);
+  const scrollTarget = scroller || window;
+  let idleTimer = null;
+
+  const stop = () => {
+    observer.disconnect();
+    scrollTarget.removeEventListener('scroll', onScroll);
+    clearTimeout(idleTimer);
+    card._kxCommentsObserver = null;
+  };
+
+  const offscreen = () => {
+    const r = card.getBoundingClientRect();
+    return r.height > 0 && (r.bottom <= 0 || r.top >= window.innerHeight);
+  };
+
+  // Cierra con la pantalla quieta: la primera publicación visible se queda exactamente donde estaba
+  const closeAbove = () => {
+    if (section.classList.contains('hidden') || !offscreen()) return;
+    const anchor = [...document.querySelectorAll('.feed-card')].find(c => c !== card && c.getBoundingClientRect().bottom > 0);
+    const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
     section.classList.add('hidden');
     if (anchor) {
       const delta = anchor.getBoundingClientRect().top - anchorTop;
       if (delta) {
-        let el = anchor.parentElement;
-        while (el && el !== document.body && !(el.scrollHeight > el.clientHeight && /(auto|scroll)/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
-        if (el && el !== document.body) el.scrollTop += delta;
+        if (scroller) scroller.scrollTop += delta;
         else window.scrollBy(0, delta);
       }
     }
-    observer.disconnect();
-    card._kxCommentsObserver = null;
+    stop();
+  };
+
+  const waitForStill = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (kxTouchActive) { waitForStill(); return; }   // dedo aún en la pantalla
+      closeAbove();
+    }, 220);
+  };
+
+  function onScroll() {
+    if (idleTimer) waitForStill();
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    const entry = entries[entries.length - 1];
+    if (section.classList.contains('hidden')) { stop(); return; }
+    // Vuelve a verse antes de pararse: no se cierra
+    if (entry.isIntersecting) { clearTimeout(idleTimer); idleTimer = null; return; }
+    // Sin altura (vista oculta, cambio de pestaña) no es un scroll: se deja como está
+    if (!entry.boundingClientRect.height) return;
+    if (entry.boundingClientRect.top >= (entry.rootBounds ? entry.rootBounds.bottom : window.innerHeight)) {
+      // Ha salido por abajo: cerrar no mueve lo que se ve
+      section.classList.add('hidden');
+      stop();
+      return;
+    }
+    waitForStill();
   });
-  card._kxCommentsObserver = observer;
+  scrollTarget.addEventListener('scroll', onScroll, { passive: true });
+  card._kxCommentsObserver = { disconnect: stop };
   observer.observe(card);
 }
 
