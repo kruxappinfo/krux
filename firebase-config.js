@@ -26,6 +26,30 @@ firebase.initializeApp(firebaseConfig);
 db = firebase.firestore();
 storage = firebase.storage();
 
+// Caché local de Firestore (EN PRUEBA, apagada por defecto): con ella la app enseña al instante lo último que vio
+// y sigue funcionando sin cobertura. Se enciende en este dispositivo abriendo la app con ?persist=1 (se recuerda)
+// y se apaga con ?persist=0. Tiene que activarse antes de cualquier lectura, por eso va aquí.
+const KX_PERSIST_KEY = 'kx-persist';
+let kxFirestorePersistence = false;
+try {
+    const flag = new URLSearchParams(window.location.search).get('persist');
+    if (flag === '1') localStorage.setItem(KX_PERSIST_KEY, '1');
+    if (flag === '0') localStorage.removeItem(KX_PERSIST_KEY);
+    if (localStorage.getItem(KX_PERSIST_KEY) === '1') {
+        kxFirestorePersistence = true;
+        db.enablePersistence({ synchronizeTabs: true }).catch(e => {
+            kxFirestorePersistence = false;
+            console.warn('Firestore: caché local no disponible:', e.code);
+        });
+    }
+} catch (_) { /* sin almacenamiento: sin caché */ }
+
+// Al cerrar sesión: la caché de esta cuenta no se queda en el móvil para la siguiente
+async function kxClearFirestoreCache() {
+    if (!kxFirestorePersistence) return;
+    try { await db.terminate(); await db.clearPersistence(); } catch (e) { console.warn('Firestore: no se pudo vaciar la caché:', e); }
+}
+
 // Inicializar Auth con manejo especial para Capacitor
 auth = firebase.auth();
 
