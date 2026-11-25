@@ -8800,9 +8800,8 @@ function initCreatePost() {
       // Position container relative to button
       positionLocationContainer();
       locationSearchInput.focus();
-      // Ubicación actual y escuelas de KRUX nada más abrir
+      // Show current location option immediately
       showLocationOptions();
-      appendSchoolOptions(findSchoolLocations(locationSearchInput.value.trim()));
     } else {
       locationSearchContainer.classList.add('hidden');
       locationResults.innerHTML = '';
@@ -8946,10 +8945,9 @@ function initCreatePost() {
       clearTimeout(locationSearchTimeout);
     }
 
-    // Vacío: ubicación actual y todas las escuelas de KRUX
+    // If empty, show only current location option
     if (!query) {
       showLocationOptions();
-      appendSchoolOptions(findSchoolLocations(''));
       return;
     }
 
@@ -8962,7 +8960,6 @@ function initCreatePost() {
   // Focus event - show current location option
   locationSearchInput?.addEventListener('focus', () => {
     showLocationOptions();
-    if (!locationSearchInput.value.trim()) appendSchoolOptions(findSchoolLocations(''));
   });
 
   // Escuelas del mapa cuyo nombre contiene lo escrito. Se juntan las dos listas: los marcadores del mapa
@@ -8970,6 +8967,7 @@ function initCreatePost() {
   // (MAPLIBRE_SCHOOLS, p. ej. «Valeria»); se busca por cualquiera de los dos nombres.
   function findSchoolLocations(query) {
     const q = kxNormalizeText(query);
+    if (!q) return [];
     const byId = new Map();
     const config = typeof MAPLIBRE_SCHOOLS !== 'undefined' ? MAPLIBRE_SCHOOLS : {};
     (typeof SCHOOL_MARKERS !== 'undefined' ? SCHOOL_MARKERS : []).forEach(m => {
@@ -8983,16 +8981,15 @@ function initCreatePost() {
       else byId.set(sc.id, { id: sc.id, name: sc.name, center: sc.center, names: [sc.name] });
     });
     return [...byId.values()]
-      .filter(sc => !q || sc.names.some(n => kxNormalizeText(n).includes(q)))
+      .filter(sc => sc.names.some(n => kxNormalizeText(n).includes(q)))
       .sort((a, b) => a.name.localeCompare(b.name, 'es'))
-      .slice(0, q ? 5 : 50);
+      .slice(0, 5);
   }
 
   // Search locations using Nominatim API
   async function searchLocations(query) {
     if (!query || query.length < 2) {
       showLocationOptions();
-      appendSchoolOptions(findSchoolLocations(query || ''));
       return;
     }
 
