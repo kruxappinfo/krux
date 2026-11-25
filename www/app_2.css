@@ -7900,7 +7900,6 @@ button.secondary:hover {
 }
 
 .feed-location-link { cursor: pointer; }
-.feed-location-link span { text-decoration: underline; text-underline-offset: 2px; }
 
 .feed-location-text {
   font-size: 13px;
