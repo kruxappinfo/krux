@@ -11604,6 +11604,7 @@ async function handleFeedComment(postId, button) {
   if (isHidden) {
     // Show comments section
     commentsSection.classList.remove('hidden');
+    kxCloseCommentsWhenOffscreen(card, commentsSection);
 
     // Load comments if not already loaded
     const commentsList = commentsSection.querySelector('.feed-comments-list');
@@ -11623,10 +11624,44 @@ async function handleFeedComment(postId, button) {
   } else {
     // Hide comments section
     commentsSection.classList.add('hidden');
+    if (card._kxCommentsObserver) { card._kxCommentsObserver.disconnect(); card._kxCommentsObserver = null; }
   }
 }
 
 // Load comments for inline display
+// Comentarios abiertos en el feed: se cierran solos cuando la publicación sale de la pantalla al hacer scroll.
+// Lo escrito en el campo se conserva (solo se oculta la sección).
+function kxCloseCommentsWhenOffscreen(card, section) {
+  if (typeof IntersectionObserver === 'undefined' || card._kxCommentsObserver) return;
+  const observer = new IntersectionObserver((entries) => {
+    const entry = entries[entries.length - 1];
+    if (entry.isIntersecting || section.classList.contains('hidden')) return;
+    // Sin altura (vista oculta, cambio de pestaña) no es un scroll: se deja como está
+    if (!entry.boundingClientRect.height) return;
+    // Si la publicación queda por encima, al cerrar se sube lo de debajo: se toma de referencia la primera
+    // publicación visible y se corrige el scroll para que no salte
+    let anchor = null, anchorTop = 0;
+    if (entry.boundingClientRect.bottom <= 0) {
+      anchor = [...document.querySelectorAll('.feed-card')].find(c => c !== card && c.getBoundingClientRect().bottom > 0);
+      if (anchor) anchorTop = anchor.getBoundingClientRect().top;
+    }
+    section.classList.add('hidden');
+    if (anchor) {
+      const delta = anchor.getBoundingClientRect().top - anchorTop;
+      if (delta) {
+        let el = anchor.parentElement;
+        while (el && el !== document.body && !(el.scrollHeight > el.clientHeight && /(auto|scroll)/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
+        if (el && el !== document.body) el.scrollTop += delta;
+        else window.scrollBy(0, delta);
+      }
+    }
+    observer.disconnect();
+    card._kxCommentsObserver = null;
+  });
+  card._kxCommentsObserver = observer;
+  observer.observe(card);
+}
+
 async function loadInlineComments(postId, container) {
   try {
     container.innerHTML = '<div class="loading-spinner-small">Cargando...</div>';
