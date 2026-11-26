@@ -35941,6 +35941,30 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   100% { transform: scale(1); }
 }
 
+/* Quitar el like: el mismo pop al revés y el hueco de debajo se cierra al final */
+#chat-modal .chat-message.is-like-out {
+  animation: kxLikeGapOut 0.2s var(--kx-ease) 0.26s both;
+}
+
+#chat-modal .chat-message.is-like-out .chat-like {
+  pointer-events: none;
+  animation: kxLikePopOut 0.32s var(--kx-ease) forwards;
+}
+
+@keyframes kxLikePopOut {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25); }
+  100% { transform: scale(0); }
+}
+
+@keyframes kxLikeGapOut {
+  from { margin-bottom: 18px; }
+  to { margin-bottom: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #chat-modal .chat-message.is-like-new .chat-like { animation: none; }
+  #chat-modal .chat-message.is-like-out,
+  #chat-modal .chat-message.is-like-out .chat-like { animation: none; }
+  #chat-modal .chat-message.is-like-out .chat-like { display: none; }
 }
