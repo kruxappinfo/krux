@@ -2035,7 +2035,8 @@ function kxDrawDescentLine(ctx, points, color) {
  */
 // ¿Ha hecho el usuario la vía de este trazado? (sus ascensos, de user-features.js)
 function svDrawingDone(drawing) {
-  return !!(drawing && drawing.routeId !== undefined && svSchoolId &&
+  // Los ascensos son por vía: una variante (variantIndex > 0) no hereda la marca
+  return !!(drawing && drawing.routeId !== undefined && !(drawing.variantIndex > 0) && svSchoolId &&
     typeof hasUserAscent === 'function' && hasUserAscent(svSchoolId, drawing.routeId));
 }
 
