@@ -505,7 +505,8 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid || // Owner can update anything
         likesOrCounterOnly('commentsCount') // otros: su like y commentsCount ±1
       );
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // El admin puede quitar una publicación denunciada (moderación)
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isSuperAdmin());
       
 // Comments subcollection - allow comment author to edit, comment/post author to delete
       match /comments/{commentId} {
@@ -786,6 +787,25 @@ service cloud.firestore {
 
       allow read: if isAuthenticated() && (resource.data.reporterId == request.auth.uid || isAdmin() || isSuperAdmin());
       allow create: if isAuthenticated() && validReport();
+      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
+    }
+
+    // Denuncias de publicaciones del feed: una por persona y publicación (id = postId__uid). Privadas: solo las ve el admin
+    // y quien la envió. No se puede denunciar la propia publicación. El admin las resuelve (status) o las borra.
+    match /post_reports/{reportId} {
+      function validPostReport() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['postId', 'postAuthorId', 'reason', 'reporterId', 'createdAt', 'status'])
+          && isString(d.postId, 200) && d.reason in ['spam', 'inappropriate', 'harassment', 'other']
+          && d.reporterId == request.auth.uid && d.postAuthorId != request.auth.uid
+          && d.createdAt == request.time && d.status == 'open'
+          && reportId == d.postId + '__' + request.auth.uid
+          && get(/databases/$(database)/documents/posts/$(d.postId)).data.userId == d.postAuthorId;
+      }
+
+      // resource == null: comprobar si ya existe mi denuncia (no revela nada de las ajenas)
+      allow read: if isAuthenticated() && (resource == null || resource.data.reporterId == request.auth.uid || isAdmin() || isSuperAdmin());
+      allow create: if isAuthenticated() && validPostReport();
       allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());
     }
 

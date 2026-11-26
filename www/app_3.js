@@ -6723,12 +6723,8 @@ async function handleSettingsItemClick(e) {
         break;
 
       case 'settings-admin-panel':
-        const isCapacitor = window.Capacitor !== undefined;
-        if (isCapacitor) {
-          openAdminPanelModal();
-        } else {
-          window.location.href = 'admin.html';
-        }
+        // admin.html no se publica en hosting (404): el panel de la app sirve en web y en móvil
+        openAdminPanelModal();
         break;
     }
   } catch (error) {
@@ -6802,6 +6798,7 @@ function openAdminPanelModal() {
   } else {
     // Refrescar datos
     loadAdminStats();
+    loadAdminInbox();
     loadAdminRoutes();
   }
 }
@@ -6834,30 +6831,42 @@ function initAdminPanelContent() {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
         Vías
+        <span class="admin-tab-badge" id="admin-badge-routes" hidden>0</span>
       </button>
       <button class="admin-tab" data-section="suggestions">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
         </svg>
         Sugerencias
+        <span class="admin-tab-badge" id="admin-badge-suggestions" hidden>0</span>
+      </button>
+      <button class="admin-tab" data-section="postreports">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+        </svg>
+        Denuncias
+        <span class="admin-tab-badge" id="admin-badge-postreports" hidden>0</span>
       </button>
       <button class="admin-tab" data-section="spotters">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
         </svg>
         Spotters
+        <span class="admin-tab-badge" id="admin-badge-spotters" hidden>0</span>
       </button>
       <button class="admin-tab" data-section="schools">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4" />
         </svg>
         Escuelas
+        <span class="admin-tab-badge" id="admin-badge-schools" hidden>0</span>
       </button>
       <button class="admin-tab" data-section="sectors">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
         </svg>
         Sectores
+        <span class="admin-tab-badge" id="admin-badge-sectors" hidden>0</span>
       </button>
       <button class="admin-tab" data-section="poi">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -6865,6 +6874,7 @@ function initAdminPanelContent() {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
         POI
+        <span class="admin-tab-badge" id="admin-badge-poi" hidden>0</span>
       </button>
       <button class="admin-tab" data-section="cartografia">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -6880,69 +6890,31 @@ function initAdminPanelContent() {
       </button>
     </div>
 
-    <!-- Sección Dashboard -->
+    <!-- Sección Dashboard: lo que espera revisión, de un vistazo -->
     <section class="admin-section active" id="admin-section-dashboard">
-      <h1 class="admin-page-title">Dashboard</h1>
-      <p class="admin-page-desc">Resumen general del panel</p>
-
-      <div class="admin-stats-grid">
-        <div class="admin-stat-card">
-          <div class="admin-stat-icon pending">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div class="admin-stat-number" id="admin-stat-pending">0</div>
-          <div class="admin-stat-label">Pendientes</div>
-        </div>
-        <div class="admin-stat-card">
-          <div class="admin-stat-icon approved">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div class="admin-stat-number" id="admin-stat-approved">0</div>
-          <div class="admin-stat-label">Aprobadas</div>
-        </div>
-        <div class="admin-stat-card">
-          <div class="admin-stat-icon rejected">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div class="admin-stat-number" id="admin-stat-rejected">0</div>
-          <div class="admin-stat-label">Rechazadas</div>
-        </div>
-        <div class="admin-stat-card">
-          <div class="admin-stat-icon users">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-          </div>
-          <div class="admin-stat-number" id="admin-stat-admins">0</div>
-          <div class="admin-stat-label">Admins</div>
+      <div class="admin-inbox-hero">
+        <div class="admin-inbox-total" id="admin-inbox-total">–</div>
+        <div>
+          <h1 class="admin-page-title">Por revisar</h1>
+          <p class="admin-page-desc" id="admin-inbox-summary">Contando lo pendiente…</p>
         </div>
       </div>
 
-      <div class="admin-card">
-        <div class="admin-card-header">Acciones Rápidas</div>
-        <div class="admin-card-body">
-          <div class="admin-actions-row">
-            <button class="admin-btn admin-btn-primary" onclick="switchAdminSection('routes')">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-              </svg>
-              Ver Pendientes
-            </button>
-            <button class="admin-btn admin-btn-success" onclick="exportAdminApprovedRoutes()">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Exportar
-            </button>
-          </div>
-        </div>
+      <div class="admin-inbox" id="admin-inbox-list" aria-live="polite"></div>
+
+      <h2 class="admin-subtitle">Histórico de aportaciones</h2>
+      <div class="admin-mini-stats">
+        <div class="admin-mini-stat"><span class="admin-mini-num" id="admin-stat-approved">0</span><span class="admin-mini-label">Aprobadas</span></div>
+        <div class="admin-mini-stat"><span class="admin-mini-num" id="admin-stat-rejected">0</span><span class="admin-mini-label">Rechazadas</span></div>
+        <div class="admin-mini-stat"><span class="admin-mini-num" id="admin-stat-admins">0</span><span class="admin-mini-label">Admins</span></div>
       </div>
+
+      <button class="admin-btn admin-btn-ghost admin-btn-block" onclick="exportAdminApprovedRoutes()">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        </svg>
+        Exportar vías aprobadas
+      </button>
     </section>
 
     <!-- Sección Vías -->
@@ -6995,6 +6967,27 @@ function initAdminPanelContent() {
         <div class="admin-loading">
           <div class="admin-spinner"></div>
           <p>Cargando sugerencias...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sección Denuncias de publicaciones -->
+    <section class="admin-section" id="admin-section-postreports">
+      <h1 class="admin-page-title">Denuncias de publicaciones</h1>
+      <p class="admin-page-desc">Publicaciones del feed que han denunciado los usuarios. Elimina la publicación o descarta la denuncia.</p>
+
+      <div class="admin-filter-row">
+        <select id="admin-filter-postreports-status" onchange="loadAdminPostReports()" aria-label="Estado de las denuncias">
+          <option value="open">Abiertas</option>
+          <option value="resolved">Resueltas</option>
+          <option value="all">Todas</option>
+        </select>
+      </div>
+
+      <div id="admin-postreports-list">
+        <div class="admin-loading">
+          <div class="admin-spinner"></div>
+          <p>Cargando denuncias...</p>
         </div>
       </div>
     </section>
@@ -7171,6 +7164,7 @@ function initAdminPanelContent() {
   loadAdminSuggestions();
   loadAdminSpotterRequests();
   loadAdminApprovedSpotters();
+  loadAdminInbox();
 
   adminPanelInitialized = true;
 }
@@ -7180,6 +7174,14 @@ function initAdminEventListeners() {
   const closeBtn = document.getElementById('admin-modal-close');
   if (closeBtn) {
     closeBtn.addEventListener('click', closeAdminPanelModal);
+  }
+  // Escape también vuelve a la app (una sola vez, aunque el panel se reinicie)
+  if (!window.kxAdminEscBound) {
+    window.kxAdminEscBound = true;
+    document.addEventListener('keydown', (e) => {
+      const m = document.getElementById('admin-panel-modal');
+      if (e.key === 'Escape' && m && !m.classList.contains('hidden') && !document.querySelector('#confirm-modal:not(.hidden)')) closeAdminPanelModal();
+    });
   }
 
   // Tabs
@@ -7194,7 +7196,10 @@ function initAdminEventListeners() {
 function switchAdminSection(section) {
   // Actualizar tabs
   document.querySelectorAll('.admin-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.section === section);
+    const active = tab.dataset.section === section;
+    tab.classList.toggle('active', active);
+    // La barra se desplaza en horizontal: la pestaña activa queda a la vista
+    if (active) tab.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   });
 
   // Actualizar secciones
@@ -7208,6 +7213,8 @@ function switchAdminSection(section) {
   if (section === 'schools') loadAdminPendingSchools();
   if (section === 'sectors') loadAdminPendingSectors();
   if (section === 'poi') loadAdminPendingPOI();
+  if (section === 'postreports') loadAdminPostReports();
+  if (section === 'dashboard') { loadAdminInbox(); loadAdminStats(); }
   if (section === 'cartografia') renderAdminCartografia();
 }
 
@@ -7704,6 +7711,213 @@ async function exportAdminApprovedRoutes() {
 
 // ================== ADMIN SUGGESTIONS (Mobile) ==================
 let adminSuggestions = [];
+
+// ================== ADMIN: BANDEJA «POR REVISAR» (dashboard + contadores de pestañas) ==================
+const ADMIN_INBOX_ITEMS = [
+  { section: 'postreports', label: 'Denuncias', hint: 'Publicaciones denunciadas en el feed', tone: 'danger',
+    icon: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9',
+    count: async (db) => new Set((await db.collection('post_reports').where('status', '==', 'open').get()).docs.map(d => d.data().postId)).size },
+  { section: 'routes', label: 'Vías nuevas', hint: 'Propuestas por spotters', tone: 'primary',
+    icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z',
+    count: async (db) => (await db.collection('pending_routes').where('status', '==', 'pending').get()).size },
+  { section: 'suggestions', label: 'Sugerencias y problemas', hint: 'Correcciones de datos de vías', tone: 'warning',
+    icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z',
+    count: async (db) => (await db.collection('routeSuggestions').where('status', '==', 'pending').get()).size },
+  { section: 'spotters', label: 'Solicitudes de spotter', hint: 'Usuarios que quieren aportar', tone: 'info',
+    icon: 'M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z',
+    count: async (db) => (await db.collection('spotter_requests').where('status', '==', 'pending').get()).size },
+  { section: 'schools', label: 'Escuelas', hint: 'Escuelas nuevas por aprobar', tone: 'primary',
+    icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4',
+    count: async (db) => (await db.collection('pending_schools').where('status', '==', 'pending').get()).size },
+  { section: 'sectors', label: 'Sectores', hint: 'Sectores nuevos por aprobar', tone: 'primary',
+    icon: 'M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7',
+    count: async (db) => (await db.collection('pending_sectors').where('status', '==', 'pending').get()).size },
+  { section: 'poi', label: 'Puntos de interés', hint: 'Parkings, fuentes, accesos…', tone: 'primary',
+    icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z',
+    count: async (db) => (await db.collection('pending_poi').where('status', '==', 'pending').get()).size }
+];
+
+function kxSetAdminTabBadge(section, n) {
+  const badge = document.getElementById(`admin-badge-${section}`);
+  if (!badge) return;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.hidden = !(n > 0);
+}
+
+let adminInboxLoading = null;
+async function loadAdminInbox() {
+  if (adminInboxLoading) return adminInboxLoading;
+  adminInboxLoading = (async () => {
+    const db = firebase.firestore();
+    // Cada recuento por separado: si una colección falla, las demás se ven igual
+    const counts = await Promise.all(ADMIN_INBOX_ITEMS.map(item => item.count(db).catch(e => { console.warn('[Admin] recuento', item.section, e); return null; })));
+    ADMIN_INBOX_ITEMS.forEach((item, i) => kxSetAdminTabBadge(item.section, counts[i] || 0));
+
+    const list = document.getElementById('admin-inbox-list');
+    if (!list) return;
+    const total = counts.reduce((sum, n) => sum + (n || 0), 0);
+    const totalEl = document.getElementById('admin-inbox-total');
+    const summary = document.getElementById('admin-inbox-summary');
+    if (totalEl) { totalEl.textContent = total > 999 ? '999+' : String(total); totalEl.classList.toggle('is-clear', total === 0); }
+    if (summary) summary.textContent = total === 0 ? 'Todo al día. No hay nada esperando.' : `${total === 1 ? 'Una cosa espera' : total + ' cosas esperan'} tu decisión.`;
+
+    // Primero lo que tiene trabajo (en el orden de prioridad), luego lo que está al día
+    const rows = ADMIN_INBOX_ITEMS.map((item, i) => ({ item, n: counts[i] }));
+    const ordered = [...rows.filter(r => r.n > 0), ...rows.filter(r => !(r.n > 0))];
+    list.innerHTML = ordered.map(({ item, n }) => {
+      const busy = n > 0;
+      const value = n === null ? '—' : (n > 99 ? '99+' : String(n));
+      return `
+        <button type="button" class="admin-inbox-row${busy ? ' is-busy' : ''}" data-tone="${item.tone}" onclick="switchAdminSection('${item.section}')">
+          <span class="admin-inbox-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/></svg></span>
+          <span class="admin-inbox-text"><span class="admin-inbox-label">${item.label}</span><span class="admin-inbox-hint">${n === null ? 'No se pudo contar' : busy ? item.hint : 'Al día'}</span></span>
+          <span class="admin-inbox-count">${value}</span>
+          <svg class="admin-inbox-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </button>`;
+    }).join('');
+  })().finally(() => { adminInboxLoading = null; });
+  return adminInboxLoading;
+}
+
+// ================== ADMIN: DENUNCIAS DE PUBLICACIONES (post_reports) ==================
+const ADMIN_POST_REPORT_REASONS = { spam: 'Spam', inappropriate: 'Inapropiado', harassment: 'Acoso', other: 'Otro' };
+
+// Número de publicaciones con denuncias abiertas, en la pestaña
+async function kxRefreshPostReportsBadge() {
+  try {
+    kxSetAdminTabBadge('postreports', await ADMIN_INBOX_ITEMS[0].count(firebase.firestore()));
+  } catch (e) {
+    kxSetAdminTabBadge('postreports', 0);
+  }
+}
+
+let adminPostReportGroups = [];
+
+async function loadAdminPostReports() {
+  const listEl = document.getElementById('admin-postreports-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="admin-loading"><div class="admin-spinner"></div><p>Cargando denuncias...</p></div>';
+  try {
+    const db = firebase.firestore();
+    const status = document.getElementById('admin-filter-postreports-status')?.value || 'open';
+    let query = db.collection('post_reports');
+    if (status !== 'all') query = query.where('status', '==', status);
+    const snap = await query.get();
+
+    // Una tarjeta por publicación, con todas sus denuncias
+    const byPost = new Map();
+    snap.forEach(doc => {
+      const r = doc.data();
+      if (!r.postId) return;
+      if (!byPost.has(r.postId)) byPost.set(r.postId, { postId: r.postId, reports: [] });
+      byPost.get(r.postId).reports.push({ id: doc.id, ...r });
+    });
+    adminPostReportGroups = [...byPost.values()];
+    const millis = (r) => r.createdAt?.toMillis?.() || 0;
+    adminPostReportGroups.forEach(g => { g.latest = Math.max(...g.reports.map(millis)); });
+    adminPostReportGroups.sort((a, b) => b.reports.length - a.reports.length || b.latest - a.latest);
+
+    // Las publicaciones se leen aparte (pueden haberse borrado ya)
+    await Promise.all(adminPostReportGroups.map(async (g) => {
+      try {
+        const doc = await db.collection('posts').doc(g.postId).get();
+        g.post = doc.exists ? doc.data() : null;
+      } catch (e) { g.post = null; }
+    }));
+
+    if (!adminPostReportGroups.length) {
+      listEl.innerHTML = '<div class="admin-empty-state"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>No hay denuncias ' + (status === 'open' ? 'abiertas' : 'que mostrar') + '.</p></div>';
+    } else {
+      listEl.innerHTML = adminPostReportGroups.map(adminPostReportCardHTML).join('');
+    }
+    if (status === 'open') {
+      kxSetAdminTabBadge('postreports', adminPostReportGroups.length);
+    } else {
+      kxRefreshPostReportsBadge();
+    }
+  } catch (error) {
+    console.error('Error loading post reports:', error);
+    listEl.innerHTML = '<div class="admin-empty-state"><p>No se pudieron cargar las denuncias.</p></div>';
+  }
+}
+
+function adminPostReportCardHTML(group) {
+  const post = group.post;
+  const id = kxSafeId(group.postId);
+  const open = group.reports.filter(r => r.status === 'open').length;
+  const reasonCount = {};
+  group.reports.forEach(r => { reasonCount[r.reason] = (reasonCount[r.reason] || 0) + 1; });
+  const reasons = Object.entries(reasonCount)
+    .map(([k, n]) => `<span class="admin-chip admin-chip--danger">${escapeHtmlAdmin(ADMIN_POST_REPORT_REASONS[k] || k)}${n > 1 ? ' × ' + n : ''}</span>`).join('');
+  const date = group.latest ? new Date(group.latest).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  const photos = post ? (Array.isArray(post.photos) ? post.photos : []).filter(u => typeof u === 'string' && /^https:\/\//.test(u)) : [];
+  const videos = post ? kxPostVideos(post).length : 0;
+  const media = post ? `${photos.length ? `<img class="admin-report-photo" src="${escapeHtmlAdmin(photos[0])}" alt="" loading="lazy">` : ''}` : '';
+  const body = post
+    ? `<div class="admin-report-post">
+         <div class="admin-report-author">${escapeHtmlAdmin(post.userName || 'Usuario')}</div>
+         ${post.content ? `<p class="admin-report-text">${escapeHtmlAdmin(String(post.content).slice(0, 400))}${String(post.content).length > 400 ? '…' : ''}</p>` : ''}
+         ${media}
+         ${(photos.length > 1 || videos) ? `<div class="admin-report-more">${photos.length > 1 ? (photos.length - 1) + ' foto(s) más' : ''}${photos.length > 1 && videos ? ' · ' : ''}${videos ? videos + ' vídeo(s)' : ''}</div>` : ''}
+       </div>`
+    : '<div class="admin-report-post admin-report-post--gone">La publicación ya no existe.</div>';
+  const actions = open
+    ? `<div class="admin-suggestion-actions">
+         ${post ? `<button class="admin-btn admin-btn-danger" onclick="deleteReportedPost('${id}')">Eliminar publicación</button>` : ''}
+         <button class="admin-btn admin-btn-ghost" onclick="dismissPostReports('${id}')">${post ? 'Descartar' : 'Cerrar denuncia'}</button>
+       </div>`
+    : '<div class="admin-suggestion-status"><span class="admin-status-badge approved">Resuelta</span></div>';
+  return `
+    <div class="admin-report-card" data-post-id="${id}">
+      <div class="admin-report-head">
+        <div class="admin-report-count">${group.reports.length} ${group.reports.length === 1 ? 'denuncia' : 'denuncias'}</div>
+        <div class="admin-report-date">${escapeHtmlAdmin(date)}</div>
+      </div>
+      <div class="admin-chip-row">${reasons}</div>
+      ${body}
+      ${actions}
+    </div>`;
+}
+
+// Cierra todas las denuncias abiertas de una publicación
+async function kxResolvePostReports(postId, resolution) {
+  const db = firebase.firestore();
+  const group = adminPostReportGroups.find(g => g.postId === postId);
+  if (!group) return;
+  const batch = db.batch();
+  group.reports.filter(r => r.status === 'open').forEach(r => {
+    batch.update(db.collection('post_reports').doc(r.id), { status: 'resolved', resolution });
+  });
+  await batch.commit();
+}
+
+async function dismissPostReports(postId) {
+  const ok = await showConfirm('Se cierran las denuncias y la publicación se queda donde está.', 'Descartar denuncia', 'Descartar');
+  if (!ok) return;
+  try {
+    await kxResolvePostReports(postId, 'dismissed');
+    showToast('Denuncia descartada', 'success');
+    loadAdminPostReports();
+  } catch (error) {
+    console.error('Error dismissing post report:', error);
+    showToast('No se pudo descartar la denuncia', 'error');
+  }
+}
+
+async function deleteReportedPost(postId) {
+  const ok = await showConfirm('Se elimina la publicación para todos y no se puede deshacer.', 'Eliminar publicación', 'Eliminar');
+  if (!ok) return;
+  try {
+    // Primero se borra la publicación; las denuncias se cierran después (si falla el borrado, siguen abiertas)
+    await firebase.firestore().collection('posts').doc(postId).delete();
+    await kxResolvePostReports(postId, 'deleted').catch(e => console.warn('Denuncias sin cerrar:', e));
+    showToast('Publicación eliminada', 'success');
+    loadAdminPostReports();
+  } catch (error) {
+    console.error('Error deleting reported post:', error);
+    showToast(error.code === 'permission-denied' ? 'Sin permisos para eliminarla' : 'No se pudo eliminar la publicación', 'error');
+  }
+}
 
 async function loadAdminSuggestions() {
   const listEl = document.getElementById('admin-suggestions-list');
@@ -13781,7 +13995,45 @@ async function handleFeedShare(postId) {
   }
 }
 
-// Handle report post - Basic implementation (pending backend)
+// ================== DENUNCIAR PUBLICACIONES ==================
+// post_reports/{postId__uid}: una denuncia por persona y publicación (privada; la revisa el admin en su panel)
+const KX_POST_REPORT_REASONS = [
+  { id: 'spam', label: 'Spam o publicidad' },
+  { id: 'inappropriate', label: 'Contenido inapropiado' },
+  { id: 'harassment', label: 'Acoso o falta de respeto' },
+  { id: 'other', label: 'Otro motivo' }
+];
+
+// Hoja con los motivos; devuelve el id elegido o null si se cancela
+function kxPickReportReason() {
+  return new Promise((resolve) => {
+    document.getElementById('kx-report-pick')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'kx-report-pick';
+    overlay.className = 'kx-report-pick';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'kx-report-pick-title');
+    overlay.innerHTML = `
+      <div class="kx-report-pick-card">
+        <h2 class="kx-report-pick-title" id="kx-report-pick-title">Denunciar publicación</h2>
+        <p class="kx-report-pick-sub">¿Qué le pasa? Lo revisará el equipo de Krux. La denuncia es privada.</p>
+        <div class="kx-report-pick-list">
+          ${KX_POST_REPORT_REASONS.map(r => `<button type="button" class="kx-report-pick-option" data-reason="${r.id}">${r.label}</button>`).join('')}
+        </div>
+        <button type="button" class="kx-report-pick-cancel">Cancelar</button>
+      </div>`;
+    const close = (value) => { overlay.remove(); resolve(value); };
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay || e.target.closest('.kx-report-pick-cancel')) return close(null);
+      const opt = e.target.closest('.kx-report-pick-option');
+      if (opt) close(opt.dataset.reason);
+    });
+    document.body.appendChild(overlay);
+    overlay.querySelector('.kx-report-pick-option')?.focus();
+  });
+}
+
 async function handleReportPost(postId) {
   if (!currentUser) {
     showToast('Inicia sesión para denunciar', 'info');
@@ -13789,31 +14041,39 @@ async function handleReportPost(postId) {
   }
 
   try {
-    // For now, just show a confirmation and log
-    const confirmed = await showConfirm(
-      '¿Estás seguro de que quieres denunciar esta publicación?',
-      'Denunciar Publicación',
-      'Aceptar'
-    );
+    const reason = await kxPickReportReason();
+    if (!reason) return;
 
-    if (confirmed) {
-      // TODO: Implement backend logic to save report
-      console.log('Report submitted for post:', postId, 'by user:', currentUser.uid);
-
-      // Show success message
-      showToast('Publicación denunciada. Revisaremos el contenido.', 'success');
-
-      // In the future, this would call:
-      // await db.collection('reports').add({
-      //   postId: postId,
-      //   reportedBy: currentUser.uid,
-      //   createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      //   status: 'pending'
-      // });
+    const postDoc = await db.collection('posts').doc(postId).get();
+    if (!postDoc.exists) {
+      showToast('Esa publicación ya no existe', 'info');
+      return;
     }
+    const postAuthorId = postDoc.data().userId;
+    if (postAuthorId === currentUser.uid) {
+      showToast('No puedes denunciar tu propia publicación', 'info');
+      return;
+    }
+
+    // El id lleva el uid: denunciar dos veces es la misma denuncia (las reglas no dejan sobrescribirla)
+    const ref = db.collection('post_reports').doc(`${postId}__${currentUser.uid}`);
+    const existing = await ref.get();
+    if (existing.exists) {
+      showToast('Ya habías denunciado esta publicación', 'info');
+      return;
+    }
+    await ref.set({
+      postId,
+      postAuthorId,
+      reason,
+      reporterId: currentUser.uid,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      status: 'open'
+    });
+    showToast('Publicación denunciada. Gracias, la revisaremos.', 'success');
   } catch (error) {
     console.error('Error reporting post:', error);
-    showToast('Error al denunciar la publicación', 'error');
+    showToast('No se pudo enviar la denuncia', 'error');
   }
 }
 
