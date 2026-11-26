@@ -638,7 +638,8 @@ const KruxBlockEditor = (() => {
   // sel: presa seleccionada. picked: la ha tocado la persona (no es la que se acaba de añadir); solo entonces los botones
   // de tipo cambian esa presa: si no, eligen el tipo de las siguientes
   let holds = [], sel = -1, picked = false, type = 'hand', tol = KXB_TOL_DEFAULT, undo = [];
-  let group = null;   // toque que detectó el bloque entero ({ nx, ny }): el deslizador lo vuelve a calcular
+  let group = null;
+  let armed = false;  // la persona ha elegido un tipo: tocar una presa marcada se lo pone (si no, solo la selecciona)   // toque que detectó el bloque entero ({ nx, ny }): el deslizador lo vuelve a calcular
   let s = 1, tx = 0, ty = 0, bw = 0, bh = 0;
   const pointers = new Map();
   let gesture = null;
@@ -809,6 +810,9 @@ const KruxBlockEditor = (() => {
     if (nx < 0 || ny < 0 || nx > 1 || ny > 1) { sel = -1; paint(); return; }
     for (let i = holds.length - 1; i >= 0; i--) {
       if (kxbInside(holds[i].p, nx, ny)) {
+        // Con un tipo elegido (Inicio, Top, Pie…), tocar una presa ya marcada le pone ese tipo
+        // (queda seleccionada para Agrandar/Borrar, pero elegir otro tipo después no la cambia: prepara la siguiente)
+        if (armed && holds[i].t !== type) { setType(i, type); sel = i; picked = false; paint(); return; }
         const again = sel === i && picked;
         sel = again ? -1 : i; picked = !again;
         if (!again) root.querySelector('#kxb-ed-hint').textContent = 'Presa seleccionada: cambia su tipo o su tamaño, o bórrala. Tócala otra vez para soltarla.';
@@ -848,13 +852,23 @@ const KruxBlockEditor = (() => {
     }
     snapshot();
     const manual = replace ? holds.filter(h => !h.g) : [];
-    holds = manual.concat(r.holds.slice(0, KXB_MAX_HOLDS - manual.length).map(h => ({ t: h.t, p: h.p, s: h.s, rgb: h.rgb, auto: true, g: 1 })));
+    holds = manual.concat(r.holds.slice(0, KXB_MAX_HOLDS - manual.length).map(h => ({ t: h.t, p: h.p, s: h.s, rgb: h.rgb, auto: true, g: 1, ...(h.t === 'top' ? { autoTop: true } : {}) })));
     group = { nx, ny };
     sel = -1; picked = false;
     const n = r.holds.length;
-    hint.textContent = `${n} presas del mismo color. Toca las que falten para añadirlas, o toca una para cambiar su tipo o borrarla. La más alta es el Top.`;
+    hint.textContent = `${n} presas del mismo color; la más alta es el Top. Elige «Inicio» o «Top» y toca las presas para marcarlas. Toca las que falten para añadirlas.`;
     paint();
     return true;
+  }
+
+  const typeLabel = (k) => kxbType(k).label;
+  function setType(i, k) {
+    snapshot();
+    // Un Top marcado a mano sustituye al que puso la detección (la presa más alta)
+    if (k === 'top') holds.forEach((o, j) => { if (j !== i && o.autoTop) { o.t = 'hand'; delete o.autoTop; } });
+    holds[i].t = k;
+    delete holds[i].autoTop;
+    root.querySelector('#kxb-ed-hint').textContent = `Presa marcada como ${typeLabel(k)}. Toca otras para marcarlas igual, o elige otro tipo.`;
   }
 
   function onTol(e) {
@@ -897,8 +911,12 @@ const KruxBlockEditor = (() => {
     const t = e.target.closest('[data-kxb-type]');
     if (t) {
       const k = t.dataset.kxbType;
-      if (sel >= 0 && picked) { if (holds[sel].t !== k) { snapshot(); holds[sel].t = k; } }
-      else sel = -1;
+      if (sel >= 0 && picked) { if (holds[sel].t !== k) setType(sel, k); }
+      else {
+        sel = -1;
+        armed = true;
+        if (holds.length && k !== 'hand') root.querySelector('#kxb-ed-hint').textContent = `Toca las presas que quieras marcar como ${typeLabel(k)}.`;
+      }
       type = k;
       paint();
       return;
@@ -939,7 +957,7 @@ const KruxBlockEditor = (() => {
     const im = root.querySelector('#kxb-ed-canvas img');
     im.src = url;
     holds = (initial || []).map(h => ({ ...h, p: h.p.slice(), auto: false }));
-    sel = -1; picked = false; undo = []; type = 'hand'; tol = KXB_TOL_DEFAULT; group = null;
+    sel = -1; picked = false; undo = []; type = 'hand'; tol = KXB_TOL_DEFAULT; group = null; armed = false;
     root.querySelector('#kxb-ed-tol').value = String(tol);
     root.querySelector('#kxb-ed-hint').textContent = holds.length
       ? 'Toca una presa para cambiarla o toca otra nueva para añadirla.'

@@ -36278,3 +36278,23 @@ body.kxb-ed-open, body.kxb-view-open { overflow: hidden; }
 .kxb-sw.kxb-sw--sm { width: 14px; height: 14px; }
 .kxb-thumb, .kxb-thumb:hover, .kxb-thumb:active { padding: 0; min-height: 0; border: 0; border-radius: 0; background: none; box-shadow: none; transform: none; }
 #ascent-modal .form-group label.kxb-share { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin: 14px 0 0; }
+
+/* `button:hover` (global) pone fondo blanco y mueve el botón; en el móvil el hover se queda pegado tras tocar. Los botones
+   del editor, el visor y el registro de bloques conservan su fondo y su sitio en cualquier estado. */
+.kxb-sw, .kxb-sw:hover, .kxb-sw:focus, .kxb-sw:active,
+#ascent-modal .kxb-sw, #ascent-modal .kxb-sw:hover, #ascent-modal .kxb-sw:focus, #ascent-modal .kxb-sw:active { background: var(--c); transform: none; }
+.kxb-sw:hover, #ascent-modal .kxb-sw:hover { box-shadow: 0 0 0 1px rgba(32, 41, 35, 0.18); }
+.kxb-sw.is-on, .kxb-sw.is-on:hover, .kxb-sw.is-on:focus, .kxb-sw.is-on:active,
+#ascent-modal .kxb-sw.is-on, #ascent-modal .kxb-sw.is-on:hover { box-shadow: 0 0 0 2px var(--kx-forest); transform: scale(1.08); }
+.kxb-ed .kxb-ed-done:hover, .kxb-ed .kxb-ed-done:active { background: var(--kx-coral); transform: none; box-shadow: none; }
+.kxb-ed .kxb-ed-fab:hover, .kxb-ed .kxb-ed-fab:active { background: rgba(14, 19, 17, 0.72); transform: none; box-shadow: none; }
+.kxb-ed .kxb-ed-type:hover, .kxb-ed .kxb-ed-type:active { background: transparent; transform: none; box-shadow: none; }
+.kxb-ed .kxb-ed-type.is-on, .kxb-ed .kxb-ed-type.is-on:hover { background: color-mix(in srgb, var(--c) 22%, transparent); }
+.kxb-ed .kxb-ed-link:hover, .kxb-view .kxb-ed-link:hover { transform: none; box-shadow: none; }
+.kxb-ed .kxb-ed-act:hover, .kxb-ed .kxb-ed-act:active { transform: none; box-shadow: none; }
+.kxb-view .kxb-btn--ghost:hover, .kxb-view .kxb-btn--ghost:active { background: rgba(255, 255, 255, 0.1); transform: none; box-shadow: none; }
+.kxb-view .kxb-btn--primary:hover, .kxb-view .kxb-btn--primary:active { background: var(--kx-coral); transform: none; box-shadow: none; }
+.kxb-view .kxb-btn--danger:hover, .kxb-view .kxb-btn--danger:active { background: rgba(255, 120, 100, 0.14); transform: none; box-shadow: none; }
+.kxb-prev-img:hover, .kxb-prev-img:active { background: #121714; transform: none; box-shadow: none; }
+.kxb-add:hover { transform: none; box-shadow: none; }
+.kxb-mini:hover { transform: none; box-shadow: none; }
