@@ -34335,6 +34335,16 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
 #profile-view .profile-tab.active::after { content: none; }
 @media (hover: hover) { #profile-view .profile-tab:not(.active):hover { color: var(--kx-ink); }}
 #profile-view .profile-tab:focus-visible { outline: 2px solid var(--kx-forest) !important; outline-offset: 2px; }
+#profile-view .profile-tab[hidden] { display: none; }
+/* Pestañas con símbolo: el texto solo lo leen los lectores de pantalla */
+#profile-view .profile-tab { flex: 1 1 0; min-width: 0; }
+#profile-view .profile-tab-icon { display: block; flex: none; }
+#profile-view .profile-tab.active .profile-tab-icon path,
+#profile-view .profile-tab.active .profile-tab-icon rect { fill: currentColor; fill-opacity: 0.18; }
+#profile-view .profile-tab-label {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 
 /* ---------- Publicaciones: tarjetas del feed ---------- */
 #profile-view .profile-grid { gap: 14px; margin-top: 16px; }

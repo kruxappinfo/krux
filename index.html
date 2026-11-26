@@ -64,7 +64,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=270" />
+  <link rel="stylesheet" href="./app_2.css?v=271" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -123,7 +123,7 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=146"></script>
+  <script defer src="./app_3.js?v=147"></script>
   <script defer src="./activity-ui.js?v=9"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -466,16 +466,19 @@
             </div>
           </div>
 
-          <!-- Profile Content Tabs -->
+          <!-- Pestañas con símbolo; el nombre va en title y en texto solo para lectores de pantalla -->
           <div class="profile-tabs">
-            <button class="profile-tab active" data-tab="posts">
-              <span id="profile-tab-posts-label">Mis publicaciones</span>
+            <button class="profile-tab active" data-tab="posts" title="Publicaciones">
+              <svg class="profile-tab-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg><span id="profile-tab-posts-label" class="profile-tab-label">Publicaciones</span>
             </button>
-            <button class="profile-tab" data-tab="liked">
-              <span id="profile-tab-liked-label">Me gusta</span>
+            <button class="profile-tab" data-tab="liked" title="Me gusta">
+              <svg class="profile-tab-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg><span id="profile-tab-liked-label" class="profile-tab-label">Me gusta</span>
             </button>
-            <button class="profile-tab" data-tab="mentions">
-              <span id="profile-tab-mentions-label">Menciones</span>
+            <button class="profile-tab" data-tab="mentions" title="Menciones">
+              <svg class="profile-tab-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path></svg><span id="profile-tab-mentions-label" class="profile-tab-label">Menciones</span>
+            </button>
+            <button class="profile-tab" data-tab="saved" id="profile-tab-saved" title="Guardados (solo tú los ves)" hidden>
+              <svg class="profile-tab-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg><span class="profile-tab-label">Guardados</span>
             </button>
           </div>
 
@@ -498,6 +501,11 @@
             <div id="profile-mentions-grid" class="profile-grid">
               <!-- Mentions injected by JS -->
             </div>
+          </div>
+
+          <!-- Tab Content: Guardados (solo perfil propio, privado) -->
+          <div id="tab-saved" class="profile-tab-content">
+            <div id="profile-saved-grid" class="profile-grid"></div>
           </div>
         </div>
       </div>
