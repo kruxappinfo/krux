@@ -1378,6 +1378,7 @@ function initGlobalSearch() {
   let shownPlaces = [];
   let shownRoutes = [];
   let shownGyms = [];
+  let shownSectors = [];
 
   function renderExplore() {
     const recent = getRecent();
@@ -1422,7 +1423,8 @@ function initGlobalSearch() {
       <div class="search-section-head"><h3>Explorar</h3></div>
       <div class="search-explore">
         <button type="button" class="search-explore-tile" data-category="users">${'<span class="search-explore-icon">' + ICONS.user + '</span>'}<span class="search-explore-title">Personas</span><span class="search-explore-desc">Encuentra escaladores</span></button>
-        <button type="button" class="search-explore-tile" data-category="places">${'<span class="search-explore-icon">' + ICONS.mountain + '</span>'}<span class="search-explore-title">Escuelas</span><span class="search-explore-desc">Escuelas, rocódromos y sectores</span></button>
+        <button type="button" class="search-explore-tile" data-category="places">${'<span class="search-explore-icon">' + ICONS.mountain + '</span>'}<span class="search-explore-title">Escuelas</span><span class="search-explore-desc">Escuelas y rocódromos</span></button>
+        <button type="button" class="search-explore-tile" data-category="sectors">${'<span class="search-explore-icon">' + ICONS.sector + '</span>'}<span class="search-explore-title">Sectores</span><span class="search-explore-desc">Por nombre o escuela</span></button>
         <button type="button" class="search-explore-tile" data-category="routes">${'<span class="search-explore-icon">' + ICONS.route + '</span>'}<span class="search-explore-title">Vías</span><span class="search-explore-desc">Por nombre o grado</span></button>
       </div>`;
     resultsContainer.innerHTML = html;
@@ -1438,6 +1440,10 @@ function initGlobalSearch() {
     }
     if (type === 'routes') {
       resultsContainer.innerHTML = stateBox('Busca vías', 'Escribe el nombre de la vía o un grado, por ejemplo «6a+».');
+      return;
+    }
+    if (type === 'sectors') {
+      resultsContainer.innerHTML = stateBox('Busca sectores', 'Escribe el nombre del sector o de su escuela.');
       return;
     }
     // Escuelas sin consulta: listado completo de escuelas
@@ -1466,6 +1472,7 @@ function initGlobalSearch() {
     const wantsUsers = type === 'all' || type === 'users';
     const wantsPlaces = type === 'all' || type === 'places';
     const wantsRoutes = type === 'all' || type === 'routes';
+    const wantsSectors = type === 'all' || type === 'sectors';
 
     const usersTask = wantsUsers ? (async () => {
       const key = norm(q);
@@ -1474,19 +1481,26 @@ function initGlobalSearch() {
       // El estado de seguimiento llega después (hydrateFollowStates): no bloquea la lista
       return users.map(u => ({ user: u, following: currentUser ? null : false }));
     })() : Promise.resolve([]);
-    const indexTask = (wantsPlaces || wantsRoutes) ? loadPlacesIndex() : Promise.resolve(null);
+    const indexTask = (wantsPlaces || wantsRoutes || wantsSectors) ? loadPlacesIndex() : Promise.resolve(null);
 
     const [usersRes, indexRes] = await Promise.allSettled([usersTask, indexTask]);
     if (seq !== searchSeq) return; // llegó otra búsqueda
 
-    const failed = (wantsUsers && usersRes.status === 'rejected') || ((wantsPlaces || wantsRoutes) && indexRes.status === 'rejected');
+    const failed = (wantsUsers && usersRes.status === 'rejected') || ((wantsPlaces || wantsRoutes || wantsSectors) && indexRes.status === 'rejected');
     const users = usersRes.status === 'fulfilled' ? usersRes.value : [];
     const index = indexRes.status === 'fulfilled' ? indexRes.value : null;
-    const places = index && wantsPlaces ? matchPlaces(index, q) : [];
+    const placeHits = index && (wantsPlaces || wantsSectors) ? matchPlaces(index, q) : [];
+    const places = wantsPlaces ? placeHits.filter(p => p.kind === 'school') : [];
+    // Un sector también aparece si se busca su escuela (p. ej. «Valeria» lista sus sectores)
+    const nq = norm(q);
+    const sectors = wantsSectors && index
+      ? [...placeHits.filter(p => p.kind === 'sector'),
+        ...index.sectors.filter(p => !p.key.includes(nq) && norm(p.schoolName).includes(nq))]
+      : [];
     const routes = index && wantsRoutes ? matchRoutes(index, q) : [];
     const gyms = index && wantsPlaces ? matchGyms(index, q) : [];
 
-    if (!users.length && !places.length && !routes.length && !gyms.length) {
+    if (!users.length && !places.length && !sectors.length && !routes.length && !gyms.length) {
       if (failed) {
         resultsContainer.innerHTML = stateBox('No se pudo completar la búsqueda', 'Revisa tu conexión e inténtalo de nuevo.', '<button type="button" class="kx-btn kx-btn--secondary search-retry">Reintentar</button>');
       } else {
@@ -1502,9 +1516,11 @@ function initGlobalSearch() {
     shownPlaces = limit(places);
     shownRoutes = limit(routes);
     shownGyms = limit(gyms);
+    shownSectors = limit(sectors);
     let html = '';
     if (users.length) html += sectionHead('Personas', type === 'all' ? 'users' : null, users.length) + limit(users).map(x => userRow(x.user, x.following)).join('');
-    if (places.length) html += sectionHead('Escuelas y sectores', type === 'all' ? 'places' : null, places.length) + shownPlaces.map(placeRow).join('');
+    if (places.length) html += sectionHead('Escuelas', type === 'all' ? 'places' : null, places.length) + shownPlaces.map(placeRow).join('');
+    if (sectors.length) html += sectionHead('Sectores', type === 'all' ? 'sectors' : null, sectors.length) + shownSectors.map(placeRow).join('');
     if (gyms.length) html += sectionHead('Rocódromos', type === 'all' ? 'places' : null, gyms.length) + shownGyms.map(gymRow).join('');
     if (routes.length) html += sectionHead('Vías', type === 'all' ? 'routes' : null, routes.length) + shownRoutes.map(routeRow).join('');
     if (failed) html += stateBox('Algunos resultados no se pudieron cargar', 'Revisa tu conexión.');
@@ -1790,7 +1806,7 @@ function initGlobalSearch() {
         openOnMap(item);
       }
     } else if (kind === 'sector') {
-      const item = shownPlaces[Number(row.dataset.index)];
+      const item = shownSectors[Number(row.dataset.index)];
       if (item) {
         rememberResult({ type: 'sector', schoolId: item.schoolId, schoolName: item.schoolName, name: item.name });
         openOnMap(item);
