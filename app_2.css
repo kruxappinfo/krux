@@ -7798,7 +7798,11 @@ button.secondary:hover {
   padding: 20px 16px;
   /* Contain repaints to this element */
   contain: layout style paint;
-  /* Smooth entry animation */
+}
+
+/* Entrada animada solo al crear la tarjeta (la clase se quita al acabar): volver a mostrar una vista
+   o una pestaña oculta con display: none no la repite y la tarjeta no pega un salto */
+.feed-card.kx-card-enter {
   animation: feedCardFadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
