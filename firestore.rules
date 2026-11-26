@@ -118,12 +118,12 @@ service cloud.firestore {
         allow write: if isOwner(userId);
       }
 
-      // Sesiones de escalada en roca (climb-session.js). Privadas: incluyen el track GPS.
+      // Sesiones de escalada en roca y en rocódromo (climb-session.js). Privadas: incluyen el track GPS.
       match /climb_sessions/{sessionId} {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId)
           && request.resource.data.userId == userId
-          && request.resource.data.type == 'rock'
+          && request.resource.data.type in ['rock', 'gym']
           && request.resource.data.status in ['active', 'paused', 'finished'];
       }
 

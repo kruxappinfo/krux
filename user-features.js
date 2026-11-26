@@ -664,6 +664,65 @@ async function kxWriteAscent(ascentData, checkExisting) {
     }
 }
 
+// ==================== SESIÓN DE ROCÓDROMO EN TIEMPO REAL ====================
+// Sesión de rocódromo activa a la que pertenece el formulario (abierto desde la sesión), o null
+function kxGymSessionOf(form) {
+    const sid = form && form.dataset.gymSession;
+    const live = sid && window.KruxSession && KruxSession.get();
+    return live && live.session.id === sid && live.session.type === 'gym' ? live : null;
+}
+
+// Guarda el registro del formulario en la sesión. Sin foto pasa por la cola de la sesión (funciona sin conexión);
+// con foto, el bloque y su ascenso se suben al momento (como fuera de la sesión) y la sesión solo los anota.
+// Devuelve false si hay que dejar el formulario abierto (ya avisa).
+async function kxSaveGymSessionAscent(form, ascentData, submitBtn) {
+    const live = kxGymSessionOf(form);
+    const sid = live.session.id;
+    const info = {
+        schoolId: ascentData.schoolId, schoolName: ascentData.schoolName, schoolCity: ascentData.schoolCity,
+        routeId: ascentData.routeId, routeName: ascentData.routeName, grade: ascentData.grade, style: ascentData.style,
+        climbType: ascentData.climbType, tries: ascentData.tries, rating: ascentData.rating, notes: ascentData.notes,
+        companions: ascentData.companions || []
+    };
+    const withBlock = window.KruxGymBlocks && KruxGymBlocks.hasPending();
+    let nBlocks = 0;
+    if (withBlock) {
+        ascentData.sessionId = sid;
+        ascentData.loggedAt = Date.now();
+        submitBtn.textContent = 'Subiendo foto del bloque…';
+        try {
+            await KruxGymBlocks.beforeAscentSave(ascentData);
+        } catch (err) {
+            console.error('[Bloques] No se pudo guardar el bloque:', err);
+            if (err.code === 'kxb/offline') showToast('Sin conexión: la foto del bloque necesita cobertura', 'warning', { detail: 'Usa «Sin foto» para anotarlo ahora; se subirá al volver la conexión.' });
+            else showToast('No se pudo subir la foto del bloque', 'error', { detail: kxFriendlyError(err) });
+            return false;
+        }
+        submitBtn.textContent = 'Guardando...';
+        if (!await logAscent(ascentData)) {
+            showToast('No se pudo guardar el ascenso del bloque', 'error', { detail: 'La foto ya está en «Mis bloques». Vuelve a pulsar Guardar.' });
+            return false;
+        }
+        const saved = KruxGymBlocks.lastSaved();
+        nBlocks = await KruxGymBlocks.afterAscentSave();
+        for (const b of saved) {
+            await KruxSession.addAscent({
+                ...info, ascentId: b.ascentId, synced: true, routeId: b.routeId, routeName: b.name, grade: b.grade,
+                thumbUrl: b.thumbUrl, blockId: b.blockId, color: b.color
+            });
+        }
+    } else {
+        await KruxSession.addAscent(info);
+    }
+    await kxAscentVotes.save();
+    closeAscentModal();
+    showToast(nBlocks > 1 ? `${nBlocks} bloques añadidos a la sesión` : withBlock ? 'Bloque añadido a la sesión' : 'Añadido a la sesión', 'success');
+    if (window.KruxSessionUI) KruxSessionUI.openActive();
+    // Los bloques con foto ya están subidos: Actividad se actualiza ya (los demás, cuando la sesión los suba)
+    if (withBlock && typeof loadActivityData === 'function') loadActivityData();
+    return true;
+}
+
 // Log an ascent. Devuelve true si se guardó, 'queued' si quedó en el móvil para subirse al volver la conexión
 // y false si falló (ya avisa). Los de una sesión (sessionId) no se encolan aquí: la sesión gestiona sus reintentos.
 async function logAscent(ascentData) {
@@ -1048,7 +1107,8 @@ function openAscentModal(schoolId, schoolName, routeId, routeName, grade, sector
     }
 
     // Con una sesión de escalada activa, el registro pasa por la hoja de la sesión (mismo logAscent, con sessionId)
-    if (!opts.fromTag && routeId != null && schoolId && window.KruxSession && KruxSession.isActive() && window.KruxSessionUI) {
+    // (solo en una sesión de roca: una de rocódromo no recoge vías del mapa)
+    if (!opts.fromTag && routeId != null && schoolId && window.KruxSession && KruxSession.isActive() && KruxSession.get().session.type !== 'gym' && window.KruxSessionUI) {
         KruxSessionUI.openRegister({ schoolId, schoolName, routeId, routeName, grade, sector });
         return;
     }
@@ -1101,6 +1161,7 @@ function closeAscentModal() {
 
     modal.classList.add('hidden');
     form.reset();
+    delete form.dataset.gymSession;
     kxAscentVotes.reset();
     if (window.KruxPartners) KruxPartners.resetForm();
 
@@ -2875,6 +2936,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     showToast('Ascenso actualizado', 'success');
                     // Reload and reopen My Routes list
                     showMyRoutes();
+                } else if (isGymMode && kxGymSessionOf(form)) {
+                    // Registro dentro de una sesión de rocódromo en tiempo real
+                    if (!await kxSaveGymSessionAscent(form, ascentData, submitBtn)) return;
                 } else {
                     // Foto del bloque con sus presas (gym-blocks.js): se sube antes que el ascenso y comparte su id
                     const withBlock = isGymMode && window.KruxGymBlocks && KruxGymBlocks.hasPending();

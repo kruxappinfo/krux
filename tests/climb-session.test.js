@@ -601,7 +601,7 @@ describe('contrato con el resto de la app', () => {
   it('las reglas protegen las sesiones: solo el propietario y sin cambiar nada más', () => {
     const block = rules.match(/match \/climb_sessions\/\{sessionId\} \{[\s\S]*?\n      \}/)[0];
     expect(block).toContain('allow read, delete: if isOwner(userId)');
-    expect(block).toContain("request.resource.data.type == 'rock'");
+    expect(block).toContain("request.resource.data.type in ['rock', 'gym']");
     expect(block).not.toMatch(/isAuthenticated\(\)\s*;/);
   });
 
@@ -666,5 +666,49 @@ describe('calorías estimadas', () => {
     const r = kcal({ activeMs: H, entries });
     expect(r.climbMs + r.walkMs + r.restMs).toBe(H);
     expect(r.restMs).toBe(0);
+  });
+});
+
+describe('sesión de rocódromo en tiempo real', () => {
+  const gymInfo = (over) => ({ schoolId: 'roco-1', schoolName: 'Sharma', routeId: 'gym_1', routeName: 'Boulder azul', grade: '6C', style: 'flash', climbType: 'boulder', ...over });
+
+  it('empieza sin GPS aunque se pida, con el rocódromo y los compañeros', async () => {
+    const w = world(); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    const s = await K.start({ type: 'gym', gps: true, schoolId: 'roco-1', schoolName: 'Sharma', companions: ['p1'] });
+    expect(s).toMatchObject({ type: 'gym', schoolId: 'roco-1', companions: ['p1'] });
+    expect(s.gps).toMatchObject({ enabled: false, status: 'off' });
+    expect(w.watchers).toHaveLength(0);
+    await flushAsync();
+    expect(w.store.get(`users/u1/climb_sessions/${s.id}`)).toMatchObject({ type: 'gym', companions: ['p1'] });
+  });
+
+  it('un registro sin foto se sube por la cola con su tipo; uno con foto ya subido solo se anota', async () => {
+    const w = world(); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    const s = await K.start({ type: 'gym', schoolId: 'roco-1', schoolName: 'Sharma' });
+    const a = await K.addAscent(gymInfo());
+    const b = await K.addAscent(gymInfo({ ascentId: 'asc-foto', synced: true, thumbUrl: 'blob:t', blockId: 'blk', grade: '7A' }));
+    await new Promise(r => setTimeout(r, 700));
+    expect(w.ascents.get(a.ascentId)).toMatchObject({ climbType: 'boulder', sessionId: s.id, schoolId: 'roco-1' });
+    expect(w.ascents.has('asc-foto')).toBe(false);          // su ascenso lo subió el formulario del bloque
+    expect(b).toMatchObject({ ascentId: 'asc-foto', thumbUrl: 'blob:t', synced: true });
+    expect(K.get().session.ascentIds).toEqual([a.ascentId, 'asc-foto']);
+  });
+
+  it('cambiar los compañeros durante la sesión los guarda en la sesión', async () => {
+    const w = world(); const K = w.get('KruxSession');
+    await K.init({ uid: 'u1' });
+    await K.start({ type: 'gym', schoolId: 'roco-1', schoolName: 'Sharma' });
+    K.setCompanions(['p1', 'p2']);
+    expect(K.get().session.companions).toEqual(['p1', 'p2']);
+  });
+
+  it('calorías: un bloque cuenta 1,5 min por intento; una vía de rocódromo, 15 m', () => {
+    const w = world();
+    const effort = w.get('kxsRouteEffort');
+    expect(effort({ climbType: 'boulder', tries: 4, grade: '6a' }).ms).toBe(6 * 60000);
+    expect(effort({ climbType: 'boulder', tries: 100 }).ms).toBe(20 * 60000);
+    expect(effort({ climbType: 'indoor', grade: '6a' }).ms).toBe(6 * 60000);   // 15 m a 2,5 m/min
   });
 });

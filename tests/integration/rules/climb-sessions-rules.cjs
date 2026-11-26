@@ -43,7 +43,8 @@ const expect = async (label, promise, shouldPass) => {
   await expect('sesión: otro usuario no modifica', ref(B, 's1').set({ status: 'finished' }, { merge: true }), false);
   await expect('sesión: otro usuario no borra', ref(B, 's1').delete(), false);
   await expect('sesión: userId de otra persona', ref(A, 's3').set(session({ userId: B.uid })), false);
-  await expect('sesión: tipo distinto de roca', ref(A, 's4').set(session({ type: 'gym' })), false);
+  await expect('sesión: tipo desconocido', ref(A, 's4').set(session({ type: 'otro' })), false);
+  await expect('sesión: rocódromo permitida', ref(A, 's6').set(session({ type: 'gym', companions: [] })), true);
   await expect('sesión: estado inválido', ref(A, 's5').set(session({ status: 'borrada' })), false);
   await expect('sesión: dueño borra', ref(A, 's1').delete(), true);
 

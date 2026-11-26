@@ -19,6 +19,7 @@ function kxsShareFigures(session, entries) {
   const kc = st.kcal && st.kcal.total != null ? st.kcal : kxsEstimateKcal({ entries: entries || [], activeMs: active, track: session.track || [] });
   const gps = session.gps || {};
   return {
+    kind: session.type === 'gym' ? 'gym' : 'rock',
     schoolName: session.schoolName || '', startedAt: session.startedAt, activeMs: active,
     routes: st.routes || 0, sends: st.sends || 0, meters: st.meters || 0, maxGrade: st.maxGrade || '',
     kcal: kc.total || 0, distanceM: gps.enabled && gps.distanceM > 0 ? Math.round(gps.distanceM) : 0,
@@ -40,6 +41,7 @@ function kxsPostData(session, entries, track) {
   const t = kxsPostTrack(track || session.track || []);
   return {
     sessionId: session.id, schoolId: session.schoolId || '', schoolName: f.schoolName,
+    ...(f.kind === 'gym' ? { kind: 'gym' } : {}),
     startedAt: f.startedAt, activeMs: f.activeMs, routes: f.routes, sends: f.sends, meters: f.meters,
     maxGrade: f.maxGrade, kcal: f.kcal, distanceM: f.distanceM, gradeCounts: f.gradeCounts,
     ...(t ? { track: t } : {})
@@ -78,13 +80,15 @@ function kxsShortDuration(ms) {
 function kxsShareStats(f, max = 6, { compact = false } = {}) {
   const out = [
     { label: 'Duración', value: compact ? kxsShortDuration(f.activeMs) : kxsFormatDuration(f.activeMs) },
-    { label: f.routes === 1 ? 'Vía' : 'Vías', value: String(f.routes) }
+    f.kind === 'gym'
+      ? { label: f.routes === 1 ? 'Ascenso' : 'Ascensos', value: String(f.routes) }
+      : { label: f.routes === 1 ? 'Vía' : 'Vías', value: String(f.routes) }
   ];
   if (f.meters > 0) out.push({ label: 'Metros', value: `${f.meters} m` });
   if (f.maxGrade) out.push({ label: compact ? 'Máx.' : 'Grado máx.', value: f.maxGrade });
   if (f.kcal > 0) out.push({ label: 'kcal (est.)', value: String(f.kcal) });
   if (f.distanceM > 0) out.push({ label: 'Recorrido', value: kxsFmtKm(f.distanceM) });
-  if (out.length < max) out.push({ label: 'Encadenadas', value: String(f.sends) });
+  if (out.length < max) out.push({ label: f.kind === 'gym' ? 'Encadenados' : 'Encadenadas', value: String(f.sends) });
   return out.slice(0, max);
 }
 
@@ -140,7 +144,7 @@ async function kxsStoryCanvas(session, entries, { transparent = false } = {}) {
 
   // Cabecera
   text('KRUX', 80, 150, 58, 800, ink, 'left', 6);
-  text('SESIÓN DE ROCA', W - 80, 146, 30, 700, soft, 'right', 4);
+  text(f.kind === 'gym' ? 'SESIÓN DE ROCÓDROMO' : 'SESIÓN DE ROCA', W - 80, 146, 30, 700, soft, 'right', 4);
 
   // Escuela y fecha
   const title = f.schoolName || 'Sesión de escalada';
@@ -264,10 +268,10 @@ function kxsFeedCardHTML(cs) {
         <circle class="kxs-fc-start" cx="${fitted[0][0].toFixed(1)}" cy="${fitted[0][1].toFixed(1)}" r="5"/>
         <circle class="kxs-fc-end" cx="${fitted[fitted.length - 1][0].toFixed(1)}" cy="${fitted[fitted.length - 1][1].toFixed(1)}" r="5"/>
       </svg>`
-    : `<div class="kxs-fc-hero">${cs.maxGrade ? `<strong style="--c:${kxGradeColor(cs.maxGrade)}">${kxEsc(cs.maxGrade)}</strong><small>Grado máximo</small>` : `<strong>${cs.routes || 0}</strong><small>${cs.routes === 1 ? 'Vía' : 'Vías'}</small>`}</div>`;
+    : `<div class="kxs-fc-hero">${cs.maxGrade ? `<strong style="--c:${kxGradeColor(cs.maxGrade)}">${kxEsc(cs.maxGrade)}</strong><small>Grado máximo</small>` : `<strong>${cs.routes || 0}</strong><small>${cs.kind === 'gym' ? (cs.routes === 1 ? 'Ascenso' : 'Ascensos') : (cs.routes === 1 ? 'Vía' : 'Vías')}</small>`}</div>`;
   return `<div class="kxs-fc">
       <div class="kxs-fc-top">
-        <span class="kxs-fc-kicker">${kxIcon('mountain', { size: 14 })}Sesión de roca</span>
+        <span class="kxs-fc-kicker">${cs.kind === 'gym' ? `${kxIcon('gym', { size: 14 })}Sesión de rocódromo` : `${kxIcon('mountain', { size: 14 })}Sesión de roca`}</span>
         <span class="kxs-fc-date">${kxEsc(cs.startedAt ? kxsDate(cs.startedAt) : '')}</span>
       </div>
       <div class="kxs-fc-title">${kxEsc(cs.schoolName || 'Sesión de escalada')}</div>

@@ -167,6 +167,9 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
     const POST_DELETE_NEW = "      // El admin puede quitar una publicaci\u00f3n denunciada (moderaci\u00f3n)\n      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isSuperAdmin());\n";
     const POST_DELETE_OLD = "      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;\n";
     rules = rules.replace(POST_REPORTS_BLOCK, '').replace(POST_DELETE_NEW, POST_DELETE_OLD);
+    // Sesiones de rocódromo (2026-11-26): climb_sessions admite también type 'gym'; se vuelve a la regla anterior
+    rules = rules.replace("      // Sesiones de escalada en roca y en rocódromo (climb-session.js). Privadas: incluyen el track GPS.\n", "      // Sesiones de escalada en roca (climb-session.js). Privadas: incluyen el track GPS.\n")
+      .replace("          && request.resource.data.type in ['rock', 'gym']\n", "          && request.resource.data.type == 'rock'\n");
     for (const [nuevo, antiguo] of SOCIAL_HUNKS) if (rules.includes(nuevo)) rules = rules.replace(nuevo, antiguo);
     if (rules.includes(USERS_UPDATE_NEW)) rules = rules.replace(USERS_UPDATE_NEW, USERS_UPDATE_OLD);
     if ([manifest['firestore.rules.previous'], manifest['docs/security-phase0/firestore.rules.route-photos-only.proposal']].includes(sha('firestore.rules'))) return;

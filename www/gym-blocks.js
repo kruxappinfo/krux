@@ -1341,6 +1341,14 @@ const KruxGymBlocks = (() => {
     return form.items[0].blockId;
   }
 
+  // Bloques ya subidos del formulario (antes de afterAscentSave, que vacía el formulario): la sesión de rocódromo los anota
+  function lastSaved() {
+    return form.items.filter(it => it.saved).map(it => ({
+      ascentId: it.ascentId, blockId: it.blockId, routeId: it.saved.ascentRouteId, name: it.saved.name,
+      grade: it.saved.grade, color: it.saved.color, thumbUrl: it.saved.thumbUrl || it.saved.photoUrl
+    }));
+  }
+
   // Después de guardar el ascenso del formulario: ascensos de los demás bloques, limpieza y, si se pidió, el
   // compositor del feed con todas las fotos. Devuelve cuántos bloques se guardaron.
   async function afterAscentSave() {
@@ -1675,7 +1683,7 @@ const KruxGymBlocks = (() => {
     return false;
   }
 
-  return { attach, detach, hasPending, beforeAscentSave, afterAscentSave, renderActivity, gymCardHTML, hydrateGymCard, openViewer, handleBack };
+  return { attach, detach, hasPending, beforeAscentSave, lastSaved, afterAscentSave, renderActivity, gymCardHTML, hydrateGymCard, openViewer, handleBack };
 })();
 
 window.KruxGymBlocks = KruxGymBlocks;
