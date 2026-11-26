@@ -36336,3 +36336,10 @@ body.kxb-ed-open, body.kxb-view-open { overflow: hidden; }
 .kxb-pick--more .kxb-add-ic { width: 34px; height: 34px; }
 .kxb-items + .kxb-pick-note, .kxb-pick--more + .kxb-pick-note { margin-top: 10px; }
 #ascent-modal .kxs-peers .kxs-peer--card { display: flex; flex-direction: row; align-items: center; margin: 0; }
+
+/* Dibujar presas a mano (editor de bloques) */
+.kxb-ed-drawbtn { position: absolute; left: 12px; top: 12px; }
+.kxb-ed .kxb-ed-drawbtn.is-on, .kxb-ed .kxb-ed-drawbtn.is-on:hover, .kxb-ed .kxb-ed-drawbtn.is-on:active { background: var(--kx-coral); color: var(--kx-granite); }
+.kxb-ed-live { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.kxb-ed-live polyline { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.kxb-ed-stage.is-drawing { cursor: crosshair; }

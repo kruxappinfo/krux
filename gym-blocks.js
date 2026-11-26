@@ -30,6 +30,9 @@ const KXB_ANALYSIS_SIDE = 720;
 const KXB_THUMB_SIDE = 480;
 const KXB_MAX_FORM = 8;   // bloques en un mismo registro
 const KXB_TOL_DEFAULT = 16;
+// Una presa no ocupa más del 2,5 % de la foto: lo que sea mayor es un panel, un volumen pintado o el muro (en algunas fotos
+// un panel rojo y las presas rosas tienen el mismo tono para la cámara: solo el tamaño los separa)
+const KXB_HOLD_MAX = 0.025;
 
 Object.assign(KX_ICON_PATHS, {
   camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
@@ -141,7 +144,7 @@ function kxbFlood(img, sx, sy, seed, tol) {
   const raw = new Uint8Array(ww * wh);
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (near(y * w + x)) raw[(y - y0) * ww + (x - x0)] = 1;
   const grown = kxbDilate(raw, ww, wh);
-  const cap = Math.round(0.05 * w * h);   // una presa no ocupa más del 5 % de la foto: más es un panel o el muro
+  const cap = Math.round(KXB_HOLD_MAX * w * h);
   const mask = new Uint8Array(w * h);
   const queue = new Int32Array(ww * wh);
   let head = 0, tail = 0, area = 0, n = 0, sl = 0, sa = 0, sb = 0;
@@ -289,7 +292,7 @@ function kxbSegment(img, nx, ny, tol = KXB_TOL_DEFAULT) {
   const seed = kxbSeed(img, sx, sy);
   const minArea = Math.max(24, Math.round(0.00005 * w * h));
   let res = kxbFlood(img, sx, sy, seed.lab, tol);
-  if (res.leak) res = kxbFlood(img, sx, sy, seed.lab, tol * 0.65);
+  for (const f of [0.65, 0.45, 0.3]) { if (!res.leak) break; res = kxbFlood(img, sx, sy, seed.lab, tol * f); }
   if (!res.leak && res.area < minArea) {
     const wider = kxbFlood(img, sx, sy, seed.lab, tol * 1.5);
     if (!wider.leak && wider.area >= minArea) res = wider;
@@ -412,7 +415,7 @@ function kxbSegmentAll(img, nx, ny, tol = KXB_TOL_DEFAULT) {
   const seed = kxbSeed(img, sx, sy);
   if (Math.hypot(seed.lab[1], seed.lab[2]) < KXB_NEUTRAL_CHROMA) return { ok: false, neutral: true, holds: [] };
   const N = w * h, S = Math.max(w, h);
-  const cap = Math.round(0.05 * N);
+  const cap = Math.round(KXB_HOLD_MAX * N);
   const minArea = Math.max(24, Math.round(0.00005 * N));
   let pass = kxbColorZones(img, seed.lab, tol);
   let sz = kxbZoneAt(pass.labels, pass.zones, w, h, sx, sy);
@@ -422,6 +425,8 @@ function kxbSegmentAll(img, nx, ny, tol = KXB_TOL_DEFAULT) {
   const sz2 = kxbZoneAt(again.labels, again.zones, w, h, sx, sy);
   if (sz2 && sz2.area <= cap && sz2.area >= sz.area) { pass = again; sz = sz2; }
   const minKeep = Math.max(minArea, Math.round(sz.pix * 0.04));
+  // Tampoco mucho mayor que la presa tocada (un panel del mismo tono que quepa en el 2,5 %)
+  const maxKeep = Math.min(cap, Math.max(6 * sz.area, Math.round(0.008 * N)));
   const chroma = (z) => Math.hypot(z.mean[1], z.mean[2]);
   const cSeed = chroma(sz);
   // Cada presa es de un solo color: su tono MEDIO debe estar muy cerca del de la tocada. El margen amplio de kxbNearFn
@@ -432,7 +437,7 @@ function kxbSegmentAll(img, nx, ny, tol = KXB_TOL_DEFAULT) {
   const hueOk = (z) => { let d = Math.abs(hueOf(z) - hSeed); if (d > Math.PI) d = 2 * Math.PI - d; return d <= hueMax; };
   let cands = pass.zones.filter(z => {
     if (z === sz) return true;
-    if (z.area > cap || z.pix < minKeep) return false;
+    if (z.area > maxKeep || z.pix < minKeep) return false;
     if (chroma(z) < 0.45 * cSeed) return false;                               // apagada: gris con un matiz, no del color
     if (!hueOk(z)) return false;                                              // color vecino
     const bw = z.bbox[2] - z.bbox[0] + 1, bh = z.bbox[3] - z.bbox[1] + 1;
@@ -646,7 +651,8 @@ const KruxBlockEditor = (() => {
   // de tipo cambian esa presa: si no, eligen el tipo de las siguientes
   let holds = [], sel = -1, picked = false, type = 'hand', tol = KXB_TOL_DEFAULT, undo = [];
   let group = null;
-  let armed = false;  // la persona ha elegido un tipo: tocar una presa marcada se lo pone (si no, solo la selecciona)   // toque que detectó el bloque entero ({ nx, ny }): el deslizador lo vuelve a calcular
+  let armed = false;
+  let drawMode = false, stroke = null;   // dibujo a mano: se rodea la presa con el dedo  // la persona ha elegido un tipo: tocar una presa marcada se lo pone (si no, solo la selecciona)   // toque que detectó el bloque entero ({ nx, ny }): el deslizador lo vuelve a calcular
   let s = 1, tx = 0, ty = 0, bw = 0, bh = 0;
   const pointers = new Map();
   let gesture = null;
@@ -667,7 +673,8 @@ const KruxBlockEditor = (() => {
         <button type="button" class="kxb-ed-done" data-kxb="done">Listo</button>
       </header>
       <div class="kxb-ed-stage" id="kxb-ed-stage">
-        <div class="kxb-ed-canvas" id="kxb-ed-canvas"><img alt="Foto del bloque" draggable="false"><div class="kxb-ed-ov"></div></div>
+        <div class="kxb-ed-canvas" id="kxb-ed-canvas"><img alt="Foto del bloque" draggable="false"><div class="kxb-ed-ov"></div><svg class="kxb-ed-live" preserveAspectRatio="none" aria-hidden="true"><polyline/></svg></div>
+        <button type="button" class="kxb-ed-fab kxb-ed-drawbtn" data-kxb="draw" aria-pressed="false" aria-label="Dibujar una presa a mano">${kxIcon('pen', { size: 20 })}</button>
         <div class="kxb-ed-zoom">
           <button type="button" class="kxb-ed-fab" data-kxb="zin" aria-label="Ampliar">${kxIcon('zoomIn', { size: 20 })}</button>
           <button type="button" class="kxb-ed-fab" data-kxb="zout" aria-label="Reducir la vista">${kxIcon('zoomOut', { size: 20 })}</button>
@@ -760,8 +767,10 @@ const KruxBlockEditor = (() => {
     pointers.set(e.pointerId, local(e));
     if (pointers.size === 1) {
       const p = local(e);
-      gesture = { kind: 'tap', x0: p.x, y0: p.y, tx0: tx, ty0: ty, t0: Date.now() };
+      gesture = { kind: drawMode ? 'draw' : 'tap', x0: p.x, y0: p.y, tx0: tx, ty0: ty, t0: Date.now() };
+      if (drawMode) { stroke = [norm(p.x, p.y)]; liveStroke(); }
     } else if (pointers.size === 2) {
+      stroke = null; liveStroke();   // dos dedos: se amplía, no se dibuja
       const [a, b] = [...pointers.values()];
       gesture = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, s0: s, px: ((a.x + b.x) / 2 - tx) / s, py: ((a.y + b.y) / 2 - ty) / s };
     }
@@ -780,6 +789,12 @@ const KruxBlockEditor = (() => {
       return;
     }
     const p = local(e);
+    if (gesture.kind === 'draw') {
+      if (!stroke) return;
+      const q = norm(p.x, p.y), last = stroke[stroke.length - 1];
+      if (Math.hypot((q[0] - last[0]) * bw * s, (q[1] - last[1]) * bh * s) >= 2) { stroke.push(q); liveStroke(); }
+      return;
+    }
     if (gesture.kind === 'tap' && Math.hypot(p.x - gesture.x0, p.y - gesture.y0) > 8) gesture.kind = 'pan';
     if (gesture.kind === 'pan') {
       tx = gesture.tx0 + (p.x - gesture.x0); ty = gesture.ty0 + (p.y - gesture.y0);
@@ -791,6 +806,12 @@ const KruxBlockEditor = (() => {
     if (!pointers.has(e.pointerId)) return;
     const p = pointers.get(e.pointerId);
     pointers.delete(e.pointerId);
+    if (gesture && gesture.kind === 'draw' && pointers.size === 0) {
+      const moved = Math.hypot(p.x - gesture.x0, p.y - gesture.y0);
+      if (e.type === 'pointerup' && stroke && stroke.length >= 6 && moved >= 0) finishStroke();
+      else if (e.type === 'pointerup' && (!stroke || stroke.length < 6)) tap(p.x, p.y);
+      stroke = null; liveStroke();
+    }
     if (gesture && gesture.kind === 'tap' && e.type === 'pointerup' && pointers.size === 0) tap(p.x, p.y);
     if (pointers.size === 0) gesture = null;
     else if (gesture && gesture.kind === 'pinch') gesture = { kind: 'done' };
@@ -800,6 +821,46 @@ const KruxBlockEditor = (() => {
     e.preventDefault();
     const p = local(e);
     zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y);
+  }
+
+  const norm = (x, y) => [(x - tx) / (bw * s), (y - ty) / (bh * s)];
+
+  function liveStroke() {
+    const svg = root.querySelector('.kxb-ed-live');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const pl = svg.querySelector('polyline');
+    pl.setAttribute('points', stroke ? stroke.map(([x, y]) => `${(x * W).toFixed(1)},${(y * H).toFixed(1)}`).join(' ') : '');
+    pl.setAttribute('stroke', kxbType(type).color);
+    pl.setAttribute('stroke-width', String((2.5 / s) * (W / Math.max(1, bw))));
+  }
+
+  // Trazo a mano → presa: se cierra, se simplifica y se añade con el tipo elegido
+  function finishStroke() {
+    const pts = stroke.map(([x, y]) => [Math.min(1, Math.max(0, x)) * W, Math.min(1, Math.max(0, y)) * H]);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    pts.forEach(([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); });
+    if (Math.max(x1 - x0, y1 - y0) < 0.008 * Math.max(W, H)) return;   // un garabato diminuto
+    if (holds.length >= KXB_MAX_HOLDS) { toast(`Como máximo ${KXB_MAX_HOLDS} presas por bloque`, 'warning'); return; }
+    const simple = kxbSimplify(pts, Math.max(1.5, 0.003 * Math.max(W, H)));
+    if (simple.length < 3) return;
+    const p = [];
+    simple.forEach(([x, y]) => p.push(+(x / W).toFixed(4), +(y / H).toFixed(4)));
+    snapshot();
+    holds.push({ t: type, p, s: kxbCentroid(p).map(v => +v.toFixed(4)), auto: false });
+    sel = holds.length - 1; picked = false;
+    root.querySelector('#kxb-ed-hint').textContent = `Presa dibujada como ${kxbType(type).label}. Dibuja la siguiente o pulsa el lápiz para volver a tocar presas.`;
+    paint();
+  }
+
+  function setDraw(on) {
+    drawMode = on;
+    const b = root.querySelector('[data-kxb="draw"]');
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', String(on));
+    root.querySelector('#kxb-ed-stage').classList.toggle('is-drawing', on);
+    root.querySelector('#kxb-ed-hint').textContent = on
+      ? 'Rodea la presa con el dedo para dibujarla. Con dos dedos amplías. Pulsa el lápiz otra vez para salir.'
+      : 'Toca una presa para marcarla o selecciónala para cambiarla.';
   }
 
   function snapshot() {
@@ -827,6 +888,7 @@ const KruxBlockEditor = (() => {
         return;
       }
     }
+    if (drawMode) return;   // dibujando: tocar fuera de una presa no marca nada
     if (holds.length >= KXB_MAX_HOLDS) { toast(`Como máximo ${KXB_MAX_HOLDS} presas por bloque`, 'warning'); return; }
     // Sin presas todavía: se busca el bloque entero por el color de la presa tocada
     if (!holds.length && detectGroup(nx, ny)) return;
@@ -892,6 +954,7 @@ const KruxBlockEditor = (() => {
 
   function act(a) {
     if (a === 'undo') { if (undo.length) { holds = JSON.parse(undo.pop()); sel = -1; picked = false; if (!holds.some(h => h.g)) group = null; paint(); } return; }
+    if (a === 'draw') { setDraw(!drawMode); return; }
     if (a === 'zin' || a === 'zout') {
       const r = root.querySelector('#kxb-ed-stage').getBoundingClientRect();
       zoomAt(a === 'zin' ? 1.5 : 1 / 1.5, r.width / 2, r.height / 2);
@@ -965,8 +1028,9 @@ const KruxBlockEditor = (() => {
     const im = root.querySelector('#kxb-ed-canvas img');
     im.src = url;
     holds = (initial || []).map(h => ({ ...h, p: h.p.slice(), auto: false }));
-    sel = -1; picked = false; undo = []; type = 'hand'; tol = KXB_TOL_DEFAULT; group = null; armed = false;
+    sel = -1; picked = false; undo = []; type = 'hand'; tol = KXB_TOL_DEFAULT; group = null; armed = false; stroke = null;
     root.querySelector('#kxb-ed-tol').value = String(tol);
+    setDraw(false);
     root.querySelector('#kxb-ed-hint').textContent = holds.length
       ? 'Toca una presa para cambiarla o toca otra nueva para añadirla.'
       : 'Toca una presa del bloque: se marcarán todas las de su color. Pellizca para ampliar.';
