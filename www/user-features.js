@@ -3088,6 +3088,20 @@ window.MessagingService = {
     },
 
     /**
+     * Like a un mensaje recibido (doble toque en el chat). Solo quien lo recibe pone o quita su like.
+     * @param {string} conversationId - The conversation ID
+     * @param {string} messageId - El mensaje
+     * @param {boolean} like - true pone el like, false lo quita
+     */
+    async setMessageLike(conversationId, messageId, like) {
+        const currentUser = firebase.auth().currentUser;
+        if (!currentUser) throw new Error('Not authenticated');
+        const FV = firebase.firestore.FieldValue;
+        await db.collection('conversations').doc(conversationId).collection('messages').doc(messageId)
+            .update({ likes: like ? FV.arrayUnion(currentUser.uid) : FV.arrayRemove(currentUser.uid) });
+    },
+
+    /**
      * Confirmaciones de lectura (Ajustes → Privacidad). Si las desactivo, nadie ve si he leído
      * sus mensajes y yo tampoco veo si los demás han leído los míos (sigue el doble tic de recibido).
      * Se guarda en users/{uid}/private/settings (solo su dueño) y en el móvil para tenerlo al abrir.

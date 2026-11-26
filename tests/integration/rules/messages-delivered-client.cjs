@@ -149,6 +149,22 @@ const until = async (getter, cond) => { for (let i = 0; i < 50; i++) { const v =
   const again = await until(() => seenByA.find(m => m.text === 'de nuevo'), m => m.status === 'read');
   check('con las confirmaciones activas vuelve el «leído»', tick(again) === 'leído', tick(again));
 
+  // --- Like a un mensaje (doble toque): lo pone quien lo recibe y lo ve quien lo envió al momento ---
+  const target = seenByA.find(m => m.text === 'de nuevo');
+  await B.svc.setMessageLike(conv.id, target.id, true);
+  let liked = await until(() => seenByA.find(m => m.id === target.id), m => (m.likes || []).includes(B.uid));
+  check('B da like y A lo ve en tiempo real', (liked.likes || []).includes(B.uid), JSON.stringify(liked.likes));
+  await B.svc.setMessageLike(conv.id, target.id, true);
+  liked = seenByA.find(m => m.id === target.id);
+  check('dar like dos veces no lo duplica', liked.likes.length === 1, JSON.stringify(liked.likes));
+  check('el like no cambia el estado de leído', liked.status === 'read');
+  let ownDenied = false;
+  try { await A.svc.setMessageLike(conv.id, target.id, true); } catch (e) { ownDenied = /permission/i.test(e.code); }
+  check('A no puede dar like a su propio mensaje', ownDenied);
+  await B.svc.setMessageLike(conv.id, target.id, false);
+  liked = await until(() => seenByA.find(m => m.id === target.id), m => !(m.likes || []).length);
+  check('B quita el like y A deja de verlo', !(liked.likes || []).length, JSON.stringify(liked.likes));
+
   unsubA(); unsubB();
   const failed = results.filter(r => !r.pass);
   results.forEach(r => console.log((r.pass ? 'OK  ' : 'FALLA') + ' ' + r.label));

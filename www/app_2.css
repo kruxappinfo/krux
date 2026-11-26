@@ -35882,3 +35882,65 @@ body.kx-forecast-open #school-bottom-sheet .kx-msheet-body { overflow: hidden; t
   outline: 2px solid var(--kx-forest);
   outline-offset: 2px;
 }
+
+/* ====================================================================
+   CHAT — like a un mensaje (doble toque en una burbuja recibida)
+   ==================================================================== */
+/* Sin zoom por doble toque; el texto se sigue pudiendo copiar con una pulsación larga */
+#chat-modal .chat-message.received {
+  touch-action: manipulation;
+}
+
+#chat-modal .chat-message.has-like {
+  margin-bottom: 18px;
+}
+
+#chat-modal .chat-like {
+  position: absolute;
+  bottom: -20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid var(--kx-chalk);
+  border-radius: 50%;
+  background: var(--kx-surface);
+  box-shadow: 0 1px 3px rgba(32, 41, 35, 0.16);
+  color: #E5484D;
+}
+
+/* Abajo a la izquierda de la burbuja: no tapa la hora ni los tics */
+#chat-modal .chat-like {
+  left: 12px;
+}
+
+#chat-modal button.chat-like {
+  min-width: 0;
+  min-height: 0;
+  height: 26px;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* El botón de quitar like ocupa 44px para el dedo aunque el corazón se vea pequeño */
+#chat-modal button.chat-like::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+
+#chat-modal .chat-message.is-like-new .chat-like {
+  animation: kxLikePop 0.38s var(--kx-ease);
+}
+
+@keyframes kxLikePop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #chat-modal .chat-message.is-like-new .chat-like { animation: none; }
+}

@@ -900,7 +900,10 @@ service cloud.firestore {
                && request.resource.data.status == 'read')
             || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredAt'])
                && !('deliveredAt' in resource.data)
-               && request.resource.data.deliveredAt == request.time));
+               && request.resource.data.deliveredAt == request.time)
+            // Like (doble toque): solo pone o quita su propio uid en likes
+            || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+               && onlyOwnLikeToggled(resource.data, request.resource.data)));
         // Cada uno borra solo sus propios mensajes
         allow delete: if inConversation() && resource.data.senderId == request.auth.uid;
       }

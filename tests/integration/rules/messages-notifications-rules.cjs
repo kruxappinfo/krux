@@ -68,6 +68,14 @@ const eq = (label, got, want) => results.push({ label, pass: JSON.stringify(got)
   await expect('A marca como recibido el de B', conv(A).collection('messages').doc(mB2.id).update({ deliveredAt: FV.serverTimestamp() }), true);
   await expect('A no lo vuelve a marcar (no cambia la hora)', conv(A).collection('messages').doc(mB2.id).update({ deliveredAt: FV.serverTimestamp() }), false);
   await expect('A lo marca como leído después', conv(A).collection('messages').doc(mB2.id).update({ status: 'read' }), true);
+  // --- Like a un mensaje ---
+  await expect('A da like al mensaje de B', conv(A).collection('messages').doc(mB2.id).update({ likes: FV.arrayUnion(A.uid) }), true);
+  await expect('A quita su like', conv(A).collection('messages').doc(mB2.id).update({ likes: FV.arrayRemove(A.uid) }), true);
+  await expect('A no da like a su propio mensaje', conv(A).collection('messages').doc(mA.id).update({ likes: FV.arrayUnion(A.uid) }), false);
+  await expect('A no pone el like a nombre de C', conv(A).collection('messages').doc(mB2.id).update({ likes: FV.arrayUnion(C.uid) }), false);
+  await expect('A no da like y cambia el texto a la vez', conv(A).collection('messages').doc(mB2.id).update({ likes: FV.arrayUnion(A.uid), text: 'x' }), false);
+  await expect('C no da like en una conversación ajena', conv(C).collection('messages').doc(mB2.id).update({ likes: FV.arrayUnion(C.uid) }), false);
+  await expect('B no crea un mensaje con likes', conv(B).collection('messages').add({ senderId: B.uid, text: 'x', status: 'sent', likes: [A.uid] }), false);
   await expect('B no se pone a sí mismo «recibido» al crear', conv(B).collection('messages').add({ senderId: B.uid, text: 'x', status: 'sent', deliveredAt: FV.serverTimestamp() }), false);
   await expect('A no edita el texto de B', conv(A).collection('messages').doc(mB.id).update({ text: 'cambiado' }), false);
   await expect('A no borra el mensaje de B', conv(A).collection('messages').doc(mB.id).delete(), false);
