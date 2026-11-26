@@ -6219,6 +6219,10 @@ function initProfileTabs() {
         }
       });
 
+      // Ya cargada en esta visita al perfil: se muestra tal cual, sin volver a pedirla ni repintar las fotos
+      const tabGrid = document.querySelector(`#tab-${targetTab} .profile-grid`);
+      if (tabGrid && tabGrid.querySelector('.feed-card')) return;
+
       // Load content for the selected tab based on current profile context
       if (targetTab === 'liked') {
         if (currentProfileUserId) {
@@ -11502,8 +11506,10 @@ function renderPostCard(post, container) {
 
   card.innerHTML = headerHTML + mediaHTML + contentHTML + kxAscentListHTML(kxPostAscents(post)) + actionsHTML;
 
-  // La entrada animada va por CSS (@keyframes feedCardFadeIn). Sin transform inline: un transform
+  // La entrada animada va por CSS (.kx-card-enter, una sola vez). Sin transform inline: un transform
   // persistente atraparía las hojas inferiores (position: fixed) dentro de la tarjeta.
+  card.classList.add('kx-card-enter');
+  card.addEventListener('animationend', () => card.classList.remove('kx-card-enter'), { once: true });
   container.appendChild(card);
   kxHydrateAuthorPhotos(card);
 }
@@ -13412,6 +13418,9 @@ async function handleFeedBookmark(postId, button) {
     }
     const ids = await kxGetSavedPostIds().catch(() => null);
     if (ids) wasBookmarked ? ids.delete(postId) : ids.add(postId);
+    // Guardado o quitado desde fuera de la pestaña: se vuelve a cargar la próxima vez que se abra
+    const savedGrid = document.getElementById('profile-saved-grid');
+    if (savedGrid && !savedGrid.contains(button)) savedGrid.innerHTML = '';
     showToast(wasBookmarked ? 'Quitada de Guardados' : 'Guardada en tu perfil', 'success');
     // Quitada desde la propia pestaña de Guardados: desaparece de la lista
     if (wasBookmarked) {
