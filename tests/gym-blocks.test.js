@@ -89,6 +89,61 @@ describe('varita de presas', () => {
   });
 });
 
+describe('bloque entero desde un toque', () => {
+  // Muro 240×180: rojas (bloque) en tres alturas, una naranja, dos azules, una cinta roja fina y una colchoneta roja enorme
+  const w = 240, h = 180, d = new Uint8ClampedArray(w * h * 4);
+  let seed = 3;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const RED = [200, 40, 38], ORANGE = [240, 138, 36], BLUE = [40, 80, 210];
+  const shapes = [
+    [RED, (x, y) => (x - 50) ** 2 + (y - 120) ** 2 <= 100],          // roja baja
+    [RED, (x, y) => ((x - 110) / 9) ** 2 + ((y - 80) / 6) ** 2 <= 1], // roja media
+    [RED, (x, y) => (x - 160) ** 2 + (y - 30) ** 2 <= 49],            // roja alta → Top
+    [ORANGE, (x, y) => (x - 80) ** 2 + (y - 60) ** 2 <= 81],
+    [BLUE, (x, y) => (x - 200) ** 2 + (y - 100) ** 2 <= 64],
+    [BLUE, (x, y) => (x - 30) ** 2 + (y - 40) ** 2 <= 64],
+    [RED, (x, y) => y === 10 && x >= 20 && x <= 120],                 // cinta fina
+    [RED, (x, y) => y >= 150 && x >= 120]                             // colchoneta (más del 5 % de la foto)
+  ];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const n = (rnd() - 0.5) * 14;
+    let c = [205 + n, 203 + n, 198 + n];
+    for (const [col, f] of shapes) if (f(x, y)) c = col.map(v => v + n * 0.4);
+    const i = (y * w + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+  }
+  const img = get('kxbLabImage')(d, w, h);
+  const all = get('kxbSegmentAll');
+  const inside = get('kxbInside');
+
+  it('tocando una roja salen las tres rojas, sin la naranja, las azules, la cinta ni la colchoneta', () => {
+    const r = all(img, 50 / w, 120 / h);
+    expect(r.ok).toBe(true);
+    expect(r.holds).toHaveLength(3);
+    const has = (x, y) => r.holds.some(hh => inside(hh.p, x / w, y / h));
+    expect(has(50, 120) && has(110, 80) && has(160, 30)).toBe(true);
+    expect(has(80, 60) || has(200, 100) || has(70, 10) || has(180, 165)).toBe(false);
+  });
+
+  it('la más alta es el Top y el resto, manos', () => {
+    const r = all(img, 110 / w, 80 / h);
+    const top = r.holds.filter(hh => hh.t === 'top');
+    expect(top).toHaveLength(1);
+    expect(inside(top[0].p, 160 / w, 30 / h)).toBe(true);
+    expect(r.holds.filter(hh => hh.t === 'hand')).toHaveLength(2);
+  });
+
+  it('las azules se detectan entre ellas', () => {
+    const r = all(img, 200 / w, 100 / h);
+    expect(r.holds).toHaveLength(2);
+  });
+
+  it('presa del color del muro: no se busca en toda la foto', () => {
+    const r = all(img, 220 / w, 20 / h);
+    expect(r.ok).toBe(false);
+    expect(r.neutral).toBe(true);
+  });
+});
+
 describe('contornos y datos', () => {
   it('seguimiento del borde de un cuadrado y simplificación a sus esquinas', () => {
     const lw = 12, lh = 12, m = new Uint8Array(lw * lh);

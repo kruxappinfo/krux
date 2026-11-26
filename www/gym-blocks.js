@@ -86,12 +86,22 @@ function kxbLabImage(rgba, w, h) {
   return { w, h, L, A, B, rgb: blur };
 }
 
+// ¿El píxel i es del color de la semilla? Presas grises/blancas: cuenta la luz; de color: sobre todo el tono
+// (las sombras cambian la luz, no el tono)
+const KXB_NEUTRAL_CHROMA = 12;
+function kxbNearFn(img, seed, tol) {
+  const { L, A, B } = img;
+  const wL = Math.hypot(seed[1], seed[2]) < KXB_NEUTRAL_CHROMA ? 1 : 0.45;
+  const tol2 = tol * tol;
+  return (i) => {
+    const dl = (L[i] - seed[0]) * wL, da = A[i] - seed[1], db = B[i] - seed[2];
+    return dl * dl + da * da + db * db <= tol2;
+  };
+}
+
 // Relleno por color desde (sx, sy) dentro de una ventana alrededor del toque. leak: se ha escapado al muro.
 function kxbFlood(img, sx, sy, seed, tol) {
-  const { w, h, L, A, B } = img;
-  const chroma = Math.hypot(seed[1], seed[2]);
-  const wL = chroma < 12 ? 1 : 0.45;   // presas grises/blancas: cuenta la luz; de color: sobre todo el tono (las sombras cambian la luz)
-  const tol2 = tol * tol;
+  const { w, h } = img;
   const R = Math.round(0.28 * Math.max(w, h));
   const x0 = Math.max(0, sx - R), x1 = Math.min(w - 1, sx + R), y0 = Math.max(0, sy - R), y1 = Math.min(h - 1, sy + R);
   const cap = Math.round(0.05 * w * h);   // una presa no ocupa más del 5 % de la foto: más es un panel o el muro
@@ -99,10 +109,7 @@ function kxbFlood(img, sx, sy, seed, tol) {
   const queue = new Int32Array(w * h);
   let head = 0, tail = 0, area = 0;
   let bx0 = sx, bx1 = sx, by0 = sy, by1 = sy;
-  const near = (i) => {
-    const dl = (L[i] - seed[0]) * wL, da = A[i] - seed[1], db = B[i] - seed[2];
-    return dl * dl + da * da + db * db <= tol2;
-  };
+  const near = kxbNearFn(img, seed, tol);
   const start = sy * w + sx;
   mask[start] = 1; queue[tail++] = start;
   while (head < tail) {
@@ -120,11 +127,12 @@ function kxbFlood(img, sx, sy, seed, tol) {
 }
 
 // Recorte de la máscara con 2 px de margen: rellena agujeros (brillos, tornillo) y engorda 1 px (el trazo queda por fuera)
-function kxbCleanMask(mask, w, bbox) {
+// val: valor de la presa en la máscara (1 en el relleno; su etiqueta en la detección del bloque entero)
+function kxbCleanMask(mask, w, bbox, val = 1) {
   const [bx0, by0, bx1, by1] = bbox;
   const ox = bx0 - 2, oy = by0 - 2, lw = bx1 - bx0 + 5, lh = by1 - by0 + 5;
   const m = new Uint8Array(lw * lh);
-  for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) if (mask[y * w + x]) m[(y - oy) * lw + (x - ox)] = 1;
+  for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) if (mask[y * w + x] === val) m[(y - oy) * lw + (x - ox)] = 1;
   // Fuera = lo alcanzable desde el borde sin pisar la presa; el resto es la presa con sus agujeros tapados
   const out = new Uint8Array(lw * lh);
   const q = new Int32Array(lw * lh);
@@ -249,16 +257,82 @@ function kxbSegment(img, nx, ny, tol = KXB_TOL_DEFAULT) {
   const circle = (reason) => ({ ok: false, reason, p: kxbCircle(nx, ny, w, h), rgb: seed.rgb });
   if (res.leak) return circle('leak');
   if (res.area < minArea) return circle('small');
-  const { m, lw, lh, ox, oy } = kxbCleanMask(res.mask, w, res.bbox);
-  let pts = kxbTrace(m, lw, lh);
-  if (pts.length < 3) return circle('small');
+  const p = kxbContour(res.mask, w, h, res.bbox, 1);
+  return p ? { ok: true, p, rgb: seed.rgb } : circle('small');
+}
+
+// Contorno simplificado (en 0..1) de la zona de la máscara con valor val, o null si no sale un polígono
+function kxbContour(mask, w, h, bbox, val) {
+  const { m, lw, lh, ox, oy } = kxbCleanMask(mask, w, bbox, val);
+  const pts = kxbTrace(m, lw, lh);
+  if (pts.length < 3) return null;
   let eps = Math.max(0.8, 0.0015 * Math.max(w, h));
   let simple = kxbSimplify(pts, eps);
   while (simple.length > 48) { eps *= 1.4; simple = kxbSimplify(pts, eps); }
-  if (simple.length < 3) return circle('small');
+  if (simple.length < 3) return null;
   const p = [];
   simple.forEach(([x, y]) => { p.push(+((x + ox + 0.5) / w).toFixed(4), +((y + oy + 0.5) / h).toFixed(4)); });
-  return { ok: true, p, rgb: seed.rgb };
+  return p;
+}
+
+// Bloque entero: todas las zonas de la foto del color de la presa tocada. En los rocódromos el bloque se define por el
+// color de sus presas. Se descartan el ruido (manchas pequeñas), los paneles o el muro (más del 5 % de la foto) y las
+// líneas finas (cinta, juntas). La más alta queda como Top. neutral: presa gris/blanca/negra, no se busca en toda la foto.
+function kxbSegmentAll(img, nx, ny, tol = KXB_TOL_DEFAULT) {
+  const { w, h, rgb } = img;
+  const sx = Math.min(w - 1, Math.max(0, Math.round(nx * w)));
+  const sy = Math.min(h - 1, Math.max(0, Math.round(ny * h)));
+  const seed = kxbSeed(img, sx, sy);
+  if (Math.hypot(seed.lab[1], seed.lab[2]) < KXB_NEUTRAL_CHROMA) return { ok: false, neutral: true, holds: [] };
+  const near = kxbNearFn(img, seed.lab, tol);
+  const N = w * h;
+  const labels = new Int32Array(N);   // 0: sin mirar · -1: no es del color · n > 0: zona n
+  const queue = new Int32Array(N);
+  const cap = Math.round(0.05 * N);
+  const minArea = Math.max(24, Math.round(0.00005 * N));
+  const comps = [];
+  let next = 0;
+  for (let start = 0; start < N; start++) {
+    if (labels[start]) continue;
+    if (!near(start)) { labels[start] = -1; continue; }
+    const lab = ++next;
+    let head = 0, tail = 0, area = 0, cx = 0, cy = 0, r = 0, g = 0, b = 0;
+    let bx0 = w, bx1 = 0, by0 = h, by1 = 0;
+    labels[start] = lab; queue[tail++] = start;
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % w, y = (i - x) / w;
+      area++; cx += x; cy += y; r += rgb[i * 3]; g += rgb[i * 3 + 1]; b += rgb[i * 3 + 2];
+      if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y;
+      const visit = (j) => { if (labels[j]) return; if (near(j)) { labels[j] = lab; queue[tail++] = j; } else labels[j] = -1; };
+      if (x > 0) visit(i - 1);
+      if (x < w - 1) visit(i + 1);
+      if (y > 0) visit(i - w);
+      if (y < h - 1) visit(i + w);
+    }
+    comps.push({ lab, area, bbox: [bx0, by0, bx1, by1], c: [cx / area, cy / area], rgb: [r / area, g / area, b / area] });
+  }
+  const seedLab = labels[sy * w + sx];
+  const seedComp = comps.find(c => c.lab === seedLab);
+  if (!seedComp || seedComp.area > cap || seedComp.area < minArea) return { ok: false, holds: [] };
+  const minKeep = Math.max(minArea, Math.round(seedComp.area * 0.12));
+  const kept = comps.filter(c => {
+    if (c.area > cap || c.area < minKeep) return false;
+    const bw = c.bbox[2] - c.bbox[0] + 1, bh = c.bbox[3] - c.bbox[1] + 1;
+    if (c.area / (bw * bh) < 0.22) return false;                         // líneas y formas huecas
+    if (Math.max(bw, bh) / Math.max(1, Math.min(bw, bh)) > 6) return false;  // tiras finas
+    return true;
+  }).sort((a, b) => (a.lab === seedLab ? -1 : b.lab === seedLab ? 1 : b.area - a.area)).slice(0, KXB_MAX_HOLDS);
+  const holds = [];
+  kept.forEach(c => {
+    const p = kxbContour(labels, w, h, c.bbox, c.lab);
+    if (p) holds.push({ p, s: [+(c.c[0] / w).toFixed(4), +(c.c[1] / h).toFixed(4)], rgb: c.rgb, seed: c.lab === seedLab, y: c.c[1] });
+  });
+  if (holds.length) {
+    const top = holds.reduce((a, b) => (b.y < a.y ? b : a));
+    holds.forEach(hh => { hh.t = hh === top && holds.length > 1 ? 'top' : 'hand'; delete hh.y; });
+  }
+  return { ok: holds.length > 1, holds };
 }
 
 // Punto dentro de un polígono plano [x0, y0, x1, y1, …]
@@ -452,6 +526,7 @@ const KruxBlockEditor = (() => {
   // sel: presa seleccionada. picked: la ha tocado la persona (no es la que se acaba de añadir); solo entonces los botones
   // de tipo cambian esa presa: si no, eligen el tipo de las siguientes
   let holds = [], sel = -1, picked = false, type = 'hand', tol = KXB_TOL_DEFAULT, undo = [];
+  let group = null;   // toque que detectó el bloque entero ({ nx, ny }): el deslizador lo vuelve a calcular
   let s = 1, tx = 0, ty = 0, bw = 0, bh = 0;
   const pointers = new Map();
   let gesture = null;
@@ -477,7 +552,7 @@ const KruxBlockEditor = (() => {
           <button type="button" class="kxb-ed-fab" data-kxb="zin" aria-label="Ampliar">${kxIcon('zoomIn', { size: 20 })}</button>
           <button type="button" class="kxb-ed-fab" data-kxb="zout" aria-label="Reducir la vista">${kxIcon('zoomOut', { size: 20 })}</button>
         </div>
-        <p class="kxb-ed-hint" id="kxb-ed-hint">Toca cada presa del bloque: se marca su contorno. Pellizca para ampliar.</p>
+        <p class="kxb-ed-hint" id="kxb-ed-hint" aria-live="polite">Toca una presa del bloque: se marcarán todas las de su color.</p>
       </div>
       <div class="kxb-ed-tools">
         <div class="kxb-ed-types" role="radiogroup" aria-label="Tipo de presa">
@@ -630,6 +705,8 @@ const KruxBlockEditor = (() => {
       }
     }
     if (holds.length >= KXB_MAX_HOLDS) { toast(`Como máximo ${KXB_MAX_HOLDS} presas por bloque`, 'warning'); return; }
+    // Sin presas todavía: se busca el bloque entero por el color de la presa tocada
+    if (!holds.length && detectGroup(nx, ny)) return;
     let r;
     try {
       r = kxbSegment(analysis(), nx, ny, tol);
@@ -646,9 +723,32 @@ const KruxBlockEditor = (() => {
     paint();
   }
 
+  // Bloque entero desde un toque. Devuelve false si no hay al menos dos presas de ese color (se marca solo la tocada).
+  function detectGroup(nx, ny, { replace = false } = {}) {
+    let r;
+    try { r = kxbSegmentAll(analysis(), nx, ny, tol); } catch (err) { console.warn('[Bloques] Detección del bloque:', err); return false; }
+    const hint = root.querySelector('#kxb-ed-hint');
+    if (!r.ok) {
+      if (replace) { hint.textContent = 'Con este ajuste no se distinguen otras presas de ese color. Prueba a moverlo hacia «Amplio».'; return true; }
+      if (r.neutral) hint.textContent = 'Las presas grises, blancas o negras no se distinguen bien del muro: márcalas una a una.';
+      group = null;
+      return false;
+    }
+    snapshot();
+    const manual = replace ? holds.filter(h => !h.g) : [];
+    holds = manual.concat(r.holds.slice(0, KXB_MAX_HOLDS - manual.length).map(h => ({ t: h.t, p: h.p, s: h.s, rgb: h.rgb, auto: true, g: 1 })));
+    group = { nx, ny };
+    sel = -1; picked = false;
+    const n = r.holds.length;
+    hint.textContent = `${n} presas del mismo color. Toca las que falten para añadirlas, o toca una para cambiar su tipo o borrarla. La más alta es el Top.`;
+    paint();
+    return true;
+  }
+
   function onTol(e) {
     tol = Number(e.target.value) || KXB_TOL_DEFAULT;
-    if (sel < 0) return;
+    // Sin presa seleccionada: se recalcula el bloque entero con el nuevo ajuste (las añadidas a mano se quedan)
+    if (sel < 0 || !picked) { if (group) { sel = -1; detectGroup(group.nx, group.ny, { replace: true }); } return; }
     const h = holds[sel];
     if (!h.s) return;
     const r = kxbSegment(analysis(), h.s[0], h.s[1], tol);
@@ -658,7 +758,7 @@ const KruxBlockEditor = (() => {
   }
 
   function act(a) {
-    if (a === 'undo') { if (undo.length) { holds = JSON.parse(undo.pop()); sel = -1; picked = false; paint(); } return; }
+    if (a === 'undo') { if (undo.length) { holds = JSON.parse(undo.pop()); sel = -1; picked = false; if (!holds.some(h => h.g)) group = null; paint(); } return; }
     if (a === 'zin' || a === 'zout') {
       const r = root.querySelector('#kxb-ed-stage').getBoundingClientRect();
       zoomAt(a === 'zin' ? 1.5 : 1 / 1.5, r.width / 2, r.height / 2);
@@ -727,11 +827,11 @@ const KruxBlockEditor = (() => {
     const im = root.querySelector('#kxb-ed-canvas img');
     im.src = url;
     holds = (initial || []).map(h => ({ ...h, p: h.p.slice(), auto: false }));
-    sel = -1; picked = false; undo = []; type = 'hand'; tol = KXB_TOL_DEFAULT;
+    sel = -1; picked = false; undo = []; type = 'hand'; tol = KXB_TOL_DEFAULT; group = null;
     root.querySelector('#kxb-ed-tol').value = String(tol);
     root.querySelector('#kxb-ed-hint').textContent = holds.length
       ? 'Toca una presa para cambiarla o toca otra nueva para añadirla.'
-      : 'Toca cada presa del bloque: se marca su contorno. Pellizca para ampliar.';
+      : 'Toca una presa del bloque: se marcarán todas las de su color. Pellizca para ampliar.';
     root.classList.remove('hidden');
     document.body.classList.add('kxb-ed-open');
     fit();
