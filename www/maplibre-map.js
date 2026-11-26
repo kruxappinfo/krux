@@ -3268,7 +3268,7 @@ function kxLoadGeoEditor() {
   if (document.getElementById('kx-geo-edits-script')) return;
   const s = document.createElement('script');
   s.id = 'kx-geo-edits-script';
-  s.src = './geo-edits.js?v=1';
+  s.src = './geo-edits.js?v=2';
   document.head.appendChild(s);
 }
 if (typeof firebase !== 'undefined' && firebase.auth) {

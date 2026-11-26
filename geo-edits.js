@@ -437,21 +437,27 @@ async function kxGeoRenderAdmin(container) {
   const editsOf = Object.fromEntries(docIds.map((id, i) => [id, allEdits[i] || {}]));
   const countMoved = (docId, layer) => Object.keys(editsOf[docId]).filter(k => k.startsWith(layer + '|')).length;
 
+  // Una carpeta (desplegable) por escuela: cerradas se ven todas las escuelas de una vez
+  const folder = (name, rowsHtml, fileCount, moved) => `
+    <details class="admin-card kx-geo-school">
+      <summary class="kx-geo-folder">
+        <svg class="kx-geo-folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span class="kx-geo-folder-name">${kxGeoEsc(name)}</span>
+        ${moved ? `<span class="kx-geo-file-badge">${moved} ${moved === 1 ? 'movido' : 'movidos'}</span>` : ''}
+        <span class="kx-geo-folder-count">${fileCount} ${fileCount === 1 ? 'archivo' : 'archivos'}</span>
+        <svg class="kx-geo-folder-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </summary>
+      <div class="admin-card-body">${rowsHtml}</div>
+    </details>`;
+
   const cards = schools.map(([id, s]) => {
-    const rows = Object.keys(KX_GEO_FILE_LABELS)
-      .filter(layer => s.geojson[layer])
-      .map(layer => kxGeoAdminRow(s.geojson[layer], KX_GEO_FILE_LABELS[layer], KX_GEO_EDITABLE_LAYERS.includes(layer) ? countMoved(id, layer) : 0));
-    return `
-      <div class="admin-card kx-geo-school">
-        <div class="admin-card-header">${kxGeoEsc(s.name)}</div>
-        <div class="admin-card-body">${rows.join('')}</div>
-      </div>`;
+    const layers = Object.keys(KX_GEO_FILE_LABELS).filter(layer => s.geojson[layer]);
+    const rows = layers.map(layer => kxGeoAdminRow(s.geojson[layer], KX_GEO_FILE_LABELS[layer], KX_GEO_EDITABLE_LAYERS.includes(layer) ? countMoved(id, layer) : 0));
+    const moved = layers.reduce((sum, layer) => sum + (KX_GEO_EDITABLE_LAYERS.includes(layer) ? countMoved(id, layer) : 0), 0);
+    return folder(s.name, rows.join(''), layers.length, moved);
   });
-  cards.push(`
-    <div class="admin-card kx-geo-school">
-      <div class="admin-card-header">Rocódromos</div>
-      <div class="admin-card-body">${kxGeoAdminRow(KX_GYMS_GEOJSON, 'Rocódromos', countMoved('rocodromos', 'rocodromos'))}</div>
-    </div>`);
+  const gymsMoved = countMoved('rocodromos', 'rocodromos');
+  cards.push(folder('Rocódromos', kxGeoAdminRow(KX_GYMS_GEOJSON, 'Rocódromos', gymsMoved), 1, gymsMoved));
 
   container.innerHTML = cards.join('');
   if (!container.dataset.geoBound) {
