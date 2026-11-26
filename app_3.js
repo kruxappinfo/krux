@@ -3239,6 +3239,7 @@ function initMessages() {
   let currentChat = null;
   let unsubscribeMessages = null;
   let chatRenderedIds = null;   // ids ya pintados (para animar solo los nuevos)
+  let chatLikedIds = new Set(); // mensajes con like en el último pintado (para animar solo los likes nuevos)
   let chatOpener = null;
   let chatMarkReadTimer = null;
   let chatBannerKind = null;
@@ -3377,6 +3378,7 @@ function initMessages() {
 
   const CHAT_ICON_SENT = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
   const CHAT_ICON_READ = '<svg viewBox="0 0 28 24" width="19" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 6 7 17 3 12.5"></polyline><polyline points="25 6 14.5 17 12.5 15"></polyline></svg>';
+  const CHAT_ICON_HEART = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.3C1 8.3 3.2 4.5 7 4.5c2.1 0 3.6 1.1 5 3 1.4-1.9 2.9-3 5-3 3.8 0 6 3.8 4.6 7.2C19.5 16.4 12 21 12 21z"/></svg>';
   const CHAT_ICON_PENDING = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>';
 
   function chatIntroHTML() {
@@ -3432,6 +3434,7 @@ function initMessages() {
 
     let html = chatIntroHTML() + '<div class="chat-spacer" aria-hidden="true"></div>';
     let lastDayKey = '';
+    const likedNow = new Set();
     const readReceipts = window.MessagingService?.readReceiptsEnabled?.() !== false;
     messages.forEach((msg, i) => {
       const isSent = msg.senderId === currentUser.uid;
@@ -3472,15 +3475,31 @@ function initMessages() {
       const shared = chatSharedPost(msg);
       if (shared) classes.push('is-post');
 
+      // Like: solo lo pone quien recibe el mensaje. En los míos se ve si al otro le ha gustado;
+      // en los recibidos, si me gusta a mí (y se quita pulsando el corazón)
+      const likes = Array.isArray(msg.likes) ? msg.likes : [];
+      const liked = isSent ? likes.some(uid => uid !== currentUser.uid) : likes.includes(currentUser.uid);
+      let like = '';
+      if (liked) {
+        classes.push('has-like');
+        if (!firstRender && !chatLikedIds.has(msg.id)) classes.push('is-like-new');
+        likedNow.add(msg.id);
+        like = isSent
+          ? `<span class="chat-like" role="img" aria-label="Le ha gustado">${CHAT_ICON_HEART}</span>`
+          : `<button type="button" class="chat-like" data-chat-unlike="${msg.id}" aria-label="Te gusta. Quitar like">${CHAT_ICON_HEART}</button>`;
+      }
+
       html += `
         <div class="${classes.join(' ')}" data-id="${msg.id}">
           ${shared ? `${shared.note ? `<div class="chat-message-text">${chatFormatText(shared.note)}</div>` : ''}${chatPostCardHTML(shared.id, shared.data)}` : `<div class="chat-message-text">${chatFormatText(msg.text)}</div>`}
           ${showMeta ? `<div class="chat-message-meta">${time ? `<span class="chat-message-time">${time}</span>` : ''}${status}</div>` : ''}
+          ${like}
         </div>`;
     });
 
     chatMessagesContainer.innerHTML = html;
     chatRenderedIds = new Set(messages.map(m => m.id));
+    chatLikedIds = likedNow;
 
     const last = messages[messages.length - 1];
     const lastIsNewMine = last && last.senderId === currentUser.uid && !previousIds.has(last.id);
@@ -3707,6 +3726,42 @@ function initMessages() {
 
   if (chatSendBtn) chatSendBtn.addEventListener('click', sendMessage);
   chatNewPill?.addEventListener('click', () => chatScrollToBottom(true));
+  // Like a un mensaje recibido: doble toque (o doble clic) sobre la burbuja; el corazón lo quita
+  async function toggleChatLike(messageId, like) {
+    if (!currentChat?.isRealConversation || !window.MessagingService?.setMessageLike) return;
+    try {
+      await window.MessagingService.setMessageLike(currentChat.id, messageId, like);
+    } catch (error) {
+      console.error('Error al dar like al mensaje:', error);
+      showToast(like ? 'No se ha podido dar like' : 'No se ha podido quitar el like', 'error', { detail: typeof kxFriendlyError === 'function' ? kxFriendlyError(error) : undefined });
+    }
+  }
+  let chatLastTap = { id: null, t: 0, x: 0, y: 0 };
+  chatMessagesContainer?.addEventListener('pointerup', (e) => {
+    if (e.button > 0) return;
+    const unlike = e.target.closest('[data-chat-unlike]');
+    if (unlike) {
+      chatLastTap = { id: null, t: 0, x: 0, y: 0 };
+      toggleChatLike(unlike.dataset.chatUnlike, false);
+      return;
+    }
+    const bubble = e.target.closest('.chat-message.received:not(.is-pending)');
+    if (!bubble || e.target.closest('a, button, [data-kx-post-open]')) { chatLastTap.id = null; return; }
+    const now = performance.now();
+    const isDouble = chatLastTap.id === bubble.dataset.id && now - chatLastTap.t < 350
+      && Math.abs(e.clientX - chatLastTap.x) < 24 && Math.abs(e.clientY - chatLastTap.y) < 24;
+    if (!isDouble) {
+      chatLastTap = { id: bubble.dataset.id, t: now, x: e.clientX, y: e.clientY };
+      return;
+    }
+    chatLastTap = { id: null, t: 0, x: 0, y: 0 };
+    toggleChatLike(bubble.dataset.id, !bubble.classList.contains('has-like'));
+  });
+  // El doble clic con ratón no selecciona el texto de la burbuja
+  chatMessagesContainer?.addEventListener('mousedown', (e) => {
+    if (e.detail > 1 && e.target.closest('.chat-message.received')) e.preventDefault();
+  });
+
   chatMessagesContainer?.addEventListener('scroll', () => {
     if (chatIsNearBottom()) chatNewPill?.classList.add('hidden');
   }, { passive: true });
