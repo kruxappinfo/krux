@@ -6585,7 +6585,7 @@ function initEditProfile() {
       if (selectedPhotoFile) {
         submitBtn.textContent = 'Subiendo foto...';
         const storageRef = firebase.storage().ref();
-        const profilePhoto = await kxPrepareImageForUpload(selectedPhotoFile, { maxSide: 640, quality: 0.85, lightBytes: 150 * 1024 });
+        const profilePhoto = await kxPrepareImageForUpload(selectedPhotoFile, { maxSide: 400, quality: 0.8, lightBytes: 60 * 1024, forceJpeg: true });
         const photoRef = storageRef.child(`profile-photos/${currentUser.uid}/${Date.now()}_${profilePhoto.name}`);
         await kxStoragePut(photoRef, profilePhoto);
         photoURL = await photoRef.getDownloadURL();
@@ -13780,7 +13780,7 @@ async function kxLoadImageSource(file) {
   return { src: img, width: img.naturalWidth, height: img.naturalHeight, close: () => URL.revokeObjectURL(url) };
 }
 
-async function kxPrepareImageForUpload(file, { maxSide = 1600, quality = 0.82, lightBytes = 600 * 1024 } = {}) {
+async function kxPrepareImageForUpload(file, { maxSide = 1600, quality = 0.82, lightBytes = 600 * 1024, forceJpeg = false } = {}) {
   try {
     // Solo JPEG, PNG, WebP y HEIC/HEIF; GIF (animados), SVG y otros se suben tal cual
     if (!(file instanceof Blob) || !/^image\/(jpe?g|png|webp|heic|heif)$/i.test(file.type || '')) return file;
@@ -13788,11 +13788,11 @@ async function kxPrepareImageForUpload(file, { maxSide = 1600, quality = 0.82, l
     const source = await kxLoadImageSource(file);
     try {
       const scale = Math.min(1, maxSide / Math.max(source.width, source.height));
-      if (scale === 1 && file.size <= lightBytes) return file; // ya es ligera
+      if (scale === 1 && file.size <= lightBytes && !(forceJpeg && /png/i.test(file.type))) return file; // ya es ligera
 
       const width = Math.max(1, Math.round(source.width * scale));
       const height = Math.max(1, Math.round(source.height * scale));
-      const isPng = /png/i.test(file.type);
+      const isPng = /png/i.test(file.type) && !forceJpeg; // forceJpeg: sin transparencia que conservar (p. ej. fotos de perfil)
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
