@@ -64,7 +64,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=268" />
+  <link rel="stylesheet" href="./app_2.css?v=269" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -123,7 +123,7 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=141"></script>
+  <script defer src="./app_3.js?v=142"></script>
   <script defer src="./activity-ui.js?v=9"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -3692,14 +3692,24 @@
 
     // Mostrar notificaciÃ³n de actualizaciÃ³n disponible
     function showUpdateNotification() {
-      // Crear toast de actualizaciÃ³n
+      if (document.querySelector('.pwa-update-toast')) return;
       const toast = document.createElement('div');
       toast.className = 'pwa-update-toast';
+      toast.setAttribute('role', 'status');
       toast.innerHTML = `
-        <span>Nueva versión disponible</span>
-        <button onclick="updateApp()">Actualizar</button>
-        <button onclick="this.parentElement.remove()" class="dismiss">x</button>
+        <span class="pwa-update-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.9-3.5M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.9 3.5M20 20v-4h-4"/></svg></span>
+        <span class="pwa-update-body">
+          <span class="pwa-update-title">Nueva versión disponible</span>
+          <span class="pwa-update-detail">Actualiza para tener las últimas mejoras</span>
+        </span>
+        <button type="button" class="pwa-update-action">Actualizar</button>
+        <button type="button" class="pwa-update-close" aria-label="Cerrar aviso"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       `;
+      toast.querySelector('.pwa-update-action').addEventListener('click', updateApp);
+      toast.querySelector('.pwa-update-close').addEventListener('click', () => {
+        toast.classList.add('is-out');
+        setTimeout(() => toast.remove(), 200);
+      });
       document.body.appendChild(toast);
     }
 

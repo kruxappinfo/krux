@@ -3338,7 +3338,11 @@ function initMessages() {
       .then(data => {
         chatPostCache.set(postId, data);
         chatMessagesContainer?.querySelectorAll(`.chat-post[data-kx-post-open="${postId}"]`).forEach(el => {
-          el.outerHTML = chatPostCardHTML(postId, data);
+          const tpl = document.createElement('template');
+          tpl.innerHTML = chatPostCardHTML(postId, data).trim();
+          const card = tpl.content.firstElementChild;
+          el.replaceWith(card);
+          chatHydratePostAuthors(card);
         });
       });
     return undefined;
@@ -3358,7 +3362,7 @@ function initMessages() {
     const photo = escapeHtmlMention(data.authorPhoto || generateAvatarFallback(data.author || 'Usuario', 64));
     return `<button type="button" class="chat-post" data-kx-post-open="${id}" aria-label="Abrir publicación de ${author}">
       <span class="chat-post-head">
-        <img class="chat-post-avatar" src="${photo}" alt="" referrerPolicy="no-referrer" data-fallback="${escapeHtmlMention(generateAvatarFallback(data.author || 'Usuario', 64))}">
+        <img class="chat-post-avatar" src="${photo}" alt="" referrerPolicy="no-referrer" data-fallback="${escapeHtmlMention(generateAvatarFallback(data.author || 'Usuario', 64))}" ${data.authorId ? `data-author-photo="${escapeHtmlMention(data.authorId)}"` : `data-post-author="${id}"`}>
         <span class="chat-post-author">${author}</span>
       </span>
       ${data.thumb ? `<img class="chat-post-thumb" src="${escapeHtmlMention(data.thumb)}" alt="" loading="lazy" decoding="async">` : ''}
@@ -3413,6 +3417,55 @@ function initMessages() {
     document.getElementById('chat-retry-btn')?.addEventListener('click', () => subscribeCurrentChat());
   }
 
+  // Pintado por piezas: solo se rehace lo que cambia. Antes se reescribía todo el historial en cada
+  // cambio (un like, un tic) y las fotos de las publicaciones compartidas se volvían a cargar.
+  // Las clases que solo animan una vez no cuentan como cambio.
+  const CHAT_ONE_SHOT = / is-new| is-like-new/g;
+  function chatPatchMessages(items) {
+    const box = chatMessagesContainer;
+    const old = new Map();
+    [...box.children].forEach(el => { if (el._kxKey) old.set(el._kxKey, el); });
+    const tpl = document.createElement('template');
+    const nodes = items.map(({ key, html }) => {
+      const sig = html.replace(CHAT_ONE_SHOT, '');
+      const prev = old.get(key);
+      if (prev && prev._kxSig === sig) { old.delete(key); return prev; }
+      tpl.innerHTML = html.trim();
+      const el = tpl.content.firstElementChild;
+      if (!el) return null;
+      el._kxKey = key;
+      el._kxSig = sig;
+      // Mensaje que cambia (un like, un tic): la tarjeta de la publicación ya cargada se conserva tal cual
+      if (prev) {
+        const card = prev.querySelector('.chat-post:not(.is-loading)');
+        const fresh = card && el.querySelector(`.chat-post[data-kx-post-open="${card.dataset.kxPostOpen}"]`);
+        if (fresh) fresh.replaceWith(card);
+      }
+      chatHydratePostAuthors(el);
+      return el;
+    }).filter(Boolean);
+    nodes.forEach((el, i) => { if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null); });
+    while (box.children.length > nodes.length) box.lastElementChild.remove();
+  }
+
+  // Foto actual del autor en las publicaciones compartidas (si cambió de foto después de compartirla)
+  const chatPostAuthorCache = new Map();
+  function chatHydratePostAuthors(root) {
+    kxHydrateAuthorPhotos(root);
+    root.querySelectorAll('img[data-post-author]').forEach(img => {
+      const postId = img.dataset.postAuthor;
+      if (!chatPostAuthorCache.has(postId)) {
+        chatPostAuthorCache.set(postId, db.collection('posts').doc(postId).get()
+          .then(doc => (doc.exists && doc.data().userId) || '').catch(() => ''));
+      }
+      chatPostAuthorCache.get(postId).then(uid => {
+        if (!uid) return;
+        img.dataset.authorPhoto = uid;
+        kxAuthorPhoto(uid).then(url => { if (url && img.getAttribute('src') !== url) img.src = url; });
+      });
+    });
+  }
+
   function renderChatMessages(messages) {
     const currentUser = firebase.auth().currentUser;
     if (!currentUser) return;
@@ -3422,17 +3475,18 @@ function initMessages() {
     const previousIds = chatRenderedIds || new Set();
 
     if (messages.length === 0) {
-      chatMessagesContainer.innerHTML = `
-        ${chatIntroHTML()}
-        <div class="chat-empty">
+      chatPatchMessages([
+        { key: 'intro', html: chatIntroHTML() },
+        { key: 'empty', html: `<div class="chat-empty">
           <div class="chat-empty-text">Aún no hay mensajes</div>
           <div class="chat-empty-hint">Escribe el primero para empezar la conversación.</div>
-        </div>`;
+        </div>` }
+      ]);
       chatRenderedIds = new Set();
       return;
     }
 
-    let html = chatIntroHTML() + '<div class="chat-spacer" aria-hidden="true"></div>';
+    const items = [{ key: 'intro', html: chatIntroHTML() }, { key: 'spacer', html: '<div class="chat-spacer" aria-hidden="true"></div>' }];
     let lastDayKey = '';
     const likedNow = new Set();
     const readReceipts = window.MessagingService?.readReceiptsEnabled?.() !== false;
@@ -3443,7 +3497,7 @@ function initMessages() {
       const effective = date || new Date();
       const dayKey = effective.toDateString();
       if (dayKey !== lastDayKey) {
-        html += `<div class="chat-day"><span>${chatDayLabel(effective)}</span></div>`;
+        items.push({ key: 'day-' + dayKey, html: `<div class="chat-day"><span>${chatDayLabel(effective)}</span></div>` });
         lastDayKey = dayKey;
       }
 
@@ -3493,15 +3547,15 @@ function initMessages() {
         like = `<span class="chat-like" aria-hidden="true">${CHAT_ICON_HEART}</span>`;
       }
 
-      html += `
+      items.push({ key: 'm-' + msg.id, html: `
         <div class="${classes.join(' ')}" data-id="${msg.id}">
           ${shared ? `${shared.note ? `<div class="chat-message-text">${chatFormatText(shared.note)}</div>` : ''}${chatPostCardHTML(shared.id, shared.data)}` : `<div class="chat-message-text">${chatFormatText(msg.text)}</div>`}
           ${showMeta ? `<div class="chat-message-meta">${time ? `<span class="chat-message-time">${time}</span>` : ''}${status}</div>` : ''}
           ${like}
-        </div>`;
+        </div>` });
     });
 
-    chatMessagesContainer.innerHTML = html;
+    chatPatchMessages(items);
     chatRenderedIds = new Set(messages.map(m => m.id));
     chatLikedIds = likedNow;
 
@@ -13369,6 +13423,7 @@ function kxSharedPostData(id, d) {
   return {
     id,
     author: d.userName || 'Usuario',
+    authorId: d.userId || '',
     authorPhoto: d.userPhoto || '',
     thumb: thumb || '',
     text: text.length > 140 ? text.slice(0, 139) + '…' : text
