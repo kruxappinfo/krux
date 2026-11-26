@@ -3487,6 +3487,10 @@ function initMessages() {
         like = isSent
           ? `<span class="chat-like" role="img" aria-label="Le ha gustado">${CHAT_ICON_HEART}</span>`
           : `<button type="button" class="chat-like" data-chat-unlike="${msg.id}" aria-label="Te gusta. Quitar like">${CHAT_ICON_HEART}</button>`;
+      } else if (!firstRender && chatLikedIds.has(msg.id)) {
+        // Like quitado: el corazón se encoge (al revés que al ponerlo) y después se cierra el hueco
+        classes.push('is-like-out');
+        like = `<span class="chat-like" aria-hidden="true">${CHAT_ICON_HEART}</span>`;
       }
 
       html += `
