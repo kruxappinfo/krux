@@ -105,6 +105,14 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
       }
 
+      // Publicaciones guardadas: privadas, solo su dueño las ve
+      match /savedPosts/{postId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && request.resource.data.keys().hasOnly(['savedAt'])
+          && request.resource.data.savedAt == request.time;
+      }
+
       match /ascents/{ascentId} {
         allow read: if isAuthenticated();
         allow write: if isOwner(userId);

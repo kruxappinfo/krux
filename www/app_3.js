@@ -1872,6 +1872,8 @@ function resetProfileState() {
   if (postsGrid) postsGrid.innerHTML = '<div class="loading-spinner">Cargando...</div>';
   if (likedGrid) likedGrid.innerHTML = '<div class="loading-spinner">Cargando...</div>';
   if (mentionsGrid) mentionsGrid.innerHTML = '';
+  const savedGrid = document.getElementById('profile-saved-grid');
+  if (savedGrid) savedGrid.innerHTML = '';
 
   // Reset stats to 0 while loading
   const elements = ['stat-followers', 'stat-following', 'total-ascents', 'max-grade', 'zones-visited'];
@@ -2086,7 +2088,10 @@ function configureProfileViewForOwnProfile() {
 
   // Update tab labels
   const postsLabel = document.getElementById('profile-tab-posts-label');
-  if (postsLabel) postsLabel.textContent = 'Mis publicaciones';
+  if (postsLabel) postsLabel.textContent = 'Publicaciones';
+  // Guardados: solo en el perfil propio
+  const savedTab = document.getElementById('profile-tab-saved');
+  if (savedTab) savedTab.hidden = false;
 
   currentProfileUserId = null;
 
@@ -2119,6 +2124,11 @@ function configureProfileViewForOtherProfile() {
   // Update tab labels
   const postsLabel = document.getElementById('profile-tab-posts-label');
   if (postsLabel) postsLabel.textContent = 'Publicaciones';
+  // Los guardados de cada uno son privados: la pestaña no existe en perfiles ajenos
+  const savedTab = document.getElementById('profile-tab-saved');
+  if (savedTab) savedTab.hidden = true;
+  const savedGrid = document.getElementById('profile-saved-grid');
+  if (savedGrid) savedGrid.innerHTML = '';
 
   // Reset spotter elements synchronously to avoid flash of stale state
   const spotterBadge = document.getElementById('spotter-badge');
@@ -2190,8 +2200,8 @@ async function loadProfilePostsForUser(userId, loadId = null) {
 
     if (currentUser) {
       try {
-        const userDoc = await Promise.race([
-          db.collection('users').doc(currentUser.uid).get(),
+        const savedPosts = await Promise.race([
+          kxGetSavedPostIds(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
         ]);
 
@@ -2200,8 +2210,6 @@ async function loadProfilePostsForUser(userId, loadId = null) {
           return;
         }
 
-        const userData = userDoc.exists ? userDoc.data() : {};
-        const savedPosts = new Set(userData.savedPosts || []);
 
         posts.forEach(post => {
           const likesArray = post.likes || [];
@@ -2760,9 +2768,7 @@ async function loadPublicProfilePosts(userId) {
     // Load current user's likes and bookmarks if logged in
     if (currentUser) {
       try {
-        const userDoc = await db.collection('users').doc(currentUser.uid).get();
-        const userData = userDoc.exists ? userDoc.data() : {};
-        const savedPosts = new Set(userData.savedPosts || []);
+        const savedPosts = await kxGetSavedPostIds();
 
         posts.forEach(post => {
           const likesArray = post.likes || [];
@@ -2841,9 +2847,7 @@ async function loadPublicProfileLikes(userId) {
     // Load current user's bookmarks if logged in
     if (currentUser) {
       try {
-        const userDoc = await db.collection('users').doc(currentUser.uid).get();
-        const userData = userDoc.exists ? userDoc.data() : {};
-        const savedPosts = new Set(userData.savedPosts || []);
+        const savedPosts = await kxGetSavedPostIds();
 
         likedPosts.forEach(post => {
           post.bookmarked = savedPosts.has(post.id);
@@ -2907,9 +2911,7 @@ async function loadPublicProfileLikes(userId) {
       // Load current user's bookmarks
       if (currentUser) {
         try {
-          const userDoc = await db.collection('users').doc(currentUser.uid).get();
-          const userData = userDoc.exists ? userDoc.data() : {};
-          const savedPosts = new Set(userData.savedPosts || []);
+          const savedPosts = await kxGetSavedPostIds();
           likedPosts.forEach(post => {
             post.bookmarked = savedPosts.has(post.id);
           });
@@ -5987,10 +5989,7 @@ async function renderProfileGrid(loadId = null) {
       const userId = authUser.uid;
 
       try {
-        // Get user's savedPosts array (single read instead of multiple)
-        const userDoc = await db.collection('users').doc(userId).get();
-        const userData = userDoc.exists ? userDoc.data() : {};
-        const savedPosts = new Set(userData.savedPosts || []);
+        const savedPosts = await kxGetSavedPostIds();
 
         // Check likes from each post's likes array
         posts.forEach(post => {
@@ -6094,11 +6093,9 @@ async function renderLikedPosts() {
       return;
     }
 
-    // Load user's savedPosts for bookmark status
+    // Publicaciones guardadas, para pintar el botón de guardar
     try {
-      const userDoc = await db.collection('users').doc(userId).get();
-      const userData = userDoc.exists ? userDoc.data() : {};
-      const savedPosts = new Set(userData.savedPosts || []);
+      const savedPosts = await kxGetSavedPostIds();
 
       likedPosts.forEach(post => {
         post.bookmarked = savedPosts.has(post.id);
@@ -6241,6 +6238,8 @@ function initProfileTabs() {
         } else {
           renderMentionsPosts();
         }
+      } else if (targetTab === 'saved') {
+        await renderSavedPosts();
       }
     });
   });
@@ -11168,10 +11167,7 @@ async function loadFeed(opts) {
       const userId = currentUser.uid;
 
       try {
-        // Get user's savedPosts array (single read instead of multiple)
-        const userDoc = await db.collection('users').doc(userId).get();
-        const userData = userDoc.exists ? userDoc.data() : {};
-        const savedPosts = new Set(userData.savedPosts || []);
+        const savedPosts = await kxGetSavedPostIds();
 
         // Check likes from each post's likes array
         limitedPosts.forEach(post => {
@@ -13352,60 +13348,120 @@ async function kxSubmitComment(postId, form, input, text) {
   });
 }
 
-// Handle bookmark/save button click - Uses savedPosts array in users/{uid}
-// Colors: Active = Amber (#f59e0b), Inactive = outline (no fill)
+// ================== PUBLICACIONES GUARDADAS ==================
+// Se guardan en users/{uid}/savedPosts/{postId}: solo su dueño puede leerlas (el documento del usuario lo lee
+// cualquiera con sesión, por eso ya no van en el antiguo array users/{uid}.savedPosts).
+const KX_SAVED_LIMIT = 100;
+let kxSavedIdsCache = null;   // { uid, promise } — un solo viaje a Firestore por sesión
+
+/** Ids de las publicaciones guardadas por el usuario actual (Set vacío sin sesión). */
+function kxGetSavedPostIds() {
+  const user = firebase.auth().currentUser;
+  if (!user) return Promise.resolve(new Set());
+  if (kxSavedIdsCache && kxSavedIdsCache.uid === user.uid) return kxSavedIdsCache.promise;
+  const promise = (async () => {
+    await kxMigrateLegacySavedPosts(user.uid);
+    const snap = await db.collection('users').doc(user.uid).collection('savedPosts').get();
+    return new Set(snap.docs.map(d => d.id));
+  })();
+  kxSavedIdsCache = { uid: user.uid, promise };
+  // Si falla, el siguiente intento vuelve a preguntar
+  promise.catch(() => { if (kxSavedIdsCache && kxSavedIdsCache.promise === promise) kxSavedIdsCache = null; });
+  return promise;
+}
+
+/** Pasa el array antiguo users/{uid}.savedPosts a la subcolección privada y lo borra del perfil. */
+async function kxMigrateLegacySavedPosts(uid) {
+  const userRef = db.collection('users').doc(uid);
+  const userDoc = await userRef.get();
+  const legacy = userDoc.exists ? userDoc.get('savedPosts') : undefined;
+  if (legacy === undefined) return;
+  const ids = Array.isArray(legacy) ? legacy.filter(id => typeof id === 'string' && id).slice(0, 400) : [];
+  const batch = db.batch();
+  ids.forEach(id => batch.set(userRef.collection('savedPosts').doc(id), { savedAt: firebase.firestore.FieldValue.serverTimestamp() }));
+  batch.update(userRef, { savedPosts: firebase.firestore.FieldValue.delete() });
+  await batch.commit();
+}
+
+/** Pinta todos los botones de guardar de una publicación (puede salir a la vez en el feed y en el perfil). */
+function kxPaintBookmarkButtons(postId, bookmarked) {
+  document.querySelectorAll(`.feed-action-btn[data-action="bookmark"][data-post-id="${CSS.escape(postId)}"]`).forEach(btn => {
+    btn.classList.toggle('bookmarked', bookmarked);
+    btn.setAttribute('aria-pressed', bookmarked ? 'true' : 'false');
+    const svg = btn.querySelector('svg');
+    if (svg) svg.setAttribute('fill', bookmarked ? 'currentColor' : 'none');
+  });
+}
+
+// Botón de guardar del feed: guarda o quita la publicación de users/{uid}/savedPosts
 async function handleFeedBookmark(postId, button) {
   if (!currentUser) {
     showToast('Inicia sesión para guardar', 'info');
     return;
   }
 
-  const isBookmarked = button.classList.contains('bookmarked');
-  const svg = button.querySelector('svg');
-
-  // Optimistic UI Update - Immediately update before DB call
-  button.classList.toggle('bookmarked');
-  if (svg) {
-    if (!isBookmarked) {
-      // Activating: Amber filled
-      svg.setAttribute('fill', '#f59e0b');
-      svg.setAttribute('stroke', '#f59e0b');
-    } else {
-      // Deactivating: Outline only (no fill)
-      svg.setAttribute('fill', 'none');
-      svg.setAttribute('stroke', 'currentColor');
-    }
-  }
+  const wasBookmarked = button.classList.contains('bookmarked');
+  kxPaintBookmarkButtons(postId, !wasBookmarked);
 
   try {
-    const userRef = db.collection('users').doc(currentUser.uid);
-
-    // Update savedPosts array using arrayUnion/arrayRemove
-    if (isBookmarked) {
-      // Remove from saved
-      await userRef.update({
-        savedPosts: firebase.firestore.FieldValue.arrayRemove(postId)
-      });
+    const ref = db.collection('users').doc(currentUser.uid).collection('savedPosts').doc(postId);
+    if (wasBookmarked) {
+      await ref.delete();
     } else {
-      // Add to saved
-      await userRef.update({
-        savedPosts: firebase.firestore.FieldValue.arrayUnion(postId)
-      });
+      await ref.set({ savedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+    const ids = await kxGetSavedPostIds().catch(() => null);
+    if (ids) wasBookmarked ? ids.delete(postId) : ids.add(postId);
+    showToast(wasBookmarked ? 'Quitada de Guardados' : 'Guardada en tu perfil', 'success');
+    // Quitada desde la propia pestaña de Guardados: desaparece de la lista
+    if (wasBookmarked) {
+      const card = button.closest('#profile-saved-grid .feed-card');
+      if (card) { card.remove(); kxSavedEmptyIfNeeded(); }
     }
   } catch (error) {
     console.error('Error toggling bookmark:', error);
-    // Revert optimistic update on error
-    button.classList.toggle('bookmarked');
-    if (svg) {
-      if (isBookmarked) {
-        svg.setAttribute('fill', '#f59e0b');
-        svg.setAttribute('stroke', '#f59e0b');
-      } else {
-        svg.setAttribute('fill', 'none');
-        svg.setAttribute('stroke', 'currentColor');
-      }
-    }
+    kxPaintBookmarkButtons(postId, wasBookmarked);
     showToast('No se ha podido guardar la publicación', 'error', { detail: kxFriendlyError(error) });
+  }
+}
+
+function kxSavedEmptyIfNeeded() {
+  const grid = document.getElementById('profile-saved-grid');
+  if (!grid || grid.querySelector('.feed-action-btn')) return;
+  grid.innerHTML = '<div class="empty-message" style="text-align: center; padding: 40px 20px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin: 0 auto 16px; opacity: 0.5;"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg><p style="margin: 0; color: #6b7280;">Aún no has guardado nada</p><p style="margin: 8px 0 0; color: #9ca3af; font-size: 14px;">Pulsa el marcador de una publicación para tenerla aquí. Solo tú ves esta lista.</p></div>';
+}
+
+/** Pestaña «Guardados» del perfil propio, de la más reciente a la más antigua. */
+async function renderSavedPosts() {
+  const grid = document.getElementById('profile-saved-grid');
+  if (!grid) return;
+  const authUser = firebase.auth().currentUser;
+  if (!authUser || currentProfileUserId) { grid.innerHTML = ''; return; }
+
+  grid.innerHTML = '<div class="empty-message" style="text-align: center; padding: 20px;">Cargando guardados...</div>';
+  try {
+    await kxGetSavedPostIds();   // migra el array antiguo antes de listar
+    const snap = await db.collection('users').doc(authUser.uid).collection('savedPosts')
+      .orderBy('savedAt', 'desc').limit(KX_SAVED_LIMIT).get();
+    const docs = await Promise.all(snap.docs.map(d => db.collection('posts').doc(d.id).get().catch(() => null)));
+    if (firebase.auth().currentUser !== authUser || currentProfileUserId) return;
+
+    const posts = docs.filter(d => d && d.exists).map(d => {
+      const post = { id: d.id, ...d.data() };
+      const likes = post.likes || [];
+      post.liked = Array.isArray(likes) && likes.includes(authUser.uid);
+      post.likesCount = Array.isArray(likes) ? likes.length : (typeof likes === 'number' ? likes : 0);
+      post.bookmarked = true;
+      return post;
+    });
+
+    grid.innerHTML = '';
+    if (!posts.length) { kxSavedEmptyIfNeeded(); return; }
+    posts.forEach(post => renderPostCard(post, grid));
+    attachFeedEventListeners(grid);
+  } catch (error) {
+    console.error('Error loading saved posts:', error);
+    grid.innerHTML = '<div class="empty-message" style="text-align: center; padding: 20px; color: #ef4444;">Error al cargar tus guardados</div>';
   }
 }
 
