@@ -15430,6 +15430,7 @@ function initActivityView() {
       document.getElementById('content-roca').style.display = currentActivityMode === 'roca' ? '' : 'none';
       document.getElementById('content-rocodromo').style.display = currentActivityMode === 'rocodromo' ? '' : 'none';
       if (currentActivityMode === 'rocodromo' && window.KruxGymBlocks) KruxGymBlocks.renderActivity();
+      if (currentActivityMode === 'rocodromo' && window.KruxSessionUI) KruxSessionUI.refreshGymHub();
     });
   });
 
@@ -15448,7 +15449,10 @@ function initActivityView() {
   if (fabBtn) {
     fabBtn.addEventListener('click', () => {
       if (currentActivityMode === 'rocodromo') {
-        openNewGymAscent();
+        // Con una sesión de rocódromo en curso, el registro va a la sesión
+        const live = window.KruxSession && KruxSession.get();
+        if (live && live.session.type === 'gym') openNewGymAscent({ gymId: live.session.schoolId, gymName: live.session.schoolName, sessionId: live.session.id, companions: live.session.companions || [] });
+        else openNewGymAscent();
       } else {
         // Las ascensiones de roca se registran sobre una vía concreta: se lleva al mapa
         showToast('Elige una vía en el mapa y pulsa el check para registrarla', 'info');
@@ -16486,7 +16490,8 @@ function _populateGymGradeSelect(type) {
 }
 
 // opts (ficha del rocódromo y «Mis bloques»): gymId/gymName preseleccionan el rocódromo, gtype el tipo ('via' | 'boulder')
-// y pickPhoto lleva la vista a la foto del bloque (gym-blocks.js).
+// y pickPhoto lleva la vista a la foto del bloque (gym-blocks.js). sessionId: registro dentro de una sesión de rocódromo
+// en tiempo real (climb-session.js), con sus compañeros (companions) ya marcados.
 function openNewGymAscent(opts = {}) {
   if (typeof openAscentModal !== 'function') return;
   const gtype0 = opts.gtype === 'boulder' ? 'boulder' : 'via';
@@ -16501,6 +16506,9 @@ function openNewGymAscent(opts = {}) {
   delete form.dataset.ascentId;
   delete form.dataset.editMode;
   delete form.dataset.routeId;
+  delete form.dataset.gymSession;
+  if (opts.sessionId) form.dataset.gymSession = opts.sessionId;
+  if (window.KruxPartners) KruxPartners.resetForm(opts.companions || []);
 
   // Reset hidden fields
   document.getElementById('ascent-school-id').value   = '';
@@ -16555,7 +16563,7 @@ function openNewGymAscent(opts = {}) {
     styleToggle.querySelector('.style-dropdown-label').innerHTML = '<strong>Redpoint</strong> — Encadenada tras haberla probado antes';
   }
 
-  if (title) title.textContent = opts.pickPhoto ? 'Registrar bloque' : 'Nueva sesión rocódromo';
+  if (title) title.textContent = opts.sessionId ? 'Añadir a la sesión' : opts.pickPhoto ? 'Registrar bloque' : 'Nueva sesión rocódromo';
 
   modal.classList.remove('hidden');
 
@@ -16634,6 +16642,7 @@ function openGymPickerSheet() {
 }
 
 function closeGymPickerSheet() {
+  _gymPickerOnPick = null;
   document.getElementById('gym-picker-sheet')?.classList.add('hidden');
 }
 
@@ -16708,7 +16717,20 @@ async function _renderGymPickerList(query) {
   });
 }
 
+// Elegir un rocódromo fuera del formulario de ascenso (inicio de una sesión de rocódromo): onPick({ id, name, city })
+let _gymPickerOnPick = null;
+function kxPickGym(onPick) {
+  openGymPickerSheet();
+  _gymPickerOnPick = onPick;
+}
+
 function selectGymFromPicker(id, name, city) {
+  if (_gymPickerOnPick) {
+    const cb = _gymPickerOnPick;
+    closeGymPickerSheet();
+    cb({ id: String(id), name, city: city || '' });
+    return;
+  }
   _gymPickerSelectedId   = id;
   _gymPickerSelectedName = name;
   _gymPickerSelectedCity = city;

@@ -102,7 +102,7 @@
     placesTab: 'school',
     sessFilter: 'all', sessions: [], sessShown: 5, gymSessions: [], gymSessShown: 5,
     thumbs: new Map(),
-    climb: [], climbShown: 5, climbToken: 0,
+    climb: [], climbShown: 5, gclimbShown: 5, climbToken: 0,
   };
 
   // ── Helpers de datos ────────────────────────────────────────────────
@@ -938,7 +938,7 @@
     const d = new Date(c.startedAt);
     const st = c.stats || {};
     const dur = typeof kxsFormatDuration === 'function' ? kxsFormatDuration(c.activeMs || 0) : '';
-    const bits = [dur, plural(st.routes || 0, 'vía', 'vías'), st.meters > 0 ? `${nf.format(st.meters)} m` : '', c.gps && c.gps.enabled && c.gps.distanceM > 0 && typeof kxsFormatDistance === 'function' ? kxsFormatDistance(c.gps.distanceM) : ''].filter(Boolean);
+    const bits = [dur, c.type === 'gym' ? plural(st.routes || 0, 'registro', 'registros') : plural(st.routes || 0, 'vía', 'vías'), st.meters > 0 ? `${nf.format(st.meters)} m` : '', c.gps && c.gps.enabled && c.gps.distanceM > 0 && typeof kxsFormatDistance === 'function' ? kxsFormatDistance(c.gps.distanceM) : ''].filter(Boolean);
     return `<button type="button" class="ax-sess" data-ax="climb-open" data-i="${i}">
       <span class="ax-thumb ax-thumb--lg ax-datetile"><b>${d.getDate()}</b><small>${MONTHS[d.getMonth()]}</small></span>
       <span class="ax-sess-text">
@@ -950,14 +950,20 @@
     </button>`;
   }
 
+  // Roca (#ax-climb) y rocódromo (#ax-gym-climb) por separado; data-i es la posición en S.climb (lista completa)
   function renderClimbSessions() {
-    const el = $('ax-climb');
-    if (!el) return;
-    if (!S.climb.length) { el.innerHTML = ''; return; }   // sin sesiones no se muestra nada (no hay estado vacío engañoso)
-    const shown = S.climb.slice(0, S.climbShown);
-    el.innerHTML = `<div class="ax-bare-head"><h2 class="ax-h2 ax-h2--lg">Sesiones de escalada</h2></div>
-      <div class="activity-list ax-sess-list">${shown.map(climbCard).join('')}</div>
-      ${S.climb.length > shown.length ? '<button type="button" class="ax-btn ax-btn--soft" data-ax="climb-more">Ver todas las sesiones de escalada</button>' : ''}`;
+    const draw = (id, gym, title, more, key) => {
+      const el = $(id);
+      if (!el) return;
+      const list = S.climb.map((c, i) => [c, i]).filter(([c]) => (c.type === 'gym') === gym);
+      if (!list.length) { el.innerHTML = ''; return; }   // sin sesiones no se muestra nada (no hay estado vacío engañoso)
+      const shown = list.slice(0, S[key]);
+      el.innerHTML = `<div class="ax-bare-head"><h2 class="ax-h2 ax-h2--lg">${title}</h2></div>
+        <div class="activity-list ax-sess-list">${shown.map(([c, i]) => climbCard(c, i)).join('')}</div>
+        ${list.length > shown.length ? `<button type="button" class="ax-btn ax-btn--soft" data-ax="${gym ? 'gclimb-more' : 'climb-more'}">${more}</button>` : ''}`;
+    };
+    draw('ax-climb', false, 'Sesiones de escalada', 'Ver todas las sesiones de escalada', 'climbShown');
+    draw('ax-gym-climb', true, 'Sesiones en tiempo real', 'Ver todas las sesiones en tiempo real', 'gclimbShown');
   }
 
   async function loadClimbSessions() {
@@ -1101,6 +1107,7 @@
       case 'sess-open': sessionSheet(t.dataset.kind, parseInt(t.dataset.i, 10)); break;
       case 'climb-open': openClimbSession(S.climb[parseInt(t.dataset.i, 10)] && S.climb[parseInt(t.dataset.i, 10)].id); break;
       case 'climb-more': S.climbShown += 10; renderClimbSessions(); break;
+      case 'gclimb-more': S.gclimbShown += 10; renderClimbSessions(); break;
       case 'sess-more': S.sessShown += 10; renderSessions(); break;
       case 'gsess-more': S.gymSessShown += 10; renderGymSessions(); break;
       case 'retry': if (typeof loadActivityData === 'function') { showLoading(); loadActivityData(); } break;

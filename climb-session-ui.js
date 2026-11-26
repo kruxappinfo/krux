@@ -9,6 +9,8 @@ Object.assign(KX_ICON_PATHS, {
   pause: '<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+  gym: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>',
   activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>'
 });
 
@@ -44,13 +46,16 @@ function kxsStarsHTML(value) {
 }
 
 // Fila de una vía registrada (panel y resumen): grado, nombre, sector · hora y resultado
+// Rocódromo: «Bloque» o «Vía» delante de la hora y, si se guardó con foto, su miniatura
+const kxsGymKind = (e) => (e.climbType === 'boulder' ? 'Bloque' : e.climbType === 'indoor' ? 'Vía' : '');
 function kxsEntryRowHTML(e, { index = -1, action = false } = {}) {
   const send = e.style !== 'project';
   const grade = e.grade && e.grade !== '?' ? e.grade : '';
   const tag = kxTagHTML({ text: KXS_STYLE_LABEL[e.style] || '', tone: send ? 'forest' : 'neutral' });
-  const sub = [e.sector, kxsTime(e.at)].filter(Boolean).join(' · ');
+  const sub = [kxsGymKind(e), e.sector, kxsTime(e.at)].filter(Boolean).join(' · ');
+  const thumb = e.thumbUrl ? `<span class="kxs-entry-thumb"><img src="${kxEsc(e.thumbUrl)}" alt="" loading="lazy"></span>` : '';
   const body = `<span class="kxs-grade${grade ? '' : ' is-none'}"${grade ? ` style="--c:${kxGradeColor(grade)}"` : ''}>${kxEsc(grade || '—')}</span>
-    <span class="kxs-entry-text"><strong>${kxEsc(e.routeName || 'Vía')}</strong><small>${kxEsc(sub)}</small></span>${tag}`;
+    <span class="kxs-entry-text"><strong>${kxEsc(e.routeName || 'Vía')}</strong><small>${kxEsc(sub)}</small></span>${thumb}${tag}`;
   return action
     ? `<button type="button" class="kxs-entry" data-kxs="goto" data-i="${index}">${body}</button>`
     : `<div class="kxs-entry">${body}</div>`;
@@ -58,6 +63,7 @@ function kxsEntryRowHTML(e, { index = -1, action = false } = {}) {
 
 // Cuerpo del resumen de una sesión finalizada (también el detalle de Actividad)
 function kxsSummaryBodyHTML(session, entries) {
+  if (session.type === 'gym') return kxsGymSummaryBodyHTML(session, entries);
   const st = session.stats || kxsStats(entries);
   const empty = (tile) => tile.replace('class="kx-stat"', 'class="kx-stat kxs-stat-empty"');
   const tile = (icon, value, label) => (value ? kxStatTileHTML({ icon, value, label }) : empty(kxStatTileHTML({ icon, value: 'Sin datos', label })));
@@ -98,6 +104,36 @@ function kxsSummaryBodyHTML(session, entries) {
   return `<div class="kxs-stats kxs-stats--sum">${tiles.join('')}</div>${chart}${note}${list}`;
 }
 
+// Resumen de una sesión de rocódromo: sin metros ni GPS; bloques y vías por separado
+function kxsGymSummaryBodyHTML(session, entries) {
+  const st = session.stats || kxsStats(entries);
+  const kc = st.kcal && st.kcal.total != null
+    ? st.kcal
+    : kxsEstimateKcal({ entries, activeMs: session.activeMs || kxsActiveMs(session), kg: window.KruxWeight && KruxWeight.get() });
+  const boulders = entries.filter(e => e.climbType === 'boulder').length;
+  const routes = entries.length - boulders;
+  const tiles = [
+    kxStatTileHTML({ icon: 'clock', value: kxsFormatDuration(session.activeMs || kxsActiveMs(session)), label: 'Duración' }),
+    kxStatTileHTML({ icon: 'gym', value: String(st.routes), label: boulders && routes ? `${kxsPlural(boulders, 'bloque', 'bloques')} · ${kxsPlural(routes, 'vía', 'vías')}` : routes ? (routes === 1 ? 'Vía' : 'Vías') : (boulders === 1 ? 'Bloque' : 'Bloques') }),
+    kxStatTileHTML({ icon: 'circleCheck', value: String(st.sends), label: 'Encadenados' }),
+    st.maxGrade ? kxStatTileHTML({ icon: 'arrowUpDown', value: st.maxGrade, label: 'Grado máximo' }) : '',
+    kc.total > 0 ? kxStatTileHTML({ icon: 'flame', value: `${kc.total} kcal`, label: 'Calorías (est.)' }) : ''
+  ].filter(Boolean);
+  const kg = kc.kg || KXS_KCAL.kg;
+  const note = kc.total > 0
+    ? `<p class="kxs-note">${kxEsc(`Calorías estimadas ${kc.ownKg ? `con tu peso (${String(kg).replace('.', ',')} kg)` : `con un peso de referencia de ${kg} kg; indica el tuyo en Editar perfil`}, no es un dato medido. Cada bloque cuenta unos 1,5 minutos de esfuerzo por intento y cada vía unos 15 metros; el resto del tiempo, descanso.`)}</p>`
+    : '';
+  const chart = st.routes > 0
+    ? `<section class="kxs-chart" id="kxs-chart">
+        <div class="kxs-chart-head"><h3 class="kxs-chart-title">Grados de la sesión</h3>
+          <button type="button" class="kxs-chart-more" data-kxs="to-list" aria-label="Ver la lista">${st.routes}${kxIcon('chevronRight', { size: 18 })}</button></div>
+        ${kxGradeChartHTML(kxGradeStats(st.gradeCounts, { ungraded: st.ungraded }), { id: 'kxs-gchart', title: 'Grados de la sesión' })}</section>` : '';
+  const list = entries.length
+    ? kxSectionHTML({ title: 'Bloques y vías', meta: String(entries.length), id: 'kxs-list', body: `<div class="kxs-entries">${entries.map(e => kxsEntryRowHTML(e)).join('')}</div>` })
+    : `<p class="kxs-empty">No se registró ningún bloque en esta sesión.</p>`;
+  return `<div class="kxs-stats kxs-stats--sum">${tiles.join('')}</div>${chart}${note}${list}`;
+}
+
 // ============================================
 // INTERFAZ
 // ============================================
@@ -106,6 +142,10 @@ const KruxSessionUI = (() => {
   let fab = null, card = null, tickTimer = 0, trackDrawn = 0;
   let followed = null;                      // [{ id, name }] (se carga al abrir el selector de compañeros)
   let gpsToggle = false;
+  // Inicio: tipo de sesión y, en rocódromo, el rocódromo y los compañeros elegidos antes de empezar
+  let startType = 'rock', startGym = null, startPeers = [];
+  let quiet = false;   // cambio que ya se ve en la hoja abierta (compañeros): no se vuelve a pintar
+  const isGym = () => { const it = S() && S().get(); return !!(it && it.session.type === 'gym'); };
 
   const S = () => window.KruxSession;
   const toast = (msg, type = 'info') => { if (typeof showToast === 'function') showToast(msg, type); };
@@ -209,20 +249,32 @@ const KruxSessionUI = (() => {
   const VIEWS = {
     start() {
       const gps = gpsToggle;
+      const gym = startType === 'gym';
+      const typeBtn = (t, icon, title, sub) => `<button type="button" class="kxs-type kxs-type--pick${startType === t ? ' is-on' : ''}" data-kxs="type" data-type="${t}" aria-pressed="${startType === t}">
+            <span class="kxs-type-ic">${kxIcon(icon, { size: 24 })}</span>
+            <span class="kxs-type-text"><strong>${title}</strong><small>${sub}</small></span>
+            <span class="kxs-type-ok">${kxIcon('check', { size: 16, stroke: 3 })}</span>
+          </button>`;
+      const peerLabel = startPeers.length ? kxsPlural(startPeers.length, 'compañero', 'compañeros') : 'Añadir compañeros (opcional)';
       return {
         title: 'Nueva sesión',
-        body: `<p class="kxs-lead">Registra tu jornada de escalada y guarda tus ascensos sobre el mapa.</p>
-          <div class="kxs-type" aria-current="true">
-            <span class="kxs-type-ic">${kxIcon('mountain', { size: 24 })}</span>
-            <span class="kxs-type-text"><strong>Escalada en roca</strong><small>Registra las vías que vas escalando en sectores reales.</small></span>
-            <span class="kxs-type-ok">${kxIcon('check', { size: 16, stroke: 3 })}</span>
+        body: `<p class="kxs-lead">${gym ? 'Cronometra tu entreno y ve registrando los bloques con su foto según los haces.' : 'Registra tu jornada de escalada y guarda tus ascensos sobre el mapa.'}</p>
+          <div class="kxs-types" role="group" aria-label="Tipo de sesión">
+            ${typeBtn('rock', 'mountain', 'Escalada en roca', 'Registra las vías que vas escalando en sectores reales.')}
+            ${typeBtn('gym', 'gym', 'Rocódromo', 'Cronómetro, fotos y bloques en tiempo real. Sin GPS.')}
           </div>
+          ${gym ? `<div class="kxs-field"><h3 class="kxs-label">¿En qué rocódromo estás?</h3>
+            ${kxInfoRowHTML({ icon: 'mapPin', label: startGym ? startGym.name : 'Elige un rocódromo', action: true, attrs: { 'data-kxs': 'pick-gym' } })}</div>
+          <div class="kxs-field"><h3 class="kxs-label">¿Con quién escalas?</h3>
+            ${kxInfoRowHTML({ icon: 'users', label: peerLabel, action: true, attrs: { 'data-kxs': 'peers', 'aria-expanded': 'false' } })}
+            <div class="kxs-peers" id="kxs-peers" hidden></div>
+            <p class="kxs-note">Se añaden a cada bloque que registres; puedes cambiarlos durante la sesión.</p></div>` : `
           <div class="kxs-switchrow">
             <span class="kxs-switchrow-ic">${kxIcon('mapPin', { size: 22 })}</span>
             <span class="kxs-type-text"><strong id="kxs-gps-label">Seguimiento GPS</strong><small>Opcional. Guarda tu recorrido y calcula la distancia.</small></span>
             <button type="button" class="kxs-switch" role="switch" aria-checked="${gps}" aria-labelledby="kxs-gps-label" data-kxs="gps"><span></span></button>
           </div>
-          <p class="kxs-note" id="kxs-gps-note"${gps ? '' : ' hidden'}>${kxsGpsNoteText()}</p>`,
+          <p class="kxs-note" id="kxs-gps-note"${gps ? '' : ' hidden'}>${kxsGpsNoteText()}</p>`}`,
         foot: kxButtonHTML({ icon: 'play', label: 'Iniciar sesión', size: 'lg', attrs: { 'data-kxs': 'start' } })
       };
     },
@@ -230,6 +282,7 @@ const KruxSessionUI = (() => {
     active({ paused = S().isPaused() } = {}) {
       const item = S().get();
       if (!item) return VIEWS.start();
+      if (item.session.type === 'gym') return VIEWS.gymActive({ paused });
       const s = item.session, st = S().stats();
       const school = s.schoolName || '';
       const gpsLine = s.gps.enabled
@@ -261,12 +314,49 @@ const KruxSessionUI = (() => {
       };
     },
 
+    gymActive({ paused }) {
+      const item = S().get();
+      const s = item.session, st = S().stats();
+      const entries = item.entries.slice().reverse();
+      const pending = S().pendingCount();
+      const peers = s.companions || [];
+      const peerLabel = peers.length ? `Con ${kxsPlural(peers.length, 'compañero', 'compañeros')}` : 'Añadir compañeros';
+      return {
+        title: paused ? 'Sesión en pausa' : 'Sesión en curso',
+        meta: `<span class="kxs-live${paused ? ' is-paused' : ''}"></span>${kxEsc(s.schoolName || 'Rocódromo')}`,
+        body: `<div class="kxs-clock${paused ? ' is-paused' : ''}" data-kxs-clock aria-label="Tiempo transcurrido">${kxsFormatClock(S().elapsedMs())}</div>
+          <div class="kxs-stats kxs-stats--3">
+            ${kxStatTileHTML({ icon: 'gym', value: String(st.routes), label: 'Registrados' })}
+            ${kxStatTileHTML({ icon: 'circleCheck', value: String(st.sends), label: 'Encadenados' })}
+            ${kxStatTileHTML({ icon: 'arrowUpDown', value: st.maxGrade || '—', label: 'Grado máx.' })}
+          </div>
+          <div class="kxs-addrow">
+            ${kxButtonHTML({ icon: 'camera', label: 'Bloque con foto', size: 'lg', attrs: { 'data-kxs': 'add-block', 'data-photo': '1' } })}
+            ${kxButtonHTML({ icon: 'plus', label: 'Sin foto', variant: 'secondary', size: 'lg', attrs: { 'data-kxs': 'add-block' } })}
+          </div>
+          <div class="kxs-field">
+            ${kxInfoRowHTML({ icon: 'users', label: peerLabel, action: true, attrs: { 'data-kxs': 'peers', 'aria-expanded': 'false' } })}
+            <div class="kxs-peers" id="kxs-peers" hidden></div></div>
+          ${pending ? `<p class="kxs-gps">${kxIcon('wifiOff', { size: 16 })}<span>${kxEsc(kxsPlural(pending, 'registro pendiente', 'registros pendientes'))} de sincronizar; se subirán al volver la conexión.</span></p>` : ''}
+          ${kxSectionHTML({
+            title: 'Bloques y vías', meta: String(st.routes), cls: 'kxs-sec',
+            body: entries.length
+              ? `<div class="kxs-entries">${entries.map(e => kxsEntryRowHTML(e)).join('')}</div>`
+              : '<p class="kxs-empty">Aún no has registrado nada. Pulsa «Bloque con foto» para hacer la foto y marcar las presas, o «Sin foto» para anotarlo rápido.</p>'
+          })}`,
+        foot: kxButtonHTML({ icon: paused ? 'play' : 'pause', label: paused ? 'Reanudar' : 'Pausar', variant: 'secondary', size: 'lg', attrs: { 'data-kxs': 'toggle' } })
+          + kxButtonHTML({ icon: 'circleCheck', label: 'Finalizar', size: 'lg', attrs: { 'data-kxs': 'confirm-finish' } })
+      };
+    },
+
     confirm() {
       const n = S().stats() ? S().stats().routes : 0;
       return {
         title: '¿Finalizar la sesión?',
         body: `<p class="kxs-lead">Se detendrá el cronómetro${S().get() && S().get().session.gps.enabled ? ' y el seguimiento GPS' : ''} y verás el resumen de la jornada.</p>
-          <p class="kxs-note">${n ? `Tus ${kxsPlural(n, 'vía', 'vías')} ya están guardadas como ascensos y se conservan.` : 'No has registrado ninguna vía: la sesión se guardará igualmente en tu historial.'}</p>`,
+          <p class="kxs-note">${isGym()
+            ? (n ? `Tus ${kxsPlural(n, 'registro ya está guardado', 'registros ya están guardados')} como ascensos y se conservan.` : 'No has registrado ningún bloque: la sesión se guardará igualmente en tu historial.')
+            : (n ? `Tus ${kxsPlural(n, 'vía', 'vías')} ya están guardadas como ascensos y se conservan.` : 'No has registrado ninguna vía: la sesión se guardará igualmente en tu historial.')}</p>`,
         foot: kxButtonHTML({ label: 'Seguir en la sesión', variant: 'secondary', size: 'lg', attrs: { 'data-kxs': 'back' } })
           + kxButtonHTML({ label: 'Finalizar sesión', size: 'lg', attrs: { 'data-kxs': 'finish' } })
       };
@@ -322,7 +412,7 @@ const KruxSessionUI = (() => {
       return {
         // Cabecera centrada con cierre a la izquierda y bloque de portada (icono, título, escuela · fecha)
         head: `<header class="kxs-sumhead"><button type="button" class="kx-close" data-kx-close aria-label="Cerrar">${kxIcon('x', { size: 20, stroke: 2 })}</button>
-          <h2 class="kxs-sumhead-title" id="kx-sess-title">Sesión de roca</h2><span aria-hidden="true"></span></header>`,
+          <h2 class="kxs-sumhead-title" id="kx-sess-title">${s.type === 'gym' ? 'Sesión de rocódromo' : 'Sesión de roca'}</h2><span aria-hidden="true"></span></header>`,
         body: `<div class="kxs-hero"><h3 class="kxs-hero-title">${kxEsc(history ? (s.schoolName || 'Sesión de escalada') : 'Sesión completada')}</h3>
           <p class="kxs-hero-meta">${kxEsc([history ? '' : s.schoolName, kxsDate(s.startedAt)].filter(Boolean).join(' · '))}</p></div>
           ${hasRoute ? `<figure class="kxs-routemap"><div class="kxs-routemap-map" id="kxs-routemap" role="img" aria-label="Mapa del recorrido de la sesión"></div>
@@ -345,6 +435,7 @@ const KruxSessionUI = (() => {
           if (chart) kxBindGradeChart(chart, kxGradeStats(st.gradeCounts, { ungraded: st.ungraded }), {});
           const box = root.querySelector('#kxs-routemap');
           if (box) mountRouteMap(box, pts);
+          if (s.type === 'gym') hydrateGymThumbs(item);
         }
       };
     }
@@ -411,6 +502,21 @@ const KruxSessionUI = (() => {
 
   // ---------- Acciones ----------
   const ACTIONS = {
+    type(btn) {
+      startType = btn.dataset.type === 'gym' ? 'gym' : 'rock';
+      setView('start', { companions: startPeers });
+    },
+    'pick-gym'() {
+      if (typeof kxPickGym !== 'function') return;
+      kxPickGym((g) => { startGym = g; if (view === 'start') setView('start', { companions: startPeers }); });
+    },
+    'add-block'(btn) {
+      const item = S().get();
+      if (!item || typeof openNewGymAscent !== 'function') return;
+      const s = item.session;
+      close();
+      openNewGymAscent({ gymId: s.schoolId, gymName: s.schoolName, sessionId: s.id, companions: s.companions || [], pickPhoto: btn.dataset.photo === '1' });
+    },
     gps(btn) {
       gpsToggle = btn.getAttribute('aria-checked') !== 'true';
       btn.setAttribute('aria-checked', String(gpsToggle));
@@ -423,8 +529,13 @@ const KruxSessionUI = (() => {
       if (btn.getAttribute('aria-busy') === 'true') return;
       btn.setAttribute('aria-busy', 'true');
       try {
-        const session = await S().start({ gps: gpsToggle });
+        const gym = startType === 'gym';
+        if (gym && !startGym) { btn.removeAttribute('aria-busy'); toast('Elige el rocódromo en el que estás', 'warning'); return; }
+        const session = await S().start(gym
+          ? { type: 'gym', schoolId: startGym.id, schoolName: startGym.name, companions: startPeers }
+          : { gps: gpsToggle });
         gpsToggle = false;
+        if (gym) { startPeers = []; setView('active'); toast('Sesión de rocódromo iniciada', 'success'); refreshGymHub(); return; }
         close();
         if (session.gps.enabled && session.gps.status === 'denied') toast('Sin permiso de ubicación: la sesión sigue sin GPS.', 'info');
         else toast('Sesión iniciada', 'success');
@@ -463,6 +574,7 @@ const KruxSessionUI = (() => {
     },
 
     async peers(btn) {
+      if (!ctx.companions) ctx.companions = view === 'start' ? startPeers.slice() : isGym() ? [...(S().get().session.companions || [])] : [];
       const box = el.querySelector('#kxs-peers');
       const open = box.hidden;
       box.hidden = !open;
@@ -473,7 +585,10 @@ const KruxSessionUI = (() => {
         const list = await loadFollowed();
         box.dataset.ready = '1';
         box.innerHTML = list.length
-          ? list.map(u => `<label class="kxs-peer"><input type="checkbox" value="${kxEsc(u.id)}" data-kxs-peer ${ctx.companions.includes(u.id) ? 'checked' : ''}><span>${kxEsc(u.name)}</span></label>`).join('')
+          ? list.map(u => `<label class="kxs-peer kxs-peer--card">
+              <span class="kxs-peer-av" aria-hidden="true">${u.photo ? `<img src="${kxEsc(u.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}${kxEsc(String(u.name).trim().charAt(0).toUpperCase() || 'U')}</span>
+              <span class="kxs-peer-txt"><strong>${kxEsc(u.name)}</strong>${u.username ? `<small>@${kxEsc(u.username)}</small>` : ''}</span>
+              <input type="checkbox" value="${kxEsc(u.id)}" data-kxs-peer ${ctx.companions.includes(u.id) ? 'checked' : ''}></label>`).join('')
           : '<p class="kxs-empty">Aún no sigues a nadie. Podrás elegir compañeros entre las personas que sigues.</p>';
       }
       sheet.refresh();
@@ -560,6 +675,7 @@ const KruxSessionUI = (() => {
       close();
       const nav = document.getElementById('nav-activity-btn');
       if (nav) nav.click();
+      if (ctx.item && ctx.item.session.type === 'gym') document.getElementById('btn-rocodromo')?.click();
       const id = ctx.item && ctx.item.session.id;
       if (id && window.KruxActivity && KruxActivity.openClimbSession) setTimeout(() => KruxActivity.openClimbSession(id), 350);
     }
@@ -571,8 +687,12 @@ const KruxSessionUI = (() => {
       const set = new Set(ctx.companions);
       if (peer.checked) { if (set.size >= 10) { peer.checked = false; toast('Máximo 10 compañeros', 'info'); return; } set.add(peer.value); } else set.delete(peer.value);
       ctx.companions = [...set];
+      const n = ctx.companions.length;
+      let text = n ? kxsPlural(n, 'compañero', 'compañeros') : 'Añadir compañeros';
+      if (view === 'start') { startPeers = ctx.companions; if (!n) text = 'Añadir compañeros (opcional)'; }
+      if (view === 'active' && isGym()) { quiet = true; try { S().setCompanions(ctx.companions); } finally { quiet = false; } if (n) text = `Con ${text}`; }
       const row = el.querySelector('[data-kxs="peers"] .kx-irow-label');
-      if (row) row.textContent = ctx.companions.length ? kxsPlural(ctx.companions.length, 'compañero', 'compañeros') : 'Añadir compañeros';
+      if (row) row.textContent = text;
       return;
     }
     const a = e.target.closest('[data-kxs]');
@@ -580,6 +700,7 @@ const KruxSessionUI = (() => {
   }
 
   async function loadFollowed() {
+    if (window.KruxPartners) return KruxPartners.loadFollowed();   // misma lista (con foto y @usuario) que el formulario
     if (followed) return followed;
     try {
       const uid = firebase.auth().currentUser.uid;
@@ -594,9 +715,65 @@ const KruxSessionUI = (() => {
   }
 
   // ---------- Entradas públicas ----------
-  function openStart() {
+  // type: 'gym' desde Actividad › Rocódromo (preselecciona el tipo); sin él se mantiene el último elegido
+  function openStart({ type } = {}) {
     if (!signedIn()) { toast('Inicia sesión para registrar tus sesiones', 'info'); return; }
-    if (S().isActive()) setView('active'); else setView('start');
+    if (S().isActive()) { setView('active'); return; }
+    if (type) startType = type === 'gym' ? 'gym' : 'rock';
+    setView('start', { companions: startPeers });
+  }
+  function openActive() { if (S().isActive()) setView('active'); }
+
+  // Miniaturas de los bloques con foto en el resumen (los ascensos no guardan la foto: se buscan en «Mis bloques»)
+  async function hydrateGymThumbs(item) {
+    if (typeof KruxGymBlocksData === 'undefined' || !item.entries.some(e => !e.thumbUrl)) return;
+    try {
+      const uid = firebase.auth().currentUser.uid;
+      const blocks = await KruxGymBlocksData.list(uid, { gymId: item.session.schoolId || null, limit: 60 });
+      const byAscent = new Map(blocks.filter(b => b.ascentId && b.thumbUrl).map(b => [b.ascentId, b]));
+      let hit = false;
+      item.entries.forEach(e => { const b = byAscent.get(e.ascentId); if (b && !e.thumbUrl) { e.thumbUrl = b.thumbUrl; hit = true; } });
+      if (hit && view === 'summary' && ctx.item === item) setView('summary', { item, history: ctx.history, keepScroll: true });
+    } catch (e) { /* sin miniaturas: la lista se ve igual */ }
+  }
+
+  // Actividad › Rocódromo: tarjeta para empezar una sesión en tiempo real o volver a la que está en curso
+  function gymHubHTML() {
+    const item = S() && S().get();
+    if (item && item.session.type === 'gym') {
+      const paused = item.session.status === 'paused';
+      const n = item.entries.length;
+      return `<button type="button" class="kxs-hub is-live${paused ? ' is-paused' : ''}" data-kxs-hub="open">
+        <span class="kxs-hub-ic">${kxIcon('timer', { size: 24 })}</span>
+        <span class="kxs-hub-text"><strong><span class="kxs-live${paused ? ' is-paused' : ''}"></span>${paused ? 'Sesión en pausa' : 'Sesión en curso'}</strong>
+          <small>${kxEsc([item.session.schoolName, kxsPlural(n, 'registro', 'registros')].filter(Boolean).join(' · '))}</small></span>
+        <span class="kxs-hub-clock" data-kxs-clock>${kxsFormatClock(S().elapsedMs())}</span></button>`;
+    }
+    if (item) {
+      return `<button type="button" class="kxs-hub" data-kxs-hub="open">
+        <span class="kxs-hub-ic">${kxIcon('timer', { size: 24 })}</span>
+        <span class="kxs-hub-text"><strong>Tienes una sesión de roca en curso</strong><small>Finalízala para empezar una de rocódromo.</small></span>
+        ${kxIcon('chevronRight', { size: 20 })}</button>`;
+    }
+    return `<button type="button" class="kxs-hub" data-kxs-hub="start">
+      <span class="kxs-hub-ic">${kxIcon('play', { size: 22 })}</span>
+      <span class="kxs-hub-text"><strong>Empezar sesión en tiempo real</strong><small>Cronómetro y bloques con foto según los vas haciendo.</small></span>
+      ${kxIcon('chevronRight', { size: 20 })}</button>`;
+  }
+  function refreshGymHub() {
+    const box = document.getElementById('ax-gym-live');
+    if (!box) return;
+    if (!signedIn()) { box.innerHTML = ''; return; }
+    box.innerHTML = gymHubHTML();
+    if (!box.dataset.bound) {
+      box.dataset.bound = '1';
+      box.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-kxs-hub]');
+        if (!b) return;
+        if (b.dataset.kxsHub === 'start') openStart({ type: 'gym' }); else setView('active');
+      });
+    }
+    tick();
   }
 
   // Desde las fichas de vía: con sesión activa, «Registrar ascenso» abre esta hoja en lugar del formulario
@@ -630,7 +807,9 @@ const KruxSessionUI = (() => {
     const st = S().stats();
     card.classList.toggle('is-paused', paused);
     card.querySelector('[data-kxs-title]').textContent = paused ? 'Sesión en pausa' : 'Sesión en curso';
-    card.querySelector('[data-kxs-sub]').textContent = [kxsPlural(st.routes, 'vía', 'vías'), st.meters > 0 ? `${st.meters} m` : ''].filter(Boolean).join(' · ');
+    card.querySelector('[data-kxs-sub]').textContent = item.session.type === 'gym'
+      ? [item.session.schoolName, kxsPlural(st.routes, 'registro', 'registros')].filter(Boolean).join(' · ')
+      : [kxsPlural(st.routes, 'vía', 'vías'), st.meters > 0 ? `${st.meters} m` : ''].filter(Boolean).join(' · ');
     tick();
   }
 
@@ -677,6 +856,13 @@ const KruxSessionUI = (() => {
     kxSessionDrawTrack(pts);
   }
 
+  // Actividad (estadísticas, pirámide, últimas sesiones) se recalcula cuando los ascensos de la sesión llegan a Firestore
+  let activityT = 0;
+  function refreshActivity() {
+    clearTimeout(activityT);
+    activityT = setTimeout(() => { if (typeof loadActivityData === 'function') loadActivityData(); }, 800);
+  }
+
   function init() {
     if (!window.KruxSession) return;
     S().on((type) => {
@@ -691,9 +877,12 @@ const KruxSessionUI = (() => {
         toast('Tienes otra sesión de escalada en curso en otro dispositivo. Finaliza una de las dos para no duplicar tu actividad.', 'error');
         return;
       }
+      if (type === 'synced') { refreshActivity(); return; }
       if (type === 'gps-error') { toast(S().gpsError() || 'No se pudo obtener la ubicación', 'info'); }
       updateCard();
       drawTrack(true);
+      refreshGymHub();
+      if (quiet) return;
       if (view === 'active' && isOpen()) {
         if (S().isActive()) setView('active', { keepScroll: true }); else close();   // otro dispositivo la finalizó
       }
@@ -702,7 +891,7 @@ const KruxSessionUI = (() => {
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 
-  return { mountMap, openStart, openRegister, openSummary, close, isOpen, _views: () => VIEWS };
+  return { mountMap, openStart, openActive, openRegister, openSummary, refreshGymHub, close, isOpen, _views: () => VIEWS };
 })();
 
 window.KruxSessionUI = KruxSessionUI;

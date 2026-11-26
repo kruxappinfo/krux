@@ -31494,6 +31494,39 @@ body.map-active #map-view .legend-panel .lp-pane {
 .kxs-type-text strong { font-size: var(--kx-fs-body); font-weight: 700; color: var(--kx-ink); }
 .kxs-type-text small { font-size: var(--kx-fs-meta); color: var(--kx-ink-3); line-height: 1.35; }
 .kxs-type-ok { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--kx-forest); color: #fff; }
+/* Inicio: elegir roca o rocódromo (botones con el mismo aspecto que la tarjeta del tipo) */
+.kxs-types { display: flex; flex-direction: column; margin-bottom: 8px; }
+.kxs-type--pick, .kxs-type--pick:hover, .kxs-type--pick:active {
+  width: 100%; min-height: 0; margin: 0 0 10px; font: inherit; text-align: left; white-space: normal; cursor: pointer;
+  border: 1px solid var(--kx-line); background: var(--kx-stone-card); color: var(--kx-ink); box-shadow: none; transform: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.kxs-type--pick.is-on, .kxs-type--pick.is-on:hover, .kxs-type--pick.is-on:active { border: 1.5px solid var(--kx-forest); background: var(--kx-sage-soft); }
+.kxs-type--pick:not(.is-on) .kxs-type-ok { visibility: hidden; }
+.kxs-type--pick:not(.is-on) .kxs-type-ic { color: var(--kx-ink-2); }
+.kxs-type--pick:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+
+/* Sesión de rocódromo: añadir bloque, miniaturas y tarjeta de Actividad */
+.kxs-addrow { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 8px; margin: 0 0 14px; }
+.kxs-addrow .kx-btn { width: 100%; }
+.kxs-entry:has(.kxs-entry-thumb) { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.kxs-entry-thumb { width: 44px; height: 44px; overflow: hidden; border-radius: 10px; background: var(--kx-stone-card); }
+.kxs-entry-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.kxs-hub, .kxs-hub:hover, .kxs-hub:active {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  width: 100%; min-height: 64px; margin: 0; padding: 14px 16px; font: inherit; text-align: left; white-space: normal; cursor: pointer;
+  border: 1px solid var(--kx-line); border-radius: 18px; background: var(--kx-stone-card); color: var(--kx-ink); box-shadow: none; transform: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.kxs-hub.is-live, .kxs-hub.is-live:hover, .kxs-hub.is-live:active { border: 1.5px solid var(--kx-forest); background: var(--kx-sage-soft); }
+.kxs-hub:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+.kxs-hub-ic { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--kx-forest); color: #fff; }
+.kxs-hub-text { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.kxs-hub-text strong { display: flex; align-items: center; gap: 8px; font-size: var(--kx-fs-body); font-weight: 700; }
+.kxs-hub-text small { font-size: var(--kx-fs-meta); color: var(--kx-ink-3); line-height: 1.35; overflow-wrap: anywhere; }
+.kxs-hub-clock { font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--kx-ink); }
+.kxs-hub.is-paused .kxs-hub-clock { color: var(--kx-ink-3); }
+#ax-gym-live:empty, #ax-gym-climb:empty { display: none; }
 
 .kxs-switch {
   position: relative;
@@ -36316,14 +36349,14 @@ body.kxb-ed-open, body.kxb-view-open { overflow: hidden; }
 .kxs-peer-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .kxs-peer-txt strong { font-size: var(--kx-fs-body); font-weight: var(--kx-fw-strong); color: var(--kx-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kxs-peer-txt small { font-size: var(--kx-fs-caption); color: var(--kx-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#ascent-modal .kxs-peer--card input[type="checkbox"] {
+#ascent-modal .kxs-peer--card input[type="checkbox"], #kx-sess-sheet .kxs-peer--card input[type="checkbox"] {
   appearance: none; -webkit-appearance: none; flex: none; display: grid; place-items: center; width: 24px; height: 24px; min-height: 0;
   margin: 0; padding: 0; border: 2px solid rgba(32, 41, 35, 0.28); border-radius: 50%; background: var(--kx-surface); box-shadow: none; cursor: pointer;
 }
-#ascent-modal .kxs-peer--card input[type="checkbox"]:checked {
+#ascent-modal .kxs-peer--card input[type="checkbox"]:checked, #kx-sess-sheet .kxs-peer--card input[type="checkbox"]:checked {
   border-color: var(--kx-forest); background: var(--kx-forest) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center / 14px no-repeat;
 }
-#ascent-modal .kxs-peer--card input[type="checkbox"]:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
+#ascent-modal .kxs-peer--card input[type="checkbox"]:focus-visible, #kx-sess-sheet .kxs-peer--card input[type="checkbox"]:focus-visible { outline: 2px solid var(--kx-forest); outline-offset: 2px; }
 
 /* Varios bloques en un registro (gym-blocks.js) */
 .kxb-items { display: flex; flex-direction: column; gap: 12px; }

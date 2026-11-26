@@ -4,7 +4,7 @@
 // La interfaz está en climb-session-ui.js; este archivo no toca el DOM.
 //
 // Modelo (Firestore): users/{uid}/climb_sessions/{sessionId}
-//   type:'rock', status:'active'|'paused'|'finished', startedAt, endedAt, pauses:[{from,to}] (ms),
+//   type:'rock'|'gym', companions:[uid], status:'active'|'paused'|'finished', startedAt, endedAt, pauses:[{from,to}] (ms),
 //   activeMs, gps:{enabled,status,distanceM?}, schoolId?, schoolName?, ascentIds:[], stats:{…},
 //   track?:{lng:[],lat:[],t:[]} (solo si hubo GPS), rev, userId.
 // La relación de verdad es ascents.sessionId; ascentIds es una copia de lectura rápida.
@@ -44,10 +44,12 @@ function kxsFormatDuration(ms) {
   return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
 }
 
-function kxsNewSession({ id, now, gps = false, schoolId = '', schoolName = '' }) {
+// type: 'rock' (roca, desde el mapa) o 'gym' (rocódromo: sin GPS, con el rocódromo y los compañeros elegidos al empezar)
+function kxsNewSession({ id, now, gps = false, schoolId = '', schoolName = '', type = 'rock', companions = [] }) {
+  const gym = type === 'gym';
   return {
-    id, type: 'rock', status: 'active', startedAt: now, endedAt: null, pauses: [], activeMs: 0,
-    gps: { enabled: !!gps, status: gps ? 'pending' : 'off', distanceM: 0 },
+    id, type: gym ? 'gym' : 'rock', status: 'active', companions: (companions || []).slice(0, 10), startedAt: now, endedAt: null, pauses: [], activeMs: 0,
+    gps: { enabled: !gym && !!gps, status: !gym && gps ? 'pending' : 'off', distanceM: 0 },
     schoolId: schoolId || '', schoolName: schoolName || '', ascentIds: [], stats: null, rev: 1, updatedAt: now
   };
 }
@@ -90,6 +92,9 @@ const KXS_KCAL = {
   metRest: 1.8,           // de pie, asegurando o descansando
   climbMPerMin: 2.5,      // ritmo de escalada: una vía de 25 m ≈ 10 min
   defaultRouteM: 20,      // vía sin longitud conocida
+  gymRouteM: 15,          // vía de rocódromo
+  boulderMinPerTry: 1.5,  // bloque: minutos de esfuerzo por intento
+  maxBoulderMin: 20,
   minRouteMin: 4, maxRouteMin: 180,
   walkMinSpeed: 0.25,     // m/s: por debajo es ruido del GPS con la persona parada
   walkSpeed: 0.7          // m/s: ritmo mínimo supuesto en un tramo sin puntos (móvil bloqueado)
@@ -110,12 +115,17 @@ function kxsWalkMs(track) {
   return ms;
 }
 
-// Minutos de escalada y MET de una vía registrada (los intentos también cuentan: se escala igual)
+// Minutos de escalada y MET de una vía registrada (los intentos también cuentan: se escala igual).
+// Rocódromo: un bloque son unos 1,5 min de esfuerzo por intento; una vía de rocódromo, unos 15 m.
 function kxsRouteEffort(e) {
-  const m = e.meters > 0 ? e.meters : KXS_KCAL.defaultRouteM;
-  const min = Math.min(KXS_KCAL.maxRouteMin, Math.max(KXS_KCAL.minRouteMin, m / KXS_KCAL.climbMPerMin));
   const rank = typeof kxGradeRank === 'function' ? kxGradeRank : () => -1;
   const hard = e.grade && rank(e.grade) >= 0 && rank(e.grade) >= rank(KXS_KCAL.hardGrade);
+  if (e.climbType === 'boulder') {
+    const min = Math.min(KXS_KCAL.maxBoulderMin, KXS_KCAL.boulderMinPerTry * Math.max(1, e.tries || 1));
+    return { ms: min * 60000, met: hard ? KXS_KCAL.metClimbHard : KXS_KCAL.metClimb };
+  }
+  const m = e.meters > 0 ? e.meters : (e.climbType === 'indoor' ? KXS_KCAL.gymRouteM : KXS_KCAL.defaultRouteM);
+  const min = Math.min(KXS_KCAL.maxRouteMin, Math.max(KXS_KCAL.minRouteMin, m / KXS_KCAL.climbMPerMin));
   return { ms: min * 60000, met: hard ? KXS_KCAL.metClimbHard : KXS_KCAL.metClimb };
 }
 
@@ -296,6 +306,8 @@ function kxsAscentPayload(entry, sessionId) {
     routeId: entry.routeId, routeName: entry.routeName,
     grade: entry.grade, sector: entry.sector || '',
     style: entry.style,
+    ...(entry.climbType ? { climbType: entry.climbType } : {}),
+    ...(entry.schoolCity ? { schoolCity: entry.schoolCity } : {}),
     date: new Date(entry.at).toISOString().split('T')[0],
     loggedAt: entry.at,
     tries: entry.tries > 0 ? entry.tries : 1,
@@ -380,7 +392,7 @@ const KruxSession = (() => {
     const s = item.session;
     const ts = ms => (ms == null ? null : firebase.firestore.Timestamp.fromMillis(ms));
     const doc = {
-      userId: uid, type: s.type, status: s.status,
+      userId: uid, type: s.type, status: s.status, companions: s.companions || [],
       startedAt: ts(s.startedAt), endedAt: ts(s.endedAt), pauses: s.pauses, activeMs: kxsActiveMs(s),
       gps: s.gps, schoolId: s.schoolId || '', schoolName: s.schoolName || '',
       ascentIds: item.entries.map(e => e.ascentId), stats: s.stats || kxsStats(item.entries),
@@ -393,7 +405,7 @@ const KruxSession = (() => {
   function deserialize(id, d) {
     const ms = v => (v && v.toMillis ? v.toMillis() : (typeof v === 'number' ? v : null));
     return {
-      id, type: d.type || 'rock', status: d.status, startedAt: ms(d.startedAt), endedAt: ms(d.endedAt),
+      id, type: d.type || 'rock', status: d.status, companions: d.companions || [], startedAt: ms(d.startedAt), endedAt: ms(d.endedAt),
       pauses: d.pauses || [], activeMs: d.activeMs || 0, gps: d.gps || { enabled: false, status: 'off', distanceM: 0 },
       schoolId: d.schoolId || '', schoolName: d.schoolName || '', ascentIds: d.ascentIds || [],
       stats: d.stats || null, rev: d.rev || 1, updatedAt: ms(d.updatedAt) || 0, postId: d.postId || null
@@ -403,13 +415,16 @@ const KruxSession = (() => {
   // Sube lo pendiente de un item: primero los ascensos (por el mismo logAscent, con id fijo para no duplicar)
   // y después el documento de la sesión.
   async function flushItem(item) {
-    for (const e of item.entries) {
-      if (e.synced) continue;
-      const ok = await logAscent(kxsAscentPayload(e, item.session.id));
-      if (!ok) return false;
-      e.synced = true;
-      persist();
-    }
+    let uploaded = 0;
+    try {
+      for (const e of item.entries) {
+        if (e.synced) continue;
+        const ok = await logAscent(kxsAscentPayload(e, item.session.id));
+        if (!ok) return false;
+        e.synced = true; uploaded++;
+        persist();
+      }
+    } finally { if (uploaded) emit('synced'); }   // Actividad vuelve a leer los ascensos
     if (item.dirty) {
       const rev = item.session.rev;
       await col().doc(item.session.id).set(serialize(item), { merge: true });
@@ -474,7 +489,8 @@ const KruxSession = (() => {
       const at = a.loggedAt && a.loggedAt.toMillis ? a.loggedAt.toMillis() : (a.date && a.date.toMillis ? a.date.toMillis() : nowMs());
       return {
         ascentId: doc.id, routeId: a.routeId, routeName: a.routeName, grade: a.grade || '', style: a.style, sector: a.sector || '',
-        schoolId: a.schoolId, schoolName: a.schoolName, at, meters: null, companions: a.companions || [], synced: true
+        schoolId: a.schoolId, schoolName: a.schoolName, at, meters: null, companions: a.companions || [], synced: true,
+        climbType: a.climbType || '', tries: a.tries || 1
       };
     }).sort((x, y) => x.at - y.at);
   }
@@ -618,7 +634,7 @@ const KruxSession = (() => {
       await recover();
     },
 
-    async start({ gps = false, schoolId = '', schoolName = '' } = {}) {
+    async start({ gps = false, schoolId = '', schoolName = '', type = 'rock', companions = [] } = {}) {
       if (!uid) throw Object.assign(new Error('auth'), { code: 'auth' });
       if (state.active) throw Object.assign(new Error('exists'), { code: 'exists' });
       // Con conexión, no se crea una segunda sesión si ya hay una activa en otro dispositivo (espera máx. 4 s)
@@ -628,12 +644,20 @@ const KruxSession = (() => {
         clearTimeout(waitT);
         if (other[0]) throw Object.assign(new Error('remote-active'), { code: 'remote-active', session: other[0] });
       }
-      const session = kxsNewSession({ id: col().doc().id, now: nowMs(), gps, schoolId, schoolName });
+      const session = kxsNewSession({ id: col().doc().id, now: nowMs(), gps, schoolId, schoolName, type, companions });
       state.active = { session, entries: [], track: [], dirty: true };
       persist(); emit('change'); scheduleFlush(0);
       watchRemote();
-      if (gps) await startGps();   // un fallo del GPS no impide la sesión: queda anotado en gps.status
+      if (session.gps.enabled) await startGps();   // un fallo del GPS no impide la sesión: queda anotado en gps.status
       return session;
+    },
+
+    // Compañeros de la sesión de rocódromo: se proponen en cada bloque que se registra
+    setCompanions(list) {
+      const item = state.active;
+      if (!item) return;
+      item.session.companions = (list || []).slice(0, 10);
+      item.session.rev++; touch(item);
     },
 
     pause() {
@@ -651,15 +675,20 @@ const KruxSession = (() => {
 
     // Registra una vía en la sesión con el sistema de ascensos existente. info: datos de la vía + estilo.
     // El contador se actualiza al instante; la subida a Firestore se reintenta sola si no hay conexión.
+    // Rocódromo: info.climbType ('indoor' | 'boulder'); un bloque con foto ya sube su ascenso al guardarse
+    // (info.ascentId + info.synced) y aquí solo se anota en la sesión, con la miniatura de la foto.
     async addAscent(info) {
       const item = state.active;
       if (!item) return null;
       const style = KXS_STYLES.includes(info.style) ? info.style : 'redpoint';
       const entry = {
-        ascentId: db.collection('ascents').doc().id,
+        ascentId: info.ascentId || db.collection('ascents').doc().id,
         routeId: info.routeId, routeName: info.routeName, grade: info.grade || '', style, sector: info.sector || '',
         schoolId: info.schoolId, schoolName: info.schoolName,
-        at: nowMs(), meters: null, companions: (info.companions || []).slice(0, 10), synced: false,
+        at: nowMs(), meters: null, companions: (info.companions || []).slice(0, 10), synced: !!info.synced,
+        ...(info.climbType ? { climbType: info.climbType } : {}),
+        ...(info.schoolCity ? { schoolCity: info.schoolCity } : {}),
+        ...(info.thumbUrl ? { thumbUrl: info.thumbUrl, blockId: info.blockId || '', color: info.color || '' } : {}),
         tries: Math.max(1, Math.min(999, parseInt(info.tries, 10) || 1)),
         rating: [1, 2, 3, 4, 5].includes(Number(info.rating)) ? Number(info.rating) : 0,
         notes: String(info.notes || '').slice(0, 1000)
