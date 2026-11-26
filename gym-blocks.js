@@ -28,6 +28,7 @@ const KXB_MAX_HOLDS = 60;
 const KXB_PHOTO_SIDE = 1600;
 const KXB_ANALYSIS_SIDE = 720;
 const KXB_THUMB_SIDE = 480;
+const KXB_MAX_FORM = 8;   // bloques en un mismo registro
 const KXB_TOL_DEFAULT = 16;
 
 Object.assign(KX_ICON_PATHS, {
@@ -334,13 +335,13 @@ function kxbColorZones(img, seedLab, tol) {
   for (let start = 0; start < N; start++) {
     if (!grown[start] || labels[start]) continue;
     const lab = ++next;
-    let head = 0, tail = 0, area = 0, n = 0, cx = 0, cy = 0, r = 0, g = 0, b = 0, sl = 0, sa = 0, sb = 0;
+    let head = 0, tail = 0, area = 0, n = 0, cx = 0, cy = 0, r = 0, g = 0, b = 0, sl = 0, sa = 0, sb = 0, sxx = 0, syy = 0, sxy = 0;
     let bx0 = w, bx1 = 0, by0 = h, by1 = 0;
     labels[start] = lab; queue[tail++] = start;
     while (head < tail) {
       const i = queue[head++];
       const x = i % w, y = (i - x) / w;
-      area++; cx += x; cy += y;
+      area++; cx += x; cy += y; sxx += x * x; syy += y * y; sxy += x * y;
       if (raw[i]) { n++; r += rgb[i * 3]; g += rgb[i * 3 + 1]; b += rgb[i * 3 + 2]; sl += L[i]; sa += A[i]; sb += B[i]; }
       if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y;
       if (x > 0 && grown[i - 1] && !labels[i - 1]) { labels[i - 1] = lab; queue[tail++] = i - 1; }
@@ -348,8 +349,14 @@ function kxbColorZones(img, seedLab, tol) {
       if (y > 0 && grown[i - w] && !labels[i - w]) { labels[i - w] = lab; queue[tail++] = i - w; }
       if (y < h - 1 && grown[i + w] && !labels[i + w]) { labels[i + w] = lab; queue[tail++] = i + w; }
     }
+    // Alargamiento por los ejes principales (momentos de segundo orden): una franja o una cinta, aunque vaya en diagonal
+    const mx = cx / area, my = cy / area;
+    const vxx = sxx / area - mx * mx, vyy = syy / area - my * my, vxy = sxy / area - mx * my;
+    const tr = vxx + vyy, det = Math.sqrt(Math.max(0, (vxx - vyy) * (vxx - vyy) + 4 * vxy * vxy));
+    const elong = Math.sqrt(Math.max(1e-6, (tr + det) / 2) / Math.max(1e-6, (tr - det) / 2));
+    const pix = n;   // píxeles del color de verdad (area es la zona engordada 1 px)
     n = n || 1;
-    zones.push({ lab, area, bbox: [bx0, by0, bx1, by1], c: [cx / area, cy / area], rgb: [r / n, g / n, b / n], mean: [sl / n, sa / n, sb / n] });
+    zones.push({ lab, area, pix, elong, bbox: [bx0, by0, bx1, by1], c: [mx, my], rgb: [r / n, g / n, b / n], mean: [sl / n, sa / n, sb / n] });
   }
   return { labels, zones };
 }
@@ -371,7 +378,7 @@ function kxbZoneAt(labels, zones, w, h, sx, sy) {
 // vecina más cercana (árbol de mínima distancia, desde la tocada) y se corta donde el salto es mucho mayor que lo
 // normal en esa foto: lo que queda al otro lado son otras vías o paredes. En horizontal pesa más (las vías de al lado
 // están a los lados). La distancia es el hueco entre presas, no entre centros: una presa grande no queda «lejos».
-const KXB_CHAIN = { aniso: 1.5, k: 3, floor: 0.08 };
+const KXB_CHAIN = { aniso: 1.5, k: 2.5, floor: 0.05 };
 function kxbChain(zones, si, S) {
   const n = zones.length;
   if (n <= 2) return zones.map((_, i) => i);
@@ -409,12 +416,12 @@ function kxbSegmentAll(img, nx, ny, tol = KXB_TOL_DEFAULT) {
   const minArea = Math.max(24, Math.round(0.00005 * N));
   let pass = kxbColorZones(img, seed.lab, tol);
   let sz = kxbZoneAt(pass.labels, pass.zones, w, h, sx, sy);
-  if (!sz || sz.area > cap || sz.area < minArea) return { ok: false, holds: [] };
+  if (!sz || sz.area > cap || sz.pix < minArea) return { ok: false, holds: [] };
   // Segunda pasada con el color medio de la presa tocada (no el del punto exacto, que puede ser un brillo o una sombra)
   const again = kxbColorZones(img, sz.mean, tol);
   const sz2 = kxbZoneAt(again.labels, again.zones, w, h, sx, sy);
   if (sz2 && sz2.area <= cap && sz2.area >= sz.area) { pass = again; sz = sz2; }
-  const minKeep = Math.max(minArea, Math.round(sz.area * 0.04));
+  const minKeep = Math.max(minArea, Math.round(sz.pix * 0.04));
   const chroma = (z) => Math.hypot(z.mean[1], z.mean[2]);
   const cSeed = chroma(sz);
   // Cada presa es de un solo color: su tono MEDIO debe estar muy cerca del de la tocada. El margen amplio de kxbNearFn
@@ -425,12 +432,12 @@ function kxbSegmentAll(img, nx, ny, tol = KXB_TOL_DEFAULT) {
   const hueOk = (z) => { let d = Math.abs(hueOf(z) - hSeed); if (d > Math.PI) d = 2 * Math.PI - d; return d <= hueMax; };
   let cands = pass.zones.filter(z => {
     if (z === sz) return true;
-    if (z.area > cap || z.area < minKeep) return false;
+    if (z.area > cap || z.pix < minKeep) return false;
     if (chroma(z) < 0.45 * cSeed) return false;                               // apagada: gris con un matiz, no del color
     if (!hueOk(z)) return false;                                              // color vecino
     const bw = z.bbox[2] - z.bbox[0] + 1, bh = z.bbox[3] - z.bbox[1] + 1;
     if (z.area / (bw * bh) < 0.22) return false;                              // líneas y formas huecas
-    if (Math.max(bw, bh) / Math.max(1, Math.min(bw, bh)) > 6) return false;   // tiras finas
+    if (z.elong > 5) return false;                                              // franjas, cintas y tiras (también en diagonal)
     return true;
   });
   if (cands.length > 300) cands = [sz].concat(cands.filter(z => z !== sz).sort((a, b) => b.area - a.area).slice(0, 299));
@@ -945,8 +952,9 @@ const KruxBlockEditor = (() => {
   }
 
   // blob: foto ya preparada (JPEG). holds: presas guardadas (para editar). Devuelve { holds, color } o null si se cancela.
-  async function open({ blob: b, holds: initial = [] }) {
+  async function open({ blob: b, holds: initial = [], title = '' }) {
     ensure();
+    root.querySelector('#kxb-ed-title').textContent = title || 'Marca las presas';
     if (resolveFn) finish(null);
     blob = b;
     const bmp = await kxbDecode(b);
@@ -1012,127 +1020,158 @@ const KruxGymBlocksData = {
   }
 };
 
-// Publica en el feed la foto con las presas marcadas y el ascenso. Devuelve el id de la publicación.
-async function kxbPublish(block, srcBlob) {
-  const user = firebase.auth().currentUser;
-  if (!user) throw Object.assign(new Error('auth'), { code: 'auth' });
-  const blobIn = srcBlob || await (await fetch(block.photoUrl)).blob();
-  const bmp = await kxbDecode(blobIn);
-  let baked;
-  try { baked = await kxbBakeImage(bmp, block.holds || []); } finally { if (bmp.close) bmp.close(); }
-  const ref = storage.ref(`posts/${user.uid}/${Date.now()}_0_bloque.jpg`);
-  await kxStoragePut(ref, new File([baked], 'bloque.jpg', { type: 'image/jpeg' }));
-  const url = await ref.getDownloadURL();
-  const ascent = {
+// Ascensión del feed a partir de un bloque guardado (mismo formato que ascentToPostData)
+function kxbPostAscent(block) {
+  const a = {
     ascentId: block.ascentId, routeId: block.ascentRouteId || block.name || block.ascentId, routeName: block.name || 'Vía sin nombre',
     grade: block.grade, style: block.style, schoolId: block.gymId, schoolName: block.gymName,
     date: block.date ? new Date(`${block.date}T12:00:00`).toISOString() : null
   };
-  Object.keys(ascent).forEach(k => { if (ascent[k] === undefined || ascent[k] === null || ascent[k] === '') delete ascent[k]; });
-  const post = {
-    type: 'photo',
-    userId: user.uid,
-    userName: user.displayName || 'Usuario',
-    userPhoto: (typeof kxAuthorPhoto === 'function' ? await kxAuthorPhoto(user.uid) : '') || user.photoURL || '',
-    likes: [], commentsCount: 0,
-    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    photos: [url],
-    media: [{ type: 'photo', url }],
-    ...(block.gymName ? { location: { name: block.gymName } } : {}),
-    ...(ascent.ascentId && ascent.routeName ? { ascents: [ascent] } : {})
-  };
-  const docRef = await db.collection('posts').add(post);
-  try { await KruxGymBlocksData.save(user.uid, block.id, { postId: docRef.id }); } catch (e) { console.warn('[Bloques] No se pudo anotar la publicación:', e); }
-  if (typeof loadFeed === 'function') setTimeout(() => loadFeed({ silent: true }).catch(() => {}), 400);
-  return docRef.id;
+  Object.keys(a).forEach(k => { if (a[k] === undefined || a[k] === null || a[k] === '') delete a[k]; });
+  return a;
+}
+
+// Publicar bloques: se abre el compositor del feed con las fotos ya marcadas, la ubicación y las ascensiones, para
+// escribir, quitar o añadir fotos antes de publicar. blobs: fotos ya en el móvil (si no, se descargan).
+async function kxbShare(blocks, blobs = []) {
+  if (typeof kxOpenComposerWith !== 'function') throw new Error('compositor');
+  const files = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const src = blobs[i] || await (await fetch(b.photoUrl)).blob();
+    const bmp = await kxbDecode(src);
+    try { files.push(new File([await kxbBakeImage(bmp, b.holds || [])], `bloque_${i + 1}.jpg`, { type: 'image/jpeg' })); }
+    finally { if (bmp.close) bmp.close(); }
+  }
+  const ascents = blocks.map(kxbPostAscent).filter(a => a.ascentId && a.routeName);
+  const gym = blocks[0] && blocks[0].gymName;
+  const uid = (firebase.auth().currentUser || {}).uid;
+  return kxOpenComposerWith({
+    files, ascents,
+    location: gym ? { name: gym, ...(blocks[0].gymId ? { schoolId: blocks[0].gymId } : {}) } : null,
+    onPublished: (postId) => {
+      blocks.forEach(b => { b.postId = postId; KruxGymBlocksData.save(uid, b.id, { postId }).catch(e => console.warn('[Bloques] No se pudo anotar la publicación:', e)); });
+      if (window.KruxGymBlocks) setTimeout(() => KruxGymBlocks.renderActivity(), 600);
+    }
+  });
 }
 
 // ============================================
 // INTERFAZ
 // ============================================
 const KruxGymBlocks = (() => {
-  // Estado del bloque en el formulario de registro (se conserva entre reintentos para no subir dos veces)
-  let form = null;
+  // Bloques del formulario de registro. Se pueden registrar varios de una vez: el primero va con el ascenso del
+  // formulario (su grado es el del formulario) y cada uno de los demás crea su propio ascenso con su grado, con la
+  // misma fecha, rocódromo, estilo y compañeros. Ids fijados al subir: un reintento no duplica nada.
+  let form = { items: [], share: false };
+  let seq = 0;
   const me = () => (firebase.auth().currentUser || {}).uid || null;
   const toast = (m, t = 'info', o) => { if (typeof showToast === 'function') showToast(m, t, o); };
   const esc = (v) => kxEsc(v);
   const typeLabel = (t) => (t === 'boulder' ? 'Boulder' : 'Vía indoor');
   const STYLE_LABEL = { redpoint: 'Redpoint', onsight: 'A vista', flash: 'Flash', toprope: 'Top rope', project: 'Intento' };
+  const mainGrade = () => document.getElementById('gm-grade-select');
+  const gtype = () => (document.getElementById('ascent-climb-type')?.value === 'boulder' ? 'boulder' : 'via');
+
+  function freeItems() { form.items.forEach(it => it.url && URL.revokeObjectURL(it.url)); }
 
   function resetForm() {
-    form = null;
-    const input = document.getElementById('gm-block-file');
-    if (input) input.value = '';
+    freeItems();
+    form = { items: [], share: false };
+    ['gm-block-file', 'gm-block-cam'].forEach(id => { const i = document.getElementById(id); if (i) i.value = ''; });
     renderSlot();
   }
 
   function slotEl() { return document.getElementById('gm-block-slot'); }
 
+  const pickHTML = (more) => `<div class="kxb-pick${more ? ' kxb-pick--more' : ''}">
+      <button type="button" class="kxb-add" data-kxb-form="cam">
+        <span class="kxb-add-ic">${kxIcon('camera', { size: more ? 18 : 22 })}</span>
+        <span class="kxb-add-txt"><strong>${more ? 'Cámara' : 'Hacer foto'}</strong></span>
+      </button>
+      <button type="button" class="kxb-add" data-kxb-form="pick">
+        <span class="kxb-add-ic">${kxIcon('images', { size: more ? 18 : 22 })}</span>
+        <span class="kxb-add-txt"><strong>${more ? 'Galería' : 'Subir de la galería'}</strong></span>
+      </button>
+      ${more ? '' : '<p class="kxb-pick-note">Marca las presas y se guarda con tu ascenso. Puedes elegir varias fotos a la vez: un bloque por foto. Solo lo ves tú.</p>'}
+    </div>`;
+
+  function itemHTML(it, i, many) {
+    const n = it.holds.length;
+    const opts = mainGrade() ? mainGrade().innerHTML : '';
+    return `<div class="kxb-item" data-kxb-item="${it.key}">
+        <div class="kxb-prev">
+          <button type="button" class="kxb-prev-img" data-kxb-form="edit" aria-label="Editar las presas del bloque ${i + 1}">
+            <img src="${esc(it.url)}" alt="">${kxbOverlaySVG(it.holds, it.w, it.h, { sw: 1.6, uid: `form${it.key}`, fit: 'slice' })}
+          </button>
+          <div class="kxb-prev-side">
+            <strong>${many ? `Bloque ${i + 1} · ` : ''}${n} ${n === 1 ? 'presa' : 'presas'}</strong>
+            ${many ? `<label class="kxb-grade-pick"><span>Grado</span><select data-kxb-grade aria-label="Grado del bloque ${i + 1}">${opts}</select></label>` : ''}
+            <button type="button" class="kxb-mini" data-kxb-form="edit">${kxIcon('pen', { size: 16 })}Editar presas</button>
+            <button type="button" class="kxb-mini kxb-mini--danger" data-kxb-form="clear">${kxIcon('trash', { size: 16 })}Quitar</button>
+          </div>
+        </div>
+        <div class="kxb-colors" role="radiogroup" aria-label="Color de las presas del bloque ${i + 1}">
+          <span class="kxb-colors-lbl">Color de las presas</span>
+          <div class="kxb-colors-row">${KXB_COLORS.map(c => `<button type="button" class="kxb-sw${it.color === c.key ? ' is-on' : ''}" role="radio" aria-checked="${it.color === c.key}" data-kxb-color="${c.key}" style="--c:${c.hex}" title="${c.label}" aria-label="${c.label}"></button>`).join('')}</div>
+        </div>
+      </div>`;
+  }
+
   function renderSlot() {
     const slot = slotEl();
     if (!slot) return;
-    if (!form || !form.blob) {
-      // Cámara en el momento o una foto que ya esté en el móvil: las dos pasan por el mismo marcado de presas
-      slot.innerHTML = `<div class="kxb-pick">
-          <button type="button" class="kxb-add" data-kxb-form="cam">
-            <span class="kxb-add-ic">${kxIcon('camera', { size: 22 })}</span>
-            <span class="kxb-add-txt"><strong>Hacer foto</strong></span>
-          </button>
-          <button type="button" class="kxb-add" data-kxb-form="pick">
-            <span class="kxb-add-ic">${kxIcon('images', { size: 22 })}</span>
-            <span class="kxb-add-txt"><strong>Subir de la galería</strong></span>
-          </button>
-          <p class="kxb-pick-note">Marca las presas y se guarda con tu ascenso. Solo lo ves tú.</p>
-        </div>`;
-      return;
-    }
-    const n = form.holds.length;
-    slot.innerHTML = `<div class="kxb-prev">
-        <button type="button" class="kxb-prev-img" data-kxb-form="edit" aria-label="Editar las presas marcadas">
-          <img src="${esc(form.url)}" alt="">${kxbOverlaySVG(form.holds, form.w, form.h, { sw: 1.6, uid: 'form', fit: 'slice' })}
-        </button>
-        <div class="kxb-prev-side">
-          <strong>${n} ${n === 1 ? 'presa marcada' : 'presas marcadas'}</strong>
-          <button type="button" class="kxb-mini" data-kxb-form="edit">${kxIcon('pen', { size: 16 })}Editar presas</button>
-          <button type="button" class="kxb-mini" data-kxb-form="pick">${kxIcon('images', { size: 16 })}Cambiar foto</button>
-          <button type="button" class="kxb-mini kxb-mini--danger" data-kxb-form="clear">${kxIcon('trash', { size: 16 })}Quitar</button>
-        </div>
-      </div>
-      <div class="kxb-colors" role="radiogroup" aria-label="Color de las presas">
-        <span class="kxb-colors-lbl">Color de las presas</span>
-        <div class="kxb-colors-row">${KXB_COLORS.map(c => `<button type="button" class="kxb-sw${form.color === c.key ? ' is-on' : ''}" role="radio" aria-checked="${form.color === c.key}" data-kxb-color="${c.key}" style="--c:${c.hex}" title="${c.label}" aria-label="${c.label}"></button>`).join('')}</div>
-      </div>
+    const items = form.items;
+    if (!items.length) { slot.innerHTML = pickHTML(false); return; }
+    const many = items.length > 1;
+    slot.innerHTML = `<div class="kxb-items">${items.map((it, i) => itemHTML(it, i, many)).join('')}</div>
+      ${items.length < KXB_MAX_FORM ? `<p class="kxb-more-lbl">Añadir otro bloque</p>${pickHTML(true)}` : ''}
+      ${many ? `<p class="kxb-pick-note">Se guardará un ascenso por bloque, con la fecha, el estilo y los compañeros del formulario.</p>` : ''}
       <label class="kxb-share">
         <input type="checkbox" id="gm-block-share"${form.share ? ' checked' : ''}>
-        <span><strong>Publicar en el feed</strong><small>Se publica la foto con las presas marcadas. Si no, el bloque solo lo ves tú.</small></span>
+        <span><strong>Publicar en el feed</strong><small>Al guardar se abre la publicación con ${many ? 'las fotos' : 'la foto'} y las presas marcadas para que añadas texto. Si no, solo lo ves tú.</small></span>
       </label>`;
+    // Grado de cada bloque (el primero, el del formulario)
+    slot.querySelectorAll('[data-kxb-grade]').forEach(sel => {
+      const it = itemOf(sel);
+      sel.value = it === form.items[0] ? (mainGrade() ? mainGrade().value : '') : it.grade;
+    });
   }
 
-  async function pickFile(file) {
-    if (!file) return;
-    if (!/^image\//i.test(file.type || '') && !/\.(jpe?g|png|heic|heif|webp)$/i.test(file.name || '')) { toast('Elige una foto', 'warning'); return; }
-    let prepared;
-    try {
-      prepared = await kxbPreparePhoto(file);
-    } catch (e) {
-      console.warn('[Bloques] No se pudo abrir la foto:', e);
-      toast('No se pudo abrir la foto', 'error');
-      return;
+  const itemOf = (el) => { const k = el.closest('[data-kxb-item]'); return k ? form.items.find(it => String(it.key) === k.dataset.kxbItem) : null; };
+
+  // Una o varias fotos: cada una pasa por el editor; cancelar una la salta y sigue con la siguiente
+  async function pickFiles(files) {
+    const list = [...(files || [])].filter(f => /^image\//i.test(f.type || '') || /\.(jpe?g|png|heic|heif|webp)$/i.test(f.name || ''));
+    if (!list.length) { if (files && files.length) toast('Elige una foto', 'warning'); return; }
+    const room = KXB_MAX_FORM - form.items.length;
+    if (list.length > room) toast(`Como máximo ${KXB_MAX_FORM} bloques por registro`, 'warning');
+    const todo = list.slice(0, Math.max(0, room));
+    for (let i = 0; i < todo.length; i++) {
+      let prepared;
+      try {
+        prepared = await kxbPreparePhoto(todo[i]);
+      } catch (e) {
+        console.warn('[Bloques] No se pudo abrir la foto:', e);
+        toast('No se pudo abrir una de las fotos', 'error');
+        continue;
+      }
+      const res = await KruxBlockEditor.open({ blob: prepared.blob, holds: [], title: todo.length > 1 ? `Bloque ${i + 1} de ${todo.length}` : '' });
+      if (!res) continue;
+      form.items.push({
+        key: ++seq, blob: prepared.blob, thumb: prepared.thumb, w: prepared.w, h: prepared.h, url: URL.createObjectURL(prepared.blob),
+        holds: res.holds, color: res.color || null, grade: mainGrade() ? mainGrade().value : ''
+      });
+      renderSlot();
     }
-    const res = await KruxBlockEditor.open({ blob: prepared.blob, holds: [] });
-    if (!res) return;   // cancelado: se queda la foto que hubiera
-    if (form && form.url) URL.revokeObjectURL(form.url);
-    form = { ...(form || {}), blob: prepared.blob, thumb: prepared.thumb, w: prepared.w, h: prepared.h, url: URL.createObjectURL(prepared.blob), holds: res.holds, color: (form && form.color) || res.color || null, share: !!(form && form.share), uploaded: null };
-    renderSlot();
   }
 
-  async function editForm() {
-    if (!form || !form.blob) return;
-    const res = await KruxBlockEditor.open({ blob: form.blob, holds: form.holds });
+  async function editItem(it) {
+    const res = await KruxBlockEditor.open({ blob: it.blob, holds: it.holds });
     if (!res) return;
-    form.holds = res.holds;
-    if (!form.color && res.color) form.color = res.color;
+    it.holds = res.holds;
+    it.uploaded = null; it.savedHolds = null;
+    if (!it.color && res.color) it.color = res.color;
     renderSlot();
   }
 
@@ -1142,18 +1181,37 @@ const KruxGymBlocks = (() => {
     group._kxbWired = true;
     const input = document.getElementById('gm-block-file');
     const cam = document.getElementById('gm-block-cam');
-    [input, cam].forEach(el => el && el.addEventListener('change', () => { const f = el.files && el.files[0]; el.value = ''; pickFile(f); }));
+    if (input) input.multiple = true;
+    [input, cam].forEach(el => el && el.addEventListener('change', () => { const f = [...(el.files || [])]; el.value = ''; pickFiles(f); }));
     group.addEventListener('click', (e) => {
       const c = e.target.closest('[data-kxb-color]');
-      if (c && form) { form.color = form.color === c.dataset.kxbColor ? null : c.dataset.kxbColor; renderSlot(); return; }
+      if (c) { const it = itemOf(c); if (it) { it.color = it.color === c.dataset.kxbColor ? null : c.dataset.kxbColor; renderSlot(); } return; }
       const b = e.target.closest('[data-kxb-form]');
       if (!b) return;
       const a = b.dataset.kxbForm;
-      if (a === 'pick' || a === 'cam') { if (!me()) { toast('Inicia sesión para guardar bloques', 'info'); return; } (a === 'cam' && cam ? cam : input).click(); }
-      else if (a === 'edit') editForm();
-      else if (a === 'clear') { if (form && form.url) URL.revokeObjectURL(form.url); form = null; renderSlot(); }
+      if (a === 'pick' || a === 'cam') { if (!me()) { toast('Inicia sesión para guardar bloques', 'info'); return; } (a === 'cam' && cam ? cam : input).click(); return; }
+      const it = itemOf(b);
+      if (!it) return;
+      if (a === 'edit') editItem(it);
+      else if (a === 'clear') { if (it.url) URL.revokeObjectURL(it.url); form.items = form.items.filter(x => x !== it); renderSlot(); }
     });
-    group.addEventListener('change', (e) => { if (e.target.id === 'gm-block-share' && form) form.share = e.target.checked; });
+    group.addEventListener('change', (e) => {
+      if (e.target.id === 'gm-block-share') { form.share = e.target.checked; return; }
+      if (e.target.matches('[data-kxb-grade]')) {
+        const it = itemOf(e.target);
+        if (!it) return;
+        // El primer bloque usa el grado del formulario: los dos selectores van a la par
+        if (form.items[0] === it && mainGrade()) mainGrade().value = e.target.value;
+        else it.grade = e.target.value;
+      }
+    });
+    // Vía indoor / Boulder cambia la escala de grados de todos los bloques
+    document.getElementById('gm-type-seg')?.addEventListener('click', () => setTimeout(() => {
+      const opts = mainGrade() ? [...mainGrade().options].map(o => o.value) : [];
+      form.items.forEach((it, i) => { if (i && !opts.includes(it.grade)) it.grade = mainGrade().value; });
+      renderSlot();
+    }, 0));
+    mainGrade()?.addEventListener('change', () => { if (form.items.length > 1) renderSlot(); });
   }
 
   // Al abrir «Nueva sesión rocódromo»
@@ -1166,60 +1224,82 @@ const KruxGymBlocks = (() => {
   }
 
   function detach() {
-    if (form && form.url) URL.revokeObjectURL(form.url);
-    form = null;
+    freeItems();
+    form = { items: [], share: false };
     document.getElementById('gm-block-group')?.classList.add('hidden');
     renderSlot();
   }
 
-  const hasPending = () => !!(form && form.blob && form.holds && form.holds.length);
+  const hasPending = () => form.items.some(it => it.holds && it.holds.length);
 
-  // Antes de guardar el ascenso: sube la foto y crea el bloque con el id del ascenso (fijado aquí para que un reintento no duplique)
+  // Nombre del ascenso de los bloques 2 y siguientes: «Boulder amarillo» (o «Boulder 2» sin color)
+  const extraName = (it, i, type) => `${type === 'boulder' ? 'Boulder' : 'Vía'} ${it.color ? kxbColor(it.color).label.toLowerCase() : i + 1}`;
+
+  // Antes de guardar el ascenso: sube las fotos y crea los bloques (el primero con el id del ascenso del formulario)
   async function beforeAscentSave(ascentData) {
     if (!hasPending()) return null;
     const uid = me();
     if (!uid) throw Object.assign(new Error('auth'), { code: 'auth' });
     if (typeof kxIsOffline === 'function' && kxIsOffline()) throw Object.assign(new Error('offline'), { code: 'kxb/offline' });
-    if (!form.blockId) form.blockId = KruxGymBlocksData.col(uid).doc().id;
-    if (!form.ascentId) form.ascentId = ascentData.id || db.collection('ascents').doc().id;
-    ascentData.id = form.ascentId;
-    if (!form.uploaded) form.uploaded = await KruxGymBlocksData.uploadPhoto(uid, form.blockId, form.blob, form.thumb);
-    const data = {
-      gymId: String(ascentData.schoolId || '').slice(0, 200),
-      gymName: String(ascentData.schoolName || '').slice(0, 200),
-      ascentId: form.ascentId,
-      ascentRouteId: String(ascentData.routeId || '').slice(0, 300),
-      type: ascentData.climbType === 'boulder' ? 'boulder' : 'via',
-      grade: String(ascentData.grade || '').slice(0, 12),
-      name: String(ascentData.routeName === 'Vía sin nombre' ? '' : ascentData.routeName || '').slice(0, 120),
-      color: form.color || '',
-      date: String(ascentData.date || '').slice(0, 10),
-      style: String(ascentData.style || '').slice(0, 20),
-      photoPath: form.uploaded.path,
-      photoUrl: form.uploaded.url,
-      thumbUrl: form.uploaded.thumbUrl,
-      w: form.w, h: form.h,
-      holds: kxbCleanHolds(form.holds)
-    };
-    await KruxGymBlocksData.save(uid, form.blockId, data, { create: true });
-    form.saved = { id: form.blockId, userId: uid, ...data };
-    return form.blockId;
+    const type = ascentData.climbType === 'boulder' ? 'boulder' : 'via';
+    // Sin nombre de vía: el ascenso se llama por su tipo y color («Boulder amarillo») en vez de «Vía sin nombre»
+    if (ascentData.routeName === 'Vía sin nombre' && form.items[0]) ascentData.routeName = extraName(form.items[0], 0, type);
+    form.base = { ...ascentData };
+    for (let i = 0; i < form.items.length; i++) {
+      const it = form.items[i];
+      if (!it.blockId) it.blockId = KruxGymBlocksData.col(uid).doc().id;
+      if (i === 0) { if (!it.ascentId) it.ascentId = ascentData.id || db.collection('ascents').doc().id; ascentData.id = it.ascentId; }
+      else if (!it.ascentId) it.ascentId = db.collection('ascents').doc().id;
+      if (!it.routeId) it.routeId = i === 0 ? String(ascentData.routeId || '') : `gym_${Date.now()}_${i}`;
+      const name = i === 0 ? ascentData.routeName || '' : extraName(it, i, type);
+      if (!it.uploaded) it.uploaded = await KruxGymBlocksData.uploadPhoto(uid, it.blockId, it.blob, it.thumb);
+      const data = {
+        gymId: String(ascentData.schoolId || '').slice(0, 200),
+        gymName: String(ascentData.schoolName || '').slice(0, 200),
+        ascentId: it.ascentId,
+        ascentRouteId: it.routeId.slice(0, 300),
+        type,
+        grade: String(i === 0 ? ascentData.grade || '' : it.grade || ascentData.grade || '').slice(0, 12),
+        name: String(name).slice(0, 120),
+        color: it.color || '',
+        date: String(ascentData.date || '').slice(0, 10),
+        style: String(ascentData.style || '').slice(0, 20),
+        photoPath: it.uploaded.path,
+        photoUrl: it.uploaded.url,
+        thumbUrl: it.uploaded.thumbUrl,
+        w: it.w, h: it.h,
+        holds: kxbCleanHolds(it.holds)
+      };
+      await KruxGymBlocksData.save(uid, it.blockId, data, { create: true });
+      it.saved = { id: it.blockId, userId: uid, ...data };
+    }
+    return form.items[0].blockId;
   }
 
-  // Después de guardar el ascenso: limpia el formulario y, si se pidió, publica en segundo plano (el modal no espera)
+  // Después de guardar el ascenso del formulario: ascensos de los demás bloques, limpieza y, si se pidió, el
+  // compositor del feed con todas las fotos. Devuelve cuántos bloques se guardaron.
   async function afterAscentSave() {
-    if (!form || !form.saved) return;
-    const block = form.saved, share = form.share, blob = form.blob;
+    const items = form.items.filter(it => it.saved);
+    if (!items.length) return 0;
+    const base = form.base || {};
+    let failed = 0;
+    for (let i = 1; i < items.length; i++) {
+      const it = items[i], b = it.saved;
+      if (it.ascentLogged) continue;
+      const ok = typeof logAscent === 'function' && await logAscent({ ...base, id: it.ascentId, grade: b.grade, routeId: b.ascentRouteId, routeName: b.name });
+      if (ok) it.ascentLogged = true; else failed++;
+    }
+    if (failed) toast(`${failed === 1 ? 'Un ascenso' : `${failed} ascensos`} de los bloques no se pudo guardar`, 'warning', { detail: 'Los bloques sí están guardados en «Mis bloques».' });
+    const blocks = items.map(it => it.saved), blobs = items.map(it => it.blob), share = form.share;
     detach();
     refreshAll();
-    if (!share) return;
-    kxbPublish(block, blob).then(() => {
-      toast('Bloque publicado en el feed', 'success');
-      refreshAll();
-    }).catch((e) => {
-      console.error('[Bloques] No se pudo publicar:', e);
-      toast('El bloque se ha guardado, pero no se pudo publicar en el feed', 'warning', { detail: 'Puedes publicarlo desde «Mis bloques».' });
-    });
+    if (share) {
+      kxbShare(blocks, blobs).catch((e) => {
+        console.error('[Bloques] No se pudo preparar la publicación:', e);
+        toast('Los bloques se han guardado, pero no se pudo preparar la publicación', 'warning', { detail: 'Puedes publicarlos desde «Mis bloques».' });
+      });
+    }
+    return items.length;
   }
 
   // ---------- Lista: «Mis bloques» (Actividad › Rocódromo) y tarjeta de la ficha del rocódromo ----------
@@ -1401,18 +1481,19 @@ const KruxGymBlocks = (() => {
       return;
     }
     if (a === 'share') {
-      if (!await confirmAbove('Se publicará la foto con las presas marcadas y el ascenso. Cualquiera podrá verla en el feed.', 'Publicar en el feed', 'Publicar')) return;
+      // Se abre el compositor del feed con la foto marcada: ahí se escribe y se publica (o se cierra sin publicar)
       busy = true;
       b.disabled = true;
-      b.innerHTML = 'Publicando…';
+      b.innerHTML = 'Preparando…';
+      const block = current;
       try {
-        current.postId = await kxbPublish(current);
-        toast('Bloque publicado en el feed', 'success');
-        renderActivity();
+        await kxbShare([block]);
+        closeViewer();
       } catch (err) {
         console.error('[Bloques] Publicar:', err);
-        toast('No se pudo publicar el bloque', 'error');
-      } finally { busy = false; if (current) renderViewer(); }
+        toast('No se pudo preparar la publicación', 'error');
+        if (current) renderViewer();
+      } finally { busy = false; }
       return;
     }
     if (a === 'delete') {

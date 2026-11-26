@@ -170,6 +170,19 @@ describe('fotos reales: vías vecinas y presas con sombra', () => {
     expect(r.holds.every(hh => hh.s[0] < 0.5)).toBe(true);
   });
 
+  it('una franja de color en diagonal (la línea pintada de la pared) no entra como presa', () => {
+    const w = 300, h = 240, RED = [205, 40, 45];
+    const holds = [[80, 60], [120, 100], [90, 140], [130, 180]];
+    const img = mk(w, h, (x, y) => {
+      if (holds.some(([hx, hy]) => (x - hx) ** 2 + (y - hy) ** 2 <= 49)) return RED;
+      if (Math.abs((y - 200) - (x - 160) * 0.25) <= 3 && x >= 160 && x <= 290) return RED;   // franja de 130 px y 7 de grosor
+      return null;
+    });
+    const r = get('kxbSegmentAll')(img, 80 / w, 60 / h);
+    expect(r.holds).toHaveLength(4);
+    expect(r.holds.some(hh => inside(hh.p, 250 / w, (200 + 90 * 0.25) / h))).toBe(false);
+  });
+
   it('presa con una mitad en sombra y la otra con brillo: se marca entera tocando el brillo', () => {
     const w = 240, h = 180;   // la presa ocupa ~2,5 % de la foto
     const img = mk(w, h, (x, y) => {

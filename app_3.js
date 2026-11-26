@@ -11098,6 +11098,7 @@ async function submitPost() {
     log('Current user UID:', currentUser.uid);
 
     const docRef = await db.collection('posts').add(postDataToSave);
+    if (postData.onPublished) { try { postData.onPublished(docRef.id); } catch (e) { console.warn('[Publicar] Aviso tras publicar:', e); } }
 
     // Send mention notifications
     if (postDataToSave.mentions && postDataToSave.mentions.length > 0) {
@@ -11204,6 +11205,35 @@ async function openEditPostInComposer(postId, { fromModal = false } = {}) {
   startCreatePostViewportSync();
   updatePreview();
   updateSubmitButton();
+}
+
+// Abre el compositor ya relleno (bloques de rocódromo): fotos locales, ascensiones y ubicación, para escribir y retocar
+// antes de publicar. onPublished(postId) se llama al publicar (no al cerrar sin publicar).
+function kxOpenComposerWith({ files = [], ascents = [], location = null, text = '', onPublished = null } = {}) {
+  if (!currentUser) { showToast('Inicia sesión para publicar', 'info'); return false; }
+  const modal = document.getElementById('create-post-modal');
+  const textarea = document.getElementById('create-post-text');
+  if (!modal || !textarea) return false;
+  resetPostData();
+  updateUserInfo();
+  postData.media = files.map(file => ({ id: ++cpMediaSeq, kind: 'photo', file }));
+  postData.ascents = ascents.map(a => ({ ...a }));
+  postData.location = location ? { ...location } : null;
+  postData.suggestDismissed = true;
+  postData.onPublished = typeof onPublished === 'function' ? onPublished : null;
+  textarea.value = text;
+  postData.text = text;
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  const badge = document.getElementById('location-badge');
+  const badgeText = document.getElementById('location-badge-text');
+  if (postData.location && badge && badgeText) { badgeText.textContent = postData.location.name || ''; badge.classList.remove('hidden'); }
+  modal.classList.remove('hidden');
+  startCreatePostViewportSync();
+  updatePreview();
+  updateSubmitButton();
+  if (typeof updateActionStates === 'function') updateActionStates();
+  setTimeout(() => textarea.focus(), 150);
+  return true;
 }
 
 async function kxSavePostEdition(editing, data, mediaList) {

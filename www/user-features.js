@@ -2893,13 +2893,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Create new ascent
                     const saved = await logAscent(ascentData);
                     if (!saved) return; // ya avisa del error; el formulario sigue abierto
-                    if (withBlock) await KruxGymBlocks.afterAscentSave();
+                    const nBlocks = withBlock ? await KruxGymBlocks.afterAscentSave() : 0;
                     const fromTag = !!form.dataset.tagNotification;
                     if (fromTag && window.KruxPartners) await KruxPartners.confirmed(form);
                     await kxAscentVotes.save();
                     closeAscentModal();
                     if (saved === 'queued') showToast('Ascenso guardado en el móvil', 'success', { detail: 'Se subirá solo cuando vuelvas a tener cobertura.' });
-                    else showToast(fromTag ? 'Ascenso confirmado y añadido a tu registro' : withBlock ? 'Ascenso y bloque guardados' : 'Ascenso registrado', 'success');
+                    else showToast(fromTag ? 'Ascenso confirmado y añadido a tu registro' : nBlocks > 1 ? `${nBlocks} bloques guardados, cada uno con su ascenso` : withBlock ? 'Ascenso y bloque guardados' : 'Ascenso registrado', 'success');
                     if (typeof loadActivityData === 'function') loadActivityData();
                 }
 

@@ -38,7 +38,7 @@ const KruxPartners = (() => {
       const docs = await Promise.all(snap.docs.slice(0, 60).map(d => db.collection('users').doc(d.id).get()));
       followed = docs.filter(d => d.exists).map(d => {
         const x = d.data();
-        return { id: d.id, name: x.displayName || x.username || x.name || 'Usuario' };
+        return { id: d.id, name: x.displayName || x.username || x.name || 'Usuario', username: x.username || '', photo: x.photoURL || x.photoUrl || '' };
       }).sort((a, b) => a.name.localeCompare(b.name, 'es'));
       followedUid = u.uid;
     } catch (e) {
@@ -153,7 +153,11 @@ const KruxPartners = (() => {
     const list = await loadFollowed();
     box.dataset.ready = '1';
     box.innerHTML = list.length
-      ? list.map(u => `<label class="kxs-peer"><input type="checkbox" value="${esc(u.id)}" data-ascent-peer ${picked.has(u.id) ? 'checked' : ''}><span>${esc(u.name)}</span></label>`).join('')
+      ? list.map(u => `<label class="kxs-peer kxs-peer--card">
+          <span class="kxs-peer-av" aria-hidden="true">${u.photo ? `<img src="${esc(u.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}${esc(String(u.name).trim().charAt(0).toUpperCase() || 'U')}</span>
+          <span class="kxs-peer-txt"><strong>${esc(u.name)}</strong>${u.username ? `<small>@${esc(u.username)}</small>` : ''}</span>
+          <input type="checkbox" value="${esc(u.id)}" data-ascent-peer ${picked.has(u.id) ? 'checked' : ''}>
+        </label>`).join('')
       : '<p class="kxs-empty">Aún no sigues a nadie. Podrás elegir compañeros entre las personas que sigues.</p>';
   }
   function resetForm(companions = []) {
