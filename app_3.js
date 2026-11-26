@@ -10995,6 +10995,7 @@ async function submitPost() {
         const entry = { type: item.kind, url: item.url };
         if (item.kind === 'photo') {
           photoUrls.push(item.url);
+          if (item.plainUrl) entry.plain = item.plainUrl;
         } else {
           videoUrls.push(item.url);
           if (item.cover && item.cover.file) {
@@ -11014,7 +11015,15 @@ async function submitPost() {
         await kxStoragePut(storageRef, photo);
         const url = await storageRef.getDownloadURL();
         photoUrls.push(url);
-        mediaList.push({ type: 'photo', url });
+        const entry = { type: 'photo', url };
+        // Foto de bloque: también sin el dibujo (si se ha recortado ya no coincidiría, y no se sube)
+        if (item.plain && !item.orig) {
+          const plain = await kxPrepareImageForUpload(item.plain);
+          const plainRef = storageRef0(`limpia_${plain.name || 'foto.jpg'}`);
+          await kxStoragePut(plainRef, plain);
+          entry.plain = await plainRef.getDownloadURL();
+        }
+        mediaList.push(entry);
       } else {
         const label = total > 1 ? ` ${i + 1}/${total}` : '';
         // Reduce el peso antes de subir; si no se puede, se sube el original
@@ -11186,7 +11195,7 @@ async function openEditPostInComposer(postId, { fromModal = false } = {}) {
   updateUserInfo();
   postData.editing = { postId, post, fromModal };
   postData.suggestDismissed = true; // al editar no se proponen ascensiones
-  postData.media = kxPostMedia(post).map(m => ({ id: ++cpMediaSeq, kind: m.type, url: m.url, poster: m.poster || null, remote: true }));
+  postData.media = kxPostMedia(post).map(m => ({ id: ++cpMediaSeq, kind: m.type, url: m.url, poster: m.poster || null, plainUrl: m.plain || null, remote: true }));
   postData.ascents = kxPostAscents(post).map(a => ({ ...a }));
   postData.location = post.location && typeof post.location === 'object' ? { ...post.location } : null;
 
@@ -11208,7 +11217,8 @@ async function openEditPostInComposer(postId, { fromModal = false } = {}) {
 }
 
 // Abre el compositor ya relleno (bloques de rocódromo): fotos locales, ascensiones y ubicación, para escribir y retocar
-// antes de publicar. onPublished(postId) se llama al publicar (no al cerrar sin publicar).
+// antes de publicar. Cada foto es un File o { file, plain }: plain es la misma foto sin el dibujo de las presas (en el
+// feed se puede alternar con el ojo). onPublished(postId) se llama al publicar (no al cerrar sin publicar).
 function kxOpenComposerWith({ files = [], ascents = [], location = null, text = '', onPublished = null } = {}) {
   if (!currentUser) { showToast('Inicia sesión para publicar', 'info'); return false; }
   const modal = document.getElementById('create-post-modal');
@@ -11216,7 +11226,9 @@ function kxOpenComposerWith({ files = [], ascents = [], location = null, text = 
   if (!modal || !textarea) return false;
   resetPostData();
   updateUserInfo();
-  postData.media = files.map(file => ({ id: ++cpMediaSeq, kind: 'photo', file }));
+  postData.media = files.map(f => (f instanceof Blob
+    ? { id: ++cpMediaSeq, kind: 'photo', file: f }
+    : { id: ++cpMediaSeq, kind: 'photo', file: f.file, plain: f.plain || null }));
   postData.ascents = ascents.map(a => ({ ...a }));
   postData.location = location ? { ...location } : null;
   postData.suggestDismissed = true;
@@ -11261,8 +11273,8 @@ async function kxSavePostEdition(editing, data, mediaList) {
   if (fresh.length) sendMentionNotifications(fresh, { type: 'post', postId });
 
   // Archivos que la publicación ya no usa (fotos, vídeos y portadas quitados o sustituidos)
-  const keep = new Set(mediaList.flatMap(m => [m.url, m.poster]).filter(Boolean));
-  const old = kxPostMedia(post).flatMap(m => [m.url, m.poster]).filter(Boolean);
+  const keep = new Set(mediaList.flatMap(m => [m.url, m.poster, m.plain]).filter(Boolean));
+  const old = kxPostMedia(post).flatMap(m => [m.url, m.poster, m.plain]).filter(Boolean);
   for (const url of old) {
     if (keep.has(url) || !url.includes('/o/posts%2F')) continue;
     try {
@@ -14204,17 +14216,47 @@ function kxPostMedia(post) {
 // HTML de fotos y vídeos en un único collage, en el orden de la publicación.
 // `modal` = publicación abierta (muestra todo); si no, se ven 4 casillas como máximo.
 // Cada casilla lleva su posición entre todos los elementos: el visor se abre ahí y se desliza por todos.
+// Ojo de las fotos de bloque: cambia entre la foto con las presas dibujadas y la limpia (también la que abre el visor).
+// En captura: no abre el visor ni cuenta como doble toque de «me gusta».
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.kx-drawn-eye');
+  if (!b) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const drawn = b.getAttribute('aria-pressed') === 'true';
+  const img = b.parentElement.querySelector('img');
+  const next = drawn ? b.dataset.plain : b.dataset.drawn;
+  if (img) {
+    img.src = next; img.dataset.lightboxSrc = next;
+    // El visor recorre la lista de la publicación: esa foto se abre en la versión que se está viendo
+    let holder = img.parentElement;
+    while (holder && !holder._lightboxItems) holder = holder.parentElement;
+    const i = Number(img.dataset.lightboxIndex);
+    if (holder && Number.isInteger(i) && holder._lightboxItems[i]) {
+      holder._lightboxItems = holder._lightboxItems.slice();
+      holder._lightboxItems[i] = { ...holder._lightboxItems[i], url: next };
+    }
+  }
+  b.setAttribute('aria-pressed', String(!drawn));
+  b.setAttribute('aria-label', drawn ? 'Ver las presas marcadas' : 'Ver la foto sin las presas marcadas');
+  b.classList.toggle('is-off', drawn);
+}, true);
+
 function kxMediaHTML(items, { modal = false, tag = '' } = {}) {
   if (!items.length) return '';
   const wrapClass = modal ? 'feed-media-wrapper feed-media-modal' : 'feed-media-wrapper';
-  const tiles = items.map((item, index) => ({ video: item.type === 'video', url: item.url, poster: item.poster, index }));
+  const tiles = items.map((item, index) => ({ video: item.type === 'video', url: item.url, poster: item.poster, plain: item.plain, index }));
   const hasVideo = tiles.some(t => t.video);
   const imgAttrs = (t) => modal
     ? `class="feed-image feed-image-clickable" data-lightbox-src="${t.url}" data-lightbox-index="${t.index}"`
     : `class="feed-image feed-image-clickable" data-lightbox-src="${t.url}" data-lightbox-index="${t.index}" loading="lazy" decoding="async"`;
+  const img = (t) => `<img src="${t.url}" alt="Foto de la publicación" ${imgAttrs(t)}>`;
+  // Foto de bloque de rocódromo: el ojo alterna entre la foto con las presas dibujadas y la foto limpia
   const tileHTML = (t) => t.video
     ? kxVideoTileHTML(t.url, t.index, t.poster)
-    : `<img src="${t.url}" alt="Foto de la publicación" ${imgAttrs(t)}>`;
+    : t.plain
+      ? `<div class="kx-drawn-tile">${img(t)}<button type="button" class="kx-drawn-eye" data-drawn="${t.url}" data-plain="${t.plain}" aria-pressed="true" aria-label="Ver la foto sin las presas marcadas"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>`
+      : img(t);
 
   if (tiles.length === 1 && !hasVideo) {
     return `
