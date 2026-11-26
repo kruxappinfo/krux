@@ -5,7 +5,7 @@
 // Solo el superadmin puede leerlos (firestore.rules). Límite por sesión y sin repetir el mismo fallo.
 
 const KX_ERRLOG_MAX_PER_SESSION = 25;
-const KX_ERRLOG_APP_VERSION = 'v349';   // se sube junto a CACHE_VERSION de sw.js
+const KX_ERRLOG_APP_VERSION = 'v350';   // se sube junto a CACHE_VERSION de sw.js
 
 const KruxErrorLog = (() => {
   let sent = 0, sending = false;
