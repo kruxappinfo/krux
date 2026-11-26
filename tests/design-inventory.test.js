@@ -69,8 +69,8 @@ describe('inventario de componentes: cifras de lo pendiente', () => {
     expect(n(/<button[^>]*\bkx-btn\b/g)).toBe(3);
   });
 
-  it('controles de formulario: 3 de 70 usan el campo común', () => {
-    expect(n(/<(?:input|select|textarea)\b/g)).toBe(70);
+  it('controles de formulario: 3 de 72 usan el campo común', () => {
+    expect(n(/<(?:input|select|textarea)\b/g)).toBe(72);   // +2 (2026-11-26): foto del bloque, cámara y galería
     expect(n(/<(?:input|select|textarea)[^>]*\bkx-field\b/g)).toBe(3);
   });
 

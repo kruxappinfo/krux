@@ -327,7 +327,14 @@ describe('route-photos.js: borrado y permisos', () => {
 describe('route-photos.js: contrato con los archivos de reglas', () => {
   it('storage.rules y la propuesta 0c son la misma versión y no hay comodín global', () => {
     const proposal = fs.readFileSync(path.join(ROOT, 'docs/security-phase0/storage.rules.phase0c.proposal'), 'utf8');
-    expect(proposal).toBe(STORAGE_RULES);
+    // Bloque añadido después (2026-11-26): gym-blocks/{uid} (bloques de rocódromo). Se quita y se renumera el último apartado
+    let st = STORAGE_RULES;
+    const gbStart = st.indexOf('    // 6. Bloques de rocódromo (gym-blocks.js)');
+    if (gbStart > 0) {
+      const gbEnd = st.indexOf('    }\n\n', st.indexOf('match /gym-blocks/{uid}/{file}')) + '    }\n\n'.length;
+      st = (st.slice(0, gbStart) + st.slice(gbEnd)).replace('    // 7. Todo lo demás, denegado', '    // 6. Todo lo demás, denegado');
+    }
+    expect(proposal).toBe(st);
     expect(STORAGE_RULES.replace(/\/\/.*$/gm, '')).not.toMatch(/match\s+\/\{allPaths=\*\*\}/);
   });
 

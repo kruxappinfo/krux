@@ -156,6 +156,12 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
     // Guardados privados en users/{uid}/savedPosts (2026-11-26): se quita el bloque añadido
     const SAVED_POSTS_BLOCK = "\n      // Publicaciones guardadas: privadas, solo su dueño las ve\n      match /savedPosts/{postId} {\n        allow read, delete: if isOwner(userId);\n        allow create, update: if isOwner(userId)\n          && request.resource.data.keys().hasOnly(['savedAt'])\n          && request.resource.data.savedAt == request.time;\n      }\n";
     rules = rules.replace(SAVED_POSTS_BLOCK, '');
+    // Bloques de rocódromo (2026-11-26): users/{uid}/gym_blocks, justo tras climb_sessions; se quita antes de comparar
+    const gbStart = rules.indexOf('\n      // Bloques de rocódromo (gym-blocks.js)');
+    if (gbStart > 0) {
+      const gbEnd = rules.indexOf('      }\n', rules.indexOf('match /gym_blocks/{blockId}')) + '      }\n'.length;
+      rules = rules.slice(0, gbStart) + rules.slice(gbEnd);
+    }
     // Moderación (2026-11-26): denuncias de publicaciones y borrado por admin; se quitan antes de comparar
     const POST_REPORTS_BLOCK = "    // Denuncias de publicaciones del feed: una por persona y publicaci\u00f3n (id = postId__uid). Privadas: solo las ve el admin\n    // y quien la envi\u00f3. No se puede denunciar la propia publicaci\u00f3n. El admin las resuelve (status) o las borra.\n    match /post_reports/{reportId} {\n      function validPostReport() {\n        let d = request.resource.data;\n        return d.keys().hasOnly(['postId', 'postAuthorId', 'reason', 'reporterId', 'createdAt', 'status'])\n          && isString(d.postId, 200) && d.reason in ['spam', 'inappropriate', 'harassment', 'other']\n          && d.reporterId == request.auth.uid && d.postAuthorId != request.auth.uid\n          && d.createdAt == request.time && d.status == 'open'\n          && reportId == d.postId + '__' + request.auth.uid\n          && get(/databases/$(database)/documents/posts/$(d.postId)).data.userId == d.postAuthorId;\n      }\n\n      // resource == null: comprobar si ya existe mi denuncia (no revela nada de las ajenas)\n      allow read: if isAuthenticated() && (resource == null || resource.data.reporterId == request.auth.uid || isAdmin() || isSuperAdmin());\n      allow create: if isAuthenticated() && validPostReport();\n      allow update, delete: if isAuthenticated() && (isAdmin() || isSuperAdmin());\n    }\n\n";
     const POST_DELETE_NEW = "      // El admin puede quitar una publicaci\u00f3n denunciada (moderaci\u00f3n)\n      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isSuperAdmin());\n";
@@ -177,7 +183,15 @@ describe('los archivos de reglas conservados (anteriores y nuevas)', () => {
     expect(withoutPrivate.trimEnd()).toBe((proposal.slice(0, end) + GEOJSON_BLOCK + proposal.slice(end)).trimEnd());
   });
   it('storage.rules es copia idéntica de la propuesta 0c y no contiene el comodín global', () => {
-    expect(sha('storage.rules')).toBe(sha('docs/security-phase0/storage.rules.phase0c.proposal'));
+    // Bloque añadido después (2026-11-26): gym-blocks/{uid} (fotos privadas de bloques de rocódromo). Se quita, y se
+    // devuelve su número al último apartado, antes de comparar con la propuesta 0c
+    let st = fs.readFileSync(path.join(ROOT, 'storage.rules'), 'utf8');
+    const gbStart = st.indexOf('    // 6. Bloques de rocódromo (gym-blocks.js)');
+    if (gbStart > 0) {
+      const gbEnd = st.indexOf('    }\n\n', st.indexOf('match /gym-blocks/{uid}/{file}')) + '    }\n\n'.length;
+      st = (st.slice(0, gbStart) + st.slice(gbEnd)).replace('    // 7. Todo lo demás, denegado', '    // 6. Todo lo demás, denegado');
+    }
+    expect(st).toBe(fs.readFileSync(path.join(ROOT, 'docs/security-phase0/storage.rules.phase0c.proposal'), 'utf8'));
     const code = fs.readFileSync(path.join(ROOT, 'storage.rules'), 'utf8').split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
     expect(code).not.toMatch(/match \/\{allPaths=\*\*\}/);
   });

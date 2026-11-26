@@ -406,6 +406,7 @@ const KruxGymSheet = (() => {
       ${v.links.length ? section('link', 'Redes y web', linksBody) : ''}
       ${textRowHTML('contact', 'messageCircle', 'Contacto', v.contact)}
       ${empty ? '<p class="kxg-none kxg-empty">Aún no hay información de este rocódromo. Pulsa «Aportar» para añadir horario, precios, fotos o instalaciones.</p>' : ''}
+      ${window.KruxGymBlocks ? KruxGymBlocks.gymCardHTML(gym) : ''}
       ${commentsHTML()}
       <p class="kxg-note">La información la aporta la comunidad. Si algo está mal, pulsa ${kxIcon('triangleAlert', { size: 14 })} para avisarnos y proponer un cambio: lo revisaremos.</p>`;
   }
@@ -496,6 +497,8 @@ const KruxGymSheet = (() => {
     if (rep) renderProposal();
     bindStage();
     bindFacilities();
+    // Bloques propios en este rocódromo (gym-blocks.js): se rellenan cuando llegan
+    if (view === 'info' && window.KruxGymBlocks) KruxGymBlocks.hydrateGymCard(body, gym);
     sheet.refresh();
   }
 

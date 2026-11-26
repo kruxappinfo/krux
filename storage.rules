@@ -113,7 +113,17 @@ service firebase.storage {
       allow delete: if isAdmin() || isSuperAdmin();
     }
 
-    // 6. Todo lo demás, denegado (sin comodín). Medios de Entrena: no hay objetos en el bucket; si algún día se suben, se subirán
+    // 6. Bloques de rocódromo (gym-blocks.js): foto privada del dueño, JPEG preparado en el móvil (1600 px, y su miniatura
+    //    {id}_t.jpg de 480 px para las listas). Se puede
+    //    sustituir (cambiar la foto antes de guardar) y borrar con el bloque. Nadie más la lee por reglas.
+    match /gym-blocks/{uid}/{file} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && file.matches('[A-Za-z0-9]{10,40}(_t)?[.]jpg')
+        && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType == 'image/jpeg';
+    }
+
+    // 7. Todo lo demás, denegado (sin comodín). Medios de Entrena: no hay objetos en el bucket; si algún día se suben, se subirán
     //    con gcloud (no pasa por estas reglas) y habrá que añadir aquí su ruta de lectura.
   }
 }

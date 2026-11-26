@@ -127,6 +127,20 @@ service cloud.firestore {
           && request.resource.data.status in ['active', 'paused', 'finished'];
       }
 
+      // Bloques de rocódromo (gym-blocks.js): foto con las presas marcadas. Privados: solo su dueño los lee y escribe.
+      // La foto vive en Storage en gym-blocks/{uid}/{blockId}.jpg; publicarla en el feed crea una publicación aparte.
+      match /gym_blocks/{blockId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && request.resource.data.keys().hasOnly(['userId', 'gymId', 'gymName', 'ascentId', 'ascentRouteId', 'type', 'grade', 'name',
+               'color', 'date', 'style', 'photoPath', 'photoUrl', 'thumbUrl', 'w', 'h', 'holds', 'createdAt', 'updatedAt', 'postId'])
+          && request.resource.data.userId == userId
+          && request.resource.data.type in ['boulder', 'via']
+          && request.resource.data.photoPath == 'gym-blocks/' + userId + '/' + blockId + '.jpg'
+          && request.resource.data.holds is list && request.resource.data.holds.size() <= 60
+          && request.resource.data.updatedAt == request.time;
+      }
+
       // Tokens de notificaciones push de los móviles del usuario (push.js). Solo los lee y escribe su dueño; la Cloud
       // Function pushOnNotification los lee con permisos de administrador. El id del documento es el propio token.
       match /push_tokens/{tokenId} {

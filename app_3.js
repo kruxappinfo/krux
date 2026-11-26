@@ -15357,6 +15357,7 @@ function initActivityView() {
       btn.setAttribute('aria-pressed', 'true');
       document.getElementById('content-roca').style.display = currentActivityMode === 'roca' ? '' : 'none';
       document.getElementById('content-rocodromo').style.display = currentActivityMode === 'rocodromo' ? '' : 'none';
+      if (currentActivityMode === 'rocodromo' && window.KruxGymBlocks) KruxGymBlocks.renderActivity();
     });
   });
 
@@ -16368,6 +16369,20 @@ async function _loadPendingSchools() {
   return _gymPickerSchoolsCache;
 }
 
+// Rocódromos de la capa del mapa (los mismos ids que su ficha): { id, name, coords: [lng, lat] }
+let _gymLayerPromise = null;
+function _loadGymLayer() {
+  if (!_gymLayerPromise) {
+    _gymLayerPromise = fetch('Cartografia/Rocodromos/rocodromos.geojson')
+      .then(r => (r.ok ? r.json() : { features: [] }))
+      .then(d => (d.features || []).filter(f => f.properties && f.properties.nombre).map(f => ({
+        id: String(f.properties.id || f.properties.nombre), name: f.properties.nombre, coords: f.geometry && f.geometry.coordinates
+      })).sort((a, b) => a.name.localeCompare(b.name, 'es')))
+      .catch(() => { _gymLayerPromise = null; return []; });
+  }
+  return _gymLayerPromise;
+}
+
 async function _reverseGeocodeCity(lat, lng) {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10&addressdetails=1`;
@@ -16394,8 +16409,11 @@ function _populateGymGradeSelect(type) {
   if (sel.querySelector(`option[value="${mid}"]`)) sel.value = mid;
 }
 
-function openNewGymAscent() {
+// opts (ficha del rocódromo y «Mis bloques»): gymId/gymName preseleccionan el rocódromo, gtype el tipo ('via' | 'boulder')
+// y pickPhoto lleva la vista a la foto del bloque (gym-blocks.js).
+function openNewGymAscent(opts = {}) {
   if (typeof openAscentModal !== 'function') return;
+  const gtype0 = opts.gtype === 'boulder' ? 'boulder' : 'via';
 
   const modal  = document.getElementById('ascent-modal');
   const form   = document.getElementById('ascent-form');
@@ -16415,7 +16433,7 @@ function openNewGymAscent() {
   document.getElementById('ascent-grade').value        = '';
   document.getElementById('ascent-sector').value       = '';
   document.getElementById('ascent-school-city').value  = '';
-  document.getElementById('ascent-climb-type').value   = 'indoor';
+  document.getElementById('ascent-climb-type').value   = gtype0 === 'boulder' ? 'boulder' : 'indoor';
 
   _gymPickerSelectedId   = null;
   _gymPickerSelectedName = null;
@@ -16431,15 +16449,16 @@ function openNewGymAscent() {
   });
 
   // Tipo por defecto: vía indoor (el botón activo no lo restablece form.reset())
-  document.querySelectorAll('#gm-type-seg .gm-type-btn').forEach(b => b.classList.toggle('active', b.dataset.gtype === 'via'));
+  document.querySelectorAll('#gm-type-seg .gm-type-btn').forEach(b => b.classList.toggle('active', b.dataset.gtype === gtype0));
   if (typeof kxAscentVotes !== 'undefined') kxAscentVotes.reset();
 
   // Populate grade select (default: via)
-  _populateGymGradeSelect('via');
+  _populateGymGradeSelect(gtype0);
 
   // Reset gym label
   const lbl = document.getElementById('gm-gym-label');
   if (lbl) lbl.textContent = 'Selecciona un rocódromo';
+  if (opts.gymId && opts.gymName) selectGymFromPicker(opts.gymId, opts.gymName, '');
 
   // Pre-fill today's date
   const dateInput = document.getElementById('ascent-date');
@@ -16460,9 +16479,12 @@ function openNewGymAscent() {
     styleToggle.querySelector('.style-dropdown-label').innerHTML = '<strong>Redpoint</strong> — Encadenada tras haberla probado antes';
   }
 
-  if (title) title.textContent = 'Nueva sesión rocódromo';
+  if (title) title.textContent = opts.pickPhoto ? 'Registrar bloque' : 'Nueva sesión rocódromo';
 
   modal.classList.remove('hidden');
+
+  // Foto del bloque con sus presas marcadas (opcional)
+  if (window.KruxGymBlocks) KruxGymBlocks.attach({ pickPhoto: !!opts.pickPhoto });
 
   // Wire up gym picker trigger (once)
   const trigger = document.getElementById('gm-gym-trigger');
@@ -16554,10 +16576,13 @@ async function _renderGymPickerList(query) {
   const pastGyms = [...seenIds.values()];
 
   // Schools from Firestore (load async, non-blocking)
-  const schools = await _loadPendingSchools();
+  const [schools, layerGyms] = await Promise.all([_loadPendingSchools(), _loadGymLayer()]);
 
-  // Merge: add Firestore schools not already in past gyms
+  // Merge: rocódromos del mapa y luego escuelas de Firestore que no estén ya
   const allGyms = [...pastGyms];
+  layerGyms.forEach(g => {
+    if (!allGyms.some(x => x.id === g.id)) allGyms.push({ id: g.id, name: g.name, city: '' });
+  });
   schools.forEach(s => {
     if (!allGyms.some(g => g.id === s.id)) {
       allGyms.push({ id: s.id, name: s.nombre || s.name || s.id, city: s.schoolCity || '' });
@@ -16641,11 +16666,11 @@ async function detectGymByGPS() {
       // Reverse geocode for city
       const city = await _reverseGeocodeCity(lat, lng);
 
-      // Find nearest school from Firestore schools
-      const schools = await _loadPendingSchools();
+      // Find nearest school from Firestore schools (y de los rocódromos del mapa)
+      const [schools, layerGyms] = await Promise.all([_loadPendingSchools(), _loadGymLayer()]);
       let nearest = null;
       let nearestDist = Infinity;
-      schools.forEach(s => {
+      schools.concat(layerGyms.map(g => ({ id: g.id, nombre: g.name, coordinates: g.coords }))).forEach(s => {
         if (!s.coordinates || s.coordinates.length < 2) return;
         const d = _haversineMeters(lat, lng, s.coordinates[1], s.coordinates[0]);
         if (d < nearestDist) { nearestDist = d; nearest = s; }
