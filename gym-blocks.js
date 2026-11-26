@@ -1104,7 +1104,8 @@ async function kxbShare(blocks, blobs = []) {
     const b = blocks[i];
     const src = blobs[i] || await (await fetch(b.photoUrl)).blob();
     const bmp = await kxbDecode(src);
-    try { files.push(new File([await kxbBakeImage(bmp, b.holds || [])], `bloque_${i + 1}.jpg`, { type: 'image/jpeg' })); }
+    // Con dibujo y sin él: en el feed se alterna con el ojo
+    try { files.push({ file: new File([await kxbBakeImage(bmp, b.holds || [])], `bloque_${i + 1}.jpg`, { type: 'image/jpeg' }), plain: new File([src], `bloque_${i + 1}_limpia.jpg`, { type: 'image/jpeg' }) }); }
     finally { if (bmp.close) bmp.close(); }
   }
   const ascents = blocks.map(kxbPostAscent).filter(a => a.ascentId && a.routeName);
