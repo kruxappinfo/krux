@@ -1716,7 +1716,8 @@ function initGlobalSearch() {
     // Se conserva la última búsqueda; si no hay texto se muestra «Explorar»
     if (searchInput.value.trim().length < MIN_CHARS) renderEmptyCategory(currentType);
     updateClear();
-    searchInput.focus({ preventScroll: true });
+    // En móvil el teclado solo se abre al tocar el campo; con ratón se puede escribir directamente
+    if (window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches) searchInput.focus({ preventScroll: true });
   }
 
   searchBtn.addEventListener('click', (e) => {
