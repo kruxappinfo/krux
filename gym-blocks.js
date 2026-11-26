@@ -79,56 +79,94 @@ function kxbLabImage(rgba, w, h) {
     }
   }
   const L = new Float32Array(n), A = new Float32Array(n), B = new Float32Array(n);
+  const C = new Float32Array(n), H = new Float32Array(n);   // saturación y tono (ángulo en a/b)
   for (let i = 0; i < n; i++) {
     const lab = kxbLabOf(blur[i * 3], blur[i * 3 + 1], blur[i * 3 + 2]);
     L[i] = lab[0]; A[i] = lab[1]; B[i] = lab[2];
+    C[i] = Math.hypot(lab[1], lab[2]); H[i] = Math.atan2(lab[2], lab[1]);
   }
-  return { w, h, L, A, B, rgb: blur };
+  return { w, h, L, A, B, C, H, rgb: blur };
 }
 
-// ¿El píxel i es del color de la semilla? Presas grises/blancas: cuenta la luz; de color: sobre todo el tono
-// (las sombras cambian la luz, no el tono)
+// ¿El píxel i es del color de la semilla? Presas de color: se compara el TONO, que apenas cambia con la sombra, el brillo
+// o el magnesio (la luz y la saturación sí cambian mucho dentro de una misma presa). Presas grises/blancas/negras: no
+// tienen tono, cuenta la luz. tol (6..34, el deslizador «Contorno») → margen de tono de 7° a 42°.
 const KXB_NEUTRAL_CHROMA = 12;
 function kxbNearFn(img, seed, tol) {
-  const { L, A, B } = img;
-  const wL = Math.hypot(seed[1], seed[2]) < KXB_NEUTRAL_CHROMA ? 1 : 0.45;
-  const tol2 = tol * tol;
+  const { L, A, B, C, H } = img;
+  const cs = Math.hypot(seed[1], seed[2]);
+  if (cs < KXB_NEUTRAL_CHROMA) {
+    const tol2 = tol * tol;
+    return (i) => {
+      const dl = L[i] - seed[0], da = A[i] - seed[1], db = B[i] - seed[2];
+      return dl * dl + da * da + db * db <= tol2;
+    };
+  }
+  const hs = Math.atan2(seed[2], seed[1]);
+  const hueTol = tol * 1.25 * Math.PI / 180;
+  const cMin = Math.max(7, 0.3 * cs);   // por debajo, el «tono» del muro es ruido
   return (i) => {
-    const dl = (L[i] - seed[0]) * wL, da = A[i] - seed[1], db = B[i] - seed[2];
-    return dl * dl + da * da + db * db <= tol2;
+    if (C[i] < cMin || Math.abs(L[i] - seed[0]) > 55) return false;
+    let d = Math.abs(H[i] - hs);
+    if (d > Math.PI) d = 2 * Math.PI - d;
+    return d <= hueTol;
   };
 }
 
+// Máscara binaria engordada 1 px (vecindad de 8): une los trozos de una presa que separa una raya de magnesio o un tornillo
+function kxbDilate(m, w, h) {
+  const out = new Uint8Array(m.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!m[i]) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy; if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) { const xx = x + dx; if (xx >= 0 && xx < w) out[yy * w + xx] = 1; }
+      }
+    }
+  }
+  return out;
+}
+
 // Relleno por color desde (sx, sy) dentro de una ventana alrededor del toque. leak: se ha escapado al muro.
+// mean: color Lab medio de los píxeles de la presa (para repetir con el color de toda la presa y no solo del toque).
 function kxbFlood(img, sx, sy, seed, tol) {
-  const { w, h } = img;
+  const { w, h, L, A, B } = img;
+  const near = kxbNearFn(img, seed, tol);
   const R = Math.round(0.28 * Math.max(w, h));
   const x0 = Math.max(0, sx - R), x1 = Math.min(w - 1, sx + R), y0 = Math.max(0, sy - R), y1 = Math.min(h - 1, sy + R);
+  const ww = x1 - x0 + 1, wh = y1 - y0 + 1;
+  const raw = new Uint8Array(ww * wh);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (near(y * w + x)) raw[(y - y0) * ww + (x - x0)] = 1;
+  const grown = kxbDilate(raw, ww, wh);
   const cap = Math.round(0.05 * w * h);   // una presa no ocupa más del 5 % de la foto: más es un panel o el muro
   const mask = new Uint8Array(w * h);
-  const queue = new Int32Array(w * h);
-  let head = 0, tail = 0, area = 0;
+  const queue = new Int32Array(ww * wh);
+  let head = 0, tail = 0, area = 0, n = 0, sl = 0, sa = 0, sb = 0;
   let bx0 = sx, bx1 = sx, by0 = sy, by1 = sy;
-  const near = kxbNearFn(img, seed, tol);
-  const start = sy * w + sx;
-  mask[start] = 1; queue[tail++] = start;
+  const lsx = sx - x0, lsy = sy - y0;
+  if (!grown[lsy * ww + lsx]) return { leak: false, mask, area: 0, bbox: [sx, sy, sx, sy], mean: null };
+  const visited = new Uint8Array(ww * wh);
+  visited[lsy * ww + lsx] = 1; queue[tail++] = lsy * ww + lsx;
   while (head < tail) {
-    const i = queue[head++];
-    area++;
+    const k = queue[head++];
+    const lx = k % ww, ly = (k - lx) / ww, x = lx + x0, y = ly + y0, i = y * w + x;
+    mask[i] = 1; area++;
     if (area > cap) return { leak: true };
-    const x = i % w, y = (i - x) / w;
+    if (raw[k]) { n++; sl += L[i]; sa += A[i]; sb += B[i]; }
     if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y;
-    if (x > x0 && !mask[i - 1] && near(i - 1)) { mask[i - 1] = 1; queue[tail++] = i - 1; }
-    if (x < x1 && !mask[i + 1] && near(i + 1)) { mask[i + 1] = 1; queue[tail++] = i + 1; }
-    if (y > y0 && !mask[i - w] && near(i - w)) { mask[i - w] = 1; queue[tail++] = i - w; }
-    if (y < y1 && !mask[i + w] && near(i + w)) { mask[i + w] = 1; queue[tail++] = i + w; }
+    if (lx > 0 && grown[k - 1] && !visited[k - 1]) { visited[k - 1] = 1; queue[tail++] = k - 1; }
+    if (lx < ww - 1 && grown[k + 1] && !visited[k + 1]) { visited[k + 1] = 1; queue[tail++] = k + 1; }
+    if (ly > 0 && grown[k - ww] && !visited[k - ww]) { visited[k - ww] = 1; queue[tail++] = k - ww; }
+    if (ly < wh - 1 && grown[k + ww] && !visited[k + ww]) { visited[k + ww] = 1; queue[tail++] = k + ww; }
   }
-  return { leak: false, mask, area, bbox: [bx0, by0, bx1, by1] };
+  return { leak: false, mask, area, bbox: [bx0, by0, bx1, by1], mean: n ? [sl / n, sa / n, sb / n] : null };
 }
 
 // Recorte de la máscara con 2 px de margen: rellena agujeros (brillos, tornillo) y engorda 1 px (el trazo queda por fuera)
 // val: valor de la presa en la máscara (1 en el relleno; su etiqueta en la detección del bloque entero)
-function kxbCleanMask(mask, w, bbox, val = 1) {
+function kxbCleanMask(mask, w, bbox, val = 1, grow = true) {
   const [bx0, by0, bx1, by1] = bbox;
   const ox = bx0 - 2, oy = by0 - 2, lw = bx1 - bx0 + 5, lh = by1 - by0 + 5;
   const m = new Uint8Array(lw * lh);
@@ -146,6 +184,7 @@ function kxbCleanMask(mask, w, bbox, val = 1) {
   }
   const filled = new Uint8Array(lw * lh);
   for (let i = 0; i < filled.length; i++) filled[i] = out[i] ? 0 : 1;
+  if (!grow) return { m: filled, lw, lh, ox, oy };
   const grown = new Uint8Array(lw * lh);
   for (let y = 1; y < lh - 1; y++) {
     for (let x = 1; x < lw - 1; x++) {
@@ -254,16 +293,21 @@ function kxbSegment(img, nx, ny, tol = KXB_TOL_DEFAULT) {
     const wider = kxbFlood(img, sx, sy, seed.lab, tol * 1.5);
     if (!wider.leak && wider.area >= minArea) res = wider;
   }
+  // Segunda pasada con el color medio de lo encontrado: si se tocó un brillo o una sombra, ahora sale la presa entera
+  if (!res.leak && res.area >= minArea && res.mean) {
+    const again = kxbFlood(img, sx, sy, res.mean, tol);
+    if (!again.leak && again.area >= res.area) res = again;
+  }
   const circle = (reason) => ({ ok: false, reason, p: kxbCircle(nx, ny, w, h), rgb: seed.rgb });
   if (res.leak) return circle('leak');
   if (res.area < minArea) return circle('small');
-  const p = kxbContour(res.mask, w, h, res.bbox, 1);
+  const p = kxbContour(res.mask, w, h, res.bbox, 1, false);
   return p ? { ok: true, p, rgb: seed.rgb } : circle('small');
 }
 
 // Contorno simplificado (en 0..1) de la zona de la máscara con valor val, o null si no sale un polígono
-function kxbContour(mask, w, h, bbox, val) {
-  const { m, lw, lh, ox, oy } = kxbCleanMask(mask, w, bbox, val);
+function kxbContour(mask, w, h, bbox, val, grow = true) {
+  const { m, lw, lh, ox, oy } = kxbCleanMask(mask, w, bbox, val, grow);
   const pts = kxbTrace(m, lw, lh);
   if (pts.length < 3) return null;
   let eps = Math.max(0.8, 0.0015 * Math.max(w, h));
@@ -275,58 +319,126 @@ function kxbContour(mask, w, h, bbox, val) {
   return p;
 }
 
-// Bloque entero: todas las zonas de la foto del color de la presa tocada. En los rocódromos el bloque se define por el
-// color de sus presas. Se descartan el ruido (manchas pequeñas), los paneles o el muro (más del 5 % de la foto) y las
-// líneas finas (cinta, juntas). La más alta queda como Top. neutral: presa gris/blanca/negra, no se busca en toda la foto.
-function kxbSegmentAll(img, nx, ny, tol = KXB_TOL_DEFAULT) {
-  const { w, h, rgb } = img;
-  const sx = Math.min(w - 1, Math.max(0, Math.round(nx * w)));
-  const sy = Math.min(h - 1, Math.max(0, Math.round(ny * h)));
-  const seed = kxbSeed(img, sx, sy);
-  if (Math.hypot(seed.lab[1], seed.lab[2]) < KXB_NEUTRAL_CHROMA) return { ok: false, neutral: true, holds: [] };
-  const near = kxbNearFn(img, seed.lab, tol);
+// Zonas de la foto del color de la semilla (máscara engordada 1 px para unir trozos de una misma presa)
+function kxbColorZones(img, seedLab, tol) {
+  const { w, h, L, A, B, rgb } = img;
   const N = w * h;
-  const labels = new Int32Array(N);   // 0: sin mirar · -1: no es del color · n > 0: zona n
+  const near = kxbNearFn(img, seedLab, tol);
+  const raw = new Uint8Array(N);
+  for (let i = 0; i < N; i++) if (near(i)) raw[i] = 1;
+  const grown = kxbDilate(raw, w, h);
+  const labels = new Int32Array(N);
   const queue = new Int32Array(N);
-  const cap = Math.round(0.05 * N);
-  const minArea = Math.max(24, Math.round(0.00005 * N));
-  const comps = [];
+  const zones = [];
   let next = 0;
   for (let start = 0; start < N; start++) {
-    if (labels[start]) continue;
-    if (!near(start)) { labels[start] = -1; continue; }
+    if (!grown[start] || labels[start]) continue;
     const lab = ++next;
-    let head = 0, tail = 0, area = 0, cx = 0, cy = 0, r = 0, g = 0, b = 0;
+    let head = 0, tail = 0, area = 0, n = 0, cx = 0, cy = 0, r = 0, g = 0, b = 0, sl = 0, sa = 0, sb = 0;
     let bx0 = w, bx1 = 0, by0 = h, by1 = 0;
     labels[start] = lab; queue[tail++] = start;
     while (head < tail) {
       const i = queue[head++];
       const x = i % w, y = (i - x) / w;
-      area++; cx += x; cy += y; r += rgb[i * 3]; g += rgb[i * 3 + 1]; b += rgb[i * 3 + 2];
+      area++; cx += x; cy += y;
+      if (raw[i]) { n++; r += rgb[i * 3]; g += rgb[i * 3 + 1]; b += rgb[i * 3 + 2]; sl += L[i]; sa += A[i]; sb += B[i]; }
       if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y;
-      const visit = (j) => { if (labels[j]) return; if (near(j)) { labels[j] = lab; queue[tail++] = j; } else labels[j] = -1; };
-      if (x > 0) visit(i - 1);
-      if (x < w - 1) visit(i + 1);
-      if (y > 0) visit(i - w);
-      if (y < h - 1) visit(i + w);
+      if (x > 0 && grown[i - 1] && !labels[i - 1]) { labels[i - 1] = lab; queue[tail++] = i - 1; }
+      if (x < w - 1 && grown[i + 1] && !labels[i + 1]) { labels[i + 1] = lab; queue[tail++] = i + 1; }
+      if (y > 0 && grown[i - w] && !labels[i - w]) { labels[i - w] = lab; queue[tail++] = i - w; }
+      if (y < h - 1 && grown[i + w] && !labels[i + w]) { labels[i + w] = lab; queue[tail++] = i + w; }
     }
-    comps.push({ lab, area, bbox: [bx0, by0, bx1, by1], c: [cx / area, cy / area], rgb: [r / area, g / area, b / area] });
+    n = n || 1;
+    zones.push({ lab, area, bbox: [bx0, by0, bx1, by1], c: [cx / area, cy / area], rgb: [r / n, g / n, b / n], mean: [sl / n, sa / n, sb / n] });
   }
-  const seedLab = labels[sy * w + sx];
-  const seedComp = comps.find(c => c.lab === seedLab);
-  if (!seedComp || seedComp.area > cap || seedComp.area < minArea) return { ok: false, holds: [] };
-  const minKeep = Math.max(minArea, Math.round(seedComp.area * 0.12));
-  const kept = comps.filter(c => {
-    if (c.area > cap || c.area < minKeep) return false;
-    const bw = c.bbox[2] - c.bbox[0] + 1, bh = c.bbox[3] - c.bbox[1] + 1;
-    if (c.area / (bw * bh) < 0.22) return false;                         // líneas y formas huecas
-    if (Math.max(bw, bh) / Math.max(1, Math.min(bw, bh)) > 6) return false;  // tiras finas
+  return { labels, zones };
+}
+
+// Zona en el punto tocado o, si cae justo en un borde, en sus 3 px alrededor
+function kxbZoneAt(labels, zones, w, h, sx, sy) {
+  for (let r = 0; r <= 3; r++) {
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const x = sx + dx, y = sy + dy;
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const l = labels[y * w + x];
+      if (l > 0) return zones.find(z => z.lab === l) || null;
+    }
+  }
+  return null;
+}
+
+// Presas de la misma vía o bloque: forman una cadena con separaciones parecidas. Se unen todas las candidatas por su
+// vecina más cercana (árbol de mínima distancia, desde la tocada) y se corta donde el salto es mucho mayor que lo
+// normal en esa foto: lo que queda al otro lado son otras vías o paredes. En horizontal pesa más (las vías de al lado
+// están a los lados). La distancia es el hueco entre presas, no entre centros: una presa grande no queda «lejos».
+const KXB_CHAIN = { aniso: 1.5, k: 3, floor: 0.08 };
+function kxbChain(zones, si, S) {
+  const n = zones.length;
+  if (n <= 2) return zones.map((_, i) => i);
+  const rad = zones.map(z => Math.sqrt(z.area / Math.PI));
+  const gap = (i, j) => Math.max(0, Math.hypot((zones[i].c[0] - zones[j].c[0]) * KXB_CHAIN.aniso, zones[i].c[1] - zones[j].c[1]) - rad[i] - rad[j]);
+  const inTree = new Uint8Array(n), best = new Float64Array(n).fill(Infinity), parent = new Int32Array(n).fill(-1);
+  const order = [], len = new Float64Array(n);
+  best[si] = 0;
+  for (let k = 0; k < n; k++) {
+    let u = -1;
+    for (let i = 0; i < n; i++) if (!inTree[i] && (u < 0 || best[i] < best[u])) u = i;
+    inTree[u] = 1; order.push(u); len[u] = best[u];
+    for (let i = 0; i < n; i++) if (!inTree[i]) { const d = gap(u, i); if (d < best[i]) { best[i] = d; parent[i] = u; } }
+  }
+  const steps = order.slice(1).map(i => len[i]).sort((a, b) => a - b);
+  const median = steps[Math.floor(steps.length / 2)];
+  const cut = Math.max(KXB_CHAIN.k * median, KXB_CHAIN.floor * S);
+  const ok = new Uint8Array(n);
+  ok[si] = 1;
+  order.slice(1).forEach(i => { ok[i] = ok[parent[i]] && len[i] <= cut ? 1 : 0; });
+  return order.filter(i => ok[i]);
+}
+
+// Bloque entero: las presas del color de la tocada que forman su misma vía o bloque (en los rocódromos se definen por
+// el color). Se descartan el ruido (manchas pequeñas), los paneles o el muro (más del 5 % de la foto), las líneas
+// finas (cinta, juntas) y lo que queda lejos de la cadena. La más alta queda como Top. neutral: presa gris/blanca/negra.
+function kxbSegmentAll(img, nx, ny, tol = KXB_TOL_DEFAULT) {
+  const { w, h } = img;
+  const sx = Math.min(w - 1, Math.max(0, Math.round(nx * w)));
+  const sy = Math.min(h - 1, Math.max(0, Math.round(ny * h)));
+  const seed = kxbSeed(img, sx, sy);
+  if (Math.hypot(seed.lab[1], seed.lab[2]) < KXB_NEUTRAL_CHROMA) return { ok: false, neutral: true, holds: [] };
+  const N = w * h, S = Math.max(w, h);
+  const cap = Math.round(0.05 * N);
+  const minArea = Math.max(24, Math.round(0.00005 * N));
+  let pass = kxbColorZones(img, seed.lab, tol);
+  let sz = kxbZoneAt(pass.labels, pass.zones, w, h, sx, sy);
+  if (!sz || sz.area > cap || sz.area < minArea) return { ok: false, holds: [] };
+  // Segunda pasada con el color medio de la presa tocada (no el del punto exacto, que puede ser un brillo o una sombra)
+  const again = kxbColorZones(img, sz.mean, tol);
+  const sz2 = kxbZoneAt(again.labels, again.zones, w, h, sx, sy);
+  if (sz2 && sz2.area <= cap && sz2.area >= sz.area) { pass = again; sz = sz2; }
+  const minKeep = Math.max(minArea, Math.round(sz.area * 0.04));
+  const chroma = (z) => Math.hypot(z.mean[1], z.mean[2]);
+  const cSeed = chroma(sz);
+  // Cada presa es de un solo color: su tono MEDIO debe estar muy cerca del de la tocada. El margen amplio de kxbNearFn
+  // es para el contorno (sombras, brillos); aquí separa colores vecinos (rojo/naranja, verde/lima, azul/morado).
+  const hueOf = (z) => Math.atan2(z.mean[2], z.mean[1]);
+  const hSeed = hueOf(sz);
+  const hueMax = Math.max(6, 0.55 * tol * 1.25) * Math.PI / 180;
+  const hueOk = (z) => { let d = Math.abs(hueOf(z) - hSeed); if (d > Math.PI) d = 2 * Math.PI - d; return d <= hueMax; };
+  let cands = pass.zones.filter(z => {
+    if (z === sz) return true;
+    if (z.area > cap || z.area < minKeep) return false;
+    if (chroma(z) < 0.45 * cSeed) return false;                               // apagada: gris con un matiz, no del color
+    if (!hueOk(z)) return false;                                              // color vecino
+    const bw = z.bbox[2] - z.bbox[0] + 1, bh = z.bbox[3] - z.bbox[1] + 1;
+    if (z.area / (bw * bh) < 0.22) return false;                              // líneas y formas huecas
+    if (Math.max(bw, bh) / Math.max(1, Math.min(bw, bh)) > 6) return false;   // tiras finas
     return true;
-  }).sort((a, b) => (a.lab === seedLab ? -1 : b.lab === seedLab ? 1 : b.area - a.area)).slice(0, KXB_MAX_HOLDS);
+  });
+  if (cands.length > 300) cands = [sz].concat(cands.filter(z => z !== sz).sort((a, b) => b.area - a.area).slice(0, 299));
+  const chain = kxbChain(cands, cands.indexOf(sz), S).slice(0, KXB_MAX_HOLDS).map(i => cands[i]);
   const holds = [];
-  kept.forEach(c => {
-    const p = kxbContour(labels, w, h, c.bbox, c.lab);
-    if (p) holds.push({ p, s: [+(c.c[0] / w).toFixed(4), +(c.c[1] / h).toFixed(4)], rgb: c.rgb, seed: c.lab === seedLab, y: c.c[1] });
+  chain.forEach(z => {
+    const p = kxbContour(pass.labels, w, h, z.bbox, z.lab, false);
+    if (p) holds.push({ p, s: [+(z.c[0] / w).toFixed(4), +(z.c[1] / h).toFixed(4)], rgb: z.rgb, seed: z === sz, y: z.c[1] });
   });
   if (holds.length) {
     const top = holds.reduce((a, b) => (b.y < a.y ? b : a));
