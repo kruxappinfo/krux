@@ -1131,6 +1131,7 @@ function closeAscentModal() {
     ['gm-gym-group', 'gm-type-group', 'gm-grade-group', 'gm-route-group'].forEach(id => {
         document.getElementById(id)?.classList.add('hidden');
     });
+    if (window.KruxGymBlocks) KruxGymBlocks.detach();
     const routeDisplayGroup = document.getElementById('route-display-group');
     if (routeDisplayGroup) routeDisplayGroup.classList.remove('hidden');
     const gmLabel = document.getElementById('gm-gym-label');
@@ -2875,15 +2876,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Reload and reopen My Routes list
                     showMyRoutes();
                 } else {
+                    // Foto del bloque con sus presas (gym-blocks.js): se sube antes que el ascenso y comparte su id
+                    const withBlock = isGymMode && window.KruxGymBlocks && KruxGymBlocks.hasPending();
+                    if (withBlock) {
+                        submitBtn.textContent = 'Subiendo foto del bloque…';
+                        try {
+                            await KruxGymBlocks.beforeAscentSave(ascentData);
+                        } catch (err) {
+                            console.error('[Bloques] No se pudo guardar el bloque:', err);
+                            if (err.code === 'kxb/offline') showToast('Sin conexión: la foto del bloque necesita cobertura', 'warning', { detail: 'Quita la foto para guardar solo el ascenso, o inténtalo con conexión.' });
+                            else showToast('No se pudo subir la foto del bloque', 'error', { detail: kxFriendlyError(err) });
+                            return;
+                        }
+                        submitBtn.textContent = 'Guardando...';
+                    }
                     // Create new ascent
                     const saved = await logAscent(ascentData);
                     if (!saved) return; // ya avisa del error; el formulario sigue abierto
+                    if (withBlock) await KruxGymBlocks.afterAscentSave();
                     const fromTag = !!form.dataset.tagNotification;
                     if (fromTag && window.KruxPartners) await KruxPartners.confirmed(form);
                     await kxAscentVotes.save();
                     closeAscentModal();
                     if (saved === 'queued') showToast('Ascenso guardado en el móvil', 'success', { detail: 'Se subirá solo cuando vuelvas a tener cobertura.' });
-                    else showToast(fromTag ? 'Ascenso confirmado y añadido a tu registro' : 'Ascenso registrado', 'success');
+                    else showToast(fromTag ? 'Ascenso confirmado y añadido a tu registro' : withBlock ? 'Ascenso y bloque guardados' : 'Ascenso registrado', 'success');
                     if (typeof loadActivityData === 'function') loadActivityData();
                 }
 

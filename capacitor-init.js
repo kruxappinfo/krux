@@ -203,6 +203,8 @@ async function initAppEvents() {
 
     // Manejar el botón "back" en Android
     App.addListener('backButton', ({ canGoBack }) => {
+      // Editor de presas y visor de bloque (gym-blocks.js): pantallas completas que se cierran primero
+      if (window.KruxGymBlocks && KruxGymBlocks.handleBack()) return;
       // El panel de admin cubre toda la pantalla: «atrás» vuelve a la app
       const adminModal = document.getElementById('admin-panel-modal');
       if (adminModal && !adminModal.classList.contains('hidden') && typeof closeAdminPanelModal === 'function') {
