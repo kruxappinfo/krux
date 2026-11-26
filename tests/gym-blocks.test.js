@@ -184,15 +184,15 @@ describe('fotos reales: vías vecinas y presas con sombra', () => {
   });
 
   it('presa con una mitad en sombra y la otra con brillo: se marca entera tocando el brillo', () => {
-    const w = 240, h = 180;   // la presa ocupa ~2,5 % de la foto
+    const w = 320, h = 240;   // la presa ocupa ~1,3 % de la foto (el máximo de una presa es el 2,5 %)
     const img = mk(w, h, (x, y) => {
-      if ((x - 120) ** 2 + (y - 90) ** 2 > 18 * 18) return null;
-      return x < 120 ? [25, 85, 28] : [130, 215, 115];   // verde oscuro / verde claro (mismo tono)
+      if ((x - 160) ** 2 + (y - 120) ** 2 > 18 * 18) return null;
+      return x < 160 ? [25, 85, 28] : [130, 215, 115];   // verde oscuro / verde claro (mismo tono)
     });
-    const r = get('kxbSegment')(img, 132 / w, 90 / h);
+    const r = get('kxbSegment')(img, 172 / w, 120 / h);
     expect(r.ok).toBe(true);
-    expect(inside(r.p, 106 / w, 90 / h)).toBe(true);   // la mitad en sombra también
-    expect(inside(r.p, 134 / w, 90 / h)).toBe(true);
+    expect(inside(r.p, 146 / w, 120 / h)).toBe(true);   // la mitad en sombra también
+    expect(inside(r.p, 174 / w, 120 / h)).toBe(true);
   });
 });
 
