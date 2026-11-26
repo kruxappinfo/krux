@@ -36216,7 +36216,11 @@ body.kxb-ed-open, body.kxb-view-open { overflow: hidden; }
 .kxb-ed-tol input { flex: 1; min-width: 60px; accent-color: var(--kx-coral); }
 
 /* Visor de bloque */
-.kxb-view-stage { flex: 1; min-height: 0; padding: 0 8px; }
+.kxb-view-stage { position: relative; flex: 1; min-height: 0; margin: 0 8px; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; border-radius: var(--kx-radius-sm); }
+.kxb-view-stage.is-zoomed { cursor: grab; }
+.kxb-view-zoom { width: 100%; height: 100%; transform-origin: 0 0; will-change: transform; }
+.kxb-view-stage .kxb-ed-zoom { z-index: 2; }
+.kxb-view .kxb-ed-fab:hover, .kxb-view .kxb-ed-fab:active { background: rgba(14, 19, 17, 0.72); transform: none; box-shadow: none; }
 .kxb-view-photo, .kxb-view-photo .kxb-ov { width: 100%; height: 100%; display: block; }
 .kxb-view-info { flex: none; display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; }
 .kxb-view-tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -36357,3 +36361,6 @@ body.kxb-ed-open, body.kxb-view-open { overflow: hidden; }
 .kx-drawn-eye.is-off { background: rgba(255, 255, 255, 0.88); color: var(--kx-granite); }
 .kx-drawn-eye.is-off svg { opacity: 0.55; }
 .kx-drawn-eye.is-off::before { content: ''; position: absolute; width: 22px; height: 2px; background: currentColor; transform: rotate(-45deg); border-radius: 2px; }
+
+/* Visor de bloques: al ampliar se ve la foto limpia (el dibujo reaparece al volver al tamaño entero) */
+.kxb-view-stage.is-zoomed .kxb-view-photo .kxb-ov > :not(image) { display: none; }

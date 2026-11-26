@@ -1470,8 +1470,14 @@ const KruxGymBlocks = (() => {
         <div class="kxb-ed-title"><strong id="kxb-view-title">${esc(b.name || typeLabel(b.type))}</strong><span>${esc(b.gymName || 'Rocódromo')}</span></div>
         <button type="button" class="kxb-ed-link" data-kxv="marks" aria-pressed="${showMarks}" aria-label="${showMarks ? 'Ver la foto sin marcas' : 'Ver las presas marcadas'}">${kxIcon('eye', { size: 22 })}</button>
       </header>
-      <div class="kxb-view-stage">
+      <div class="kxb-view-stage" id="kxb-view-stage">
+        <div class="kxb-view-zoom" id="kxb-view-zoom">
         <div class="kxb-view-photo" role="img" aria-label="Foto del bloque${b.name ? ' ' + esc(b.name) : ''}${showMarks ? ` con ${(b.holds || []).length} presas marcadas` : ''}">${kxbOverlaySVG(showMarks ? b.holds : [], b.w || 1000, b.h || 1000, { sw: 2.4, uid: 'view', href: b.photoUrl })}</div>
+        </div>
+        <div class="kxb-ed-zoom">
+          <button type="button" class="kxb-ed-fab" data-kxv="zin" aria-label="Ampliar">${kxIcon('zoomIn', { size: 20 })}</button>
+          <button type="button" class="kxb-ed-fab" data-kxv="zout" aria-label="Reducir la vista">${kxIcon('zoomOut', { size: 20 })}</button>
+        </div>
       </div>
       <div class="kxb-view-info">
         <div class="kxb-view-tags">
@@ -1491,6 +1497,75 @@ const KruxGymBlocks = (() => {
         </div>
         <p class="kxb-view-note">${b.postId ? 'La publicación del feed es independiente: borrarla no borra el bloque, ni al revés.' : 'Solo tú ves este bloque.'}</p>
       </div>`;
+    bindViewerZoom();   // el contenedor es nuevo en cada pintado (ojo, editar): los gestos se enganchan de nuevo
+    vApply();           // y se conserva el zoom que se estuviera usando
+  }
+
+  // Zoom del visor: pellizco, arrastrar, doble toque, rueda y botones. El trazo de las presas no cambia de grosor al ampliar.
+  const vz = { s: 1, tx: 0, ty: 0 };
+  const vp = new Map();
+  let vg = null, vTap = 0;
+
+  function vApply() {
+    const st = viewer && viewer.querySelector('#kxb-view-stage'), z = viewer && viewer.querySelector('#kxb-view-zoom');
+    if (!st || !z) return;
+    const r = st.getBoundingClientRect();
+    vz.s = Math.min(8, Math.max(1, vz.s));
+    vz.tx = vz.s <= 1 ? 0 : Math.min(0, Math.max(r.width - r.width * vz.s, vz.tx));
+    vz.ty = vz.s <= 1 ? 0 : Math.min(0, Math.max(r.height - r.height * vz.s, vz.ty));
+    z.style.transform = vz.s === 1 ? '' : `translate(${vz.tx}px, ${vz.ty}px) scale(${vz.s})`;
+    st.classList.toggle('is-zoomed', vz.s > 1);
+  }
+  function vZoomAt(f, cx, cy) {
+    const ns = Math.min(8, Math.max(1, vz.s * f));
+    const px = (cx - vz.tx) / vz.s, py = (cy - vz.ty) / vz.s;
+    vz.s = ns; vz.tx = cx - px * ns; vz.ty = cy - py * ns;
+    vApply();
+  }
+  const vLocal = (e) => { const r = viewer.querySelector('#kxb-view-stage').getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top, w: r.width, h: r.height }; };
+
+  function bindViewerZoom() {
+    const st = viewer.querySelector('#kxb-view-stage');
+    if (!st || st._zoomBound) return;   // el contenido se vuelve a pintar, el contenedor no
+    st._zoomBound = true;
+    st.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      st.setPointerCapture && st.setPointerCapture(e.pointerId);
+      const p = vLocal(e); vp.set(e.pointerId, p);
+      if (vp.size === 1) vg = { kind: 'one', x0: p.x, y0: p.y, tx0: vz.tx, ty0: vz.ty, moved: false };
+      else if (vp.size === 2) { const [a, b] = [...vp.values()]; vg = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, s0: vz.s, px: ((a.x + b.x) / 2 - vz.tx) / vz.s, py: ((a.y + b.y) / 2 - vz.ty) / vz.s }; }
+    });
+    st.addEventListener('pointermove', (e) => {
+      if (!vp.has(e.pointerId) || !vg) return;
+      vp.set(e.pointerId, vLocal(e));
+      if (vg.kind === 'pinch' && vp.size >= 2) {
+        const [a, b] = [...vp.values()];
+        vz.s = Math.min(8, Math.max(1, vg.s0 * Math.hypot(a.x - b.x, a.y - b.y) / vg.d0));
+        vz.tx = (a.x + b.x) / 2 - vg.px * vz.s; vz.ty = (a.y + b.y) / 2 - vg.py * vz.s;
+        vApply(); return;
+      }
+      if (vg.kind === 'one') {
+        const p = vp.get(e.pointerId);
+        if (Math.hypot(p.x - vg.x0, p.y - vg.y0) > 6) vg.moved = true;
+        if (vz.s > 1 && vg.moved) { vz.tx = vg.tx0 + (p.x - vg.x0); vz.ty = vg.ty0 + (p.y - vg.y0); vApply(); }
+      }
+    });
+    const up = (e) => {
+      if (!vp.has(e.pointerId)) return;
+      const p = vp.get(e.pointerId);
+      vp.delete(e.pointerId);
+      if (vg && vg.kind === 'one' && !vg.moved && e.type === 'pointerup') {
+        // Doble toque: amplía a 2,5× en ese punto o vuelve al tamaño entero
+        const now = Date.now();
+        if (now - vTap < 320) { vTap = 0; if (vz.s > 1) { vz.s = 1; vApply(); } else vZoomAt(2.5, p.x, p.y); }
+        else vTap = now;
+      }
+      if (!vp.size) vg = null; else if (vg && vg.kind === 'pinch') vg = { kind: 'done' };
+    };
+    st.addEventListener('pointerup', up);
+    st.addEventListener('pointercancel', up);
+    st.addEventListener('wheel', (e) => { e.preventDefault(); const p = vLocal(e); vZoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, p.x, p.y); }, { passive: false });
+    if (!bindViewerZoom.resizeBound) { bindViewerZoom.resizeBound = true; window.addEventListener('resize', () => { if (viewer && !viewer.classList.contains('hidden')) vApply(); }); }
   }
 
   function openViewer(id) {
@@ -1498,9 +1573,11 @@ const KruxGymBlocks = (() => {
     if (!b) return;
     ensureViewer();
     current = b; showMarks = true;
+    vz.s = 1; vz.tx = 0; vz.ty = 0; vp.clear(); vg = null;
     renderViewer();
     viewer.classList.remove('hidden');
     document.body.classList.add('kxb-view-open');
+    vApply();
     viewer.querySelector('[data-kxv="close"]').focus({ preventScroll: true });
   }
 
@@ -1525,6 +1602,7 @@ const KruxGymBlocks = (() => {
     const uid = me();
     if (a === 'close') return closeViewer();
     if (a === 'marks') { showMarks = !showMarks; renderViewer(); return; }
+    if (a === 'zin' || a === 'zout') { const r = viewer.querySelector('#kxb-view-stage').getBoundingClientRect(); vZoomAt(a === 'zin' ? 1.6 : 1 / 1.6, r.width / 2, r.height / 2); return; }
     if (!uid) return;
     if (a === 'edit') {
       busy = true;
