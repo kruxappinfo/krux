@@ -5594,6 +5594,7 @@ function syncFeedSheetViewport() {
   const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
   open.style.setProperty('--sheet-kb', `${keyboard}px`);
   open.style.setProperty('--sheet-avail', `${vv.height}px`);
+  open.style.setProperty('--sheet-top', `${Math.max(0, vv.offsetTop)}px`);
 }
 
 // Gesto: arrastrar el tirador o la cabecera hacia abajo cierra el panel

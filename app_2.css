@@ -24127,6 +24127,35 @@ body.kx-sheet-open #feed-view .feed-container {
   animation: kxShimmer 1.6s linear infinite;
 }
 
+/* Buscador a pantalla completa en móvil: ocupa justo el área visible (sobre el teclado), sin dejar ver ni tocar la app de debajo */
+@media (max-width: 768px) {
+  #search-sheet {
+    inset: 0;
+    background: var(--kx-chalk);
+    align-items: flex-start;
+  }
+
+  #search-sheet .kx-sheet-scrim {
+    display: none;
+  }
+
+  #search-sheet .kx-sheet-panel {
+    max-width: none;
+    margin-top: var(--sheet-top, 0px);
+    height: 100vh;
+    height: var(--sheet-avail, 100dvh);
+    min-height: 0;
+    max-height: none;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+    box-shadow: none;
+  }
+
+  #search-sheet .kx-sheet-body {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 @media (min-width: 769px) {
   #search-sheet .kx-sheet-panel {
     width: 480px;
