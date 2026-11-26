@@ -16269,6 +16269,7 @@ async function loadActivityData() {
       const emptyState = document.getElementById('activity-empty');
       if (emptyState) emptyState.style.display = 'flex';
       resetAllStats();
+      _allActivityAscents = [];
       buildGymMisRocodromos([]);
       if (window.KruxActivity) KruxActivity.render([]);
       return;
@@ -16308,6 +16309,8 @@ async function loadActivityData() {
     }
     calculateAndUpdateStats(statsAscents);
 
+    _allActivityAscents = allAscents;
+
     // Interfaz nueva (activity-ui.js) con los mismos datos ya cargados
     requestAnimationFrame(() => {
       buildGymStats(allAscents);
@@ -16345,6 +16348,7 @@ function isGymAscent(ascent) {
 
 const MIN_GYM_NEARBY_M = 1000; // metros: distancia máxima para auto-detectar gym
 
+let _allActivityAscents = [];      // todos los ascensos del usuario (loadActivityData): el selector sube sus rocódromos ya visitados
 let _gymPickerSchoolsCache = null; // caché de pending_schools aprobados
 let _gymPickerSelectedId   = null;
 let _gymPickerSelectedName = null;
