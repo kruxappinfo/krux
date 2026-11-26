@@ -144,6 +144,45 @@ describe('bloque entero desde un toque', () => {
   });
 });
 
+describe('fotos reales: vías vecinas y presas con sombra', () => {
+  const mk = (w, h, paint) => {
+    const d = new Uint8ClampedArray(w * h * 4);
+    let seed = 11;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const n = (rnd() - 0.5) * 12;
+      const c = paint(x, y) || [210 + n, 208 + n, 204 + n];
+      const i = (y * w + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+    }
+    return get('kxbLabImage')(d, w, h);
+  };
+  const inside = get('kxbInside');
+
+  it('dos vías amarillas en paralelo: tocando una salen solo las suyas', () => {
+    const w = 300, h = 300, YEL = [235, 190, 30];
+    // Vía A en x = 60 y vía B en x = 240; presas cada 30 px
+    const holds = [];
+    for (let y = 30; y <= 270; y += 30) { holds.push([60 + (y % 60 ? 6 : -6), y]); holds.push([240 + (y % 60 ? -6 : 6), y]); }
+    const img = mk(w, h, (x, y) => (holds.some(([hx, hy]) => (x - hx) ** 2 + (y - hy) ** 2 <= 36) ? YEL : null));
+    const r = get('kxbSegmentAll')(img, 66 / w, 150 / h);
+    expect(r.ok).toBe(true);
+    expect(r.holds).toHaveLength(9);
+    expect(r.holds.every(hh => hh.s[0] < 0.5)).toBe(true);
+  });
+
+  it('presa con una mitad en sombra y la otra con brillo: se marca entera tocando el brillo', () => {
+    const w = 240, h = 180;   // la presa ocupa ~2,5 % de la foto
+    const img = mk(w, h, (x, y) => {
+      if ((x - 120) ** 2 + (y - 90) ** 2 > 18 * 18) return null;
+      return x < 120 ? [25, 85, 28] : [130, 215, 115];   // verde oscuro / verde claro (mismo tono)
+    });
+    const r = get('kxbSegment')(img, 132 / w, 90 / h);
+    expect(r.ok).toBe(true);
+    expect(inside(r.p, 106 / w, 90 / h)).toBe(true);   // la mitad en sombra también
+    expect(inside(r.p, 134 / w, 90 / h)).toBe(true);
+  });
+});
+
 describe('contornos y datos', () => {
   it('seguimiento del borde de un cuadrado y simplificación a sus esquinas', () => {
     const lw = 12, lh = 12, m = new Uint8Array(lw * lh);
