@@ -58,6 +58,17 @@ const eq = (label, got, want) => results.push({ label, pass: JSON.stringify(got)
   await expect('C no envía', conv(C).collection('messages').add({ senderId: C.uid, text: 'intruso', status: 'sent' }), false);
   await expect('A marca como leído el de B', conv(A).collection('messages').doc(mB.id).update({ status: 'read' }), true);
   await expect('A no marca como leído el suyo', conv(A).collection('messages').doc(mA.id).update({ status: 'read' }), false);
+  // --- Doble tic: recibido ---
+  let mB2;
+  await expect('B envía otro', send(B, A.uid, 'otro').then(r => { mB2 = r; }), true);
+  await expect('A no marca como recibido el suyo', conv(A).collection('messages').doc(mA.id).update({ deliveredAt: FV.serverTimestamp() }), false);
+  await expect('A no pone una hora inventada', conv(A).collection('messages').doc(mB2.id).update({ deliveredAt: new Date(2020, 0, 1) }), false);
+  await expect('A no marca recibido y cambia el texto a la vez', conv(A).collection('messages').doc(mB2.id).update({ deliveredAt: FV.serverTimestamp(), text: 'x' }), false);
+  await expect('C no marca como recibido', conv(C).collection('messages').doc(mB2.id).update({ deliveredAt: FV.serverTimestamp() }), false);
+  await expect('A marca como recibido el de B', conv(A).collection('messages').doc(mB2.id).update({ deliveredAt: FV.serverTimestamp() }), true);
+  await expect('A no lo vuelve a marcar (no cambia la hora)', conv(A).collection('messages').doc(mB2.id).update({ deliveredAt: FV.serverTimestamp() }), false);
+  await expect('A lo marca como leído después', conv(A).collection('messages').doc(mB2.id).update({ status: 'read' }), true);
+  await expect('B no se pone a sí mismo «recibido» al crear', conv(B).collection('messages').add({ senderId: B.uid, text: 'x', status: 'sent', deliveredAt: FV.serverTimestamp() }), false);
   await expect('A no edita el texto de B', conv(A).collection('messages').doc(mB.id).update({ text: 'cambiado' }), false);
   await expect('A no borra el mensaje de B', conv(A).collection('messages').doc(mB.id).delete(), false);
   await expect('A borra su mensaje', conv(A).collection('messages').doc(mA.id).delete(), true);
@@ -70,7 +81,7 @@ const eq = (label, got, want) => results.push({ label, pass: JSON.stringify(got)
   await expect('A no cambia los nombres guardados', conv(A).update({ participantInfo: { [B.uid]: { displayName: 'x' } } }), false);
   await expect('A no borra la conversación de los dos', conv(A).delete(), false);
   const left = (await conv(B).collection('messages').get()).size;
-  eq('a B le queda su mensaje', left, 1);
+  eq('a B le quedan sus mensajes', left, 2);
 
   // --- Avisos ---
   const notif = (u, target, nid) => u.db.collection('users').doc(target).collection('notifications').doc(nid);

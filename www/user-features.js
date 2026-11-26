@@ -3067,6 +3067,9 @@ window.MessagingService = {
                 [`unreadCount.${currentUser.uid}`]: 0
             });
 
+            // Con las confirmaciones de lectura desactivadas no se avisa al otro de que lo he leído
+            if (!this.readReceiptsEnabled()) return;
+
             // Mark messages as read
             const messagesRef = db.collection('conversations').doc(conversationId).collection('messages');
             const unreadMessages = await messagesRef
@@ -3081,6 +3084,77 @@ window.MessagingService = {
             await batch.commit();
         } catch (error) {
             console.error('Error marking as read:', error);
+        }
+    },
+
+    /**
+     * Confirmaciones de lectura (Ajustes → Privacidad). Si las desactivo, nadie ve si he leído
+     * sus mensajes y yo tampoco veo si los demás han leído los míos (sigue el doble tic de recibido).
+     * Se guarda en users/{uid}/private/settings (solo su dueño) y en el móvil para tenerlo al abrir.
+     */
+    _readReceipts: true,
+    readReceiptsEnabled() {
+        return this._readReceipts !== false;
+    },
+    async loadPrivacy(uid) {
+        if (!uid) return;
+        const key = `krux_read_receipts_${uid}`;
+        try { this._readReceipts = localStorage.getItem(key) !== 'off'; } catch (_) { this._readReceipts = true; }
+        try {
+            const doc = await db.collection('users').doc(uid).collection('private').doc('settings').get();
+            const on = !(doc.exists && doc.data().readReceipts === false);
+            this._readReceipts = on;
+            try { on ? localStorage.removeItem(key) : localStorage.setItem(key, 'off'); } catch (_) { /* sin almacenamiento */ }
+        } catch (_) { /* sin red: vale lo guardado en el móvil */ }
+    },
+    async setReadReceipts(uid, on) {
+        const key = `krux_read_receipts_${uid}`;
+        const remember = (v) => {
+            this._readReceipts = v;
+            try { v ? localStorage.removeItem(key) : localStorage.setItem(key, 'off'); } catch (_) { /* sin almacenamiento */ }
+        };
+        const before = this.readReceiptsEnabled();
+        remember(!!on);
+        try {
+            await db.collection('users').doc(uid).collection('private').doc('settings')
+                .set({ readReceipts: on ? firebase.firestore.FieldValue.delete() : false }, { merge: true });
+        } catch (error) {
+            remember(before);   // no se guardó en la cuenta: se queda como estaba
+            throw error;
+        }
+    },
+
+    /**
+     * Doble tic: marca como recibidos (deliveredAt) los mensajes que me llegaron y aún no he leído.
+     * Se llama desde la bandeja cada vez que una conversación trae mensajes sin leer para mí.
+     * Campo aparte de status: las apps antiguas siguen marcando «leído» con status == 'sent'.
+     * @param {string} conversationId - The conversation ID
+     * @param {string} [key] - Lo que ya se procesó (hora del último mensaje): no se repite la consulta
+     */
+    async markAsDelivered(conversationId, key = '') {
+        const currentUser = firebase.auth().currentUser;
+        if (!currentUser || navigator.onLine === false) return;
+        const done = this._delivered || (this._delivered = new Map());
+        const doneKey = currentUser.uid + '|' + key;
+        if (key && done.get(conversationId) === doneKey) return;
+        done.set(conversationId, doneKey);
+
+        try {
+            const snap = await db.collection('conversations').doc(conversationId).collection('messages')
+                .where('status', '==', 'sent')
+                .get();
+            const pending = snap.docs.filter(doc => {
+                const m = doc.data();
+                return m.senderId !== currentUser.uid && !m.deliveredAt;
+            }).slice(0, 400);
+            if (!pending.length) return;
+            const batch = db.batch();
+            pending.forEach(doc => batch.update(doc.ref, { deliveredAt: firebase.firestore.FieldValue.serverTimestamp() }));
+            await batch.commit();
+        } catch (error) {
+            // Se reintenta con el siguiente cambio de la bandeja
+            done.delete(conversationId);
+            console.warn('No se pudieron marcar como recibidos:', error && error.code);
         }
     },
 

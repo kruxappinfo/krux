@@ -3149,6 +3149,13 @@ function initMessages() {
         convRetryDelay = 2000;
         conversations = convs;
         updateBadge();
+        // Doble tic para quien me escribió: los mensajes ya han llegado a esta cuenta
+        convs.forEach(conv => {
+          if ((conv.unreadCount?.[uid] || 0) > 0) {
+            const t = conv.lastMessageTime?.toMillis ? conv.lastMessageTime.toMillis() : 0;
+            if (t) window.MessagingService.markAsDelivered?.(conv.id, String(t));
+          }
+        });
         if (!dropdown.classList.contains('hidden')) {
           renderConversations();
         }
@@ -3168,6 +3175,7 @@ function initMessages() {
   // Auth state listener
   firebase.auth().onAuthStateChanged(user => {
     if (user) {
+      window.MessagingService?.loadPrivacy?.(user.uid);
       setupConversationsListener();
     } else {
       clearTimeout(convRetryTimer);
@@ -3424,6 +3432,7 @@ function initMessages() {
 
     let html = chatIntroHTML() + '<div class="chat-spacer" aria-hidden="true"></div>';
     let lastDayKey = '';
+    const readReceipts = window.MessagingService?.readReceiptsEnabled?.() !== false;
     messages.forEach((msg, i) => {
       const isSent = msg.senderId === currentUser.uid;
       const date = chatDate(msg.timestamp);
@@ -3447,7 +3456,9 @@ function initMessages() {
       let status = '';
       if (isSent) {
         if (isPending) status = `<span class="chat-message-status pending" title="Enviando">${CHAT_ICON_PENDING}<span class="kx-visually-hidden">Enviando</span></span>`;
-        else if (msg.status === 'read') status = `<span class="chat-message-status read" title="Leído">${CHAT_ICON_READ}<span class="kx-visually-hidden">Leído</span></span>`;
+        else if (msg.status === 'read' && readReceipts) status = `<span class="chat-message-status read" title="Leído">${CHAT_ICON_READ}<span class="kx-visually-hidden">Leído</span></span>`;
+        // Sin confirmaciones de lectura, lo leído se ve como recibido (si lo han leído, ha llegado)
+        else if (msg.deliveredAt || msg.status === 'read') status = `<span class="chat-message-status delivered" title="Recibido">${CHAT_ICON_READ}<span class="kx-visually-hidden">Recibido</span></span>`;
         else status = `<span class="chat-message-status sent" title="Enviado">${CHAT_ICON_SENT}<span class="kx-visually-hidden">Enviado</span></span>`;
       }
       // Hora y estado solo al final de cada grupo (y siempre si el mensaje está pendiente)
@@ -3481,7 +3492,10 @@ function initMessages() {
     }
 
     // Mensajes recibidos con el chat abierto: se marcan como leídos (MessagingService.markAsRead)
-    const hasUnreadIncoming = messages.some(m => m.senderId !== currentUser.uid && m.status === 'sent');
+    // Sin confirmaciones de lectura los recibidos se quedan en 'sent': solo se pone a 0 el contador cuando llega uno nuevo
+    const hasUnreadIncoming = readReceipts
+      ? messages.some(m => m.senderId !== currentUser.uid && m.status === 'sent')
+      : !firstRender && messages.some(m => m.senderId !== currentUser.uid && !previousIds.has(m.id));
     if (hasUnreadIncoming && currentChat?.isRealConversation && document.visibilityState === 'visible') {
       clearTimeout(chatMarkReadTimer);
       const id = currentChat.id;
@@ -5363,7 +5377,7 @@ function updateFeedComposer(user) {
 // ---------- Paneles inferiores del feed: mensajes y notificaciones ----------
 // initMessages / initNotifications siguen abriendo y cerrando con la clase .hidden; aquí solo se
 // reacciona a esos cambios (MutationObserver) para bloquear el fondo, gestionar el foco y los gestos.
-const FEED_SHEET_IDS = ['messages-dropdown', 'notification-dropdown', 'search-sheet', 'route-report-sheet', 'route-incident-sheet'];
+const FEED_SHEET_IDS = ['messages-dropdown', 'notification-dropdown', 'search-sheet', 'route-report-sheet', 'route-incident-sheet', 'privacy-sheet'];
 const FEED_SHEET_CLOSE_MS = 200;
 let feedSheetOpener = null;
 let feedSheetScroll = null;
@@ -6476,6 +6490,36 @@ function initEditProfile() {
   });
 }
 
+// ================== AJUSTES → PRIVACIDAD ==================
+// Confirmaciones de lectura de los mensajes (MessagingService.setReadReceipts)
+function kxOpenPrivacySettings() {
+  const sheet = document.getElementById('privacy-sheet');
+  const toggle = document.getElementById('privacy-read-receipts');
+  const user = firebase.auth().currentUser;
+  if (!sheet || !toggle || !user || !window.MessagingService) return;
+  toggle.checked = MessagingService.readReceiptsEnabled();
+  if (!toggle.dataset.bound) {
+    toggle.dataset.bound = '1';
+    toggle.addEventListener('change', async () => {
+      const uid = firebase.auth().currentUser?.uid;
+      if (!uid) return;
+      const on = toggle.checked;
+      toggle.disabled = true;
+      try {
+        await MessagingService.setReadReceipts(uid, on);
+        showToast(on ? 'Confirmaciones de lectura activadas' : 'Confirmaciones de lectura desactivadas', 'success');
+      } catch (error) {
+        console.error('Error guardando la privacidad:', error);
+        toggle.checked = !on;
+        showToast('No se pudo guardar', 'error', { detail: typeof kxFriendlyError === 'function' ? kxFriendlyError(error) : undefined });
+      } finally {
+        toggle.disabled = false;
+      }
+    });
+  }
+  sheet.classList.remove('hidden');
+}
+
 // ================== SETTINGS DROPDOWN ==================
 let settingsDropdownInitialized = false;
 
@@ -6503,7 +6547,7 @@ async function handleSettingsItemClick(e) {
         break;
 
       case 'settings-privacy':
-        showToast('Configuración de privacidad próximamente', 'info');
+        kxOpenPrivacySettings();
         break;
 
       case 'settings-help':

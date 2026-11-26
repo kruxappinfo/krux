@@ -64,13 +64,13 @@ describe('inventario de componentes: cifras de lo pendiente', () => {
   const html = read('index.html');
   const n = re => (html.match(re) || []).length;
 
-  it('botones: 3 de 190 usan el botón común', () => {
-    expect(n(/<button\b/g)).toBe(190);
+  it('botones: 3 de 191 usan el botón común', () => {
+    expect(n(/<button\b/g)).toBe(191);
     expect(n(/<button[^>]*\bkx-btn\b/g)).toBe(3);
   });
 
-  it('controles de formulario: 3 de 69 usan el campo común', () => {
-    expect(n(/<(?:input|select|textarea)\b/g)).toBe(69);
+  it('controles de formulario: 3 de 70 usan el campo común', () => {
+    expect(n(/<(?:input|select|textarea)\b/g)).toBe(70);
     expect(n(/<(?:input|select|textarea)[^>]*\bkx-field\b/g)).toBe(3);
   });
 

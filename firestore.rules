@@ -130,14 +130,16 @@ service cloud.firestore {
           && request.resource.data.platform in ['ios', 'android', 'web'];
       }
 
-      // Datos privados del usuario (hoy solo el peso, para estimar las calorías de las sesiones): users/{uid} lo
+      // Datos privados del usuario (el peso, para estimar las calorías de las sesiones, y si comparte las confirmaciones
+      // de lectura de los mensajes): users/{uid} lo
       // puede leer cualquier usuario con sesión, este documento solo su dueño.
       match /private/{docId} {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId) && docId == 'settings'
-          && request.resource.data.keys().hasOnly(['weightKg'])
+          && request.resource.data.keys().hasOnly(['weightKg', 'readReceipts'])
           && (!('weightKg' in request.resource.data)
-            || (request.resource.data.weightKg is number && request.resource.data.weightKg >= 30 && request.resource.data.weightKg <= 250));
+            || (request.resource.data.weightKg is number && request.resource.data.weightKg >= 30 && request.resource.data.weightKg <= 250))
+          && (!('readReceipts' in request.resource.data) || request.resource.data.readReceipts is bool);
       }
 
       match /following/{followedUserId} {
@@ -891,11 +893,14 @@ service cloud.firestore {
           && request.resource.data.senderId == request.auth.uid
           && request.resource.data.keys().hasOnly(['senderId', 'text', 'timestamp', 'status', 'sharedPost'])
           && request.resource.data.text is string && request.resource.data.text.size() <= 5000;
-        // Solo quien lo recibe lo marca como leído
+        // Solo quien lo recibe lo marca como leído, o como recibido (doble tic) una sola vez y con la hora del servidor
         allow update: if inConversation()
           && resource.data.senderId != request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-          && request.resource.data.status == 'read';
+          && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+               && request.resource.data.status == 'read')
+            || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredAt'])
+               && !('deliveredAt' in resource.data)
+               && request.resource.data.deliveredAt == request.time));
         // Cada uno borra solo sus propios mensajes
         allow delete: if inConversation() && resource.data.senderId == request.auth.uid;
       }

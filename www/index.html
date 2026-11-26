@@ -64,7 +64,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=265" />
+  <link rel="stylesheet" href="./app_2.css?v=266" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -99,7 +99,7 @@
   <!-- Escuelas descargadas y lecturas sin conexión (antes que quien las usa) -->
   <script defer src="./offline-packs.js?v=6"></script>
 
-  <script defer src="./user-features.js?v=23"></script>
+  <script defer src="./user-features.js?v=24"></script>
   <script defer src="./ascent-partners.js?v=2"></script>
   <script defer src="./push.js?v=2"></script>
 
@@ -123,7 +123,7 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=138"></script>
+  <script defer src="./app_3.js?v=139"></script>
   <script defer src="./activity-ui.js?v=9"></script>
   <script defer src="./train-library.js?v=3"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -1411,6 +1411,37 @@
   </div>
 
   <!-- Notificar un problema en una vía de KRUX -->
+  <!-- Ajustes → Privacidad -->
+  <div id="privacy-sheet" class="kx-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="privacy-sheet-title">
+    <div class="kx-sheet-scrim" data-sheet-close></div>
+    <section class="kx-sheet-panel" tabindex="-1">
+      <div class="kx-sheet-drag">
+        <div class="kx-sheet-handle" aria-hidden="true"></div>
+        <div class="kx-sheet-header">
+          <h2 class="kx-sheet-title" id="privacy-sheet-title">Privacidad</h2>
+          <button type="button" class="sheet-close" data-sheet-close aria-label="Cerrar privacidad">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="kx-sheet-body privacy-body">
+        <p class="privacy-section">Mensajes</p>
+        <label class="privacy-row" for="privacy-read-receipts">
+          <span class="privacy-row-text">
+            <span class="privacy-row-title">Confirmaciones de lectura</span>
+            <span class="privacy-row-hint" id="privacy-read-receipts-hint">Si las desactivas, nadie verá cuándo has leído sus mensajes y tú tampoco verás cuándo leen los tuyos. El doble tic de recibido se mantiene.</span>
+          </span>
+          <input type="checkbox" role="switch" id="privacy-read-receipts" class="kx-switch" checked
+            aria-describedby="privacy-read-receipts-hint">
+        </label>
+      </div>
+    </section>
+  </div>
+
   <div id="route-report-sheet" class="kx-sheet hidden" role="dialog" aria-modal="true"
     aria-labelledby="route-report-title">
     <div class="kx-sheet-scrim" data-sheet-close></div>
