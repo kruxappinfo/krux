@@ -25,6 +25,14 @@ let sectorHoverInfoWindow = null;
 // Flag para evitar duplicar event listeners globales
 let feedDropdownListenerAdded = false;
 
+// Foco automático en un campo de texto solo con ratón y teclado físico. En el móvil el teclado se abre únicamente
+// cuando la persona toca el campo; ahí el campo solo se trae a la vista.
+function kxAutoFocus(el) {
+  if (!el) return;
+  if (window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches) el.focus({ preventScroll: false });
+  else if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 // ================== DONUT CHART INTERACTION ==================
 // Delegated event handler for donut chart segments
 document.addEventListener('click', function (e) {
@@ -1758,7 +1766,7 @@ function initGlobalSearch() {
     updateClear();
     searchSeq++;
     renderEmptyCategory(currentType);
-    searchInput.focus();
+    kxAutoFocus(searchInput);
   });
 
   resultsContainer.addEventListener('click', async (e) => {
@@ -6553,7 +6561,7 @@ function initEditProfile() {
         if (!(await usernameField.check())) {
           submitBtn.textContent = originalText;
           submitBtn.disabled = false;
-          usernameInput.focus();
+          kxAutoFocus(usernameInput);
           return;
         }
         try {
@@ -6578,7 +6586,7 @@ function initEditProfile() {
       const weightRaw = weightInput ? weightInput.value.trim().replace(',', '.') : '';
       if (weightRaw && !(typeof kxsValidWeight === 'function' && kxsValidWeight(weightRaw))) {
         showToast('Indica un peso entre 30 y 250 kg', 'warning');
-        weightInput.focus();
+        kxAutoFocus(weightInput);
         submitBtn.textContent = originalText;
         submitBtn.disabled = false;
         return;
@@ -9027,7 +9035,7 @@ function initCreatePost() {
   };
 
   createBtn.addEventListener('click', () => {
-    if (openCreatePost()) setTimeout(() => textarea?.focus(), 100);
+    if (openCreatePost()) setTimeout(() => kxAutoFocus(textarea), 100);
   });
 
   // Cámara del compositor: abre la cámara del móvil y lo capturado va a una publicación nueva (sin publicarla).
@@ -9191,7 +9199,7 @@ function initCreatePost() {
       locationSearchContainer.classList.remove('hidden');
       // Position container relative to button
       positionLocationContainer();
-      locationSearchInput.focus();
+      kxAutoFocus(locationSearchInput);
       // Show current location option immediately
       showLocationOptions();
     } else {
@@ -9653,7 +9661,7 @@ async function openAscentPicker(forceReload = false) {
   updateAscentPickerFooter();
   if (cpAscentsCache && !forceReload) {
     renderAscentPicker();
-    setTimeout(() => search?.focus(), 60);
+    setTimeout(() => kxAutoFocus(search), 60);
     return;
   }
   const token = ++cpPickerToken;
@@ -11244,7 +11252,7 @@ function kxOpenComposerWith({ files = [], ascents = [], location = null, text = 
   updatePreview();
   updateSubmitButton();
   if (typeof updateActionStates === 'function') updateActionStates();
-  setTimeout(() => textarea.focus(), 150);
+  setTimeout(() => kxAutoFocus(textarea), 150);
   return true;
 }
 
@@ -12022,7 +12030,7 @@ async function handleFeedComment(postId, button) {
       const commentInput = modalBody.querySelector('.feed-comment-input');
       if (commentInput) {
         commentInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        commentInput.focus();
+        kxAutoFocus(commentInput);
       }
     }
     return;
@@ -12577,7 +12585,7 @@ function toggleReplyForm(commentId, container) {
       } else {
         input._mentionAutocomplete.clearMentions();
       }
-      input.focus();
+      kxAutoFocus(input);
     }
   }
 }
@@ -13028,7 +13036,7 @@ function toggleReplyToReplyForm(replyId, parentId, username, container) {
       } else {
         input._mentionAutocomplete.clearMentions();
       }
-      input.focus();
+      kxAutoFocus(input);
     }
   }
 }
@@ -13153,7 +13161,7 @@ async function handleEditComment(commentId, commentItem) {
   editWrapper.classList.remove('hidden');
 
   // Focus and select text
-  editInput.focus();
+  kxAutoFocus(editInput);
   editInput.setSelectionRange(editInput.value.length, editInput.value.length);
 }
 
@@ -13357,7 +13365,7 @@ function handleEditPost(postId, container) {
   textBody.classList.add('hidden');
   editWrapper.classList.remove('hidden');
   editInput.value = currentText;
-  editInput.focus();
+  kxAutoFocus(editInput);
   editInput.setSelectionRange(editInput.value.length, editInput.value.length);
 }
 
@@ -15452,6 +15460,7 @@ function initActivityView() {
         // Con una sesión de rocódromo en curso, el registro va a la sesión
         const live = window.KruxSession && KruxSession.get();
         if (live && live.session.type === 'gym') openNewGymAscent({ gymId: live.session.schoolId, gymName: live.session.schoolName, sessionId: live.session.id, companions: live.session.companions || [] });
+        else if (!live && window.KruxSessionUI) KruxSessionUI.openGymChoice();   // ascensión suelta o sesión en tiempo real
         else openNewGymAscent();
       } else {
         // Las ascensiones de roca se registran sobre una vía concreta: se lleva al mapa
@@ -16622,7 +16631,7 @@ function openGymPickerSheet() {
   const searchInput = document.getElementById('gym-picker-search');
   if (searchInput) {
     searchInput.value = '';
-    searchInput.focus();
+    kxAutoFocus(searchInput);
     if (!searchInput._wired) {
       searchInput._wired = true;
       searchInput.addEventListener('input', () => _renderGymPickerList(searchInput.value.trim()));
@@ -16641,14 +16650,38 @@ function openGymPickerSheet() {
   _renderGymPickerList('');
 }
 
+function _gymPickerItemHTML(g) {
+  const citySpan = g.city ? `<span class="gym-picker-city">${g.city}</span>` : '';
+  return `<div class="gym-picker-item" data-id="${g.id}" data-name="${g.name}" data-city="${g.city}">
+      <div class="gym-picker-item-avatar">${g.name.slice(0, 2).toUpperCase()}</div>
+      <div class="gym-picker-item-info">
+        <div class="gym-picker-item-name">${g.name}</div>
+        ${citySpan}
+      </div>
+    </div>`;
+}
+
 function closeGymPickerSheet() {
   _gymPickerOnPick = null;
   document.getElementById('gym-picker-sheet')?.classList.add('hidden');
 }
 
+// Sin texto solo se muestran los rocódromos en los que ya has registrado algo; la lista completa aparece al escribir
+let _gymPickerSeq = 0;
 async function _renderGymPickerList(query) {
   const listEl = document.getElementById('gym-picker-list');
   if (!listEl) return;
+  const seq = ++_gymPickerSeq;
+  if (!listEl._pickWired) {
+    // Un solo oyente para la lista (se repinta a cada letra)
+    listEl._pickWired = true;
+    listEl.addEventListener('click', e => {
+      const item = e.target.closest('.gym-picker-item');
+      if (!item) return;
+      const id = item.dataset.id || item.dataset.name.toLowerCase().replace(/\s+/g, '_');
+      selectGymFromPicker(id, item.dataset.name, item.dataset.city);
+    });
+  }
 
   // Gyms from user's own ascents
   const gymAscents = (_allActivityAscents || []).filter(a => isGymAscent(a));
@@ -16660,8 +16693,16 @@ async function _renderGymPickerList(query) {
   });
   const pastGyms = [...seenIds.values()];
 
+  if (!query) {
+    listEl.innerHTML = pastGyms.length
+      ? `<div class="gym-picker-section">Tus rocódromos</div>` + pastGyms.map(_gymPickerItemHTML).join('')
+      : '<div class="gym-picker-empty">Escribe el nombre del rocódromo o usa tu ubicación para encontrarlo.</div>';
+    return;
+  }
+
   // Schools from Firestore (load async, non-blocking)
   const [schools, layerGyms] = await Promise.all([_loadPendingSchools(), _loadGymLayer()]);
+  if (seq !== _gymPickerSeq) return;   // se ha seguido escribiendo: manda la búsqueda más reciente
 
   // Merge: rocódromos del mapa y luego escuelas de Firestore que no estén ya
   const allGyms = [...pastGyms];
@@ -16676,25 +16717,8 @@ async function _renderGymPickerList(query) {
 
   // Filter by query
   const lq = query.toLowerCase();
-  const filtered = query
-    ? allGyms.filter(g => g.name.toLowerCase().includes(lq))
-    : allGyms;
-
-  if (filtered.length === 0 && !query) {
-    listEl.innerHTML = '<div class="gym-picker-empty">Sin rocódromos visitados aún.<br>Escribe el nombre para añadir uno.</div>';
-    return;
-  }
-
-  const items = filtered.map(g => {
-    const citySpan = g.city ? `<span class="gym-picker-city">${g.city}</span>` : '';
-    return `<div class="gym-picker-item" data-id="${g.id}" data-name="${g.name}" data-city="${g.city}">
-      <div class="gym-picker-item-avatar">${g.name.slice(0, 2).toUpperCase()}</div>
-      <div class="gym-picker-item-info">
-        <div class="gym-picker-item-name">${g.name}</div>
-        ${citySpan}
-      </div>
-    </div>`;
-  });
+  const filtered = allGyms.filter(g => g.name.toLowerCase().includes(lq));
+  const items = filtered.map(_gymPickerItemHTML);
 
   // If query doesn't match any, offer to create it
   if (query && !filtered.some(g => g.name.toLowerCase() === lq)) {
@@ -16707,14 +16731,6 @@ async function _renderGymPickerList(query) {
   }
 
   listEl.innerHTML = items.join('');
-  listEl.querySelectorAll('.gym-picker-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const id   = item.dataset.id || item.dataset.name.toLowerCase().replace(/\s+/g, '_');
-      const name = item.dataset.name;
-      const city = item.dataset.city;
-      selectGymFromPicker(id, name, city);
-    });
-  });
 }
 
 // Elegir un rocódromo fuera del formulario de ascenso (inicio de una sesión de rocódromo): onPick({ id, name, city })
@@ -16789,7 +16805,7 @@ async function detectGymByGPS() {
         const searchInput = document.getElementById('gym-picker-search');
         if (searchInput) {
           searchInput.value = city ? `${city} ` : '';
-          searchInput.focus();
+          kxAutoFocus(searchInput);
           _renderGymPickerList(searchInput.value.trim());
         }
         document.getElementById('ascent-school-city').value = city;
@@ -17733,7 +17749,7 @@ function _gthOpenRecord(preselectedTestId) {
     const valEl = overlay.querySelector('#gth-rec-value');
     const dateEl = overlay.querySelector('#gth-rec-date');
     const rawVal = valEl.value.trim();
-    if (!rawVal) { valEl.focus(); return; }
+    if (!rawVal) { kxAutoFocus(valEl); return; }
 
     const context = {};
     (def.requiredContext || []).forEach(ctx => {
@@ -19915,7 +19931,7 @@ function initTrainView() {
     renderLinks(ex);
     updatePreview();
     $('ex-editor-sheet').classList.remove('hidden');
-    setTimeout(() => $('ex-field-name').focus(), 320);
+    setTimeout(() => kxAutoFocus($('ex-field-name')), 320);
   }
 
   function close() {
@@ -21144,7 +21160,7 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
       nameInput.value = '';
       planData.name = '';
       updateNameClear();
-      nameInput.focus();
+      kxAutoFocus(nameInput);
     };
 
     const startInput = document.getElementById('pe-start-input');
@@ -21313,7 +21329,7 @@ window.kruxConfirm = function confirmThen(title, message, fn, okLabel = 'Finaliz
       nameEl.innerHTML = `<input class="pe-session-name-input" type="text" maxlength="40" aria-label="Nombre de la sesión" enterkeyhint="done">`;
       const inp = nameEl.querySelector('input');
       inp.value = current;
-      inp.focus();
+      inp.focus();   // se edita al pulsar sobre el nombre: el campo ya es lo que se ha tocado
       inp.select();
       inp.onblur = () => {
         planData.sessions[si].name = inp.value.trim() || 'Sin nombre';

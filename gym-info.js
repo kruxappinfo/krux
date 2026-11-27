@@ -541,7 +541,7 @@ const KruxGymSheet = (() => {
     if (busy) return;
     const input = el.querySelector('#kxg-comment');
     const text = input ? input.value.trim() : '';
-    if (!text) { if (input) input.focus(); return; }
+    if (!text) { if (input && typeof kxAutoFocus === 'function') kxAutoFocus(input); return; }
     if (!me()) { askLogin(); return; }
     busy = true;
     const btn = el.querySelector('[data-kxg="c-send"]');

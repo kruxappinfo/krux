@@ -314,6 +314,21 @@ const KruxSessionUI = (() => {
       };
     },
 
+    // «+» de Actividad › Rocódromo: registrar una ascensión suelta o empezar la sesión en tiempo real
+    gymChoice() {
+      const opt = (act, icon, title, sub) => `<button type="button" class="kxs-type kxs-type--pick" data-kxs="${act}">
+            <span class="kxs-type-ic">${kxIcon(icon, { size: 24 })}</span>
+            <span class="kxs-type-text"><strong>${title}</strong><small>${sub}</small></span>
+            ${kxIcon('chevronRight', { size: 20 })}</button>`;
+      return {
+        title: 'Rocódromo',
+        body: `<div class="kxs-types">
+            ${opt('choose-live', 'timer', 'Sesión en tiempo real', 'Cronómetro y bloques con foto según los vas haciendo.')}
+            ${opt('choose-log', 'plus', 'Registrar una ascensión', 'Anota un bloque o una vía que ya has hecho.')}
+          </div>`
+      };
+    },
+
     gymActive({ paused }) {
       const item = S().get();
       const s = item.session, st = S().stats();
@@ -502,6 +517,8 @@ const KruxSessionUI = (() => {
 
   // ---------- Acciones ----------
   const ACTIONS = {
+    'choose-live'() { startType = 'gym'; setView('start', { companions: startPeers }); },
+    'choose-log'() { close(); if (typeof openNewGymAscent === 'function') openNewGymAscent(); },
     type(btn) {
       startType = btn.dataset.type === 'gym' ? 'gym' : 'rock';
       setView('start', { companions: startPeers });
@@ -723,6 +740,10 @@ const KruxSessionUI = (() => {
     setView('start', { companions: startPeers });
   }
   function openActive() { if (S().isActive()) setView('active'); }
+  function openGymChoice() {
+    if (!signedIn()) { toast('Inicia sesión para registrar tus ascensiones', 'info'); return; }
+    setView('gymChoice');
+  }
 
   // Miniaturas de los bloques con foto en el resumen (los ascensos no guardan la foto: se buscan en «Mis bloques»)
   async function hydrateGymThumbs(item) {
@@ -891,7 +912,7 @@ const KruxSessionUI = (() => {
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 
-  return { mountMap, openStart, openActive, openRegister, openSummary, refreshGymHub, close, isOpen, _views: () => VIEWS };
+  return { mountMap, openStart, openActive, openGymChoice, openRegister, openSummary, refreshGymHub, close, isOpen, _views: () => VIEWS };
 })();
 
 window.KruxSessionUI = KruxSessionUI;
