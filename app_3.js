@@ -16650,14 +16650,29 @@ function openGymPickerSheet() {
   _renderGymPickerList('');
 }
 
-function _gymPickerItemHTML(g) {
+// Rocódromos recientes que el usuario ha quitado de la lista (solo se ocultan de "Tus rocódromos")
+const GYM_HIDDEN_KEY = 'krux-gym-recents-hidden';
+const GYM_PICKER_MAX = 5;
+function _gymHiddenIds() {
+  try { return JSON.parse(localStorage.getItem(GYM_HIDDEN_KEY) || '[]'); } catch (_) { return []; }
+}
+function _gymHideRecent(id) {
+  const ids = _gymHiddenIds();
+  if (!ids.includes(id)) ids.push(id);
+  try { localStorage.setItem(GYM_HIDDEN_KEY, JSON.stringify(ids)); } catch (_) { /* almacenamiento no disponible */ }
+}
+
+function _gymPickerItemHTML(g, removable) {
   const citySpan = g.city ? `<span class="gym-picker-city">${g.city}</span>` : '';
+  const rm = removable === true
+    ? `<button type="button" class="gym-picker-remove" aria-label="Quitar de recientes">&times;</button>` : '';
   return `<div class="gym-picker-item" data-id="${g.id}" data-name="${g.name}" data-city="${g.city}">
       <div class="gym-picker-item-avatar">${g.name.slice(0, 2).toUpperCase()}</div>
       <div class="gym-picker-item-info">
         <div class="gym-picker-item-name">${g.name}</div>
         ${citySpan}
       </div>
+      ${rm}
     </div>`;
 }
 
@@ -16678,6 +16693,12 @@ async function _renderGymPickerList(query) {
     listEl.addEventListener('click', e => {
       const item = e.target.closest('.gym-picker-item');
       if (!item) return;
+      if (e.target.closest('.gym-picker-remove')) {
+        e.stopPropagation();
+        _gymHideRecent(item.dataset.id);
+        _renderGymPickerList('');
+        return;
+      }
       const id = item.dataset.id || item.dataset.name.toLowerCase().replace(/\s+/g, '_');
       selectGymFromPicker(id, item.dataset.name, item.dataset.city);
     });
@@ -16691,11 +16712,14 @@ async function _renderGymPickerList(query) {
     if (!id || seenIds.has(id)) return;
     seenIds.set(id, { id, name: a.schoolName || id, city: a.schoolCity || '' });
   });
-  const pastGyms = [...seenIds.values()];
+  // 'Rocódromo Test' son ascensos de prueba sembrados: no es un rocódromo real, no se ofrece en ningún sitio
+  const pastGyms = [...seenIds.values()].filter(g => !/^roc[oó]dromo test$/i.test(g.name));
+  const hidden = _gymHiddenIds();
+  const recents = pastGyms.filter(g => !hidden.includes(g.id)).slice(0, GYM_PICKER_MAX);
 
   if (!query) {
-    listEl.innerHTML = pastGyms.length
-      ? `<div class="gym-picker-section">Tus rocódromos</div>` + pastGyms.map(_gymPickerItemHTML).join('')
+    listEl.innerHTML = recents.length
+      ? `<div class="gym-picker-section">Tus rocódromos</div>` + recents.map(g => _gymPickerItemHTML(g, true)).join('')
       : '<div class="gym-picker-empty">Escribe el nombre del rocódromo o usa tu ubicación para encontrarlo.</div>';
     return;
   }
@@ -16717,11 +16741,14 @@ async function _renderGymPickerList(query) {
 
   // Filter by query
   const lq = query.toLowerCase();
-  const filtered = allGyms.filter(g => g.name.toLowerCase().includes(lq));
-  const items = filtered.map(_gymPickerItemHTML);
+  const matches = allGyms.filter(g => g.name.toLowerCase().includes(lq));
+  // Primero los que empiezan por lo escrito; la lista se acota para no tapar la pantalla
+  matches.sort((a, b) => (b.name.toLowerCase().startsWith(lq) ? 1 : 0) - (a.name.toLowerCase().startsWith(lq) ? 1 : 0));
+  const filtered = matches.slice(0, GYM_PICKER_MAX);
+  const items = filtered.map(g => _gymPickerItemHTML(g));
 
   // If query doesn't match any, offer to create it
-  if (query && !filtered.some(g => g.name.toLowerCase() === lq)) {
+  if (query && !matches.some(g => g.name.toLowerCase() === lq)) {
     items.push(`<div class="gym-picker-item gym-picker-add" data-id="" data-name="${query}" data-city="">
       <div class="gym-picker-item-avatar gym-picker-add-icon">+</div>
       <div class="gym-picker-item-info">
