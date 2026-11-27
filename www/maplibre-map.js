@@ -6431,7 +6431,7 @@ function kxOpenRouteEditor(btn) {
     </form>`;
   overlay.querySelector('form').onsubmit = (e) => { e.preventDefault(); kxSubmitRouteEditor(e.target); };
   document.body.appendChild(overlay);
-  overlay.querySelector('input[name="nombre"]').focus();
+  (typeof kxAutoFocus === 'function' ? kxAutoFocus(overlay.querySelector('input[name="nombre"]')) : null);
 }
 
 async function kxSubmitRouteEditor(form) {

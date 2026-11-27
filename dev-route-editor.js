@@ -604,7 +604,7 @@ function _openDevSheet({ id, icon, title, sub, body, saveLabel, onSave, onCancel
   overlay.querySelector('form').addEventListener('submit', e => { e.preventDefault(); save(); });
 
   document.body.appendChild(overlay);
-  if (focusId) setTimeout(() => document.getElementById(focusId)?.focus(), 100);
+  if (focusId) setTimeout(() => (typeof kxAutoFocus === 'function' ? kxAutoFocus(document.getElementById(focusId)) : null), 100);
   return overlay;
 }
 
@@ -616,7 +616,7 @@ function _devFormError(sheetId, message, fieldId) {
   const box = sheet.querySelector('.dev-form-error');
   if (box) { box.textContent = message || ''; box.hidden = !message; }
   const field = fieldId && document.getElementById(fieldId);
-  if (field) { field.classList.add('is-invalid'); field.focus(); }
+  if (field) { field.classList.add('is-invalid'); (typeof kxAutoFocus === 'function' ? kxAutoFocus(field) : null); }
 }
 
 function _removeDevSheet(id) {

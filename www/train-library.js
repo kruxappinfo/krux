@@ -256,7 +256,7 @@
       $('xl-search-clear').hidden = true;
       lib.limit = PAGE;
       renderList();
-      input.focus();
+      (typeof kxAutoFocus === 'function' ? kxAutoFocus(input) : null);
     };
     $('xl-chips').onclick = e => {
       const chip = e.target.closest('[data-cat]');

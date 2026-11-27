@@ -281,7 +281,7 @@ function initMapSearch() {
 
   clearBtn.addEventListener('click', () => {
     input.value = '';
-    input.focus();
+    (typeof kxAutoFocus === 'function' ? kxAutoFocus(input) : null);
     run();
   });
 
