@@ -11219,6 +11219,8 @@ async function openEditPostInComposer(postId, { fromModal = false } = {}) {
   document.getElementById('create-post-title').textContent = 'Editar publicación';
   document.getElementById('submit-create-post').textContent = 'Guardar';
   modal.classList.remove('hidden');
+  autoSizeCreatePostText();   // con el modal oculto scrollHeight es 0: el texto largo quedaba recortado bajo las fotos
+  requestAnimationFrame(autoSizeCreatePostText);
   startCreatePostViewportSync();
   updatePreview();
   updateSubmitButton();
@@ -11248,6 +11250,8 @@ function kxOpenComposerWith({ files = [], ascents = [], location = null, text = 
   const badgeText = document.getElementById('location-badge-text');
   if (postData.location && badge && badgeText) { badgeText.textContent = postData.location.name || ''; badge.classList.remove('hidden'); }
   modal.classList.remove('hidden');
+  autoSizeCreatePostText();
+  requestAnimationFrame(autoSizeCreatePostText);
   startCreatePostViewportSync();
   updatePreview();
   updateSubmitButton();
