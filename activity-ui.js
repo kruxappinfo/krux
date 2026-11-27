@@ -71,6 +71,17 @@
     montana: 'Elevación sobre el nivel del mar',
   };
   const MILESTONES = [
+    { id: 'acueducto', name: 'el Acueducto de Segovia', short: 'Acueducto de Segovia', m: 28, kind: 'estructura', note: 'Altura máxima del puente, en la plaza del Azoguejo (28,1 m).' },
+    { id: 'piramide', name: 'la Gran Pirámide de Guiza', short: 'Gran Pirámide', m: 139, kind: 'estructura', note: 'Altura actual (≈138,5 m); en origen medía unos 146 m.' },
+    { id: 'cristal', name: 'la Torre de Cristal', short: 'Torre de Cristal', m: 249, kind: 'estructura', note: 'El rascacielos más alto de Madrid y de España.' },
+    { id: 'cntower', name: 'la CN Tower', short: 'CN Tower', m: 553, kind: 'estructura', note: 'Torre de Toronto, con la antena.' },
+    { id: 'montserrat', name: 'Montserrat', short: 'Montserrat', m: 1236, kind: 'montana', note: 'Cota de Sant Jeroni, la cima de Montserrat.' },
+    { id: 'eiger', name: 'la cara norte del Eiger', short: 'Cara norte del Eiger', m: 1800, kind: 'pared', note: 'Unos 1.800 m de pared en los Alpes suizos.' },
+    { id: 'estats', name: "la Pica d'Estats", short: "Pica d'Estats", m: 3143, kind: 'montana', note: 'Cota de la cima, la más alta de Cataluña.' },
+    { id: 'cervino', name: 'el Cervino', short: 'Cervino', m: 4478, kind: 'montana', note: 'Cota de la cima del Matterhorn.' },
+    { id: 'elbrus', name: 'el Elbrus', short: 'Elbrus', m: 5642, kind: 'montana', note: 'Cota de la cima, la más alta del Cáucaso.' },
+    { id: 'denali', name: 'el Denali', short: 'Denali', m: 6190, kind: 'montana', note: 'Cota de la cima, la más alta de Norteamérica.' },
+    { id: 'annapurna', name: 'el Annapurna', short: 'Annapurna', m: 8091, kind: 'montana', note: 'Cota de la cima sobre el nivel del mar.' },
     { id: 'pisa', name: 'la Torre de Pisa', short: 'Torre de Pisa', m: 57, kind: 'estructura', note: 'Altura aproximada (≈56–57 m según el lado que se mida).' },
     { id: 'libertad', name: 'la Estatua de la Libertad', short: 'Estatua de la Libertad', m: 93, kind: 'estructura', note: 'Del suelo a la antorcha, incluido el pedestal.' },
     { id: 'bigben', name: 'el Big Ben (Elizabeth Tower)', short: 'Big Ben', m: 96, kind: 'estructura', note: 'Altura total de la torre.' },
@@ -399,7 +410,10 @@
 
   // Fotos de los hitos: recortes con fondo transparente en assets/activity/hitos/<id>.webp.
   // Se añade el id aquí al incorporar una foto nueva; sin foto (hoy, el Everest), la tarjeta es solo tipográfica.
-  const HITO_PHOTOS = new Set(['pisa', 'libertad', 'bigben', 'eiffel', 'empire', 'burj', 'capitan', 'naranjo', 'mulhacen', 'teide', 'montblanc', 'kili', 'aconcagua', 'k2']);
+  const HITO_PHOTOS = new Set(['pisa', 'libertad', 'bigben', 'eiffel', 'empire', 'burj', 'capitan', 'naranjo', 'mulhacen', 'teide', 'montblanc', 'kili', 'aconcagua', 'k2', 'acueducto', 'piramide', 'cristal', 'cntower', 'montserrat', 'eiger', 'estats', 'cervino', 'elbrus', 'denali', 'annapurna']);
+  // Fotos apaisadas (el resto de estructuras son torres verticales)
+  const HITO_WIDE = new Set(['capitan', 'acueducto', 'piramide', 'eiger']);
+  const hitoIsWide = m => m.kind === 'montana' || HITO_WIDE.has(m.id);
   const hitoPhoto = m => (m && HITO_PHOTOS.has(m.id) ? `assets/activity/hitos/${m.id}.webp` : null);
 
   function celebrate(rng, st) {
@@ -453,7 +467,7 @@
           <p class="ax-meters-eq">${eq}</p>
           ${prevR.total > 0 && known ? trend(delta(total, prevR.total), ` vs ${PREV_TXT[p]}`) : ''}
         </div>
-        ${photo ? `<img class="ax-meters-photo${ref.kind === 'montana' || ref.id === 'capitan' ? '' : ' is-tall'}" src="${photo}" alt="${esc(ref.short)}" width="${ref.kind === 'montana' || ref.id === 'capitan' ? 150 : 84}" height="120" decoding="async">` : ''}
+        ${photo ? `<img class="ax-meters-photo${hitoIsWide(ref) ? '' : ' is-tall'}" src="${photo}" alt="${esc(ref.short)}" width="${hitoIsWide(ref) ? 150 : 84}" height="120" decoding="async">` : ''}
       </div>
       <div class="ax-meters-row">
         <div class="ax-meters-prog">
