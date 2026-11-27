@@ -64,7 +64,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- CSS with cache busting -->
-  <link rel="stylesheet" href="./app_2.css?v=284" />
+  <link rel="stylesheet" href="./app_2.css?v=285" />
 
   <!-- Capacitor - debe cargarse primero para detectar plataforma -->
 
@@ -124,7 +124,7 @@
   <script defer src="./train-catalog-data.js?v=2"></script>
   <script defer src="./train-exercises.js?v=3"></script>
   <script defer src="./train-plans.js?v=4"></script>
-  <script defer src="./app_3.js?v=157"></script>
+  <script defer src="./app_3.js?v=158"></script>
   <script defer src="./activity-ui.js?v=10"></script>
   <script defer src="./train-library.js?v=4"></script>
   <script defer src="./train-plans-ui.js?v=2"></script>
@@ -1579,6 +1579,9 @@
         <line x1="18" y1="6" x2="6" y2="18"></line>
         <line x1="6" y1="6" x2="18" y2="18"></line>
       </svg>
+    </button>
+    <button id="image-lightbox-eye" class="image-lightbox-eye" type="button" aria-pressed="true" aria-label="Ver la foto sin las presas marcadas" hidden>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><line class="lb-eye-slash" x1="3" y1="3" x2="21" y2="21"/></svg>
     </button>
     <div class="image-lightbox-counter" id="image-lightbox-counter" role="status" aria-live="polite" hidden></div>
     <button type="button" class="image-lightbox-nav image-lightbox-prev" id="image-lightbox-prev" aria-label="Anterior" hidden>
