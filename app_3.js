@@ -4617,7 +4617,8 @@ function lbEls() {
     peekVideo: document.getElementById('image-lightbox-peek-video'),
     counter: document.getElementById('image-lightbox-counter'),
     prev: document.getElementById('image-lightbox-prev'),
-    next: document.getElementById('image-lightbox-next')
+    next: document.getElementById('image-lightbox-next'),
+    eye: document.getElementById('image-lightbox-eye')
   };
 }
 
@@ -4708,6 +4709,30 @@ function lbUpdateGallery() {
   }
   if (prev) { prev.hidden = !multi; prev.disabled = LB.index <= 0; }
   if (next) { next.hidden = !multi; next.disabled = LB.index >= n - 1; }
+  lbUpdateEye();
+}
+
+// Ojo de las fotos de bloque: activa o quita el resaltado de las presas también en el visor
+function lbUpdateEye() {
+  const { eye } = lbEls();
+  if (!eye) return;
+  const it = LB.items[LB.index];
+  const has = !!(it && it.type !== 'video' && it.plain);
+  eye.hidden = !has;
+  if (!has) return;
+  const off = it.url === it.plain;
+  eye.classList.toggle('is-off', off);
+  eye.setAttribute('aria-pressed', String(!off));
+  eye.setAttribute('aria-label', off ? 'Ver las presas marcadas' : 'Ver la foto sin las presas marcadas');
+}
+
+function lbToggleEye() {
+  const it = LB.items[LB.index];
+  if (!it || !it.plain) return;
+  const off = it.url === it.plain;
+  const drawn = it.drawn || it.url;
+  LB.items[LB.index] = { ...it, drawn, url: off ? drawn : it.plain };
+  lbOpenPhoto(LB.items[LB.index].url, ++LB.token);
 }
 
 // Precarga y decodifica las fotos contiguas para que el cambio sea inmediato
@@ -5142,6 +5167,11 @@ function initImageLightbox() {
   if (!modal || !stage || !img) return;
 
   initLightboxVideo();
+
+  lbEls().eye?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    lbToggleEye();
+  });
 
   closeBtn?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -14246,7 +14276,7 @@ document.addEventListener('click', (e) => {
     const i = Number(img.dataset.lightboxIndex);
     if (holder && Number.isInteger(i) && holder._lightboxItems[i]) {
       holder._lightboxItems = holder._lightboxItems.slice();
-      holder._lightboxItems[i] = { ...holder._lightboxItems[i], url: next };
+      holder._lightboxItems[i] = { ...holder._lightboxItems[i], url: next, drawn: b.dataset.drawn };
     }
   }
   b.setAttribute('aria-pressed', String(!drawn));

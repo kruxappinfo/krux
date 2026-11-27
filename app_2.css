@@ -24832,6 +24832,7 @@ body.kx-sheet-open #feed-view .feed-container {
 
 /* Controles flotantes (cristal solo aquí: superficies superpuestas sobre la foto) */
 .image-lightbox-close,
+.image-lightbox-eye,
 .image-lightbox-zoom {
   position: absolute;
   z-index: 3;
@@ -36409,3 +36410,29 @@ body.kxb-ed-open, body.kxb-view-open { overflow: hidden; }
 
 /* Visor de bloques: al ampliar se ve la foto limpia (el dibujo reaparece al volver al tamaño entero) */
 .kxb-view-stage.is-zoomed .kxb-view-photo .kxb-ov > :not(image) { display: none; }
+
+/* Visor: ojo de las fotos de bloque (activa o quita el resaltado de las presas), a la izquierda de cerrar */
+.image-lightbox-eye {
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 0.2s var(--kx-ease), transform 0.15s var(--kx-ease);
+}
+.image-lightbox-eye[hidden] { display: none; }
+.image-lightbox-eye:hover { background: rgba(21, 32, 27, 0.75); transform: none; box-shadow: none; }
+.image-lightbox-eye:active { transform: scale(0.94); }
+.image-lightbox-eye:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.image-lightbox-eye .lb-eye-slash { display: none; }
+.image-lightbox-eye.is-off { background: rgba(255, 255, 255, 0.88); color: var(--kx-granite); }
+.image-lightbox-eye.is-off:hover { background: rgba(255, 255, 255, 0.95); }
+.image-lightbox-eye.is-off .lb-eye-slash { display: block; }
+/* Vídeo: sin ojo */
+.image-lightbox-modal.is-video .image-lightbox-eye { display: none; }
