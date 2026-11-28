@@ -9909,7 +9909,15 @@ function kxInitSchoolPages(sheetEl, foot) {
   // Cambio de página: la hoja sube (página 2) o baja (página 1) a la altura de su contenido, animada
   const resize = () => { if (kxSchoolSheet && kxSchoolSheet.state !== 'hidden') { kxSchoolSheet.measure(); kxSchoolSheet.setState('summary'); } };
   // La tercera hoja (herramientas de admin) solo cuenta cuando la ficha la muestra (.has-admin-page)
-  bsPager = kxBindPager(stage, track, { count: () => (sheetEl.classList.contains('has-admin-page') ? pages.length : pages.length - 1), onChange: (i) => { sync(i); fit({ defer: true }); resize(); } });
+  // La explicación del grip (panel de información) se cierra al cambiar de página: la ficha vuelve a su altura original
+  const closeInfo = () => {
+    const box = document.getElementById('bs-grip-info');
+    if (!box || box.hidden) return;
+    box.hidden = true;
+    sheetEl.querySelectorAll('.bs-info-btn[aria-controls="bs-grip-info"]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+    equalize();
+  };
+  bsPager = kxBindPager(stage, track, { count: () => (sheetEl.classList.contains('has-admin-page') ? pages.length : pages.length - 1), onChange: (i) => { closeInfo(); sync(i); fit({ defer: true }); resize(); } });
   sync(0);
   fit();
   // Se observa el contenido, no las páginas (su altura mínima la fijamos nosotros)
